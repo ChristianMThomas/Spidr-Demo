@@ -57,7 +57,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const deleteMessageMutation = useMutation({
     mutationFn: (id) => base44.entities.DirectMessage.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries(['dm-messages']);
+      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
       toast.success('Message deleted');
     }
   });
@@ -65,7 +65,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const editMessageMutation = useMutation({
     mutationFn: ({ id, content }) => base44.entities.DirectMessage.update(id, { content }),
     onSuccess: () => {
-      queryClient.invalidateQueries(['dm-messages']);
+      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
       toast.success('Message updated');
     }
   });
@@ -128,7 +128,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
             const newReactions = { ...reactions, [data.emoji]: newUsers };
             if (newUsers.length === 0) delete newReactions[data.emoji];
             await base44.entities.DirectMessage.update(data.id, { reactions: newReactions });
-            queryClient.invalidateQueries(['dm-messages']);
+            queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
           }
         }
       } else if (type === 'user') {
@@ -168,21 +168,21 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const createSessionMutation = useMutation({
     mutationFn: (data) => base44.entities.VoiceSession.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['voice-sessions']);
+      queryClient.invalidateQueries({ queryKey: ['voice-sessions'] });
     }
   });
 
   const updateSessionMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.VoiceSession.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['voice-sessions']);
+      queryClient.invalidateQueries({ queryKey: ['voice-sessions'] });
     }
   });
 
   const deleteSessionMutation = useMutation({
     mutationFn: (id) => base44.entities.VoiceSession.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries(['voice-sessions']);
+      queryClient.invalidateQueries({ queryKey: ['voice-sessions'] });
     }
   });
 
@@ -239,8 +239,8 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     mutationFn: (data) => base44.entities.DirectMessage.create(data),
     onSuccess: () => {
       playSound('send');
-      queryClient.invalidateQueries(['dm-messages']);
-      queryClient.invalidateQueries(['all-dms']);
+      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
+      queryClient.invalidateQueries({ queryKey: ['all-dms'] });
       setMessage('');
       scrollToBottom();
     }
@@ -298,7 +298,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const toggleWebbedMutation = useMutation({
     mutationFn: ({ id, isWebbed }) => base44.entities.DirectMessage.update(id, { is_webbed: !isWebbed }),
     onSuccess: () => {
-      queryClient.invalidateQueries(['dm-messages']);
+      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
       toast.success('Message webbed!');
     }
   });
@@ -306,7 +306,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const markAsReadMutation = useMutation({
     mutationFn: ({ id }) => base44.entities.DirectMessage.update(id, { is_read: true }),
     onSuccess: () => {
-      queryClient.invalidateQueries(['all-dms']);
+      queryClient.invalidateQueries({ queryKey: ['all-dms'] });
     }
   });
 
@@ -663,7 +663,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
                         const newReactions = { ...reactions, [emoji]: newUsers };
                         if (newUsers.length === 0) delete newReactions[emoji];
                         await base44.entities.DirectMessage.update(msgId, { reactions: newReactions });
-                        queryClient.invalidateQueries(['dm-messages']);
+                        queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
                       }}
                     />
                     <button

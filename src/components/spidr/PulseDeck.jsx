@@ -52,8 +52,8 @@ export default function PulseDeck({ currentUser, onNavigateDM, onNavigateServer 
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['friend-requests-pulse']);
-      queryClient.invalidateQueries(['friends']);
+      queryClient.invalidateQueries({ queryKey: ['friend-requests-pulse'] });
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
       toast.success('Friend request accepted!');
     }
   });
@@ -67,8 +67,8 @@ export default function PulseDeck({ currentUser, onNavigateDM, onNavigateServer 
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['friend-requests-pulse']);
-      queryClient.invalidateQueries(['friends']);
+      queryClient.invalidateQueries({ queryKey: ['friend-requests-pulse'] });
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
       toast.success('Friend request denied');
     }
   });

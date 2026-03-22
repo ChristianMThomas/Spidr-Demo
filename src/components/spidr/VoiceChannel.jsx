@@ -68,11 +68,11 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
     const unsubscribe = base44.entities.VoiceSession.subscribe((event) => {
       const data = event.data;
       if (data?.server_id === server.id && data?.channel_id === channel.id) {
-        queryClient.invalidateQueries(['voiceSessions', server.id, channel.id]);
+        queryClient.invalidateQueries({ queryKey: ['voiceSessions', server.id, channel.id] });
       }
       // Also invalidate on delete events
       if (event.type === 'delete') {
-        queryClient.invalidateQueries(['voiceSessions', server.id, channel.id]);
+        queryClient.invalidateQueries({ queryKey: ['voiceSessions', server.id, channel.id] });
       }
     });
     return () => unsubscribe();
@@ -89,18 +89,18 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
 
   const joinMutation = useMutation({
     mutationFn: (data) => base44.entities.VoiceSession.create(data),
-    onSuccess: () => queryClient.invalidateQueries(['voiceSessions'])
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['voiceSessions'] })
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.VoiceSession.update(id, data),
-    onSuccess: () => queryClient.invalidateQueries(['voiceSessions'])
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['voiceSessions'] })
   });
 
   const leaveMutation = useMutation({
     mutationFn: (id) => base44.entities.VoiceSession.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       onLeave();
     }
   });
@@ -113,7 +113,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       return base44.entities.Server.update(server.id, { members: updatedMembers });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['servers']);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
       toast.success('Nickname updated!');
     }
   });
@@ -124,8 +124,8 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       return base44.entities.Server.update(server.id, { members: updatedMembers });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['servers']);
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       toast.success('Member kicked!');
     }
   });
@@ -139,8 +139,8 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['servers']);
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       toast.success('Member banned!');
     }
   });
@@ -150,7 +150,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       return base44.entities.VoiceSession.update(sessionId, { is_muted: isMuted });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       toast.success('Voice state updated!');
     }
   });
@@ -160,7 +160,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       return base44.entities.VoiceSession.update(sessionId, { is_deafened: isDeafened });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       toast.success('Voice state updated!');
     }
   });
@@ -170,7 +170,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       return base44.entities.VoiceSession.delete(sessionId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       toast.success('Member disconnected!');
     }
   });
@@ -180,7 +180,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       return base44.entities.VoiceSession.update(sessionId, { channel_id: channelId });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       toast.success('Member moved!');
     }
   });
@@ -386,7 +386,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
     const humanSessions = voiceSessions.filter(s => !s.is_spidr_ai);
     if (humanSessions.length === 0) {
       base44.entities.VoiceSession.delete(aiSession.id).catch(() => {});
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
     }
   }, [voiceSessions.length, aiSession?.id]);
 
@@ -433,8 +433,8 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       }).then(sessions => {
         return Promise.all(sessions.map(s => base44.entities.VoiceSession.delete(s.id).catch(() => {})));
       }).then(() => {
-        queryClient.invalidateQueries(['voiceSessions']);
-        queryClient.invalidateQueries(['voice-sessions']);
+        queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
+        queryClient.invalidateQueries({ queryKey: ['voice-sessions'] });
       }).catch(() => {});
     };
   }, [currentUser?.id]);
@@ -449,8 +449,8 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       user_id: currentUser?.id
     });
     await Promise.all(allSessions.map(s => base44.entities.VoiceSession.delete(s.id).catch(() => {})));
-    queryClient.invalidateQueries(['voiceSessions']);
-    queryClient.invalidateQueries(['voice-sessions']);
+    queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
+    queryClient.invalidateQueries({ queryKey: ['voice-sessions'] });
     hasJoinedRef.current = false;
     onLeave();
   };
@@ -556,7 +556,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       }
 
       setAIPrompt('');
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
     } catch (err) {
       console.error('Spidr AI error:', err);
       toast.error('Failed to invoke Spidr AI');
@@ -573,8 +573,8 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
     for (const s of aiSessions) {
       await base44.entities.VoiceSession.delete(s.id).catch(() => {});
     }
-    queryClient.invalidateQueries(['voiceSessions']);
-    queryClient.invalidateQueries(['voice-sessions']);
+    queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
+    queryClient.invalidateQueries({ queryKey: ['voice-sessions'] });
     toast.success('Spidr AI left the channel');
   };
 

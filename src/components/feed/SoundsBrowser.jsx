@@ -101,7 +101,7 @@ export default function SoundsBrowser({ currentUser }) {
       save_count: 0,
       tags: ['upload', 'original'],
     });
-    queryClient.invalidateQueries(['audio-tracks']);
+    queryClient.invalidateQueries({ queryKey: ['audio-tracks'] });
     setUploading(false);
     toast.success('Sound uploaded!');
   };

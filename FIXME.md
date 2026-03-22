@@ -4,9 +4,9 @@ Last audited: 2026-03-04
 
 ---
 
-## PRIORITY 1 — CRITICAL (App-Breaking / Invisible UI)
+## PRIORITY 1 — CRITICAL (App-Breaking / Invisible UI) ✅ FIXED 2026-03-06
 
-### [P1-A] React Query v5 invalidateQueries — broken across entire app
+### ~~[P1-A] React Query v5 invalidateQueries — broken across entire app~~
 
 **Root cause:** React Query v5 changed the `invalidateQueries` API. The old array syntax
 `queryClient.invalidateQueries(['key'])` silently does nothing in v5. Every mutation that
@@ -36,7 +36,7 @@ queryClient.invalidateQueries({ queryKey: ['servers'] })
 
 ---
 
-### [P1-B] UserProfilePod — invisible for new users (no profile record yet)
+### ~~[P1-B] UserProfilePod — invisible for new users (no profile record yet)~~
 
 **File:** `src/components/spidr/UserProfilePod.jsx:55`
 
@@ -52,7 +52,7 @@ queryClient.invalidateQueries({ queryKey: ['servers'] })
 
 ---
 
-### [P1-C] SystemArchive.jsx — lodash import crash on GifsEmojis page
+### ~~[P1-C] SystemArchive.jsx — lodash import crash on GifsEmojis page~~
 
 **File:** `src/components/gifs/SystemArchive.jsx:6`
 
@@ -74,7 +74,7 @@ const debouncedSearch = (value) => {
 
 ---
 
-### [P1-D] CreateServerModal — "Failed to generate server" (no UI feedback)
+### ~~[P1-D] CreateServerModal — "Failed to generate server" (no UI feedback)~~
 
 **File:** `src/components/spidr/CreateServerModal.jsx:47`
 

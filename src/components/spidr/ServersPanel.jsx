@@ -188,7 +188,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       created_by: currentUser?.id
     }),
     onSuccess: () => {
-      queryClient.invalidateQueries(['events', server.id]);
+      queryClient.invalidateQueries({ queryKey: ['events', server.id] });
       toast.success('Event created!');
     }
   });
@@ -197,7 +197,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     mutationFn: (data) => base44.entities.Message.create(data),
     onSuccess: () => {
       playSound('send');
-      queryClient.invalidateQueries(['messages', server.id, selectedChannel]);
+      queryClient.invalidateQueries({ queryKey: ['messages', server.id, selectedChannel] });
       setMessage('');
     }
   });
@@ -282,8 +282,8 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               stream_url: result.streamUrl
               });
             }
-            queryClient.invalidateQueries(['voice-sessions', server.id]);
-            queryClient.invalidateQueries(['voiceSessions']);
+            queryClient.invalidateQueries({ queryKey: ['voice-sessions', server.id] });
+            queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
             toast.success('Spidr AI is streaming! Join a voice channel to watch.');
           }
         }
@@ -335,7 +335,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const updateMessageMutation = useMutation({
     mutationFn: ({ id, content }) => base44.entities.Message.update(id, { content, edited_at: new Date().toISOString() }),
     onSuccess: () => {
-      queryClient.invalidateQueries(['messages', server.id, selectedChannel]);
+      queryClient.invalidateQueries({ queryKey: ['messages', server.id, selectedChannel] });
       setEditingMessage(null);
       setMessage('');
     }
@@ -344,7 +344,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const deleteMessageMutation = useMutation({
     mutationFn: (id) => base44.entities.Message.delete(id),
     onSuccess: (_, id) => {
-      queryClient.invalidateQueries(['messages', server.id, selectedChannel]);
+      queryClient.invalidateQueries({ queryKey: ['messages', server.id, selectedChannel] });
       if (isAdmin) {
         base44.entities.ServerAuditLog.create({
           server_id: server.id,
@@ -451,7 +451,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           toast.success('Message link copied');
         } else if (action === 'pin' && data?.id) {
           await base44.entities.Message.update(data.id, { is_webbed: true });
-          queryClient.invalidateQueries(['messages', server.id, selectedChannel]);
+          queryClient.invalidateQueries({ queryKey: ['messages', server.id, selectedChannel] });
           toast.success('Message pinned');
         } else if (action === 'report') {
           setReportTarget({ type: 'message', id: data?.id, name: data?.content?.slice(0, 30) || 'Message', content: data?.content });
@@ -492,7 +492,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             const newReactions = { ...reactions, [data.emoji]: newUsers };
             if (newUsers.length === 0) delete newReactions[data.emoji];
             await base44.entities.Message.update(data.id, { reactions: newReactions });
-            queryClient.invalidateQueries(['messages', server.id, selectedChannel]);
+            queryClient.invalidateQueries({ queryKey: ['messages', server.id, selectedChannel] });
           }
         }
       }
@@ -512,14 +512,14 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           const newMuted = new Set(server.muted_members || []);
           if (newMuted.has(targetUserId)) newMuted.delete(targetUserId); else newMuted.add(targetUserId);
           await base44.entities.Server.update(server.id, { muted_members: Array.from(newMuted) });
-          queryClient.invalidateQueries(['servers']);
+          queryClient.invalidateQueries({ queryKey: ['servers'] });
           toast.success(newMuted.has(targetUserId) ? 'User muted' : 'User unmuted');
         } else if (action === 'timeout' && isAdmin) {
           const until = new Date(Date.now() + 10 * 60 * 1000).toISOString();
           const prev = server.timeouts || [];
           const others = prev.filter(t => t.user_id !== targetUserId);
           await base44.entities.Server.update(server.id, { timeouts: [...others, { user_id: targetUserId, until }] });
-          queryClient.invalidateQueries(['servers']);
+          queryClient.invalidateQueries({ queryKey: ['servers'] });
           toast.success('User timed out for 10 minutes');
         } else if (action === 'kick' && isAdmin) {
           const newMembers = (server.members || []).filter(m => m.user_id !== targetUserId);
@@ -530,7 +530,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             action: 'KICK_USER', category: 'admin', target_name: data?.name || targetUserId,
             details: `Kicked from server`
           });
-          queryClient.invalidateQueries(['servers']);
+          queryClient.invalidateQueries({ queryKey: ['servers'] });
           toast.success('User kicked');
         } else if (action === 'ban' && isAdmin) {
           const newMembers = (server.members || []).filter(m => m.user_id !== targetUserId);
@@ -541,7 +541,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             action: 'BAN_USER', category: 'admin', target_name: data?.name || targetUserId,
             details: `Banned from server`
           });
-          queryClient.invalidateQueries(['servers']);
+          queryClient.invalidateQueries({ queryKey: ['servers'] });
           toast.success('User banned');
         }
       }
@@ -561,7 +561,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           } else if (window.confirm('Leave this server?')) {
             const newMembers = (server.members || []).filter(m => m.user_id !== currentUser?.id);
             await base44.entities.Server.update(server.id, { members: newMembers });
-            queryClient.invalidateQueries(['servers']);
+            queryClient.invalidateQueries({ queryKey: ['servers'] });
             toast.success('Left server');
           }
         } else if (action === 'invite') {
@@ -591,14 +591,14 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           if (window.confirm('Delete ALL messages in this channel? This cannot be undone.')) {
             const msgs = await base44.entities.Message.filter({ server_id: server.id, channel_id: data?.id || selectedChannel });
             for (const m of msgs) { await base44.entities.Message.delete(m.id); }
-            queryClient.invalidateQueries(['messages', server.id, selectedChannel]);
+            queryClient.invalidateQueries({ queryKey: ['messages', server.id, selectedChannel] });
             toast.success('Channel purged');
           }
         } else if (action === 'delete-channel' && isAdmin) {
           if (window.confirm(`Delete channel #${data?.name}?`)) {
             const updated = (server.channels || []).filter(c => c.id !== data?.id);
             await base44.entities.Server.update(server.id, { channels: updated });
-            queryClient.invalidateQueries(['servers']);
+            queryClient.invalidateQueries({ queryKey: ['servers'] });
             toast.success('Channel deleted');
           }
         } else if (action === 'clone-channel' && isAdmin) {
@@ -606,7 +606,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           if (source) {
             const cloned = { id: `${source.id}-clone-${Date.now()}`, name: `${source.name}-clone`, type: source.type };
             await base44.entities.Server.update(server.id, { channels: [...(server.channels || []), cloned] });
-            queryClient.invalidateQueries(['servers']);
+            queryClient.invalidateQueries({ queryKey: ['servers'] });
             toast.success('Channel cloned');
           }
         } else if (action === 'join-voice') {
@@ -615,7 +615,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         } else if (action === 'disconnect-all' && isAdmin) {
           const sessions = await base44.entities.VoiceSession.filter({ server_id: server.id, channel_id: data?.id });
           for (const s of sessions) { await base44.entities.VoiceSession.delete(s.id); }
-          queryClient.invalidateQueries(['voice-sessions', server.id]);
+          queryClient.invalidateQueries({ queryKey: ['voice-sessions', server.id] });
           toast.success('All users disconnected');
         } else if (action === 'invite') {
           navigator.clipboard.writeText(`spidr://invite/${server.id}/${data?.id}`);
@@ -941,7 +941,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                       const newReactions = { ...reactions, [emoji]: newUsers };
                       if (newUsers.length === 0) delete newReactions[emoji];
                       await base44.entities.Message.update(msg.id, { reactions: newReactions });
-                      queryClient.invalidateQueries(['messages', server.id, selectedChannel]);
+                      queryClient.invalidateQueries({ queryKey: ['messages', server.id, selectedChannel] });
                     }}
                   />
                 </div>
@@ -954,7 +954,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     className={`h-7 w-7 ${msg.is_webbed ? 'text-red-500' : 'text-zinc-400 hover:text-red-400'}`}
                     onClick={async () => {
                       await base44.entities.Message.update(msg.id, { is_webbed: !msg.is_webbed });
-                      queryClient.invalidateQueries(['messages', server.id, selectedChannel]);
+                      queryClient.invalidateQueries({ queryKey: ['messages', server.id, selectedChannel] });
                       toast.success(msg.is_webbed ? 'Unwoven from web' : 'Woven into web!');
                     }}
                     title={msg.is_webbed ? 'Unpin from web' : 'Pin to web'}

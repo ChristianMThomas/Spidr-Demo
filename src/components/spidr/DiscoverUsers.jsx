@@ -125,7 +125,7 @@ Return ONLY the JSON with no extra text.`,
     },
     onSuccess: (_, target) => {
       toast.success(`Request sent to ${target.display_name}!`);
-      queryClient.invalidateQueries(['friends']);
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
       setSuggestions(prev => prev.filter(s => s.user_id !== target.user_id));
     }
   });

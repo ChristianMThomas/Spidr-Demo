@@ -50,7 +50,7 @@ export default function BanModal({ open, onClose, targetUserId, targetUserName, 
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['global-reports']);
+      queryClient.invalidateQueries({ queryKey: ['global-reports'] });
       toast.success(`${targetUserName} has been banned`);
       onClose();
       setDuration(null);

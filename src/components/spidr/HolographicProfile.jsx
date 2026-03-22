@@ -107,7 +107,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
         status: 'pending_incoming'
       });
     },
-    onSuccess: () => { toast.success('Friend request sent!'); queryClient.invalidateQueries(['friendship']); queryClient.invalidateQueries(['friends']); }
+    onSuccess: () => { toast.success('Friend request sent!'); queryClient.invalidateQueries({ queryKey: ['friendship'] }); queryClient.invalidateQueries({ queryKey: ['friends'] }); }
   });
 
   const acceptRequest = useMutation({
@@ -116,7 +116,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
       const outgoing = await base44.entities.Friend.filter({ user_id: userId, friend_id: currentUser?.id });
       if (outgoing[0]) await base44.entities.Friend.update(outgoing[0].id, { status: 'accepted' });
     },
-    onSuccess: () => { toast.success('Friend request accepted!'); queryClient.invalidateQueries(['friendship']); queryClient.invalidateQueries(['friends']); }
+    onSuccess: () => { toast.success('Friend request accepted!'); queryClient.invalidateQueries({ queryKey: ['friendship'] }); queryClient.invalidateQueries({ queryKey: ['friends'] }); }
   });
 
   const blockUser = useMutation({
@@ -130,7 +130,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
         });
       }
     },
-    onSuccess: () => { toast.success('User blocked'); queryClient.invalidateQueries(['friendship']); queryClient.invalidateQueries(['friends']); onClose(); }
+    onSuccess: () => { toast.success('User blocked'); queryClient.invalidateQueries({ queryKey: ['friendship'] }); queryClient.invalidateQueries({ queryKey: ['friends'] }); onClose(); }
   });
 
   const addToServer = useMutation({
@@ -142,7 +142,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
         members: [...(server.members || []), { user_id: userId, user_name: userProfile?.display_name || 'User', user_avatar: userProfile?.avatar_url || '', role: 'Member' }]
       });
     },
-    onSuccess: () => { toast.success('User added to server!'); queryClient.invalidateQueries(['servers']); queryClient.invalidateQueries(['user-servers']); setShowAddToServer(false); setSelectedServerId(''); }
+    onSuccess: () => { toast.success('User added to server!'); queryClient.invalidateQueries({ queryKey: ['servers'] }); queryClient.invalidateQueries({ queryKey: ['user-servers'] }); setShowAddToServer(false); setSelectedServerId(''); }
   });
 
 
@@ -159,7 +159,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
   const handleCropComplete = async (file_url) => {
     if (cropType === 'banner') { await base44.entities.UserProfile.update(userProfile.id, { banner_url: file_url }); toast.success('Banner updated!'); }
     else if (cropType === 'avatar') { await base44.entities.UserProfile.update(userProfile.id, { avatar_url: file_url }); toast.success('Avatar updated!'); }
-    queryClient.invalidateQueries(['user-profile']); setCropImage(null); setCropType(null);
+    queryClient.invalidateQueries({ queryKey: ['user-profile'] }); setCropImage(null); setCropType(null);
   };
 
   const handleWidgetSave = async (key, value) => {
@@ -167,7 +167,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
     if (key === 'pronouns') updates.pronouns = value;
     else if (key === 'activity') updates.activity = { ...(userProfile?.activity || {}), name: value };
     await base44.entities.UserProfile.update(userProfile.id, updates);
-    queryClient.invalidateQueries(['user-profile']);
+    queryClient.invalidateQueries({ queryKey: ['user-profile'] });
     toast.success('Updated!');
   };
 

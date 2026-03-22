@@ -36,7 +36,7 @@ export default function ServerReportsPanel({ serverId, currentUser }) {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Report.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['server-reports', serverId]);
+      queryClient.invalidateQueries({ queryKey: ['server-reports', serverId] });
       toast.success('Report updated');
     }
   });

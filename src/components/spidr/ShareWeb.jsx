@@ -40,7 +40,7 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
       });
     },
     onSuccess: (_, { friendName }) => {
-      queryClient.invalidateQueries(['directMessages']);
+      queryClient.invalidateQueries({ queryKey: ['directMessages'] });
       playSound('send');
       toast.success(`Slung to ${friendName}!`);
     }

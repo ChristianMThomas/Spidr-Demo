@@ -72,7 +72,7 @@ Be reasonable — most Discord bots are safe.`,
     },
     onSuccess: (data) => {
       setIsImporting(false);
-      queryClient.invalidateQueries(['my-bots']);
+      queryClient.invalidateQueries({ queryKey: ['my-bots'] });
       setClientId('');
       setBotName('');
       if (data.status === 'verified') {

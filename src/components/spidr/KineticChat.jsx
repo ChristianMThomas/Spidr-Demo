@@ -44,7 +44,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const deleteMessageMutation = useMutation({
     mutationFn: (id) => base44.entities.GroupChatMessage.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries(['group-messages']);
+      queryClient.invalidateQueries({ queryKey: ['group-messages'] });
       toast.success('Message deleted');
     }
   });
@@ -52,7 +52,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const editMessageMutation = useMutation({
     mutationFn: ({ id, content }) => base44.entities.GroupChatMessage.update(id, { content }),
     onSuccess: () => {
-      queryClient.invalidateQueries(['group-messages']);
+      queryClient.invalidateQueries({ queryKey: ['group-messages'] });
       toast.success('Message updated');
     }
   });
@@ -134,7 +134,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
             const newReactions = { ...reactions, [data.emoji]: newUsers };
             if (newUsers.length === 0) delete newReactions[data.emoji];
             await base44.entities.GroupChatMessage.update(data.id, { reactions: newReactions });
-            queryClient.invalidateQueries(['group-messages']);
+            queryClient.invalidateQueries({ queryKey: ['group-messages'] });
           }
         }
       } else if (type === 'user') {
@@ -163,7 +163,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     mutationFn: (data) => base44.entities.GroupChatMessage.create(data),
     onSuccess: () => {
       playSound('send');
-      queryClient.invalidateQueries(['group-messages']);
+      queryClient.invalidateQueries({ queryKey: ['group-messages'] });
       setInputText('');
     }
   });
@@ -206,21 +206,21 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const createSessionMutation = useMutation({
     mutationFn: (data) => base44.entities.VoiceSession.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['voice-sessions']);
+      queryClient.invalidateQueries({ queryKey: ['voice-sessions'] });
     }
   });
 
   const updateSessionMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.VoiceSession.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['voice-sessions']);
+      queryClient.invalidateQueries({ queryKey: ['voice-sessions'] });
     }
   });
 
   const deleteSessionMutation = useMutation({
     mutationFn: (id) => base44.entities.VoiceSession.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries(['voice-sessions']);
+      queryClient.invalidateQueries({ queryKey: ['voice-sessions'] });
     }
   });
 
@@ -276,7 +276,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const toggleWebbedMutation = useMutation({
     mutationFn: ({ id, isWebbed }) => base44.entities.GroupChatMessage.update(id, { is_webbed: !isWebbed }),
     onSuccess: () => {
-      queryClient.invalidateQueries(['group-messages']);
+      queryClient.invalidateQueries({ queryKey: ['group-messages'] });
       toast.success('Message webbed!');
     }
   });
@@ -578,7 +578,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
                     const newReactions = { ...reactions, [emoji]: newUsers };
                     if (newUsers.length === 0) delete newReactions[emoji];
                     await base44.entities.GroupChatMessage.update(msgId, { reactions: newReactions });
-                    queryClient.invalidateQueries(['group-messages']);
+                    queryClient.invalidateQueries({ queryKey: ['group-messages'] });
                   }}
                 />
                 <button

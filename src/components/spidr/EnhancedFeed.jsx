@@ -49,7 +49,7 @@ export default function EnhancedFeed({ currentUser }) {
       }
       return base44.entities.Feed.update(feedId, { reactions });
     },
-    onSuccess: () => queryClient.invalidateQueries(['enhanced-feed']),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['enhanced-feed'] }),
   });
 
   const pinnedItems = feedItems.filter(f => f.is_pinned);

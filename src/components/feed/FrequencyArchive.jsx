@@ -37,8 +37,8 @@ export default function FrequencyArchive({ audioTrack, onClose, currentUser, onC
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['saved-audios']);
-      queryClient.invalidateQueries(['audio-tracks']);
+      queryClient.invalidateQueries({ queryKey: ['saved-audios'] });
+      queryClient.invalidateQueries({ queryKey: ['audio-tracks'] });
       toast.success(isSaved ? 'Removed from database' : 'Extracted to your database!');
     }
   });

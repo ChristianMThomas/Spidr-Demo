@@ -71,7 +71,7 @@ export default function Fabricator({ currentUser }) {
       tags,
       is_public: isPublic,
     });
-    queryClient.invalidateQueries(['community-assets']);
+    queryClient.invalidateQueries({ queryKey: ['community-assets'] });
     toast.success('Signal transmitted to the Hive!');
     setFile(null);
     setPreview(null);

@@ -48,7 +48,7 @@ export default function WebProfile({ currentUser, onUploadClick }) {
   const updateClipMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Clip.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['clips']);
+      queryClient.invalidateQueries({ queryKey: ['clips'] });
       setEditingClip(null);
       toast.success('Strand updated!');
     }
@@ -57,7 +57,7 @@ export default function WebProfile({ currentUser, onUploadClick }) {
   const deleteClipMutation = useMutation({
     mutationFn: (id) => base44.entities.Clip.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries(['clips']);
+      queryClient.invalidateQueries({ queryKey: ['clips'] });
       toast.success('Strand deleted.');
     }
   });

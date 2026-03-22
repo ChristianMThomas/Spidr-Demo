@@ -130,7 +130,7 @@ function AIAssistant({ currentUser }) {
       last_message: ''
     }),
     onSuccess: (newConv) => {
-      queryClient.invalidateQueries(['ai-conversations']);
+      queryClient.invalidateQueries({ queryKey: ['ai-conversations'] });
       setSelectedConversationId(newConv.id);
       setMessages([
         { role: 'assistant', content: 'Hey there! 🕷️ I\'m Spidr AI, your tactical assistant. Ask me anything about servers, Spidr features, gaming strategies, or just chat!' }
@@ -141,14 +141,14 @@ function AIAssistant({ currentUser }) {
   const updateConversationMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.AIConversation.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['ai-conversations']);
+      queryClient.invalidateQueries({ queryKey: ['ai-conversations'] });
     }
   });
 
   const saveMutation = useMutation({
     mutationFn: (logData) => base44.entities.AIChatLog.create(logData),
     onSuccess: () => {
-      queryClient.invalidateQueries(['ai-chat-logs']);
+      queryClient.invalidateQueries({ queryKey: ['ai-chat-logs'] });
     }
   });
 
@@ -369,7 +369,7 @@ function CreateServerAI({ currentUser, queryClient }) {
   const createServerMutation = useMutation({
     mutationFn: (data) => base44.entities.Server.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['servers']);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
       toast.success('Server created successfully!');
       setGeneratedServer(null);
       setPrompt('');
@@ -562,7 +562,7 @@ Provide:
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['profile']);
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
       toast.success('Profile updated!');
       setSuggestions(null);
       setPrompt('');

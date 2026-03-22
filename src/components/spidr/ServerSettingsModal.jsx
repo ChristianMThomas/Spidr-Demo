@@ -65,7 +65,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
   const updateServerMutation = useMutation({
     mutationFn: (data) => base44.entities.Server.update(server.id, data),
     onSuccess: (_, data) => {
-      queryClient.invalidateQueries(['servers']);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
       toast.success('Server updated!');
       // Log the settings change
       base44.entities.ServerAuditLog.create({
@@ -587,7 +587,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                                 m.user_id === member.user_id ? { ...m, verified: true } : m
                               );
                               await base44.entities.Server.update(server.id, { members: updatedMembers });
-                              queryClient.invalidateQueries(['servers']);
+                              queryClient.invalidateQueries({ queryKey: ['servers'] });
                               toast.success(`${member.user_name || 'User'} verified!`);
                             }}
                             className="px-3 py-1 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded-lg transition-colors"

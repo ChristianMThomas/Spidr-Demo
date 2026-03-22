@@ -58,7 +58,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
       return base44.entities.Server.update(server.id, { members: updatedMembers });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['servers']);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
     }
   });
 
@@ -70,7 +70,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
       return base44.entities.Server.update(server.id, { members: updatedMembers });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['servers']);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
       setEditingNickname(null);
       toast.success('Nickname updated!');
     }
@@ -82,7 +82,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
       return base44.entities.Server.update(server.id, { members: updatedMembers });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['servers']);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
       toast.success('Member kicked!');
     }
   });
@@ -98,7 +98,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['servers']);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
       toast.success('Member banned!');
     }
   });
@@ -108,7 +108,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
       return base44.entities.VoiceSession.update(sessionId, { is_muted: isMuted });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       toast.success('Voice state updated!');
     }
   });
@@ -118,7 +118,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
       return base44.entities.VoiceSession.update(sessionId, { is_deafened: isDeafened });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       toast.success('Voice state updated!');
     }
   });
@@ -128,7 +128,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
       return base44.entities.VoiceSession.delete(sessionId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       toast.success('Member disconnected!');
     }
   });
@@ -138,7 +138,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
       return base44.entities.VoiceSession.update(sessionId, { channel_id: channelId });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
       toast.success('Member moved!');
     }
   });

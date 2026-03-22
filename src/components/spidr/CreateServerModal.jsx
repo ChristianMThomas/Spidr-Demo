@@ -44,11 +44,12 @@ export default function CreateServerModal({ open, onClose, currentUser }) {
       return newServer;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['servers']);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
       toast.success('Server created!');
       onClose();
       setFormData({ name: '', description: '', icon_url: '', banner_url: '', is_public: true });
-    }
+    },
+    onError: (err) => toast.error(err?.message || 'Failed to create server. Please try again.'),
   });
 
   const handleFileUpload = async (e, field) => {

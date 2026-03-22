@@ -205,7 +205,7 @@ export default function FeedPanel({ currentUser }) {
           currentUser={currentUser}
           onPublish={async (clipData) => {
             await base44.entities.Clip.create(clipData);
-            queryClient.invalidateQueries(['clips']);
+            queryClient.invalidateQueries({ queryKey: ['clips'] });
             toast.success('Clip published!');
           }}
         />
@@ -221,7 +221,7 @@ export default function FeedPanel({ currentUser }) {
           initialClip={editingClip}
           onPublish={async (clipData) => {
             await base44.entities.Clip.update(editingClip.id, clipData);
-            queryClient.invalidateQueries(['clips']);
+            queryClient.invalidateQueries({ queryKey: ['clips'] });
             toast.success('Clip updated!');
             setEditingClip(null);
           }}
@@ -267,7 +267,7 @@ function ClipViewer({ clips, currentUser, queryClient, onEditClip }) {
         : [...likes, currentUser?.id];
       return base44.entities.Clip.update(clip.id, { likes: newLikes });
     },
-    onSuccess: () => queryClient.invalidateQueries(['clips'])
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clips'] })
   });
 
   const saveMutation = useMutation({
@@ -292,7 +292,7 @@ function ClipViewer({ clips, currentUser, queryClient, onEditClip }) {
     },
     onSuccess: () => {
       toast.success('Collection updated!');
-      queryClient.invalidateQueries(['collections']);
+      queryClient.invalidateQueries({ queryKey: ['collections'] });
     }
   });
 
@@ -305,7 +305,7 @@ function ClipViewer({ clips, currentUser, queryClient, onEditClip }) {
       await base44.entities.Clip.update(currentClip.id, { 
         shares_count: (currentClip.shares_count || 0) + 1 
       });
-      queryClient.invalidateQueries(['clips']);
+      queryClient.invalidateQueries({ queryKey: ['clips'] });
     }
     setShowShareMenu(false);
   };
@@ -336,7 +336,7 @@ function ClipViewer({ clips, currentUser, queryClient, onEditClip }) {
       
       return base44.entities.Clip.update(currentClip.id, { reactions: newReactions });
     },
-    onSuccess: () => queryClient.invalidateQueries(['clips'])
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clips'] })
   });
 
   const goNext = () => {
@@ -745,7 +745,7 @@ function CollectionsView({ collections, selectedCollection, onSelectCollection, 
       is_public: false
     }),
     onSuccess: () => {
-      queryClient.invalidateQueries(['collections']);
+      queryClient.invalidateQueries({ queryKey: ['collections'] });
       toast.success('Collection created!');
       setNewCollectionName('');
       setShowNewCollection(false);

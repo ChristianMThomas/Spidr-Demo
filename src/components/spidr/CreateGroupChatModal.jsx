@@ -31,7 +31,7 @@ export default function CreateGroupChatModal({ open, onClose, currentUser, onGro
       return await base44.entities.GroupChat.create(data);
     },
     onSuccess: (newGroup) => {
-      queryClient.invalidateQueries(['group-chats']);
+      queryClient.invalidateQueries({ queryKey: ['group-chats'] });
       toast.success('Group chat created!');
       onGroupCreated?.(newGroup);
       handleClose();

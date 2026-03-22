@@ -19,7 +19,7 @@ export default function MessageBubble({ message, currentUser, isOwner }) {
   const updateMutation = useMutation({
     mutationFn: (data) => base44.entities.Message.update(message.id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['messages']);
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
       setIsEditing(false);
       toast.success('Message updated');
     }
@@ -28,7 +28,7 @@ export default function MessageBubble({ message, currentUser, isOwner }) {
   const deleteMutation = useMutation({
     mutationFn: () => base44.entities.Message.delete(message.id),
     onSuccess: () => {
-      queryClient.invalidateQueries(['messages']);
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
     }
   });
 

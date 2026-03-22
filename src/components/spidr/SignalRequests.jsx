@@ -57,8 +57,8 @@ export default function SignalRequests({ currentUser }) {
     },
     onSuccess: () => {
       toast.success('Signal accepted — node linked!');
-      queryClient.invalidateQueries(['signal-requests-dms']);
-      queryClient.invalidateQueries(['friends']);
+      queryClient.invalidateQueries({ queryKey: ['signal-requests-dms'] });
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
     }
   });
 
@@ -74,8 +74,8 @@ export default function SignalRequests({ currentUser }) {
     },
     onSuccess: () => {
       toast.success('Signal severed — user blocked');
-      queryClient.invalidateQueries(['signal-requests-dms']);
-      queryClient.invalidateQueries(['friends']);
+      queryClient.invalidateQueries({ queryKey: ['signal-requests-dms'] });
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
     }
   });
 

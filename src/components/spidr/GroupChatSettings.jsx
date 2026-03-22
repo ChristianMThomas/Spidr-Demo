@@ -27,8 +27,8 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
       await base44.entities.GroupChat.update(group.id, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['group', group.id]);
-      queryClient.invalidateQueries(['user-groups']);
+      queryClient.invalidateQueries({ queryKey: ['group', group.id] });
+      queryClient.invalidateQueries({ queryKey: ['user-groups'] });
       toast.success('Group updated successfully!');
     }
   });
@@ -39,7 +39,7 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
       await base44.entities.GroupChat.update(group.id, { members: updatedMembers });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['group', group.id]);
+      queryClient.invalidateQueries({ queryKey: ['group', group.id] });
       toast.success('Member removed');
     }
   });
@@ -52,7 +52,7 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
       await base44.entities.GroupChat.update(group.id, { members: updatedMembers });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['group', group.id]);
+      queryClient.invalidateQueries({ queryKey: ['group', group.id] });
       toast.success('Member role updated');
     }
   });
@@ -67,7 +67,7 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['user-groups']);
+      queryClient.invalidateQueries({ queryKey: ['user-groups'] });
       toast.success('Left group');
       onClose();
     }
@@ -78,7 +78,7 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
       await base44.entities.GroupChat.delete(group.id);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['user-groups']);
+      queryClient.invalidateQueries({ queryKey: ['user-groups'] });
       toast.success('Group deleted');
       onClose();
     }
@@ -140,7 +140,7 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
         members: [...group.members, newMember]
       });
 
-      queryClient.invalidateQueries(['group', group.id]);
+      queryClient.invalidateQueries({ queryKey: ['group', group.id] });
       toast.success('Member added!');
       setNewMemberEmail('');
       setShowAddMember(false);

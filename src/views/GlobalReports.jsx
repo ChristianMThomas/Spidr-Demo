@@ -50,7 +50,7 @@ export default function GlobalReports() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Report.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['global-reports']);
+      queryClient.invalidateQueries({ queryKey: ['global-reports'] });
       toast.success('Report updated');
       setSelectedReport(null);
     }
@@ -70,7 +70,7 @@ export default function GlobalReports() {
     },
     onSuccess: () => {
       toast.success('User unbanned');
-      queryClient.invalidateQueries(['global-reports']);
+      queryClient.invalidateQueries({ queryKey: ['global-reports'] });
     }
   });
 

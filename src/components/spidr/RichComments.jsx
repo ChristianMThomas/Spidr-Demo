@@ -59,7 +59,7 @@ function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, leve
         : [...likes, currentUser?.id];
       return base44.entities.Comment.update(comment.id, { likes: newLikes });
     },
-    onSuccess: () => queryClient.invalidateQueries(['comments', clipId])
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comments', clipId] })
   });
 
   const hasLiked = comment.likes?.includes(currentUser?.id);
@@ -194,8 +194,8 @@ function CommentForm({ clipId, currentUser, parentCommentId = null, onSuccess, s
         });
       }
       
-      queryClient.invalidateQueries(['comments', clipId]);
-      queryClient.invalidateQueries(['clips']);
+      queryClient.invalidateQueries({ queryKey: ['comments', clipId] });
+      queryClient.invalidateQueries({ queryKey: ['clips'] });
       setContent('');
       setMediaFiles([]);
       onSuccess?.();

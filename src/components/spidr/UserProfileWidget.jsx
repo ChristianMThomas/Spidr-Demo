@@ -36,7 +36,7 @@ export default function UserProfileWidget({ currentUser, onOpenSettings }) {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['user-profile', currentUser?.id]);
+      queryClient.invalidateQueries({ queryKey: ['user-profile', currentUser?.id] });
     }
   });
 

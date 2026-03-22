@@ -69,7 +69,7 @@ export default function AudioDatabase({ open, onClose, onSelectAudio, currentUse
       save_count: 0,
       tags: [],
     });
-    queryClient.invalidateQueries(['audio-tracks']);
+    queryClient.invalidateQueries({ queryKey: ['audio-tracks'] });
     setUploading(false);
     toast.success('Audio uploaded to database!');
     onSelectAudio(track);

@@ -23,7 +23,7 @@ export default function HivePanel({ currentUser, search }) {
       const newLikes = hasLiked ? likes.filter(id => id !== currentUser?.id) : [...likes, currentUser?.id];
       return base44.entities.CommunityAsset.update(asset.id, { likes: newLikes });
     },
-    onSuccess: () => queryClient.invalidateQueries(['community-assets']),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['community-assets'] }),
   });
 
   const filtered = assets.filter(a => {

@@ -59,7 +59,7 @@ export default function MyBotsTab({ currentUser }) {
       });
     },
     onSuccess: (newBot) => {
-      queryClient.invalidateQueries(['my-bots']);
+      queryClient.invalidateQueries({ queryKey: ['my-bots'] });
       setShowCreate(false);
       setForm({ name: '', description: '', prefix: '!', capabilities: '' });
       setAvatarFile(null);
@@ -71,7 +71,7 @@ export default function MyBotsTab({ currentUser }) {
   const deleteBotMutation = useMutation({
     mutationFn: (id) => base44.entities.CustomBot.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries(['my-bots']);
+      queryClient.invalidateQueries({ queryKey: ['my-bots'] });
       toast.success('Bot deleted');
     }
   });
@@ -79,7 +79,7 @@ export default function MyBotsTab({ currentUser }) {
   const runSafetyScan = async (botId, name, description) => {
     setScanning(botId);
     await base44.entities.CustomBot.update(botId, { status: 'scanning' });
-    queryClient.invalidateQueries(['my-bots']);
+    queryClient.invalidateQueries({ queryKey: ['my-bots'] });
 
     const result = await base44.integrations.Core.InvokeLLM({
       prompt: `You are a security AI reviewing a user-submitted bot for a social platform called Spidr (similar to Discord). 
@@ -110,7 +110,7 @@ Return your analysis.`,
       status: newStatus,
       scan_report: result.report
     });
-    queryClient.invalidateQueries(['my-bots']);
+    queryClient.invalidateQueries({ queryKey: ['my-bots'] });
     setScanning(null);
 
     if (newStatus === 'verified') {
@@ -126,7 +126,7 @@ Return your analysis.`,
       return;
     }
     await base44.entities.CustomBot.update(bot.id, { is_public: !bot.is_public });
-    queryClient.invalidateQueries(['my-bots']);
+    queryClient.invalidateQueries({ queryKey: ['my-bots'] });
     toast.success(bot.is_public ? 'Bot set to private' : 'Bot is now public!');
   };
 

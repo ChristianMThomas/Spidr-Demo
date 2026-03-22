@@ -1,9 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Headphones, Settings, LogOut, User } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import HolographicProfile from './HolographicProfile';
+
+function PodSkeleton() {
+  return (
+    <div className="fixed top-0 right-6 z-[100] flex flex-col items-center">
+      <div className="w-[2px] h-5 bg-zinc-800" />
+      <div className="w-[60px] h-[60px] rounded-full bg-zinc-800 animate-pulse" />
+    </div>
+  );
+}
 
 export default function UserProfilePod({ onSettingsClick, onProfileClick }) {
   const [expanded, setExpanded] = useState(false);
@@ -14,19 +23,35 @@ export default function UserProfilePod({ onSettingsClick, onProfileClick }) {
   const queryClient = useQueryClient();
 
   // Fetch current user
-  const { data: currentUser } = useQuery({
+  const { data: currentUser, isLoading: userLoading } = useQuery({
     queryKey: ['currentUser'],
     queryFn: () => base44.auth.me(),
     staleTime: 120000,
   });
 
   // Fetch user profile
-  const { data: profile } = useQuery({
+  const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: ['userProfile', currentUser?.id],
     queryFn: () => base44.entities.UserProfile.filter({ user_id: currentUser.id }).then(res => res[0]),
     enabled: !!currentUser?.id,
     staleTime: 60000,
   });
+
+  // Auto-create profile for new users
+  useEffect(() => {
+    if (!userLoading && !profileLoading && currentUser && !profile) {
+      base44.entities.UserProfile.create({
+        user_id: currentUser.id,
+        display_name: currentUser.full_name || 'Spidr User',
+        status: 'online',
+        avatar_url: '',
+        custom_status: '',
+        bio: '',
+      }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ['userProfile', currentUser.id] });
+      });
+    }
+  }, [currentUser, profile, userLoading, profileLoading, queryClient]);
 
   // Update status mutation
   const updateStatusMutation = useMutation({
@@ -52,7 +77,9 @@ export default function UserProfilePod({ onSettingsClick, onProfileClick }) {
     base44.auth.logout();
   };
 
-  if (!currentUser || !profile) return null;
+  if (userLoading || profileLoading) return <PodSkeleton />;
+  if (!currentUser) return null;
+  if (!profile) return null;
 
   return (
     <div className="fixed top-0 right-6 z-[100] flex flex-col items-center">

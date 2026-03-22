@@ -97,9 +97,9 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries(['profile']);
-      queryClient.invalidateQueries(['current-user-profile']);
-      queryClient.invalidateQueries(['user-profile']);
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+      queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
       toast.success('Profile updated!');
     }
   });

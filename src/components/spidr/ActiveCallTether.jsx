@@ -36,7 +36,7 @@ export default function ActiveCallTether({ callInfo, onExpand, onDisconnect, onT
   useEffect(() => {
     if (!callInfo) return;
     const unsubscribe = base44.entities.VoiceSession.subscribe(() => {
-      queryClient.invalidateQueries(['tether-voiceSessions']);
+      queryClient.invalidateQueries({ queryKey: ['tether-voiceSessions'] });
     });
     return () => unsubscribe();
   }, [callInfo, queryClient]);

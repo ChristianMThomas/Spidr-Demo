@@ -1,9 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Copy, Sparkles, Heart, Laugh, Star, Music, Cat, Pizza, Flame, Search, Loader2, Zap, Ghost, Gamepad2, Trophy, PartyPopper } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
-import { debounce } from 'lodash';
 
 const GIF_CATEGORIES = [
   { id: 'all', label: 'ALL', icon: Sparkles },
@@ -133,13 +132,16 @@ export default function SystemArchive({ activeSubTab, search }) {
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
   const [gifSearch, setGifSearch] = useState('');
+  const debounceTimerRef = useRef(null);
 
-  const searchGifs = useCallback(
-    debounce(async (query) => {
-      if (!query.trim()) { setSearchResults(null); return; }
+  const handleGifSearch = (val) => {
+    setGifSearch(val);
+    clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(async () => {
+      if (!val.trim()) { setSearchResults(null); return; }
       setSearching(true);
       const result = await base44.integrations.Core.InvokeLLM({
-        prompt: `Find me 12 popular GIF URLs from giphy.com for the search term: "${query}". Return direct giphy media URLs (https://media.giphy.com/media/XXXX/giphy.gif format). Focus on the most popular, recognizable GIFs. Return JSON.`,
+        prompt: `Find me 12 popular GIF URLs from giphy.com for the search term: "${val}". Return direct giphy media URLs (https://media.giphy.com/media/XXXX/giphy.gif format). Focus on the most popular, recognizable GIFs. Return JSON.`,
         add_context_from_internet: true,
         response_json_schema: {
           type: 'object',
@@ -150,13 +152,7 @@ export default function SystemArchive({ activeSubTab, search }) {
       });
       setSearchResults(result.gifs || []);
       setSearching(false);
-    }, 600),
-    []
-  );
-
-  const handleGifSearch = (val) => {
-    setGifSearch(val);
-    searchGifs(val);
+    }, 600);
   };
 
   const copyEmoji = (emoji) => {

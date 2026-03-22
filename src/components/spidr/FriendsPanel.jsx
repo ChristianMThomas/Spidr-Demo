@@ -82,14 +82,14 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
   const addFriendMutation = useMutation({
     mutationFn: (data) => base44.entities.Friend.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries(['friends']);
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
       setAddFriendEmail('');
     }
   });
 
   const updateFriendMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Friend.update(id, data),
-    onSuccess: () => queryClient.invalidateQueries(['friends'])
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['friends'] })
   });
 
   const acceptedFriends = friends.filter(f => f.status === 'accepted');
@@ -327,7 +327,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                           if (outgoing[0]) {
                             await base44.entities.Friend.update(outgoing[0].id, { status: 'accepted' });
                           }
-                          queryClient.invalidateQueries(['friends']);
+                          queryClient.invalidateQueries({ queryKey: ['friends'] });
                         }}
                       >
                         <Check className="w-4 h-4" />
@@ -402,7 +402,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                 <Button 
                   size="sm" 
                   variant="outline"
-                  onClick={() => base44.entities.Friend.delete(friend.id).then(() => queryClient.invalidateQueries(['friends']))}
+                  onClick={() => base44.entities.Friend.delete(friend.id).then(() => queryClient.invalidateQueries({ queryKey: ['friends'] }))}
                 >
                   Unblock
                 </Button>
@@ -473,7 +473,7 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
 
   const handleSaveNickname = async () => {
     await base44.entities.Friend.update(friend.id, { nickname: nickname.trim() });
-    queryClient.invalidateQueries(['friends']);
+    queryClient.invalidateQueries({ queryKey: ['friends'] });
     setShowNicknameDialog(false);
     toast.success('Nickname updated');
   };
@@ -484,13 +484,13 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
     if (reverse[0]) {
       await base44.entities.Friend.delete(reverse[0].id);
     }
-    queryClient.invalidateQueries(['friends']);
+    queryClient.invalidateQueries({ queryKey: ['friends'] });
     toast.success('Friend removed');
   };
 
   const handleBlock = async () => {
     await base44.entities.Friend.update(friend.id, { status: 'blocked' });
-    queryClient.invalidateQueries(['friends']);
+    queryClient.invalidateQueries({ queryKey: ['friends'] });
     toast.success('User blocked');
   };
 
