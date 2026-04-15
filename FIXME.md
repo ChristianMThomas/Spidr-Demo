@@ -1,344 +1,451 @@
-# FIXME.md — Spidr App Bug List
+# FIXME.md — Spidr App Bug & Task List
 
-Last audited: 2026-03-04
+Last audited: 2026-04-15
+
+> Stack: React 18 + Vite + Electron (client) · Node/Express + MongoDB + Socket.io (server)
 
 ---
 
-## PRIORITY 1 — CRITICAL (App-Breaking / Invisible UI) ✅ FIXED 2026-03-06
+## ARCHITECTURE ROADMAP — 3-Service Backend Migration
 
-### ~~[P1-A] React Query v5 invalidateQueries — broken across entire app~~
+> Target completion: 2027. Monolith stays running until each service is production-ready and validated.
 
-**Root cause:** React Query v5 changed the `invalidateQueries` API. The old array syntax
-`queryClient.invalidateQueries(['key'])` silently does nothing in v5. Every mutation that
-calls this will succeed (record IS created/updated in Base44) but the UI never re-fetches.
+### Service Overview
 
-**Required fix:** Replace every occurrence with the object form:
-```js
-// BROKEN (v4 syntax — silently no-ops in v5)
-queryClient.invalidateQueries(['servers'])
-
-// CORRECT (v5 syntax)
-queryClient.invalidateQueries({ queryKey: ['servers'] })
+```
+React + Electron (Frontend)
+        │
+        ├──► [ARCH-A] Spring Boot Auth Service     Port: 8080
+        │         └── MongoDB (users collection only)
+        │
+        ├──► [ARCH-B] Node.js Core API             Port: 4000 (current)
+        │         └── MongoDB (messages, servers, feeds, social graph, etc.)
+        │
+        └──► [ARCH-C] FastAPI AI Service           Port: 8000
+                  ├── Spidr Bot (fine-tuned gpt-4o-mini via OpenAI)
+                  └── FYP Recommendation Engine (reads EngagementEvent collection)
 ```
 
-**Key files affected (50+ locations):**
-- `src/components/spidr/CreateServerModal.jsx:47`
-- `src/components/spidr/CreateGroupChatModal.jsx:34`
-- `src/components/spidr/SettingsPanel.jsx:100-102`
-- `src/components/spidr/BotLaboratory.jsx`
-- `src/components/nexus/ImportBotTab.jsx:75`
-- `src/views/GlobalReports.jsx:53,73`
-- `src/components/nexus/widgets/AudioDatabase.jsx:72`
-- `src/components/nexus/widgets/FrequencyArchive.jsx:40-41`
-- `src/components/spidr/AIPanel.jsx:133`
-- `src/components/spidr/ActiveCallTether.jsx:39`
-- And ~40 more across the codebase — do a global search for `invalidateQueries([`
+**JWT Strategy:** Spring Boot signs tokens with RS256 private key. Node.js and FastAPI verify using the distributed public key. No service can issue tokens — only Spring Boot can.
 
 ---
 
-### ~~[P1-B] UserProfilePod — invisible for new users (no profile record yet)~~
+### [ARCH-A] Spring Boot Auth Service
+**Status: PLANNED — Phase 2**
 
-**File:** `src/components/spidr/UserProfilePod.jsx:55`
+Replace `spidr-server/src/routes/auth.js` with a dedicated Spring Boot microservice.
 
-**Bug:** `if (!currentUser || !profile) return null`
+**Endpoints to migrate:**
+- `POST /auth/register` — create account, bcrypt hash, send OTP
+- `POST /auth/login` — verify password, send 2FA OTP
+- `POST /auth/verify-otp` — validate OTP, issue RS256 JWT
+- `POST /auth/resend-otp`
+- `GET /auth/me` — validate token, return user
+- `POST /auth/change-password`
+- `POST /auth/setup-totp` — generate TOTP secret + QR code
+- `POST /auth/verify-totp-setup`
+- `POST /auth/disable-totp`
+- `POST /auth/override-request` — password reset flow
+- `POST /auth/override-verify`
+- `POST /auth/override-confirm`
 
-- If the user has no `UserProfile` entity record yet (new account), the pod is permanently
-  invisible — no loading state, no fallback, no auto-creation triggered.
-- Also: while either query is still loading, the pod hides entirely.
+**Tech:** Spring Boot 3 · Spring Security · Spring Data MongoDB · jjwt (RS256) · JavaMailSender (OTP email) · speakeasy equivalent (TOTP)
 
-**Fix needed:**
-1. Show a skeleton/loading state while queries are in-flight
-2. Auto-create a `UserProfile` record on first load if none exists
+**Migration order:** Build Spring Boot service → validate all auth flows → switch frontend `VITE_AUTH_URL` → remove auth routes from Node.js
 
 ---
 
-### ~~[P1-C] SystemArchive.jsx — lodash import crash on GifsEmojis page~~
+### [ARCH-B] Node.js Core API
+**Status: CURRENT SERVER — stays, gets trimmed**
 
-**File:** `src/components/gifs/SystemArchive.jsx:6`
+Keeps all non-auth routes. Auth middleware updated to verify RS256 JWT using Spring Boot's public key instead of shared secret.
 
-```js
-import { debounce } from 'lodash'  // lodash is NOT in package.json
+**Changes needed when ARCH-A is ready:**
+- Replace `JWT_SECRET` symmetric verify → RS256 public key verify in `middleware/auth.js`
+- Remove `/auth` route registration from `index.js`
+- Add `POST /engagement` endpoint + `EngagementEvent` model (see ARCH-C)
+
+---
+
+### [ARCH-C] FastAPI AI Service
+**Status: PLANNED — Phase 1 (build this first)**
+
+Two responsibilities:
+
+#### 1. Spidr Bot (Global Assistant)
+- One global assistant, all users talk to the same bot
+- Fine-tune `gpt-4o-mini` on OpenAI for Spidr-specific personality and tone
+- RAG layer injects real-time context (server info, user data) per request
+- Endpoint: `POST /ai/chat` — receives message + context, returns response
+
+#### 2. FYP Recommendation Engine
+- TikTok-style For You Page algorithm
+- Cold start: serve content from user's selected initial categories
+- Behavioral phase: rank content by engagement score per user
+- Endpoint: `POST /fyp/feed` — receives user_id, returns ranked content_ids
+- Library path: start with `scikit-learn` cosine similarity → upgrade to `LightFM` → `PyTorch` custom model
+- **Requires engagement data** — see ARCH-D below
+
+---
+
+### [ARCH-D] Engagement Data Collection — START IMMEDIATELY
+**Status: URGENT — must begin before FYP algorithm is useful**
+
+The FYP recommendation model needs months of real user behavior data before it can personalize effectively. Every day without collection is lost training data.
+
+**Add to Node.js Core API now:**
+
+Model: `spidr-server/src/models/EngagementEvent.js`
+```
+user_id          String  (indexed)
+content_id       String  (indexed)
+content_type     String  — 'clip' | 'feed' | 'audio'
+event_type       String  — 'watch' | 'like' | 'skip' | 'share' | 'replay' | 'save'
+watch_duration   Number  — seconds watched
+watch_completion Number  — 0.0 to 1.0 (% of content watched)
+source           String  — 'fyp' | 'search' | 'profile' | 'hashtag'
+created_at       Date    (indexed)
 ```
 
-`lodash` was removed during the Vite → Next.js migration. This throws a runtime module
-resolution error when the `/GifsEmojis` page loads, crashing the entire page.
+Route: `POST /engagement` — fire and forget from frontend, no blocking response needed.
 
-**Fix:** Replace with a native debounce using `useRef` + `setTimeout`:
-```js
-const debounceRef = useRef(null);
-const debouncedSearch = (value) => {
-  clearTimeout(debounceRef.current);
-  debounceRef.current = setTimeout(() => doSearch(value), 300);
-};
-```
+Frontend fires silently on: video pause/end, like, share, skip (< 2s watch time), replay, save to collection.
 
 ---
 
-### ~~[P1-D] CreateServerModal — "Failed to generate server" (no UI feedback)~~
+### ~~[INFRA-A] Migrate file storage from Azure Blob → Cloudflare R2~~ ✅ Done
 
-**File:** `src/components/spidr/CreateServerModal.jsx:47`
+~~Azure SDK removed, `@aws-sdk/client-s3` installed, `azureStorage.js` rewritten, `.env.example` updated. Bucket created, public r2.dev access enabled, API token generated, credentials added to `.env`.~~
 
-Two issues:
-1. Uses broken `invalidateQueries(['servers'])` syntax (see P1-A) — server IS created but
-   list never refreshes, making it appear broken.
-2. `onError` handler is missing from `createServerMutation` — user gets no toast or
-   message on actual failure; they see a spinner that just stops.
+---
 
-**Fix:** Update invalidateQueries + add `onError: (err) => toast.error(err.message)`.
+### ~~[INFRA-B] Migrate backend: Express + MongoDB → Go + PostgreSQL + Redis~~ ❌ Superseded
+
+~~Replaced by ARCH-A/B/C plan above. Go+PostgreSQL migration cancelled — keeping MongoDB, splitting by service instead.~~
+
+---
+
+## spidr-auth (Spring Boot) — Backlog
+
+> Audited: 2026-04-15. Grouped by effort. Tackle after core auth flows are wired to frontend.
+
+### ~~Quick Wins~~ ✅ All Fixed (2026-04-15)
+
+| ID | File | Issue |
+|----|------|-------|
+| ~~AUTH-Q1~~ | ~~`UserController.java`~~ | ~~`changePassword()` + `deleteAccount()` exist in `UserService` but have no controller endpoints — dead code~~ ✅ Added `PATCH /users/change-password` + `DELETE /users/me` |
+| ~~AUTH-Q2~~ | ~~`AuthService.java:generateVerificationCode()`~~ | ~~Uses `new Random()` — not cryptographically secure.~~ ✅ Replaced with `SecureRandom` |
+| ~~AUTH-Q3~~ | ~~`AuthService.java:register()` / `login()`~~ | ~~No email normalization — duplicate accounts possible.~~ ✅ `.toLowerCase().trim()` added to all email lookups |
+| ~~AUTH-Q4~~ | ~~`RegisterUserDTO.java`~~ | ~~Username only checks `@NotBlank`.~~ ✅ `@Pattern(regexp = "^[a-zA-Z0-9_]{3,20}$")` added |
+| ~~AUTH-Q5~~ | ~~`AuthController.java:/resend`~~ | ~~Takes raw `Map<String, String>` with no validation.~~ ✅ `ResendOtpDTO` created and wired in |
+| ~~AUTH-Q6~~ | ~~`users.java`~~ | ~~No `@Indexed` on `email`, `username` — full collection scan on every login.~~ ✅ `@Indexed(unique=true)` added to both |
+| ~~AUTH-Q7~~ | ~~`JwtService.java:generateToken()`~~ | ~~Role and user ID not embedded in JWT claims.~~ ✅ `userId` + `role` added to token claims |
+| ~~AUTH-Q8~~ | ~~`AuthService.java:resetPassword()`~~ | ~~No confirmation email after password reset.~~ ✅ `sendPasswordResetConfirmationEmail` added |
+| ~~AUTH-Q9~~ | ~~`UserController.java:getAllUsers()`~~ | ~~Returns raw `users` object with sensitive fields.~~ ✅ `UserResponseDTO` created, used on `/all` and `/me` |
+
+### ~~Medium~~ ✅ All Fixed (2026-04-15)
+
+| ID | File | Issue |
+|----|------|-------|
+| ~~AUTH-M1~~ | ~~`AuthController.java`~~ | ~~No rate limiting.~~ ✅ `RateLimiterService` (sliding-window, per-IP): signup 5/hr, login 10/15min, verify 10/15min, forgot 3/hr |
+| ~~AUTH-M2~~ | ~~`AuthService.java:login()`~~ | ~~No account lockout.~~ ✅ Lock after 5 failed attempts for 15 min; counter resets on success |
+| ~~AUTH-M3~~ | ~~All controllers~~ | ~~Raw exception messages returned to client.~~ ✅ `GlobalExceptionHandler` (`@RestControllerAdvice`) — controllers no longer catch exceptions |
+| ~~AUTH-M4~~ | ~~`application.properties`~~ | ~~Email credentials committed in plaintext.~~ ✅ Moved to `${SPRING_MAIL_USERNAME}` / `${SPRING_MAIL_PASSWORD}` env vars |
+| ~~AUTH-M5~~ | ~~`AuthService.java:resendVerificationCode()`~~ | ~~No resend rate limit.~~ ✅ 3 resends per 24h per account enforced in DB |
+| ~~AUTH-M6~~ | ~~`users.java`~~ | ~~No unique DB index — race condition allows duplicate accounts.~~ ✅ Covered by `@Indexed(unique=true)` (AUTH-Q6) |
+
+### Bigger Features (2–4 hours each)
+
+| ID | Issue |
+|----|-------|
+| AUTH-F1 | **Refresh tokens** — JWT expires and users get hard-logged-out with no silent renewal |
+| AUTH-F2 | **Token revocation** — logout doesn't invalidate the JWT; deleted/banned users can still hit auth-protected routes until expiry |
+| AUTH-F3 | **TOTP 2FA** — Node.js server has it via speakeasy; Spring Boot backend is missing it entirely |
+| AUTH-F4 | **Admin promotion endpoint** — only way to make someone an admin is via MongoDB shell directly |
+
+---
+
+## PRIORITY 1 — CRITICAL
+
+### ~~[P1-A] MongoDB not running — server crashes on start~~
+~~Use Atlas M0 or run `mongod` locally. Set `MONGO_URI` in `.env`.~~ ✅ Resolved
+
+### ~~[P1-B] `moment` not installed — crashes BanScreen + EnhancedFeed~~
+~~`BanScreen.jsx` and `EnhancedFeed.jsx` imported moment which wasn't in package.json.~~ ✅ Fixed — replaced with native JS date helpers
+
+### ~~[P1-C] Axios security breach — removed from entire codebase~~
+~~`apiClient.js` and `audio.js` used axios. Replaced with native fetch throughout.~~ ✅ Fixed
+
+---
+
+## SECURITY — New Issues
+
+### ~~[SEC-A] OTP generated with `Math.random()` — predictable~~ ✅ Fixed
+~~**File:** `spidr-server/src/routes/auth.js:37`~~
+
+~~`Math.random()` is not cryptographically secure; OTPs could be predicted. Replaced with `crypto.randomInt(100000, 1000000).toString()`.~~
+
+---
+
+### ~~[SEC-B] No ownership check on CRUD mutations — users can delete others' content~~ ✅ Fixed
+~~**Files:** `spidr-server/src/routes/comments.js`, `clips.js`, `messages.js`~~
+
+~~`crudRouter` PATCH/DELETE now fetch the doc first and return 403 if `req.user.id` doesn't match the owner field. Routes pass `ownerField: 'user_id'` (comments), `'author_id'` (clips), `['user_id','author_id']` (messages).~~
+
+---
+
+### ~~[SEC-C] Unvalidated stream URL in CinemaStage — XSS risk~~ ✅ Fixed
+~~**File:** `spidr-client/src/components/spidr/CinemaStage.jsx:14-31`~~
+
+~~`getEmbedUrl` now parses with `new URL()` first, rejects non-https and unrecognised hostnames, and removes the unsafe fallback that passed raw URLs to the iframe.~~
 
 ---
 
 ## PRIORITY 2 — HIGH (Feature Completely Non-Functional)
 
-### [P2-A] Settings: Sound & Notification toggles — UI-only, not persisted
+### [P2-A] Settings: Sound & Notification toggles — not persisted
+**File:** `spidr-client/src/components/spidr/SettingsPanel.jsx:443-539`
 
-**File:** `src/components/spidr/SettingsPanel.jsx:443-539`
+Toggles update local state only. Settings reset on every reload.
 
-All sound and notification toggle `<Switch>` components update local React state only.
-No `UserProfile.update()` or `base44.auth.updateMe()` call is made. Settings reset to
-defaults on every page reload.
-
-Affected settings: `sound_enabled`, `notification_preferences`, `message_preview`, etc.
-
-**Fix:** On each toggle change, call `UserProfile.update(profileId, { field: value })`.
+**Fix:** On toggle change, call `PATCH /api/user-profiles/:id`.
 
 ---
 
 ### [P2-B] Background / Theme Customization — not persisted
+**File:** `spidr-client/src/pages/Home.jsx`
 
-**File:** `src/views/Home.jsx` (ThemeStudio state)
-
-`appTheme` state lives only in `Home.jsx` component-level state. Choosing a background
-or theme is lost on every refresh. No write to `UserProfile` or `base44.auth.updateMe()`.
-
-**Fix:** On theme save, persist to a `UserProfile` field (e.g., `theme` or `background`).
-On load, read that field to rehydrate the theme.
+**Fix:** On save, call `PATCH /api/user-profiles/:id` with `{ theme, background }`. Rehydrate on load.
 
 ---
 
-### [P2-C] Discord Bot Import — shows official Discord bots, not user bots
+### [P2-C] Discord Bot Import — hardcoded bots user can't import
+**File:** `spidr-client/src/components/nexus/ImportBotTab.jsx:10-18`
 
-**File:** `src/components/nexus/ImportBotTab.jsx:10-18`
-
-The "Popular Discord Bots" catalog hardcodes MEE6, Dyno, Rythm, etc. — bots the user
-does not own and cannot import. This is the wrong UX; users need to import their **own**
-custom bots via a Client ID / token flow.
-
-**Fix:** Remove the official bot catalog section entirely. Keep only the manual
-"Import by Client ID" form.
+**Fix:** Remove the official bot catalog. Keep only the "Import by Client ID" form.
 
 ---
 
-### [P2-D] Group Chats — creation appears broken (list never refreshes)
+### [P2-D] Group Chats — list doesn't refresh after creation
+**File:** `spidr-client/src/components/spidr/CreateGroupChatModal.jsx`
 
-**File:** `src/components/spidr/CreateGroupChatModal.jsx:34`
-
-Direct consequence of P1-A. Group chat IS created in Base44 but
-`invalidateQueries(['group-chats'])` silently fails. User sees an empty list and
-thinks creation failed.
-
-**Fix:** Update to `{ queryKey: ['group-chats'] }` syntax.
+**Fix:** After successful POST, invalidate/refetch the group chats query.
 
 ---
 
-### [P2-E] Neural Links / Connections tab — verify `updateMe` API exists
+### [P2-E] SpidrAIChat — no error handling on AI failure
+**File:** `spidr-client/src/components/spidr/SpidrAIChat.jsx`
 
-**File:** `src/components/spidr/NeuralConfig.jsx`
-
-Code calls `base44.auth.updateMe({ neural_links: ... })`. The Base44 SDK's `auth` object
-may not expose `updateMe` as a public method. If it doesn't exist, all connection saves
-fail silently.
-
-**Action needed:** Verify `base44.auth.updateMe` exists in the SDK. If not, switch to
-`base44.entities.UserProfile.update(profileId, { neural_links: ... })`.
+**Fix:** Add `.catch(err => toast.error('AI unavailable: ' + err.message))`.
 
 ---
 
-### [P2-F] SpidrAIChat — verify Base44 LLM integration is configured
+### [P2-F] Change password — no input validation
+**File:** `spidr-server/src/routes/auth.js:174-186`
 
-**File:** `src/components/spidr/SpidrAIChat.jsx:20`
+`currentPassword` and `newPassword` are not validated for null/undefined or minimum length before use; allows weak passwords and risks bcrypt errors.
 
-Calls `base44.integrations.Core.InvokeLLM(...)`. This requires the LLM integration to be
-explicitly enabled in the Base44 app dashboard. If not configured, calls fail with no
-user-visible error (only success toast exists; no `onError` toast).
-
-**Fix:**
-1. Verify LLM integration is enabled in Base44 dashboard.
-2. Add `onError` toast: `toast.error('AI unavailable: ' + err.message)`.
-3. (Low priority) Make system prompt configurable via Base44 app settings.
+**Fix:** Guard at top of handler: check both fields exist and `newPassword.length >= 8`.
 
 ---
 
-## PRIORITY 3 — MEDIUM (Feature Partially Working / Degraded UX)
+## PRIORITY 3 — MEDIUM
 
-### [P3-A] Upload Clip — thumbnail generation produces black frame
+### [P3-A] VideoStudio — thumbnail generates black frame
+**File:** `spidr-client/src/components/spidr/VideoStudio.jsx:144`
 
-**File:** `src/components/spidr/VideoStudio.jsx:144`
-
-Canvas draws from the video element without checking `readyState >= 2`
-(HAVE_CURRENT_DATA). If the video hasn't buffered a frame yet, the canvas captures a
-blank/black image.
-
-**Fix:** Wait for the `loadeddata` event before calling `drawImage`, and check
-`video.readyState >= 2`.
+**Fix:** Wait for `loadeddata` event + check `video.readyState >= 2` before `drawImage`.
 
 ---
 
-### [P3-B] CinemaStage — SSR violation + stale object URL
+### [P3-B] VideoStudio — stale object URL memory leak
+**File:** `spidr-client/src/components/spidr/VideoStudio.jsx:90-92`
 
-**File:** `src/components/spidr/CinemaStage.jsx:22`
-
-`window.location.hostname` is accessed directly (not inside a function or effect). While
-all pages are `'use client'`, this is still a bad practice that could cause issues.
-
-Also: `URL.createObjectURL` in `VideoStudio.jsx:90-92` can go stale if a video file
-changes quickly (old URL not revoked, new URL not assigned).
-
-**Fix:** Wrap `window.location.hostname` in `typeof window !== 'undefined'` guard.
-Add `URL.revokeObjectURL` cleanup in the effect that creates the object URL.
+**Fix:** Call `URL.revokeObjectURL(prev)` in the cleanup of the effect that creates it.
 
 ---
 
 ### [P3-C] UserProfile query key inconsistency — stale data across views
+**Affected:** `HolographicProfile.jsx`, `PCSpecsFlex.jsx`, `UserProfilePod.jsx`
 
-Multiple components query `UserProfile` with different cache keys:
-- `['userProfile', id]`
-- `['profile', id]`
-- `['user-profile', id]`
+Keys in use: `['userProfile', id]`, `['profile', id]`, `['user-profile', id]` — all different caches.
 
-Each key creates a separate React Query cache entry, causing different profile views to
-show different (potentially stale) data for the same user.
-
-**Affected files:** `HolographicProfile.jsx`, `PCSpecsFlex.jsx`, `UserProfilePod.jsx`,
-and others.
-
-**Fix:** Standardize all `UserProfile` query keys to `['userProfile', userId]`.
+**Fix:** Standardize to `['userProfile', userId]` everywhere.
 
 ---
 
-### [P3-D] Mic / Deafen toggles in UserProfilePod — UI-only
+### [P3-D] Mic / Deafen toggles — UI-only, no real audio effect
+**File:** `spidr-client/src/components/spidr/UserProfilePod.jsx:163-172`
 
-**File:** `src/components/spidr/UserProfilePod.jsx:163-172`
-
-Mic mute and deafen buttons update local component state only. They are not wired to
-`getUserMedia`, any WebRTC stream, or `VoiceChannel` state. Clicking them has no
-real audio effect.
-
-**Fix:** Connect pod mic/deafen state to a shared audio context or the active
-`VoiceChannel` component's stream controls.
+**Fix:** Wire to shared audio context or active `VoiceChannel` stream controls.
 
 ---
 
-### [P3-E] 2FA setup is mock/demo only
+### [P3-E] 2FA TOTP — any OTP code accepted (secret not verified server-side)
+**File:** `spidr-client/src/components/spidr/SecurityMatrix.jsx`
 
-**File:** `src/components/spidr/SecurityMatrix.jsx:73-74`
+Backend `/auth/setup-totp` and `/auth/verify-totp-setup` routes exist. Frontend needs to call them correctly and store the secret before marking 2FA as enabled.
 
-The QR code generates an `otpauth://` URL with a randomly generated mock secret. No
-secret is stored to the backend. When the user "verifies" the code, no real TOTP
-validation occurs — any input is accepted.
-
-The 2FA prompt at login may be the Base44 platform's own auth requirement (not
-controllable from this codebase).
-
-**Action needed:**
-1. Investigate whether the login-time 2FA prompt is Base44-level or app-level.
-2. Either implement real TOTP (store secret in `UserProfile`, validate server-side)
-   or remove the UI and document that 2FA is handled by Base44 auth.
+**Fix:** Wire `SecurityMatrix` TOTP flow to `/auth/setup-totp` → `/auth/verify-totp-setup`.
 
 ---
 
-### [P3-F] DynamicModuleWidget — silent JSON parse failures + fake weather data
+### [P3-F] DynamicModuleWidget — silent JSON failures + fake weather
+**File:** `spidr-client/src/components/nexus/widgets/DynamicModuleWidget.jsx`
 
-**File:** `src/components/nexus/DynamicModuleWidget.jsx:36,230`
-
-1. Line 36: JSON parse errors are caught and result in a `{ raw: '...' }` object. This
-   breaks typed widget renderers downstream without any visible error.
-2. Line 230: Weather widget calls `base44.integrations.Core.InvokeLLM` to generate
-   *fake* weather data (not a real weather API).
-
-Also: `GamingUplink.jsx` and `AudioResonance.jsx` render fully hardcoded static content
-with no Base44 entity data.
-
-**Fix:**
-1. Log parse errors and render an error state instead of a `{ raw }` fallback.
-2. Replace fake LLM weather with a real weather API or remove the widget.
-3. Connect gaming/audio widgets to Base44 data entities.
+**Fix:** Render error state on parse failure. Replace fake LLM weather with Open-Meteo (free, no key).
 
 ---
 
-### [P3-G] Bot Laboratory — installations not persisted
+### [P3-G] Bot Laboratory — installs not persisted
+**File:** `spidr-client/src/components/spidr/BotLaboratory.jsx:88`
 
-**File:** `src/components/spidr/BotLaboratory.jsx:88-90`
-
-```js
-setInstalledBots(prev => new Set([...prev, botId]))
-```
-
-Bot installations are stored in local React state only. Clearing or refreshing the page
-resets the installed bots list. No `base44.entities.BotInstallation.create()` call.
-
-**Fix:** On install, write to a `BotInstallation` Base44 entity. On load, query and
-hydrate `installedBots` from that entity.
+**Fix:** `POST /api/installed-modules` on install. `GET /api/installed-modules` on load.
 
 ---
 
-## PRIORITY 4 — LOW (Polish / Non-Critical)
+### [P3-H] VoiceChannel join/leave race condition — orphaned sessions
+**File:** `spidr-client/src/components/spidr/VoiceChannel.jsx:91-116`
 
-### [P4-A] CinemaStage chat — static stub
+`hasJoinedRef` prevents re-join but doesn't block simultaneous join+leave calls; can leave orphaned voice sessions on the server.
 
-Chat section in `CinemaStage` shows one hardcoded message. No real Base44 entity
-integration. Should connect to a `ChannelMessage` or `ChatMessage` entity scoped to the
-active cinema room.
+**Fix:** Use a Promise-based lock or add `isConnected` state check before join/leave calls.
 
 ---
+
+### [P3-I] useWebRTC — silent offer creation failure
+**File:** `spidr-client/src/components/spidr/useWebRTC.js:81`
+
+`pc.createOffer().catch(console.error)` — user gets no feedback if WebRTC offer fails; call just silently drops.
+
+**Fix:** Set an error state and show `toast.error('Connection failed')` in the catch.
+
+---
+
+### [P3-J] DirectMessage model — duplicate conflicting field names
+**File:** `spidr-server/src/models/DirectMessage.js:3-22`
+
+Schema defines both `receiver_id` and `recipient_id` for the same concept; frontend/backend mismatch will silently store `undefined`.
+
+**Fix:** Remove one field, keep one canonical name (`recipient_id`), and search/replace all usages.
+
+---
+
+### [P3-K] crudRouter — no required-field validation on create
+**File:** `spidr-server/src/utils/crudRouter.js:70-79`
+
+Generic create endpoint passes body straight to Mongoose; validation errors return an unhelpful generic 400 with no field-level detail.
+
+**Fix:** Add a `validate` option to `crudRouter` so callers can pass a per-model check function.
+
+---
+
+## PRIORITY 4 — LOW
+
+### [P4-A] CinemaStage chat — hardcoded stub message
+Connect to a real Socket.io channel scoped to the active cinema room.
 
 ### [P4-B] SpidrAIChat — hardcoded system prompt
+Make configurable via `UserProfile` field or server env. *(Will be replaced by ARCH-C Spidr Bot)*
 
-System prompt is baked directly into the component. Should be read from a Base44 app
-setting or `UserProfile` field so it can be customized per user or per deployment.
+### [P4-C] PCSpecsFlex — wrong query key `['user-profile']`
+**Fix:** Change to `['userProfile', userId]` per P3-C.
+
+### [P4-D] SettingsPanel — no cache invalidation after profile save
+After `PATCH /api/user-profiles/:id`, invalidate `['userProfile', userId]`.
+
+### [P4-E] CreateServerModal — server banner has no file upload
+Icon supports upload, banner only accepts a URL. Both should use `POST /api/upload`.
+
+### [P4-F] AVLab — `console.log` left in production
+**File:** `spidr-client/src/components/spidr/AVLab.jsx:118`
+
+`console.log(...)` fires on every voice effect switch in production builds.
+
+**Fix:** Gate with `if (import.meta.env.DEV)` or remove.
+
+### [P4-G] VoiceChannel — silently swallows cleanup errors
+**File:** `spidr-client/src/components/spidr/VoiceChannel.jsx:96-109`
+
+`.catch(() => {})` on old-session delete; network failures are invisible.
+
+**Fix:** `.catch(err => console.error('Failed to clean old sessions:', err))`
+
+### [P4-H] algorithm route — no guard if `req.user` is undefined
+**File:** `spidr-server/src/routes/algorithm.js:33`
+
+Direct access to `req.user.id` with no null check; crashes if auth middleware fails to attach user.
+
+**Fix:** Add `if (!req.user) return res.status(401).json({ error: 'Auth required' });` at top of handler.
 
 ---
 
-### [P4-C] PCSpecsFlex widget — non-standard query key
-
-Uses `['user-profile', userId]` while the standard (post P3-C fix) should be
-`['userProfile', userId]`. Part of the P3-C standardization effort.
-
-**File:** `src/components/nexus/widgets/PCSpecsFlex.jsx`
-
----
-
-### [P4-D] SettingsPanel — missing cache invalidation after profile updates
-
-Several `UserProfile.update()` mutation calls in `SettingsPanel.jsx` have no
-`onSuccess: () => queryClient.invalidateQueries({ queryKey: ['userProfile', userId] })`
-handler. Profile data shown elsewhere in the UI can go stale after saving settings.
+## SECURITY — Recent Fixes Applied
+- ~~Nerve Center socket — no server-side admin check~~ ✅ Fixed
+- ~~`dev-get-otp` dead code after module.exports~~ ✅ Fixed
+- ~~`_limit` query param uncapped~~ ✅ Capped at 200
+- ~~`_orderBy` field unvalidated~~ ✅ Regex guard added
+- ~~`change-password` no rate limit~~ ✅ authLimiter added
+- ~~Global rate limit 1000/15min~~ ✅ Reduced to 200
+- ~~`.env.development/.env.production` committed to git~~ ✅ Untracked + gitignore updated
+- ~~Real JWT secret in `.env.example`~~ ✅ Replaced with placeholder
 
 ---
 
-### [P4-E] CreateServerModal — banner has no file upload
+## Quick Reference
 
-**File:** `src/components/spidr/CreateServerModal.jsx`
-
-Server icon has a file upload button. Server banner accepts only a pasted URL string.
-Inconsistent UX — both should support file upload with drag-and-drop or a file picker.
-
----
-
-## Quick Reference: High-Impact One-Liners
-
-| ID | File | Issue Summary |
-|----|------|---------------|
-| P1-A | 50+ files | `invalidateQueries(['x'])` → `{ queryKey: ['x'] }` |
-| P1-B | `UserProfilePod.jsx:55` | `return null` when no profile — show skeleton instead |
-| P1-C | `SystemArchive.jsx:6` | `import { debounce } from 'lodash'` — lodash removed |
-| P1-D | `CreateServerModal.jsx:47` | No onError handler + broken invalidateQueries |
-| P2-A | `SettingsPanel.jsx:443-539` | Sound/notification toggles not persisted |
-| P2-B | `Home.jsx` | Theme state lost on refresh |
-| P2-C | `ImportBotTab.jsx:10-18` | Remove official Discord bot catalog |
-| P2-D | `CreateGroupChatModal.jsx:34` | invalidateQueries broken → list never refreshes |
-| P2-E | `NeuralConfig.jsx` | Verify `base44.auth.updateMe` exists in SDK |
-| P2-F | `SpidrAIChat.jsx:20` | Missing onError + verify LLM integration enabled |
-| P3-A | `VideoStudio.jsx:144` | Thumbnail black — drawImage before video buffers |
-| P3-C | Multiple | Inconsistent UserProfile query keys → stale cache |
-| P3-G | `BotLaboratory.jsx:88` | Bot installs lost on refresh — save to Base44 |
+| ID | File | Issue |
+|----|------|-------|
+| **ARCH-D** | `EngagementEvent.js` (new) | **Start collecting FYP training data — urgent** |
+| ARCH-A | `spidr-auth/` (new service) | Spring Boot auth microservice — Phase 2 |
+| ARCH-B | `spidr-server/` | Node.js core API — trim auth routes when ARCH-A ready |
+| ARCH-C | `spidr-ai/` (new service) | FastAPI AI service (Spidr Bot + FYP) — Phase 1 |
+| ~~INFRA-A~~ | ~~`azureStorage.js`~~ | ~~Azure Blob → R2~~ ✅ Done |
+| ~~INFRA-B~~ | ~~`spidr-server/`~~ | ~~Go+PostgreSQL migration~~ ❌ Superseded by ARCH plan |
+| ~~SEC-A~~ | ~~`auth.js:37`~~ | ~~OTP uses `Math.random()`~~ ✅ Fixed |
+| ~~SEC-B~~ | ~~`comments.js`, `clips.js`, `messages.js`~~ | ~~No ownership check on CRUD mutations~~ ✅ Fixed |
+| ~~SEC-C~~ | ~~`CinemaStage.jsx:14`~~ | ~~Unvalidated stream URL — XSS risk~~ ✅ Fixed |
+| P2-A | `SettingsPanel.jsx:443` | Sound/notification toggles not persisted |
+| P2-B | `Home.jsx` | Theme lost on refresh |
+| P2-C | `ImportBotTab.jsx:10` | Remove hardcoded Discord bot catalog |
+| P2-D | `CreateGroupChatModal.jsx` | Group chat list doesn't refresh |
+| P2-E | `SpidrAIChat.jsx` | No error handling on AI failure |
+| P2-F | `auth.js:174` | Change password — no input validation |
+| P3-A | `VideoStudio.jsx:144` | Thumbnail black frame |
+| P3-B | `VideoStudio.jsx:90` | Stale object URL leak |
+| P3-C | Multiple | Inconsistent UserProfile query keys |
+| P3-D | `UserProfilePod.jsx:163` | Mic/deafen UI-only |
+| P3-E | `SecurityMatrix.jsx` | TOTP not wired to backend |
+| P3-F | `DynamicModuleWidget.jsx` | Silent JSON failures + fake weather |
+| P3-G | `BotLaboratory.jsx:88` | Bot installs lost on refresh |
+| P3-H | `VoiceChannel.jsx:91` | Join/leave race condition |
+| P3-I | `useWebRTC.js:81` | Silent WebRTC offer failure |
+| P3-J | `DirectMessage.js` | Duplicate conflicting field names |
+| P3-K | `crudRouter.js:70` | No required-field validation on create |
+| P4-A | `CinemaStage.jsx` | Hardcoded stub chat message |
+| P4-B | `SpidrAIChat.jsx` | Hardcoded system prompt |
+| P4-C | `PCSpecsFlex.jsx` | Wrong query key `['user-profile']` |
+| P4-D | `SettingsPanel.jsx` | No cache invalidation after profile save |
+| P4-E | `CreateServerModal.jsx` | Banner missing file upload |
+| P4-F | `AVLab.jsx:118` | `console.log` in production |
+| P4-G | `VoiceChannel.jsx:96` | Silently swallows cleanup errors |
+| P4-H | `algorithm.js:33` | No `req.user` null guard |
+| ~~AUTH-Q1~~ | ~~`UserController.java`~~ | ~~`changePassword()` + `deleteAccount()` dead code~~ ✅ Fixed |
+| ~~AUTH-Q2~~ | ~~`AuthService.java`~~ | ~~`new Random()` for OTP~~ ✅ Fixed — `SecureRandom` |
+| ~~AUTH-Q3~~ | ~~`AuthService.java`~~ | ~~No email normalization~~ ✅ Fixed |
+| ~~AUTH-Q4~~ | ~~`RegisterUserDTO.java`~~ | ~~No username pattern validation~~ ✅ Fixed |
+| ~~AUTH-Q5~~ | ~~`AuthController.java`~~ | ~~`/resend` uses raw Map~~ ✅ Fixed — `ResendOtpDTO` |
+| ~~AUTH-Q6~~ | ~~`users.java`~~ | ~~No `@Indexed` on email/username~~ ✅ Fixed |
+| ~~AUTH-Q7~~ | ~~`JwtService.java`~~ | ~~Role + user ID not in JWT claims~~ ✅ Fixed |
+| ~~AUTH-Q8~~ | ~~`AuthService.java`~~ | ~~No confirmation email after password reset~~ ✅ Fixed |
+| ~~AUTH-Q9~~ | ~~`UserController.java`~~ | ~~`/users/all` leaks sensitive fields~~ ✅ Fixed — `UserResponseDTO` |
+| ~~AUTH-M1~~ | ~~`AuthController.java`~~ | ~~No rate limiting~~ ✅ Fixed — per-IP sliding window |
+| ~~AUTH-M2~~ | ~~`AuthService.java`~~ | ~~No account lockout~~ ✅ Fixed — lock after 5 fails |
+| ~~AUTH-M3~~ | ~~All controllers~~ | ~~No centralized error handler~~ ✅ Fixed — `GlobalExceptionHandler` |
+| ~~AUTH-M4~~ | ~~`application.properties`~~ | ~~Email credentials in plaintext~~ ✅ Fixed — env vars |
+| ~~AUTH-M5~~ | ~~`AuthService.java`~~ | ~~No resend OTP rate limit~~ ✅ Fixed — 3/24h per account |
+| ~~AUTH-M6~~ | ~~`users.java`~~ | ~~No unique DB index~~ ✅ Fixed — `@Indexed(unique=true)` |
+| AUTH-F1 | `JwtService.java` | No refresh token mechanism |
+| AUTH-F2 | System-wide | No token revocation on logout/ban |
+| AUTH-F3 | System-wide | No TOTP 2FA (Node.js server has it, Spring Boot doesn't) |
+| AUTH-F4 | `UserController.java` | No admin promotion endpoint |

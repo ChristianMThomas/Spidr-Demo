@@ -1,6 +1,10 @@
-#env
+# Environment files — never commit secrets
 .env
 .env.*
+spidr-server/.env
+spidr-client/.env.development
+spidr-client/.env.production
+spidr-client/.env.local
 
 # Logs
 logs
