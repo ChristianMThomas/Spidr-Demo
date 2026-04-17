@@ -380,15 +380,7 @@ Direct access to `req.user.id` with no null check; crashes if auth middleware fa
 
 ---
 
-## SECURITY — Recent Fixes Applied
-- ~~Nerve Center socket — no server-side admin check~~ ✅ Fixed
-- ~~`dev-get-otp` dead code after module.exports~~ ✅ Fixed
-- ~~`_limit` query param uncapped~~ ✅ Capped at 200
-- ~~`_orderBy` field unvalidated~~ ✅ Regex guard added
-- ~~`change-password` no rate limit~~ ✅ authLimiter added
-- ~~Global rate limit 1000/15min~~ ✅ Reduced to 200
-- ~~`.env.development/.env.production` committed to git~~ ✅ Untracked + gitignore updated
-- ~~Real JWT secret in `.env.example`~~ ✅ Replaced with placeholder
+
 
 ---
 

@@ -23,6 +23,12 @@ public class EmailConfiguration {
     @Value("${spring.mail.password}")
     private String mailPassword;
 
+    @Value("${spring.mail.properties.mail.smtp.ssl.enable:true}")
+    private boolean sslEnabled;
+
+    @Value("${spring.mail.properties.mail.smtp.starttls.enable:false}")
+    private boolean startTlsEnabled;
+
     @Bean
     public JavaMailSender javaMailSender() {
         JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
@@ -35,10 +41,12 @@ public class EmailConfiguration {
         Properties props = mailSender.getJavaMailProperties();
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", "true");
-        props.put("mail.smtp.starttls.enable", "true");
-        props.put("mail.smtp.connectiontimeout", "5000");
-        props.put("mail.smtp.timeout", "5000");
-        props.put("mail.smtp.writetimeout", "5000");
+        props.put("mail.smtp.ssl.enable", String.valueOf(sslEnabled));
+        props.put("mail.smtp.starttls.enable", String.valueOf(startTlsEnabled));
+        props.put("mail.smtp.ssl.trust", "smtp.gmail.com");
+        props.put("mail.smtp.connectiontimeout", "10000");
+        props.put("mail.smtp.timeout", "10000");
+        props.put("mail.smtp.writetimeout", "10000");
 
         return mailSender;
     }

@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { entities, auth } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ShieldCheck, Key, LogOut, AlertTriangle, Lock,
@@ -10,6 +11,7 @@ import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export default function SecurityMatrix({ currentUser }) {
+  const { logout } = useAuth();
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [show2FADialog,      setShow2FADialog]      = useState(false);
   const [showResetDialog,    setShowResetDialog]     = useState(false);
@@ -146,7 +148,7 @@ export default function SecurityMatrix({ currentUser }) {
           {/* Danger Zone */}
           <div className="bg-red-950/20 border border-red-500/20 rounded-2xl p-5">
             <p className="text-red-400 font-bold text-sm flex items-center gap-2 mb-3"><AlertTriangle size={16} /> DANGER ZONE</p>
-            <button onClick={() => { if (window.confirm('Sever neural link and log out of all devices?')) auth.logout(); }}
+            <button onClick={() => { if (window.confirm('Sever neural link and log out of all devices?')) logout(); }}
               className="w-full py-2.5 bg-red-500/10 hover:bg-red-500 border border-red-500/30 text-red-400 hover:text-white text-sm font-bold rounded-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2">
               <LogOut size={16} /> SEVER NEURAL LINK
             </button>

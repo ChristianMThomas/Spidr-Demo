@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Headphones, Settings, LogOut, User, Crown } from 'lucide-react';
 import { entities, auth } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import HolographicProfile from './HolographicProfile';
 import ApexStore from './ApexStore';
@@ -15,6 +16,7 @@ const STATUS_COLORS = {
 };
 
 export default function UserProfilePod({ onSettingsClick }) {
+  const { logout } = useAuth();
   const [expanded,     setExpanded]     = useState(false);
   const [micActive,    setMicActive]    = useState(true);
   const [deafened,     setDeafened]     = useState(false);
@@ -197,7 +199,7 @@ export default function UserProfilePod({ onSettingsClick }) {
 
                 {/* Disconnect */}
                 <button
-                  onClick={() => auth.logout()}
+                  onClick={() => logout()}
                   className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition-colors"
                 >
                   <LogOut size={14} />

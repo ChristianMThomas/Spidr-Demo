@@ -1,4 +1,30 @@
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const AUTH_URL = import.meta.env.VITE_AUTH_URL || 'http://localhost:8080';
+
+// ─── Auth-service fetch wrapper (points at Spring Boot on AUTH_URL) ───────────
+async function authRequest(method, path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = localStorage.getItem('spidr_token');
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(AUTH_URL + path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (res.status === 401) localStorage.removeItem('spidr_token');
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
 
 // ─── Core fetch wrapper ───────────────────────────────────────────────────────
 async function request(method, path, { params, body, isFormData } = {}) {
@@ -99,28 +125,63 @@ export const entities = {
   ServerAuditLog:   entity('server-audit-logs'),
 };
 
-// ─── Auth ────────────────────────────────────────────────────────────────────
+// ─── Auth (Spring Boot spidr-auth on AUTH_URL) ───────────────────────────────
 export const auth = {
-  login:           (email, password) => api.post('/auth/login', { email, password }),
-  register:        (data)            => api.post('/auth/register', data),
-  verifyOTP:       (email, otp)      => api.post('/auth/verify-otp', { email, otp }),
-  resendOTP:       (email)           => api.post('/auth/resend-otp', { email }),
-  setupTotp:       ()                => api.post('/auth/setup-totp'),
-  verifyTotpSetup: (token)           => api.post('/auth/verify-totp-setup', { token }),
-  disableTotp:     ()                => api.post('/auth/disable-totp'),
-  changePassword:  (data)            => api.post('/auth/change-password', data),
-  overrideRequest: (email)           => api.post('/auth/override-request', { email }),
-  overrideVerify:  (email, code, method) => api.post('/auth/override-verify', { email, code, method }),
-  overrideConfirm: (resetToken, newPassword) => api.post('/auth/override-confirm', { resetToken, newPassword }),
-  devGetOtp:       (email)           => api.post('/auth/dev-get-otp', { email }).catch(() => null),
-  me:              ()                => api.get('/auth/me'),
-  logout: () => {
-    localStorage.removeItem('spidr_token');
+  // POST /auth/login → {token, expiresIn}
+  login: (email, password) =>
+    authRequest('POST', '/auth/login', { email, password }),
+
+  // POST /auth/signup → {message}
+  // Normalised → {requiresVerification: true, email} so AuthContext shows OTP screen
+  register: async ({ email, password, username }) => {
+    await authRequest('POST', '/auth/signup', { email, password, username });
+    return { requiresVerification: true, email };
   },
-  redirectToLogin: () => {
-    localStorage.removeItem('spidr_token');
-    window.location.reload();
+
+  // POST /auth/verify — Spring Boot field is 'verificationCode', not 'otp'
+  // Returns {token, expiresIn}
+  verifyOTP: (email, otp) =>
+    authRequest('POST', '/auth/verify', { email, verificationCode: otp }),
+
+  // POST /auth/resend — body {email}
+  resendOTP: (email) =>
+    authRequest('POST', '/auth/resend', { email }),
+
+  // GET /users/me → {id, username, email, role, enabled}
+  me: () => authRequest('GET', '/users/me'),
+
+  // PATCH /users/change-password
+  changePassword: (data) =>
+    authRequest('PATCH', '/users/change-password', data),
+
+  // POST /auth/forgot-password → {message}
+  // Normalised → {method: 'email'} so LoginPage ForgotPassword component works
+  overrideRequest: async (email) => {
+    await authRequest('POST', '/auth/forgot-password', { email });
+    return { method: 'email' };
   },
+
+  // POST /auth/verify-reset-code — Spring Boot field is 'resetCode', not 'code'
+  // Normalised → {resetToken: email} so ForgotPassword can identify the user in overrideConfirm
+  overrideVerify: async (email, code, _method) => {
+    await authRequest('POST', '/auth/verify-reset-code', { email, resetCode: code });
+    return { resetToken: email };
+  },
+
+  // POST /auth/reset-password — resetToken IS the email (set by overrideVerify above)
+  overrideConfirm: (resetToken, newPassword) =>
+    authRequest('POST', '/auth/reset-password', { email: resetToken, newPassword }),
+
+  // TOTP — AUTH-F3 is still open; keep pointing to Node.js until Spring Boot adds it
+  setupTotp:       ()        => api.post('/auth/setup-totp'),
+  verifyTotpSetup: (token)   => api.post('/auth/verify-totp-setup', { token }),
+  disableTotp:     ()        => api.post('/auth/disable-totp'),
+
+  // devGetOtp — no Spring Boot equivalent; silently return null (LoginPage handles this)
+  devGetOtp: () => Promise.resolve(null),
+
+  logout: () => { localStorage.removeItem('spidr_token'); },
+  redirectToLogin: () => { localStorage.removeItem('spidr_token'); window.location.reload(); },
 };
 
 // ─── Integrations ────────────────────────────────────────────────────────────

@@ -24,7 +24,8 @@ export const AuthProvider = ({ children }) => {
       .finally(() => setLoadingAuth(false));
   }, []);
 
-  // Returns { requires2FA, requiresVerification } if OTP step needed
+  // Returns { requires2FA } if OTP step needed (reserved for future Spring Boot 2FA)
+  // Spring Boot currently issues a token directly on login — no OTP step.
   const login = async (email, password) => {
     const data = await auth.login(email, password);
     if (data.requires2FA) {
@@ -32,10 +33,10 @@ export const AuthProvider = ({ children }) => {
       setOtpMode('login');
       return { requires2FA: true, email };
     }
-    // Shouldn't happen with 2FA enabled, but handle direct token just in case
     if (data.token) {
       localStorage.setItem('spidr_token', data.token);
-      setUser(data.user); setIsAuth(true); setAuthError(null);
+      const user = await auth.me();
+      setUser(user); setIsAuth(true); setAuthError(null);
     }
     return data;
   };
@@ -57,7 +58,9 @@ export const AuthProvider = ({ children }) => {
   const verifyOTP = async (email, otp) => {
     const data = await auth.verifyOTP(email, otp);
     localStorage.setItem('spidr_token', data.token);
-    setUser(data.user); setIsAuth(true); setAuthError(null);
+    // Spring Boot returns {token, expiresIn} — fetch user separately
+    const user = await auth.me();
+    setUser(user); setIsAuth(true); setAuthError(null);
     setPendingEmail(null); setOtpMode(null);
     return data;
   };

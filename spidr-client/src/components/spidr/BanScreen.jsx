@@ -1,6 +1,7 @@
 import React from 'react';
 import { Ban, Clock } from 'lucide-react';
 import { entities, auth, integrations } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 function formatDate(date) {
   return new Date(date).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
@@ -21,6 +22,7 @@ function fromNow(date) {
 }
 
 export default function BanScreen({ profile }) {
+  const { logout } = useAuth();
   const isPermanent = !profile.ban_until;
   const banExpiry = profile.ban_until ? new Date(profile.ban_until) : null;
   const isExpired = banExpiry && banExpiry < new Date();
@@ -64,7 +66,7 @@ export default function BanScreen({ profile }) {
         </div>
 
         <button
-          onClick={() => auth.logout()}
+          onClick={() => logout()}
           className="px-6 py-2.5 bg-[#111] border border-white/10 rounded-lg text-sm font-bold text-gray-400 hover:text-white hover:border-white/20 transition-colors"
         >
           Sign Out

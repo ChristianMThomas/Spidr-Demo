@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Settings, Mic, Headphones, LogOut, User } from 'lucide-react';
@@ -18,6 +19,7 @@ const statusColors = {
 };
 
 export default function UserProfileWidget({ currentUser, onOpenSettings }) {
+  const { logout } = useAuth();
   const [showPanel, setShowPanel] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const queryClient = useQueryClient();
@@ -110,7 +112,7 @@ export default function UserProfileWidget({ currentUser, onOpenSettings }) {
               </button>
               <div className="border-t border-zinc-700 pt-3">
                 <button 
-                  onClick={() => auth.logout()}
+                  onClick={() => logout()}
                   className="w-full flex items-center gap-3 p-2 hover:bg-red-900/20 rounded-lg transition-colors text-red-500"
                 >
                   <LogOut className="w-5 h-5" />

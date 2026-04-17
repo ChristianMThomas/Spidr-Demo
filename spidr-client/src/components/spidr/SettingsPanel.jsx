@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,7 @@ import ApexVisuals from './ApexVisuals';
 import { toast } from 'sonner';
 
 export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) {
+  const { logout } = useAuth();
   const queryClient = useQueryClient();
   
   const { data: profile } = useQuery({
@@ -204,7 +206,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                 variant="ghost" 
                 size="sm"
                 className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
-                onClick={() => auth.logout()}
+                onClick={() => logout()}
               >
                 <LogOut className="w-4 h-4" /> <span className="hidden sm:inline ml-1">Logout</span>
               </Button>

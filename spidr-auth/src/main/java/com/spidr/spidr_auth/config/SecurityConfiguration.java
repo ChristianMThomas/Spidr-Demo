@@ -3,6 +3,7 @@ package com.spidr.spidr_auth.config;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -35,6 +36,8 @@ public class SecurityConfiguration {
 
             // Route-level access rules
             .authorizeHttpRequests(auth -> auth
+                // CORS preflight — must pass before any auth check
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // Public auth endpoints — no token needed
                 .requestMatchers(
                     "/auth/signup",
@@ -72,6 +75,7 @@ public class SecurityConfiguration {
         config.setAllowedOrigins(List.of(
             "http://localhost:5173",
             "http://localhost:4000",
+            "https://spidrapp.infinitetechteam.com",
             "app://.",
             "file://"
         ));
