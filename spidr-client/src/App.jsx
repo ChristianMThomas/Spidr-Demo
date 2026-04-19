@@ -3,17 +3,14 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
 import { pagesConfig } from './pages.config'
-import { HashRouter, BrowserRouter, Route, Routes } from 'react-router-dom';
+import { HashRouter, BrowserRouter, Route, Routes, Navigate } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import LoginPage from '@/components/spidr/LoginPage';
+import LandingPage from '@/pages/LandingPage';
 
-const { Pages, Layout, mainPage } = pagesConfig;
-const mainPageKey = mainPage ?? Object.keys(Pages)[0];
-const MainPage = mainPageKey ? Pages[mainPageKey] : <></>;
+const { Pages, Layout } = pagesConfig;
 
-// Use HashRouter in Electron (file:// protocol) — BrowserRouter in browser (http://)
-// Detect Electron via user agent (most reliable - works before preload)
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron');
 const Router = isElectron ? HashRouter : BrowserRouter;
 
@@ -21,7 +18,7 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout
   ? <Layout currentPageName={currentPageName}>{children}</Layout>
   : <>{children}</>;
 
-const AuthenticatedApp = () => {
+function AppRoutes() {
   const { isLoadingAuth, isAuthenticated } = useAuth();
 
   if (isLoadingAuth) {
@@ -32,28 +29,37 @@ const AuthenticatedApp = () => {
     );
   }
 
-  if (!isAuthenticated) {
-    return <LoginPage />;
-  }
-
   return (
     <Routes>
-      <Route path="/" element={
-        <LayoutWrapper currentPageName={mainPageKey}>
-          <MainPage />
-        </LayoutWrapper>
-      } />
+      {/* Public — landing page */}
+      <Route
+        path="/"
+        element={isAuthenticated ? <Navigate to="/Home" replace /> : <LandingPage />}
+      />
+
+      {/* Public — login/signup/otp/forgot-password */}
+      <Route
+        path="/login"
+        element={isAuthenticated ? <Navigate to="/Home" replace /> : <LoginPage />}
+      />
+
+      {/* Protected — all app pages */}
       {Object.entries(Pages).map(([path, Page]) => (
-        <Route key={path} path={`/${path}`} element={
-          <LayoutWrapper currentPageName={path}>
-            <Page />
-          </LayoutWrapper>
-        } />
+        <Route
+          key={path}
+          path={`/${path}`}
+          element={
+            isAuthenticated
+              ? <LayoutWrapper currentPageName={path}><Page /></LayoutWrapper>
+              : <Navigate to="/login" replace />
+          }
+        />
       ))}
+
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
-};
+}
 
 function App() {
   return (
@@ -61,7 +67,7 @@ function App() {
       <QueryClientProvider client={queryClientInstance}>
         <Router>
           <NavigationTracker />
-          <AuthenticatedApp />
+          <AppRoutes />
         </Router>
         <Toaster />
       </QueryClientProvider>

@@ -3,6 +3,7 @@ package com.spidr.spidr_auth.service;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
@@ -14,6 +15,9 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
 
+    @Value("${mail.from}")
+    private String mailFrom;
+
     // ── All send methods are @Async — exceptions are handled internally ────────
     // Do NOT declare throws on @Async methods; any exception thrown in the async
     // thread is NOT propagated to the caller.
@@ -23,6 +27,7 @@ public class EmailService {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true);
+            helper.setFrom(mailFrom);
             helper.setTo(to);
             helper.setSubject("Spidr — Verify Your Account");
             helper.setText(buildVerificationEmail(username, code), true);
@@ -37,6 +42,7 @@ public class EmailService {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true);
+            helper.setFrom(mailFrom);
             helper.setTo(to);
             helper.setSubject("Spidr — Your Login Code");
             helper.setText(buildLoginOtpEmail(username, code), true);
@@ -51,6 +57,7 @@ public class EmailService {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true);
+            helper.setFrom(mailFrom);
             helper.setTo(to);
             helper.setSubject("Spidr — Password Reset Code");
             helper.setText(buildPasswordResetEmail(username, code), true);
@@ -66,6 +73,7 @@ public class EmailService {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true);
+            helper.setFrom(mailFrom);
             helper.setTo(to);
             helper.setSubject("Spidr — Password Changed Successfully");
             helper.setText(buildPasswordResetConfirmationEmail(username), true);

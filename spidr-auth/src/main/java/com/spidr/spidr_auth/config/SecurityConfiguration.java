@@ -76,6 +76,9 @@ public class SecurityConfiguration {
             "http://localhost:5173",
             "http://localhost:4000",
             "https://spidrapp.infinitetechteam.com",
+            "https://www.spidrapp.infinitetechteam.com",
+            "https://spidrapp.infinitetechteam.com/login",
+            "https://www.spidrapp.infinitetechteam.com/login",
             "http://localhost:3000",
             "app://.",
             "file://"
