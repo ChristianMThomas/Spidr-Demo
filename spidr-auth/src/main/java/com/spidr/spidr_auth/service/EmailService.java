@@ -1,85 +1,63 @@
 package com.spidr.spidr_auth.service;
 
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
 @Service
-@RequiredArgsConstructor
 public class EmailService {
 
-    private final JavaMailSender mailSender;
+    private static final String RESEND_URL = "https://api.resend.com/emails";
+
+    @Value("${resend.api-key}")
+    private String apiKey;
 
     @Value("${mail.from}")
     private String mailFrom;
 
-    // ── All send methods are @Async — exceptions are handled internally ────────
-    // Do NOT declare throws on @Async methods; any exception thrown in the async
-    // thread is NOT propagated to the caller.
+    private final HttpClient httpClient = HttpClient.newHttpClient();
 
     @Async
     public void sendVerificationEmail(String to, String username, String code) {
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true);
-            helper.setFrom(mailFrom);
-            helper.setTo(to);
-            helper.setSubject("Spidr — Verify Your Account");
-            helper.setText(buildVerificationEmail(username, code), true);
-            mailSender.send(message);
-        } catch (MessagingException e) {
-            // Log but don't propagate — caller is not waiting on this
-        }
+        send(to, "Spidr — Verify Your Account", buildVerificationEmail(username, code));
     }
 
     @Async
     public void sendLoginOtpEmail(String to, String username, String code) {
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true);
-            helper.setFrom(mailFrom);
-            helper.setTo(to);
-            helper.setSubject("Spidr — Your Login Code");
-            helper.setText(buildLoginOtpEmail(username, code), true);
-            mailSender.send(message);
-        } catch (MessagingException e) {
-            // Log but don't propagate
-        }
+        send(to, "Spidr — Your Login Code", buildLoginOtpEmail(username, code));
     }
 
     @Async
     public void sendPasswordResetEmail(String to, String username, String code) {
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true);
-            helper.setFrom(mailFrom);
-            helper.setTo(to);
-            helper.setSubject("Spidr — Password Reset Code");
-            helper.setText(buildPasswordResetEmail(username, code), true);
-            mailSender.send(message);
-        } catch (MessagingException e) {
-            // Log but don't propagate
-        }
+        send(to, "Spidr — Password Reset Code", buildPasswordResetEmail(username, code));
     }
 
-    /** Confirmation email sent after a successful password reset (AUTH-Q8). */
     @Async
     public void sendPasswordResetConfirmationEmail(String to, String username) {
+        send(to, "Spidr — Password Changed Successfully", buildPasswordResetConfirmationEmail(username));
+    }
+
+    private void send(String to, String subject, String html) {
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true);
-            helper.setFrom(mailFrom);
-            helper.setTo(to);
-            helper.setSubject("Spidr — Password Changed Successfully");
-            helper.setText(buildPasswordResetConfirmationEmail(username), true);
-            mailSender.send(message);
-        } catch (MessagingException e) {
-            // Log but don't propagate
+            String body = """
+                    {"from":"%s","to":["%s"],"subject":"%s","html":"%s"}
+                    """.formatted(mailFrom, to, subject, html.replace("\"", "\\\"").replace("\n", "").strip());
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(RESEND_URL))
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+
+            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (Exception e) {
+            // async — don't propagate
         }
     }
 
