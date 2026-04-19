@@ -1,11 +1,5 @@
 package com.spidr.spidr_auth.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import jakarta.annotation.PostConstruct;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -18,7 +12,6 @@ import java.net.http.HttpResponse;
 @Service
 public class EmailService {
 
-    private static final Logger log = LoggerFactory.getLogger(EmailService.class);
     private static final String RESEND_URL = "https://api.resend.com/emails";
 
     @Value("${resend.api-key}")
@@ -27,19 +20,7 @@ public class EmailService {
     @Value("${mail.from}")
     private String mailFrom;
 
-    @Autowired
-    private ObjectMapper objectMapper;
-
     private final HttpClient httpClient = HttpClient.newHttpClient();
-
-    @PostConstruct
-    private void init() {
-        if (apiKey == null || apiKey.isBlank()) {
-            log.warn("RESEND_API_KEY is not set — transactional emails will not be sent");
-        } else {
-            log.info("EmailService ready — from: {}", mailFrom);
-        }
-    }
 
     @Async
     public void sendVerificationEmail(String to, String username, String code) {
@@ -62,18 +43,10 @@ public class EmailService {
     }
 
     private void send(String to, String subject, String html) {
-        if (apiKey == null || apiKey.isBlank()) {
-            log.error("Cannot send email to {} — RESEND_API_KEY is not configured", to);
-            return;
-        }
         try {
-            ObjectNode payload = objectMapper.createObjectNode();
-            payload.put("from", mailFrom);
-            payload.putArray("to").add(to);
-            payload.put("subject", subject);
-            payload.put("html", html);
-
-            String body = objectMapper.writeValueAsString(payload);
+            String body = """
+                    {"from":"%s","to":["%s"],"subject":"%s","html":"%s"}
+                    """.formatted(mailFrom, to, subject, html.replace("\"", "\\\"").replace("\n", "").strip());
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(RESEND_URL))
@@ -82,14 +55,9 @@ public class EmailService {
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 400) {
-                log.error("Resend API error {}: {}", response.statusCode(), response.body());
-            } else {
-                log.info("Email sent to {} subject='{}' — status {}", to, subject, response.statusCode());
-            }
+            httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (Exception e) {
-            log.error("Failed to send email to {}: {}", to, e.getMessage());
+            // async — don't propagate
         }
     }
 
