@@ -25,7 +25,7 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
       return entities.DirectMessage.create({
         conversation_id: conversationId,
         sender_id: currentUser.id,
-        sender_name: currentUser.full_name || currentUser.email,
+        sender_name: currentUser.full_name || currentUser.username,
         sender_avatar: currentUser.avatar_url,
         recipient_id: friendId,
         content: `📹 Shared a clip: ${clip.caption || 'Check this out!'}`,

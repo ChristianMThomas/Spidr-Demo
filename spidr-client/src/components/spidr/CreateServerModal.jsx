@@ -27,7 +27,7 @@ export default function CreateServerModal({ open, onClose, currentUser }) {
         owner_id: currentUser?.id,
         members: [{
           user_id: currentUser?.id,
-          user_name: currentUser?.full_name || currentUser?.email,
+          user_name: currentUser?.full_name || currentUser?.username,
           user_avatar: currentUser?.avatar_url || '',
           role: 'admin'
         }],

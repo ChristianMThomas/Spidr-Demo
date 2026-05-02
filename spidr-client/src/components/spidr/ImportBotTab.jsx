@@ -23,7 +23,7 @@ export default function ImportBotTab({ currentUser }) {
         name: botName || `Discord Bot ${clientId.slice(0, 6)}`,
         description: `Imported from Discord (Client ID: ${clientId})`,
         author_id: currentUser?.id,
-        author_name: currentUser?.full_name || currentUser?.email,
+        author_name: currentUser?.full_name || currentUser?.username,
         source: 'discord_import',
         discord_client_id: clientId,
         status: 'scanning'

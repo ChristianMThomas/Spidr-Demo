@@ -95,7 +95,7 @@ Be strict but fair. Legitimate technical content is fine. Only flag genuinely ha
       payload: payload.trim(),
       icon_url: iconUrl,
       author_id: currentUser?.id,
-      author_name: currentUser?.display_name || currentUser?.full_name || currentUser?.email,
+      author_name: currentUser?.display_name || currentUser?.full_name || currentUser?.username,
       status: 'approved',
       is_public: true,
       install_count: 0,

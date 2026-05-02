@@ -232,7 +232,7 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
         caption:       caption.trim(),
         hashtags,
         author_id:     initialClip?.author_id || currentUser?.id,
-        author_name:   initialClip?.author_name || currentUser?.full_name || currentUser?.email,
+        author_name:   initialClip?.author_name || currentUser?.full_name || currentUser?.username,
         author_avatar: initialClip?.author_avatar || currentUser?.avatar_url || '',
         duration:      duration ? Math.round((trimEnd - trimStart) / 100 * duration) : initialClip?.duration || 0,
         aspect_ratio:  finalRatio,
