@@ -108,7 +108,7 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
       socket.emit('voice:join', {
         serverId, channelId, groupId,
         userId: currentUser.id,
-        userName: currentUser.full_name || currentUser.email,
+        userName: currentUser.full_name || currentUser.username,
       });
 
       // When a new peer joins → we create offer to them

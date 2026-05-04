@@ -99,7 +99,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
         server_id: server.id,
         channel_id: channel.id,
         user_id: currentUser.id,
-        user_name: currentUser.full_name || currentUser.email,
+        user_name: currentUser.full_name || currentUser.username,
         user_avatar: currentUser.avatar_url || '',
         is_muted: false,
         is_deafened: false,

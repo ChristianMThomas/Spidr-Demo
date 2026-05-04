@@ -58,7 +58,7 @@ export default function CreateGroupChatModal({ open, onClose, currentUser, onGro
     const members = [
       {
         user_id: currentUser?.id,
-        user_name: currentUser?.full_name || currentUser?.email,
+        user_name: currentUser?.full_name || currentUser?.username,
         user_avatar: currentUser?.avatar_url || '',
         role: 'admin'
       },

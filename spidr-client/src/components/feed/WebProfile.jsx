@@ -39,7 +39,7 @@ export default function WebProfile({ currentUser, onUploadClick }) {
   const totalViews = myStrands.reduce((sum, c) => sum + (c.views || 0), 0);
   const totalLikes = myStrands.reduce((sum, c) => sum + (c.likes?.length || 0), 0);
 
-  const displayName = profile?.display_name || currentUser?.full_name || currentUser?.email?.split('@')[0] || 'NODE';
+  const displayName = profile?.display_name || currentUser?.full_name || currentUser?.username || 'NODE';
   const avatarSeed = currentUser?.id || 'node';
   const avatarUrl = profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`;
 

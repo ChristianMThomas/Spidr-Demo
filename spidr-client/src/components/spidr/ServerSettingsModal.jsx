@@ -71,7 +71,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
       entities.ServerAuditLog.create({
         server_id: server.id,
         actor_id: currentUser?.id,
-        actor_name: currentUser?.full_name || currentUser?.email,
+        actor_name: currentUser?.full_name || currentUser?.username,
         action: 'SERVER_SETTINGS_UPDATE',
         category: 'admin',
         target_name: server.name,
@@ -104,7 +104,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
     setChannels([...channels, { id: channelId, ...newChannel }]);
     entities.ServerAuditLog.create({
       server_id: server.id, actor_id: currentUser?.id,
-      actor_name: currentUser?.full_name || currentUser?.email,
+      actor_name: currentUser?.full_name || currentUser?.username,
       action: 'CHANNEL_CREATE', category: 'admin',
       target_name: newChannel.name, details: `Type: ${newChannel.type}`
     });
@@ -116,7 +116,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
     setChannels(channels.filter(c => c.id !== id));
     entities.ServerAuditLog.create({
       server_id: server.id, actor_id: currentUser?.id,
-      actor_name: currentUser?.full_name || currentUser?.email,
+      actor_name: currentUser?.full_name || currentUser?.username,
       action: 'CHANNEL_DELETE', category: 'admin',
       target_name: ch?.name || id, details: `Channel removed`
     });
@@ -128,7 +128,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
     setRoles([...roles, { id: roleId, ...newRole, permissions: ['send_messages', 'read_messages'] }]);
     entities.ServerAuditLog.create({
       server_id: server.id, actor_id: currentUser?.id,
-      actor_name: currentUser?.full_name || currentUser?.email,
+      actor_name: currentUser?.full_name || currentUser?.username,
       action: 'ROLE_CREATE', category: 'admin',
       target_name: newRole.name, details: `New role created`
     });
@@ -141,7 +141,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
     setRoles(roles.filter(r => r.id !== id));
     entities.ServerAuditLog.create({
       server_id: server.id, actor_id: currentUser?.id,
-      actor_name: currentUser?.full_name || currentUser?.email,
+      actor_name: currentUser?.full_name || currentUser?.username,
       action: 'ROLE_DELETE', category: 'admin',
       target_name: role?.name || id, details: `Role removed`
     });

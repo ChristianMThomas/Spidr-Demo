@@ -260,10 +260,10 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         server_id: server.id,
         channel_id: selectedChannel,
         user_id: currentUser?.id,
-        user_name: currentUser?.full_name || currentUser?.email,
+        user_name: currentUser?.full_name || currentUser?.username,
         user_avatar: currentUser?.avatar_url || '',
         author_id: currentUser?.id,
-        author_name: currentUser?.full_name || currentUser?.email,
+        author_name: currentUser?.full_name || currentUser?.username,
         author_avatar: currentUser?.avatar_url || '',
       });
 
@@ -339,10 +339,10 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       server_id: server.id,
       channel_id: selectedChannel,
       user_id: currentUser?.id,
-      user_name: currentUser?.full_name || currentUser?.email,
+      user_name: currentUser?.full_name || currentUser?.username,
       user_avatar: currentUser?.avatar_url || '',
       author_id: currentUser?.id,
-      author_name: currentUser?.full_name || currentUser?.email,
+      author_name: currentUser?.full_name || currentUser?.username,
       author_avatar: currentUser?.avatar_url || '',
       attachments: (attachments || []).map(att => att.url),
       text_effect: textEffect
@@ -386,7 +386,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         entities.ServerAuditLog.create({
           server_id: server.id,
           actor_id: currentUser?.id,
-          actor_name: currentUser?.full_name || currentUser?.email,
+          actor_name: currentUser?.full_name || currentUser?.username,
           action: 'MSG_DELETE',
           category: server.owner_id === currentUser?.id ? 'admin' : 'mod',
           target_name: `#${selectedChannel}`,
@@ -410,10 +410,10 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         server_id: server.id,
         channel_id: selectedChannel,
         user_id: currentUser?.id,
-        user_name: currentUser?.full_name || currentUser?.email,
+        user_name: currentUser?.full_name || currentUser?.username,
         user_avatar: currentUser?.avatar_url || '',
         author_id: currentUser?.id,
-        author_name: currentUser?.full_name || currentUser?.email,
+        author_name: currentUser?.full_name || currentUser?.username,
         author_avatar: currentUser?.avatar_url || '',
       });
     }
@@ -560,7 +560,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             });
             await entities.Friend.create({
               user_id: targetUserId, friend_id: currentUser?.id,
-              friend_name: currentUser?.full_name || currentUser?.email,
+              friend_name: currentUser?.full_name || currentUser?.username,
               friend_avatar: currentUser?.avatar_url || '',
               status: 'pending_incoming'
             });
@@ -589,7 +589,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           await entities.Server.update(server.id, { members: newMembers });
           await entities.ServerAuditLog.create({
             server_id: server.id, actor_id: currentUser?.id,
-            actor_name: currentUser?.full_name || currentUser?.email,
+            actor_name: currentUser?.full_name || currentUser?.username,
             action: 'KICK_USER', category: 'admin', target_name: data?.name || targetUserId,
             details: `Kicked from server`
           });
@@ -600,7 +600,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           await entities.Server.update(server.id, { members: newMembers });
           await entities.ServerAuditLog.create({
             server_id: server.id, actor_id: currentUser?.id,
-            actor_name: currentUser?.full_name || currentUser?.email,
+            actor_name: currentUser?.full_name || currentUser?.username,
             action: 'BAN_USER', category: 'admin', target_name: data?.name || targetUserId,
             details: `Banned from server`
           });

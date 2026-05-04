@@ -38,7 +38,7 @@ export default function UserProfilePod({ onSettingsClick }) {
       // Auto-create a profile if none exists
       return entities.UserProfile.create({
         user_id:      currentUser.id,
-        display_name: currentUser.full_name || currentUser.username || currentUser.email?.split('@')[0] || 'User',
+        display_name: currentUser.full_name || currentUser.username || 'User',
         status:       'online',
         avatar_url:   '',
         bio:          '',
@@ -55,7 +55,7 @@ export default function UserProfilePod({ onSettingsClick }) {
   });
 
   const statusColor = STATUS_COLORS[profile?.status] || STATUS_COLORS.online;
-  const displayName = profile?.display_name || currentUser?.full_name || currentUser?.email?.split('@')[0] || 'User';
+  const displayName = profile?.display_name || currentUser?.full_name || currentUser?.username || 'User';
   const avatarUrl   = profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentUser?.id || 'user'}`;
   const isApex      = profile?.apex_tier === 'apex';
 

@@ -48,7 +48,7 @@ export default function ReportModal({ open, onClose, targetType, targetId, targe
     const reasonObj = REPORT_REASONS.find(r => r.id === reason);
     submitMutation.mutate({
       reporter_id: currentUser?.id,
-      reporter_name: currentUser?.full_name || currentUser?.email,
+      reporter_name: currentUser?.full_name || currentUser?.username,
       target_type: targetType || 'user',
       target_id: targetId,
       target_name: targetName || 'Unknown',

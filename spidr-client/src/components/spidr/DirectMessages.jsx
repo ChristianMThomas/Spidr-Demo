@@ -237,7 +237,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       server_id: 'dm',
       channel_id: activeConversationId,
       user_id: currentUser?.id,
-      user_name: currentUser?.full_name || currentUser?.email,
+      user_name: currentUser?.full_name || currentUser?.username,
       user_avatar: currentUser?.avatar_url || '',
       is_muted: isMuted,
       is_video_on: isVideoOn,
@@ -296,7 +296,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     sendMessageMutation.mutate({
       conversation_id: activeConversationId,
       sender_id: currentUser?.id,
-      sender_name: currentUser?.full_name || currentUser?.email,
+      sender_name: currentUser?.full_name || currentUser?.username,
       sender_avatar: currentUser?.avatar_url || '',
       receiver_id: activeRecipientId,
       recipient_id: activeRecipientId,
@@ -385,7 +385,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     sendMessageMutation.mutate({
       conversation_id: activeConversationId,
       sender_id: currentUser?.id,
-      sender_name: currentUser?.full_name || currentUser?.email,
+      sender_name: currentUser?.full_name || currentUser?.username,
       sender_avatar: currentUser?.avatar_url || '',
       receiver_id: activeRecipientId,
       recipient_id: activeRecipientId,
@@ -400,7 +400,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     
     if (!isTyping) {
       setIsTyping(true);
-      try { getSocket().emit('typing:start', { conversationId: activeConversationId, userId: currentUser?.id, userName: currentUser?.full_name || currentUser?.email }); } catch {}
+      try { getSocket().emit('typing:start', { conversationId: activeConversationId, userId: currentUser?.id, userName: currentUser?.full_name || currentUser?.username }); } catch {}
     }
 
     clearTimeout(typingTimeoutRef.current);
