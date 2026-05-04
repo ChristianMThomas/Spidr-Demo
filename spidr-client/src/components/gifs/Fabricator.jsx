@@ -65,7 +65,7 @@ export default function Fabricator({ currentUser }) {
       type,
       url,
       author_id: currentUser?.id,
-      author_name: currentUser?.full_name || currentUser?.email,
+      author_name: currentUser?.full_name || currentUser?.username,
       author_avatar: currentUser?.avatar_url || '',
       likes: [],
       tags,

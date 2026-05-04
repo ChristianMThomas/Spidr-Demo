@@ -53,7 +53,7 @@ export default function MyBotsTab({ currentUser }) {
         ...botData,
         avatar_url,
         author_id: currentUser?.id,
-        author_name: currentUser?.full_name || currentUser?.email,
+        author_name: currentUser?.full_name || currentUser?.username,
         status: 'pending_scan',
         capabilities: botData.capabilities.split(',').map(c => c.trim()).filter(Boolean)
       });

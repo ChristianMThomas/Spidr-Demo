@@ -159,7 +159,7 @@ function ServerTab({ currentUser, queryClient }) {
       setResult({
         ...data,
         owner_id: currentUser?.id,
-        members: [{ user_id: currentUser?.id, user_name: currentUser?.full_name || currentUser?.email, user_avatar: currentUser?.avatar_url || '', role: 'admin' }],
+        members: [{ user_id: currentUser?.id, user_name: currentUser?.full_name || currentUser?.username, user_avatar: currentUser?.avatar_url || '', role: 'admin' }],
       });
     } catch { toast.error('Generation failed — check AI config'); }
     finally  { setLoading(false); }

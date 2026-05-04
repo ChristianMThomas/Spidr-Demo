@@ -142,12 +142,12 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
       await entities.Friend.create({
         user_id: targetUser.id,
         friend_id: currentUser?.id,
-        friend_name: myProfile?.display_name || currentUser?.full_name || currentUser?.email,
+        friend_name: myProfile?.display_name || currentUser?.full_name || currentUser?.username,
         friend_avatar: myProfile?.avatar_url || currentUser?.avatar_url || '',
         status: 'pending_incoming'
       });
 
-      toast.success(`Friend request sent to ${theirProfile?.display_name || targetUser.username || targetUser.email}!`);
+      toast.success(`Friend request sent to ${theirProfile?.display_name || targetUser.username}!`);
       setAddFriendInput('');
     } catch (error) {
       toast.error('Failed to send request: ' + (error?.response?.data?.error || error.message));
