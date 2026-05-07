@@ -46,8 +46,9 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
     staleTime: 30000,
   });
 
-  const filteredServers = servers.filter(s => 
-    s.name?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredServers = servers.filter(s =>
+    s.name?.toLowerCase().includes(searchQuery.toLowerCase()) &&
+    (s.owner_id === currentUser?.id || (s.members || []).some(m => m.user_id === currentUser?.id))
   );
 
   const selectedServer = servers.find(s => s.id === selectedServerId);
@@ -195,8 +196,8 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voice-sessions', server.id],
     queryFn: () => entities.VoiceSession.filter({ server_id: server.id }),
-    refetchInterval: 15000,
-    staleTime: 10000,
+    refetchInterval: 4000,
+    staleTime: 2000,
   });
 
   const { data: events = [] } = useQuery({
@@ -553,17 +554,38 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           window.dispatchEvent(new CustomEvent('spidr-open-dm', { detail: { userId: targetUserId, name: data?.name } }));
         } else if (action === 'add-friend') {
           try {
+            const existing = await entities.Friend.filter({ user_id: currentUser?.id, friend_id: targetUserId });
+            if (existing.length > 0) { toast.info('Already friends or request pending'); return; }
+
+            const [theirProfiles, myProfiles] = await Promise.all([
+              entities.UserProfile.filter({ user_id: targetUserId }),
+              entities.UserProfile.filter({ user_id: currentUser?.id }),
+            ]);
+            const theirProfile = theirProfiles[0];
+            const myProfile    = myProfiles[0];
+
             await entities.Friend.create({
               user_id: currentUser?.id, friend_id: targetUserId,
-              friend_name: data?.name, friend_avatar: data?.avatar,
-              status: 'pending'
+              friend_name: theirProfile?.display_name || data?.name || '',
+              friend_discriminator: theirProfile?.discriminator || '',
+              friend_avatar: theirProfile?.avatar_url || data?.avatar || '',
+              status: 'pending_outgoing',
             });
             await entities.Friend.create({
               user_id: targetUserId, friend_id: currentUser?.id,
-              friend_name: currentUser?.full_name || currentUser?.username,
-              friend_avatar: currentUser?.avatar_url || '',
-              status: 'pending_incoming'
+              friend_name: myProfile?.display_name || currentUser?.full_name || currentUser?.username || '',
+              friend_discriminator: myProfile?.discriminator || '',
+              friend_avatar: myProfile?.avatar_url || currentUser?.avatar_url || '',
+              status: 'pending_incoming',
             });
+
+            const socket = getSocket();
+            socket.emit('friend:notify-user', {
+              recipientId: targetUserId,
+              senderName:  myProfile?.display_name || currentUser?.full_name || currentUser?.username,
+              senderAvatar: myProfile?.avatar_url || currentUser?.avatar_url || '',
+            });
+
             toast.success('Friend request sent!');
           } catch { toast.error('Could not send request'); }
         } else if (action === 'nickname') {
@@ -695,12 +717,10 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     return () => window.removeEventListener('spidr-menu-action', handler);
   }, [server.id, selectedChannel, currentUser?.id, isAdmin]);
 
-  const serverMembers = server.members?.map(m => ({
-    id: m.user_id,
-    name: m.user_name,
-    avatar: m.user_avatar,
-    role: m.role
-  })) || [];
+  const seenMemberIds = new Set();
+  const serverMembers = (server.members || [])
+    .filter(m => { if (seenMemberIds.has(m.user_id)) return false; seenMemberIds.add(m.user_id); return true; })
+    .map(m => ({ id: m.user_id, name: m.user_name, avatar: m.user_avatar, role: m.role }));
 
   const isMatureServer = server.sanctuary?.is_mature;
   const needsAgeGate = isMatureServer && !ageVerified;

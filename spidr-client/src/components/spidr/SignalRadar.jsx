@@ -312,6 +312,10 @@ function ServerDataPacket({ server, currentUser, friendsInServer }) {
 
   const handleJoin = async () => {
     try {
+      if (server.members?.some(m => m.user_id === currentUser?.id)) {
+        toast.error('You are already a member of this server');
+        return;
+      }
       const isAirlockEnabled = server.airlock?.enabled;
       const updatedMembers = [
         ...(server.members || []),

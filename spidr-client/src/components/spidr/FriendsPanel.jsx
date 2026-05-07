@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations, searchUsers } from '@/api/apiClient';
+import { entities, auth, integrations, searchUsers, getSocket } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -147,6 +147,13 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         friend_discriminator: myProfile?.discriminator || '',
         friend_avatar: myProfile?.avatar_url || currentUser?.avatar_url || '',
         status: 'pending_incoming'
+      });
+
+      const socket = getSocket();
+      socket.emit('friend:notify-user', {
+        recipientId:  targetUser.id,
+        senderName:   myProfile?.display_name || currentUser?.full_name || currentUser?.username,
+        senderAvatar: myProfile?.avatar_url || currentUser?.avatar_url || '',
       });
 
       toast.success(`Friend request sent to ${theirProfile?.display_name || targetUser.username}!`);
@@ -485,6 +492,8 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
 
   const handleBlock = async () => {
     await entities.Friend.update(friend.id, { status: 'blocked' });
+    const reverse = await entities.Friend.filter({ user_id: friend.friend_id, friend_id: currentUser?.id });
+    if (reverse[0]) await entities.Friend.delete(reverse[0].id);
     queryClient.invalidateQueries({ queryKey: ['friends'] });
     toast.success('User blocked');
   };

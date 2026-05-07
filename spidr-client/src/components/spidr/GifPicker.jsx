@@ -134,15 +134,15 @@ export default function GifPicker({ onGifSelect }) {
 
       <ScrollArea className="flex-1">
         <div className="px-3 pb-3">
-          {/* Community GIFs section */}
-          {!searchResults && category === 'all' && communityGifs.length > 0 && (
+          {/* Community GIFs section — always visible when GIFs exist, regardless of category */}
+          {!searchResults && communityGifs.length > 0 && (
             <div className="mb-3">
               <div className="flex items-center gap-1.5 mb-2">
                 <Globe size={10} className="text-blue-400" />
                 <span className="text-[9px] font-black text-blue-400 uppercase tracking-wider">Community Hive</span>
               </div>
               <div className="grid grid-cols-3 gap-1.5">
-                {communityGifs.slice(0, 6).map(gif => (
+                {communityGifs.map(gif => (
                   <motion.button
                     key={gif.id}
                     whileHover={{ scale: 1.05 }}

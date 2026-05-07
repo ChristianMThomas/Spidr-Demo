@@ -26,8 +26,15 @@ export default function EmojiPicker({ onEmojiSelect, onGifSelect, children, curr
     queryFn: () => entities.Server.list('-created_date', 100),
   });
 
+  // Community emojis uploaded via the Hive Fabricator
+  const { data: communityEmojis = [] } = useQuery({
+    queryKey: ['community-emojis-picker'],
+    queryFn: () => entities.CommunityAsset.filter({ type: 'emoji', is_public: true }, '-created_date', 100),
+    staleTime: 60000,
+  });
+
   const userServers = useMemo(() => {
-    return allServers.filter(server => 
+    return allServers.filter(server =>
       server.members?.some(m => m.user_id === currentUser?.id)
     );
   }, [allServers, currentUser?.id]);
@@ -44,6 +51,11 @@ export default function EmojiPicker({ onEmojiSelect, onGifSelect, children, curr
     });
     return emojisByServer;
   }, [userServers]);
+
+  const filteredCommunityEmojis = useMemo(() => {
+    if (!search) return communityEmojis;
+    return communityEmojis.filter(e => e.name?.toLowerCase().includes(search.toLowerCase()));
+  }, [communityEmojis, search]);
 
   const filteredStandardEmojis = useMemo(() => {
     if (!search) return standardEmojis;
@@ -123,11 +135,33 @@ export default function EmojiPicker({ onEmojiSelect, onGifSelect, children, curr
           </TabsList>
 
           <ScrollArea className="h-[300px]">
-            {/* Custom Server Emojis */}
+            {/* Custom Server + Hive Emojis */}
             <TabsContent value="custom" className="p-3 space-y-4">
-              {Object.keys(filteredCustomEmojis).length === 0 ? (
+              {/* Hive community emojis (uploaded via Fabricator) */}
+              {filteredCommunityEmojis.length > 0 && (
+                <div>
+                  <h4 className="text-xs text-blue-400 font-semibold mb-2 uppercase tracking-wide">Hive</h4>
+                  <div className="grid grid-cols-8 gap-2">
+                    {filteredCommunityEmojis.map((emoji) => (
+                      <motion.button
+                        key={emoji.id}
+                        whileHover={{ scale: 1.2 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => handleEmojiClick(null, true, emoji)}
+                        className="w-10 h-10 flex items-center justify-center hover:bg-zinc-800 rounded-lg transition-colors"
+                        title={`:${emoji.name}:`}
+                      >
+                        <img src={emoji.url} alt={emoji.name} className="w-8 h-8 object-contain" />
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Server emojis */}
+              {Object.keys(filteredCustomEmojis).length === 0 && filteredCommunityEmojis.length === 0 ? (
                 <div className="text-center py-8 text-zinc-500 text-sm">
-                  {search ? 'No emojis found' : 'Join servers to access custom emojis!'}
+                  {search ? 'No emojis found' : 'Join servers or upload emojis to the Hive!'}
                 </div>
               ) : (
                 Object.entries(filteredCustomEmojis).map(([serverId, { serverName, emojis }]) => (
@@ -145,11 +179,7 @@ export default function EmojiPicker({ onEmojiSelect, onGifSelect, children, curr
                           className="w-10 h-10 flex items-center justify-center hover:bg-zinc-800 rounded-lg transition-colors"
                           title={`:${emoji.name}:`}
                         >
-                          <img 
-                            src={emoji.url} 
-                            alt={emoji.name}
-                            className="w-8 h-8 object-contain"
-                          />
+                          <img src={emoji.url} alt={emoji.name} className="w-8 h-8 object-contain" />
                         </motion.button>
                       ))}
                     </div>

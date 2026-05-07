@@ -50,34 +50,37 @@ export default function Fabricator({ currentUser }) {
       return;
     }
     setPublishing(true);
-    const { url } = await integrations.Core.UploadFile({ file });
-    // Scan for inappropriate content
-    const scan = await scanContent(url);
-    if (!scan.safe) {
-      setBlockedCategory(scan.category);
-      setPublishing(false);
+    try {
+      const { url } = await integrations.Core.UploadFile({ file });
+      const scan = await scanContent(url);
+      if (!scan.safe) {
+        setBlockedCategory(scan.category);
+        setFile(null);
+        setPreview(null);
+        return;
+      }
+      await entities.CommunityAsset.create({
+        name: name.trim(),
+        type,
+        url,
+        author_id: currentUser?.id,
+        author_name: currentUser?.full_name || currentUser?.username,
+        author_avatar: currentUser?.avatar_url || '',
+        likes: [],
+        tags,
+        is_public: isPublic,
+      });
+      queryClient.invalidateQueries({ queryKey: ['community-assets'] });
+      toast.success('Signal transmitted to the Hive!');
       setFile(null);
       setPreview(null);
-      return;
+      setName('');
+      setTags([]);
+    } catch (err) {
+      toast.error('Upload failed — ' + (err?.message || 'try again'));
+    } finally {
+      setPublishing(false);
     }
-    await entities.CommunityAsset.create({
-      name: name.trim(),
-      type,
-      url,
-      author_id: currentUser?.id,
-      author_name: currentUser?.full_name || currentUser?.username,
-      author_avatar: currentUser?.avatar_url || '',
-      likes: [],
-      tags,
-      is_public: isPublic,
-    });
-    queryClient.invalidateQueries({ queryKey: ['community-assets'] });
-    toast.success('Signal transmitted to the Hive!');
-    setFile(null);
-    setPreview(null);
-    setName('');
-    setTags([]);
-    setPublishing(false);
   };
 
   return (
