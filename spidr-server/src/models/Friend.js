@@ -8,7 +8,7 @@ const s = new Schema({
   friend_avatar:        String,
   status: {
     type: String,
-    enum: ['pending', 'pending_incoming', 'accepted', 'blocked'],
+    enum: ['pending', 'pending_outgoing', 'pending_incoming', 'accepted', 'blocked'],
     default: 'pending',
     index: true,
   },

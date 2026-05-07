@@ -83,7 +83,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     mutationFn: (data) => entities.Friend.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['friends'] });
-      setAddFriendEmail('');
+      setAddFriendInput('');
     }
   });
 
@@ -132,6 +132,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         user_id: currentUser?.id,
         friend_id: targetUser.id,
         friend_name: theirProfile?.display_name || targetUser.full_name || targetUser.username,
+        friend_discriminator: theirProfile?.discriminator || '',
         friend_avatar: theirProfile?.avatar_url || targetUser.avatar_url || '',
         status: 'pending_outgoing'
       });
@@ -143,6 +144,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         user_id: targetUser.id,
         friend_id: currentUser?.id,
         friend_name: myProfile?.display_name || currentUser?.full_name || currentUser?.username,
+        friend_discriminator: myProfile?.discriminator || '',
         friend_avatar: myProfile?.avatar_url || currentUser?.avatar_url || '',
         status: 'pending_incoming'
       });
