@@ -3,12 +3,14 @@
  * Handles: messaging, DMs, group chats, presence, voice sessions
  */
 
-const jwt      = require('jsonwebtoken');
-const Message  = require('../models/Message');
+const jwt          = require('jsonwebtoken');
+const Message      = require('../models/Message');
 const DirectMessage = require('../models/DirectMessage');
 const GroupChatMessage = require('../models/GroupChatMessage');
-const Server   = require('../models/Server');
-const GroupChat = require('../models/GroupChat');
+const Server       = require('../models/Server');
+const GroupChat    = require('../models/GroupChat');
+const VoiceSession = require('../models/VoiceSession');
+const Friend       = require('../models/Friend');
 
 // Use same secret fallback as auth routes so JWT verification is consistent
 const getSecret = () => process.env.JWT_SECRET || 'spidr-fallback-dev-secret-please-set-in-env';
@@ -225,10 +227,37 @@ module.exports = function registerHandlers(io) {
       io.to(to).emit('voice:signal', { from: socket.id, signal });
     });
 
+    // ── Friend request notification ──────────────────────────────────────────
+    socket.on('friend:notify-user', ({ recipientId, senderName, senderAvatar }) => {
+      const recipientSocket = onlineUsers.get(recipientId);
+      if (recipientSocket) {
+        io.to(recipientSocket).emit('friend:incoming', { senderName, senderAvatar });
+      }
+    });
+
+    // ── DM real-time relay (no DB write — just broadcasts to room) ───────────
+    socket.on('dm:notify', ({ conversationId, recipientId }) => {
+      io.to(`dm:${conversationId}`).emit('dm:new', {});
+      const recipientSocket = onlineUsers.get(recipientId);
+      if (recipientSocket) io.to(recipientSocket).emit('dm:notification', {});
+    });
+
+    // ── Disconnecting: notify voice rooms while rooms are still populated ────
+    socket.on('disconnecting', () => {
+      for (const room of socket.rooms) {
+        if (room.startsWith('voice:')) {
+          socket.to(room).emit('voice:peer-left', { userId });
+        }
+      }
+    });
+
     // ── Disconnect ───────────────────────────────────────────────────────────
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       onlineUsers.delete(userId);
       io.emit('user:offline', { userId });
+      try {
+        await VoiceSession.deleteMany({ user_id: userId, is_spidr_ai: { $ne: true } });
+      } catch { /* ignore */ }
     });
   });
 

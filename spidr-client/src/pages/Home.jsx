@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { queryClientInstance } from '@/lib/query-client';
+import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion } from 'framer-motion';
 
 import TopFeedBar from '../components/spidr/TopFeedBar';
@@ -112,6 +114,20 @@ export default function Home() {
     window.addEventListener('spidr-open-dm', handler);
     return () => window.removeEventListener('spidr-open-dm', handler);
   }, [currentUser?.id]);
+
+  // Global friend request notification
+  useEffect(() => {
+    if (!currentUser) return;
+    const socket = getSocket();
+    const handleFriendIncoming = ({ senderName }) => {
+      toast.info(`${senderName} sent you a friend request!`, {
+        action: { label: 'View', onClick: () => setActiveTab('friends') },
+      });
+      queryClientInstance.invalidateQueries({ queryKey: ['friends'] });
+    };
+    socket.on('friend:incoming', handleFriendIncoming);
+    return () => socket.off('friend:incoming', handleFriendIncoming);
+  }, [currentUser]);
 
   const renderContent = () => {
     switch (activeTab) {
