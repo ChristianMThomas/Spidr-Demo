@@ -42,6 +42,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const [showCallDeck, setShowCallDeck] = useState(false);
   const [showSpidrAI, setShowSpidrAI] = useState(false);
   const scrollRef = useRef(null);
+
+  // Must be declared before the useEffect that references them
+  const activeConversationId = conversationId || conversation?.conversationId;
+  const activeRecipientId = recipientId || conversation?.friendId;
+
   // ── Socket.io: instant DM delivery ──────────────────────────────────────────
   useEffect(() => {
     if (!activeConversationId) return;
@@ -68,10 +73,6 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       socket.off('typing:stop',  onTypingStop);
     };
   }, [activeConversationId, queryClient]);
-
-
-  const activeConversationId = conversationId || conversation?.conversationId;
-  const activeRecipientId = recipientId || conversation?.friendId;
 
   const { data: messages = [] } = useQuery({
     queryKey: ['dm-messages', activeConversationId],
@@ -281,12 +282,17 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
 
   const sendMessageMutation = useMutation({
     mutationFn: (data) => entities.DirectMessage.create(data),
-    onSuccess: () => {
+    onSuccess: (_, vars) => {
       playSound('send');
       queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
       queryClient.invalidateQueries({ queryKey: ['all-dms'] });
       setMessage('');
       scrollToBottom();
+      const socket = getSocket();
+      socket.emit('dm:notify', {
+        conversationId: vars.conversation_id,
+        recipientId: vars.receiver_id,
+      });
     }
   });
 
