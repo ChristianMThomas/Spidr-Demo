@@ -11,6 +11,7 @@ const Server       = require('../models/Server');
 const GroupChat    = require('../models/GroupChat');
 const VoiceSession = require('../models/VoiceSession');
 const Friend       = require('../models/Friend');
+const UserProfile  = require('../models/UserProfile');
 
 // Spring Boot signs with base64-decoded JWT_SECRET — must decode the same way here.
 // Matches middleware/auth.js exactly so HTTP and socket verification use the same key.
@@ -43,6 +44,7 @@ module.exports = function registerHandlers(io) {
     const userId = socket.userId;
     onlineUsers.set(userId, socket.id);
     io.emit('user:online', { userId });
+    UserProfile.findOneAndUpdate({ user_id: userId }, { status: 'online' }).catch(() => {});
 
     // ── Room management (all joins are auth-checked) ─────────────────────────
     socket.on('join:server', async ({ serverId }) => {
@@ -261,6 +263,7 @@ module.exports = function registerHandlers(io) {
     socket.on('disconnect', async () => {
       onlineUsers.delete(userId);
       io.emit('user:offline', { userId });
+      UserProfile.findOneAndUpdate({ user_id: userId }, { status: 'offline' }).catch(() => {});
       try {
         await VoiceSession.deleteMany({ user_id: userId, is_spidr_ai: { $ne: true } });
       } catch { /* ignore */ }
