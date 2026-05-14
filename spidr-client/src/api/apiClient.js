@@ -13,7 +13,10 @@ async function authRequest(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  if (res.status === 401) localStorage.removeItem('spidr_token');
+  if (res.status === 401) {
+    localStorage.removeItem('spidr_token');
+    window.dispatchEvent(new Event('spidr:auth-expired'));
+  }
 
   const data = await res.json().catch(() => ({}));
 
@@ -50,6 +53,7 @@ async function request(method, path, { params, body, isFormData } = {}) {
 
   if (res.status === 401) {
     localStorage.removeItem('spidr_token');
+    window.dispatchEvent(new Event('spidr:auth-expired'));
   }
 
   let data;

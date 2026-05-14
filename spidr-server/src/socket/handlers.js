@@ -12,8 +12,14 @@ const GroupChat    = require('../models/GroupChat');
 const VoiceSession = require('../models/VoiceSession');
 const Friend       = require('../models/Friend');
 
-// Use same secret fallback as auth routes so JWT verification is consistent
-const getSecret = () => process.env.JWT_SECRET || 'spidr-fallback-dev-secret-please-set-in-env';
+// Spring Boot signs with base64-decoded JWT_SECRET — must decode the same way here.
+// Matches middleware/auth.js exactly so HTTP and socket verification use the same key.
+const SPRING_BOOT_DEV_FALLBACK = 'c3BpZHItZGV2LWZhbGxiYWNrLXNlY3JldC1rZXktcGxlYXNlLXNldC1pbi1lbnY=';
+const getSecret = () => {
+  const raw = process.env.JWT_SECRET;
+  if (!raw) return Buffer.from(SPRING_BOOT_DEV_FALLBACK, 'base64');
+  return Buffer.from(raw, 'base64');
+};
 
 module.exports = function registerHandlers(io) {
 
@@ -23,7 +29,7 @@ module.exports = function registerHandlers(io) {
     if (!token) return next(new Error('Authentication required'));
     try {
       const decoded = jwt.verify(token, getSecret());
-      socket.userId = decoded.id;
+      socket.userId = decoded.userId || decoded.id;
       next();
     } catch {
       next(new Error('Invalid token'));
