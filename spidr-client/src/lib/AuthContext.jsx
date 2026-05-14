@@ -24,6 +24,19 @@ export const AuthProvider = ({ children }) => {
       .finally(() => setLoadingAuth(false));
   }, []);
 
+  // When any API call returns 401 the token is already removed — reset auth state
+  // so the UI immediately reflects the logged-out condition instead of showing stale counts.
+  useEffect(() => {
+    const onExpired = () => {
+      setUser(null);
+      setIsAuth(false);
+      setPendingEmail(null);
+      setOtpMode(null);
+    };
+    window.addEventListener('spidr:auth-expired', onExpired);
+    return () => window.removeEventListener('spidr:auth-expired', onExpired);
+  }, []);
+
   // Returns { requires2FA } if OTP step needed (reserved for future Spring Boot 2FA)
   // Spring Boot currently issues a token directly on login — no OTP step.
   const login = async (email, password) => {
