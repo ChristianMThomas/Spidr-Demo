@@ -366,12 +366,14 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Create Server Modal */}
+      {/* User Profile Modal */}
       {selectedProfileId && (
         <HolographicProfile
+          open={true}
           userId={selectedProfileId}
           currentUser={currentUser}
           onClose={() => setSelectedProfileId(null)}
+          onOpenDM={handleNavigateToDM}
         />
       )}
       <CreateServerModal 
@@ -391,11 +393,20 @@ export default function Home() {
 }
 
 function HomeContent({ currentUser, setActiveTab, setSelectedServerId, onNavigateToDM }) {
-  const { data: servers = [] } = useQuery({
+  const { data: allServers = [] } = useQuery({
     queryKey: ['servers'],
-    queryFn: () => entities.Server.list('-created_date', 5),
+    queryFn: () => entities.Server.list('-created_date', 50),
     staleTime: 60000,
   });
+
+  // Only show servers the user actually belongs to
+  const servers = React.useMemo(() => {
+    if (!currentUser?.id) return [];
+    return allServers.filter(s =>
+      s.owner_id === currentUser.id ||
+      (s.members || []).some(m => m.user_id === currentUser.id)
+    );
+  }, [allServers, currentUser?.id]);
 
   const { data: friends = [] } = useQuery({
     queryKey: ['friends', currentUser?.id],

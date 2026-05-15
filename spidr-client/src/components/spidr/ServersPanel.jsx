@@ -5,10 +5,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Search, Plus, Users, Hash, Volume2, Settings, ChevronDown, Send, Smile, ImagePlus, MoreHorizontal, Edit2, Trash2, Ghost, Pin, Archive, Shield } from 'lucide-react';
+import { Search, Plus, Users, Hash, Volume2, Settings, ChevronDown, Send, Smile, ImagePlus, MoreHorizontal, Edit2, Trash2, Ghost, Pin, Archive, Shield, UserPlus, CornerUpLeft, X } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ServerSettingsModal from './ServerSettingsModal';
+import ServerInviteModal from './ServerInviteModal';
 import VoiceChannel from './VoiceChannel';
 import CommunityPanel from './CommunityPanel';
 import MiniChat from './MiniChat';
@@ -54,9 +55,9 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
   const selectedServer = servers.find(s => s.id === selectedServerId);
 
   return (
-    <div className="flex-1 flex bg-zinc-900">
+    <div className="flex-1 flex bg-zinc-900 min-w-0 overflow-hidden">
       {/* Server List */}
-      <div className="w-60 bg-zinc-900 border-r border-red-900/20 flex flex-col">
+      <div className="w-60 shrink-0 bg-zinc-900 border-r border-red-900/20 flex flex-col">
         <div className="p-3 border-b border-red-900/20">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -142,6 +143,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   });
   const [message, setMessage] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [ageVerified, setAgeVerified] = useState(() => {
     return !!localStorage.getItem(`age_verified_${server.id}`);
   });
@@ -150,6 +152,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [editingMessage, setEditingMessage] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
   const [textEffect, setTextEffect] = useState('normal');
   const [ghostMode, setGhostMode] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
@@ -174,6 +177,12 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     };
   }, [server?.id, selectedChannel, queryClient]);
 
+  // Clear any in-progress reply when the user switches channels — a reply
+  // anchored to a message in #general shouldn't follow them into #random.
+  useEffect(() => {
+    setReplyingTo(null);
+  }, [selectedChannel]);
+
 
   const [showSpidrAIProfile, setShowSpidrAIProfile] = useState(false);
   const [reportTarget, setReportTarget] = useState(null);
@@ -190,6 +199,14 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     staleTime: 1000,
     refetchInterval: 2000,
   });
+
+  // Lookup table so a message's `reply_to` ID can resolve to the original
+  // message inside the rendered list without an extra fetch.
+  const messagesById = React.useMemo(() => {
+    const map = {};
+    for (const m of messages) map[m.id] = m;
+    return map;
+  }, [messages]);
 
 
 
@@ -346,9 +363,11 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       author_name: currentUser?.full_name || currentUser?.username,
       author_avatar: currentUser?.avatar_url || '',
       attachments: (attachments || []).map(att => att.url),
-      text_effect: textEffect
+      text_effect: textEffect,
+      reply_to: replyingTo?.id || undefined,
     });
     setMessage('');
+    setReplyingTo(null);
   };
 
   const { data: currentProfile } = useQuery({
@@ -497,7 +516,15 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         } else if (action === 'report') {
           setReportTarget({ type: 'message', id: data?.id, name: data?.content?.slice(0, 30) || 'Message', content: data?.content });
         } else if (action === 'reply') {
-          setMessage(`> Replying to ${data?.content?.slice(0, 40) || '...'}\n`);
+          // Set up a structured reply — the input bar will show a preview chip,
+          // and on send we attach reply_to: <original message id>.
+          setReplyingTo({
+            id: data?.id,
+            content: data?.content || '',
+            user_name: data?.user_name || data?.author_name || data?.sender_name || 'User',
+            user_avatar: data?.user_avatar || data?.author_avatar || data?.sender_avatar || '',
+            user_id: data?.user_id || data?.author_id || data?.sender_id || '',
+          });
         } else if (action === 'save-msg') {
           toast.success('Message saved to bookmarks');
         } else if (action === 'share') {
@@ -650,8 +677,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             toast.success('Left server');
           }
         } else if (action === 'invite') {
-          navigator.clipboard.writeText(`spidr://invite/${server.id}`);
-          toast.success('Invite link copied');
+          setShowInviteModal(true);
         } else if (action === 'notif-settings' || action === 'privacy' || action === 'hide-muted' || action === 'mute-server') {
           toast.success('Setting toggled');
         }
@@ -708,8 +734,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           queryClient.invalidateQueries({ queryKey: ['voice-sessions', server.id] });
           toast.success('All users disconnected');
         } else if (action === 'invite') {
-          navigator.clipboard.writeText(`spidr://invite/${server.id}/${data?.id}`);
-          toast.success('Invite link copied');
+          setShowInviteModal(true);
         }
       }
     };
@@ -741,7 +766,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
 
   return (
     <>
-    <div className="flex-1 flex relative">
+    <div className="flex-1 flex relative min-w-0">
       {/* Fly Hunt */}
       <FlyHunt 
         onCatch={(userName) => {
@@ -763,7 +788,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       />
       
       {/* Channels */}
-      <div className="w-56 bg-zinc-800/50 flex flex-col">
+      <div className="w-56 shrink-0 bg-zinc-800/50 flex flex-col">
         {/* Server Header */}
         <div
           className="h-12 px-4 flex items-center justify-between border-b border-red-900/20 bg-zinc-900/50 cursor-pointer hover:bg-zinc-800/50 transition-colors"
@@ -771,9 +796,20 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           onClick={() => {/* could toggle server dropdown */}}
         >
           <span className="font-semibold text-white truncate flex-1">{server.name}</span>
-          <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className="text-zinc-400 hover:text-white">
-            <ChevronDown className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center">
+            <Button
+              size="icon"
+              variant="ghost"
+              title="Invite people"
+              onClick={(e) => { e.stopPropagation(); setShowInviteModal(true); }}
+              className="text-zinc-400 hover:text-[#FF3333]"
+            >
+              <UserPlus className="w-4 h-4" />
+            </Button>
+            <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); setShowSettings(true); }} className="text-zinc-400 hover:text-white">
+              <ChevronDown className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
 
         {/* Banner */}
@@ -855,7 +891,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
 
       {/* Voice Channel or Chat Area */}
       {activeVoiceChannel ? (
-        <div className="flex-1 flex flex-col relative">
+        <div className="flex-1 flex flex-col relative min-w-0">
           <VoiceChannel
             server={server}
             channel={activeVoiceChannel}
@@ -876,7 +912,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           </button>
         </div>
       ) : (
-      <div className="flex-1 flex flex-col bg-zinc-900">
+      <div className="flex-1 flex flex-col bg-zinc-900 min-w-0">
         {/* Airlock Notice */}
         {isAirlocked && (
           <div className="px-4 py-2 bg-yellow-500/10 border-b border-yellow-500/20 flex items-center gap-2">
@@ -930,11 +966,16 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           .spider-node.active { opacity: 1; animation: skitter 2s infinite linear alternate; }
           @keyframes thread-shiver { 0% { transform: translateY(0); } 25% { transform: translateY(-1px); } 50% { transform: translateY(0); } 75% { transform: translateY(1px); } 100% { transform: translateY(0); } }
           @keyframes skitter { 0% { left: 10%; } 20% { left: 30%; } 40% { left: 50%; } 60% { left: 70%; } 80% { left: 90%; } 100% { left: 95%; } }
+          .msg-flash { animation: msg-flash-anim 1.2s ease-out; }
+          @keyframes msg-flash-anim {
+            0%   { background-color: rgba(255, 51, 51, 0.18); box-shadow: inset 0 0 20px rgba(255,51,51,0.25); }
+            100% { background-color: transparent; box-shadow: none; }
+          }
         `}</style>
 
         {/* Messages */}
         <ScrollArea className="flex-1 p-4">
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             {/* Channel beginning banner — Discord style */}
             <div className="flex flex-col items-center pt-6 pb-2 gap-2 text-center">
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center text-2xl font-black text-white shadow-lg shadow-red-900/30">#</div>
@@ -970,12 +1011,13 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               return (
               <div 
                 key={msg.id} 
+                data-msg-id={msg.id}
                 className={`flex gap-3 group hover:bg-zinc-800/30 p-2 rounded-lg -mx-2 relative ${
                   msg.content?.includes(`@${currentUser?.full_name?.split(' ')[0]}`) 
                     ? 'bg-[#FF3333]/5 border-l-2 border-[#FF3333]' 
                     : ''
                 }`}
-                onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, attachments: msg.attachments })}
+                onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, author_id: msg.author_id, author_name: msg.author_name, author_avatar: msg.author_avatar, attachments: msg.attachments })}
                 >
                 <Avatar 
                   className="w-10 h-10 shrink-0 cursor-pointer"
@@ -994,6 +1036,60 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
+                  {/* Reply preview card — themed in spidr red, mirrors the SPIDR_AI card shape */}
+                  {msg.reply_to && (() => {
+                    const original = messagesById[msg.reply_to];
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!original) return;
+                          const el = document.querySelector(`[data-msg-id="${original.id}"]`);
+                          if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            el.classList.add('msg-flash');
+                            setTimeout(() => el.classList.remove('msg-flash'), 1200);
+                          }
+                        }}
+                        className="relative w-full max-w-2xl mb-2 text-left bg-[#0a0a0a] border border-[#FF3333]/30 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(255,51,51,0.04)] hover:border-[#FF3333]/50 transition-colors group/reply"
+                      >
+                        {/* Top accent strip — solid spidr red */}
+                        <div className="h-1 w-full bg-gradient-to-r from-[#FF3333] via-[#FF3333] to-[#990000]" />
+
+                        <div className="p-3 flex gap-3">
+                          {/* Reply indicator icon (instead of AI avatar) */}
+                          <div className="relative w-8 h-8 flex-shrink-0">
+                            <div className="absolute inset-0 bg-[#FF3333] blur-[12px] opacity-15 group-hover/reply:opacity-25 transition-opacity" />
+                            <div className="w-full h-full bg-black border border-[#FF3333]/60 rounded-lg flex items-center justify-center relative z-10">
+                              <CornerUpLeft size={14} className="text-[#FF3333]" />
+                            </div>
+                          </div>
+
+                          {/* Reply content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-black text-xs text-[#FF3333] tracking-wide truncate">
+                                {original ? (original.author_name || original.user_name || 'User') : 'Original message'}
+                              </span>
+                              <span className="text-[8px] bg-[#FF3333]/10 text-[#FF3333] px-1.5 py-0.5 rounded border border-[#FF3333]/20 font-bold uppercase tracking-wider">
+                                Reply
+                              </span>
+                            </div>
+                            <p className="text-xs text-zinc-300 font-mono leading-relaxed line-clamp-2 break-words">
+                              {original
+                                ? (original.content || (original.attachments?.length ? `[${original.attachments.length} attachment${original.attachments.length === 1 ? '' : 's'}]` : '—'))
+                                : 'Original message no longer available'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Background texture (matches BotMessage SPIDR_AI card) */}
+                        <div className="absolute inset-0 opacity-5 pointer-events-none" style={{
+                          backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(255,51,51,0.2) 0%, transparent 50%)'
+                        }} />
+                      </button>
+                    );
+                  })()}
                   <div className="flex items-baseline gap-2">
                     <span 
                       className="font-medium text-white hover:underline cursor-pointer"
@@ -1116,6 +1212,31 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
 
         {/* Message Input */}
         <div className="p-4 border-t border-red-900/20 w-full max-w-full overflow-hidden box-border">
+          {/* Reply preview — shown above the input when the user has set up a reply */}
+          {replyingTo && (
+            <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-[#FF3333]/8 border border-[#FF3333]/30 rounded-lg shadow-[0_0_15px_rgba(255,51,51,0.05)]">
+              <CornerUpLeft size={14} className="text-[#FF3333] flex-shrink-0" />
+              <div className="flex-1 min-w-0 flex items-baseline gap-1.5">
+                <span className="text-[10px] font-black uppercase tracking-wider text-[#FF3333] flex-shrink-0">
+                  Replying to
+                </span>
+                <span className="text-xs font-bold text-white truncate">
+                  {replyingTo.user_name || 'User'}
+                </span>
+                <span className="text-xs text-zinc-500 truncate font-mono">
+                  · {(replyingTo.content || '').slice(0, 80) || '(attachment)'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReplyingTo(null)}
+                title="Cancel reply (Esc)"
+                className="flex-shrink-0 w-6 h-6 rounded-md text-zinc-500 hover:text-white hover:bg-white/5 flex items-center justify-center transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
           <MessageInputBar
             value={message}
             onChange={handleTyping}
@@ -1124,11 +1245,12 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 handleSendWithAttachments([]);
-              } else if (e.key === 'Escape' && editingMessage) {
-                handleCancelEdit();
+              } else if (e.key === 'Escape') {
+                if (editingMessage) handleCancelEdit();
+                else if (replyingTo) setReplyingTo(null);
               }
             }}
-            placeholder={isUserMuted || isUserTimedOut ? 'You cannot send messages right now' : botProcessing ? 'Spidr AI is thinking...' : `Message #${selectedChannel} — type /help for bot commands`}
+            placeholder={isUserMuted || isUserTimedOut ? 'You cannot send messages right now' : botProcessing ? 'Spidr AI is thinking...' : replyingTo ? `Reply to ${replyingTo.user_name}…` : `Message #${selectedChannel} — type /help for bot commands`}
             currentUser={currentUser}
             disabled={isUserMuted || isUserTimedOut || sendMessageMutation.isPending || updateMessageMutation.isPending || botProcessing}
             showEditingIndicator={!!editingMessage}
@@ -1150,6 +1272,13 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         onClose={() => setShowSettings(false)}
         server={server}
         currentUser={currentUser}
+      />
+
+      {/* Server Invite Modal */}
+      <ServerInviteModal
+        open={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        server={server}
       />
 
       {/* Event Modal */}

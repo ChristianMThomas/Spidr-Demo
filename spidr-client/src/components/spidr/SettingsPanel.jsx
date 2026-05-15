@@ -23,6 +23,7 @@ import SecurityMatrix from './SecurityMatrix';
 import SpidrProtocolSettings from './SpidrProtocolSettings';
 import TelemetryDeck from './TelemetryDeck';
 import ApexVisuals from './ApexVisuals';
+import { USERNAME_FONTS, USERNAME_WEIGHTS, USERNAME_STYLES } from '@/lib/usernameStyle';
 import { toast } from 'sonner';
 
 export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) {
@@ -49,6 +50,10 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
     profile_gradient: '',
     profile_pattern: 'none',
     profile_frame: 'default',
+    username_font: 'default',
+    username_weight: 'bold',
+    username_style: 'normal',
+    username_color: '',
     apex_features: {}
 
   });
@@ -71,6 +76,10 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
         profile_gradient: profile.profile_gradient || '',
         profile_pattern: profile.profile_pattern || 'none',
         profile_frame: profile.profile_frame || 'default',
+        username_font: profile.username_font || 'default',
+        username_weight: profile.username_weight || 'bold',
+        username_style: profile.username_style || 'normal',
+        username_color: profile.username_color || '',
         apex_features: {
           thread_skin: 'default',
           entry_protocol: 'none',
@@ -361,6 +370,146 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                 </p>
                 <Button onClick={() => setShowThemeStudio(true)} className="bg-red-600 hover:bg-red-700 w-full">
                   Open Theme Studio
+                </Button>
+              </div>
+
+              <div className="bg-zinc-800/50 backdrop-blur-xl rounded-2xl p-6 border border-red-900/20">
+                <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-red-500" />
+                  Username Style
+                </h3>
+                <p className="text-zinc-400 text-xs mb-4">
+                  Customize how your name appears across Spidr — no APEX needed.
+                </p>
+
+                {/* Live Preview */}
+                <div className="bg-black/40 border border-white/10 rounded-xl px-4 py-5 mb-5 flex items-center justify-center">
+                  <span
+                    className="text-3xl tracking-tight leading-none"
+                    style={(() => {
+                      const f = USERNAME_FONTS.find(x => x.value === formData.username_font);
+                      const w = USERNAME_WEIGHTS.find(x => x.value === formData.username_weight);
+                      return {
+                        fontFamily: f && f.value !== 'default' ? f.css : undefined,
+                        fontWeight: w ? w.css : 700,
+                        fontStyle: formData.username_style === 'italic' ? 'italic' : 'normal',
+                        color: formData.username_color || formData.accent_color || '#FF3333',
+                      };
+                    })()}
+                  >
+                    {formData.display_name || 'Your Name'}
+                  </span>
+                </div>
+
+                <div className="space-y-5">
+                  {/* Font Family */}
+                  <div>
+                    <Label className="text-zinc-300 mb-2 block text-xs uppercase tracking-wider font-bold">Font Family</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {USERNAME_FONTS.map(font => (
+                        <button
+                          key={font.value}
+                          type="button"
+                          onClick={() => updateFormData({ username_font: font.value })}
+                          className={`px-3 py-3 rounded-lg text-sm transition-all border ${
+                            formData.username_font === font.value
+                              ? 'bg-red-600/15 border-red-500/50 text-white ring-1 ring-red-500/30'
+                              : 'bg-zinc-900/50 border-white/5 text-zinc-400 hover:text-white hover:border-white/15'
+                          }`}
+                          style={{ fontFamily: font.value !== 'default' ? font.css : undefined }}
+                        >
+                          {font.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Weight */}
+                  <div>
+                    <Label className="text-zinc-300 mb-2 block text-xs uppercase tracking-wider font-bold">Weight</Label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {USERNAME_WEIGHTS.map(w => (
+                        <button
+                          key={w.value}
+                          type="button"
+                          onClick={() => updateFormData({ username_weight: w.value })}
+                          className={`px-3 py-2 rounded-lg text-sm transition-all border ${
+                            formData.username_weight === w.value
+                              ? 'bg-red-600/15 border-red-500/50 text-white ring-1 ring-red-500/30'
+                              : 'bg-zinc-900/50 border-white/5 text-zinc-400 hover:text-white hover:border-white/15'
+                          }`}
+                          style={{ fontWeight: w.css }}
+                        >
+                          {w.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Style */}
+                  <div>
+                    <Label className="text-zinc-300 mb-2 block text-xs uppercase tracking-wider font-bold">Style</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {USERNAME_STYLES.map(s => (
+                        <button
+                          key={s.value}
+                          type="button"
+                          onClick={() => updateFormData({ username_style: s.value })}
+                          className={`px-3 py-2 rounded-lg text-sm transition-all border ${
+                            formData.username_style === s.value
+                              ? 'bg-red-600/15 border-red-500/50 text-white ring-1 ring-red-500/30'
+                              : 'bg-zinc-900/50 border-white/5 text-zinc-400 hover:text-white hover:border-white/15'
+                          }`}
+                          style={{ fontStyle: s.value === 'italic' ? 'italic' : 'normal' }}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Color — separate from accent_color so users can have a distinct username color */}
+                  <div>
+                    <Label className="text-zinc-300 mb-2 block text-xs uppercase tracking-wider font-bold">
+                      Name Color <span className="text-zinc-500 normal-case text-[10px] font-normal ml-1">(leave empty to use accent color)</span>
+                    </Label>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      {['', '#ffffff', '#FF3333', '#a855f7', '#3b82f6', '#10b981', '#eab308', '#ec4899', '#f97316', '#06b6d4'].map(color => (
+                        <button
+                          key={color || 'unset'}
+                          type="button"
+                          onClick={() => updateFormData({ username_color: color })}
+                          className={`w-10 h-10 rounded-lg transition-transform hover:scale-110 flex items-center justify-center ${
+                            formData.username_color === color ? 'ring-2 ring-white scale-110' : ''
+                          }`}
+                          style={{
+                            backgroundColor: color || 'transparent',
+                            border: color ? '1px solid rgba(255,255,255,0.1)' : '1px dashed rgba(255,255,255,0.2)',
+                          }}
+                          title={color || 'Use accent color'}
+                        >
+                          {!color && <span className="text-[10px] text-zinc-500 font-bold">AUTO</span>}
+                        </button>
+                      ))}
+                      <div className="flex items-center gap-2 ml-2">
+                        <input
+                          type="color"
+                          value={formData.username_color || '#ffffff'}
+                          onChange={(e) => updateFormData({ username_color: e.target.value })}
+                          className="w-10 h-10 rounded-lg cursor-pointer bg-transparent"
+                        />
+                        <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Custom</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={handleSave}
+                  disabled={updateProfileMutation.isPending || !hasUnsavedChanges}
+                  className="bg-red-600 hover:bg-red-700 w-full mt-5 disabled:opacity-40"
+                >
+                  {updateProfileMutation.isPending ? 'Saving…' : 'Save Username Style'}
                 </Button>
               </div>
 

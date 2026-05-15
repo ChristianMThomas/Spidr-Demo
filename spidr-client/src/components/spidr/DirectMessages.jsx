@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, Image as ImageIcon, Smile, MoreVertical, Phone, Video, Ghost, Pin, Archive } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, Phone, Video, Ghost, Pin, Archive, CornerUpLeft, X } from 'lucide-react';
 import StickyWeb from './StickyWeb';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -41,11 +41,18 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const [textEffect, setTextEffect] = useState('normal');
   const [showCallDeck, setShowCallDeck] = useState(false);
   const [showSpidrAI, setShowSpidrAI] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
   const scrollRef = useRef(null);
 
   // Must be declared before the useEffect that references them
   const activeConversationId = conversationId || conversation?.conversationId;
   const activeRecipientId = recipientId || conversation?.friendId;
+
+  // A reply anchored to a message in one conversation shouldn't survive
+  // a switch to a different DM — clear it whenever the active thread changes.
+  useEffect(() => {
+    setReplyingTo(null);
+  }, [activeConversationId]);
 
   // ── Socket.io: instant DM delivery ──────────────────────────────────────────
   useEffect(() => {
@@ -113,7 +120,13 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         } else if (action === 'pin' && data?.id) {
           toggleWebbedMutation.mutate({ id: data.id, isWebbed: false });
         } else if (action === 'reply') {
-          setMessage(`> ${data?.content?.slice(0, 40) || '...'}\n`);
+          setReplyingTo({
+            id: data?.id,
+            content: data?.content || '',
+            user_name: data?.sender_name || data?.user_name || 'User',
+            user_avatar: data?.sender_avatar || data?.user_avatar || '',
+            user_id: data?.sender_id || data?.user_id || '',
+          });
         } else if (action === 'delete' && data?.id) {
           deleteMessageMutation.mutate(data.id);
         } else if (action === 'edit' && data?.id) {
@@ -310,8 +323,10 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       attachments: attachments.map(att => att.url),
       is_read: false,
       is_ghost: ghostMode,
-      text_effect: textEffect
+      text_effect: textEffect,
+      reply_to: replyingTo?.id || undefined,
     });
+    setReplyingTo(null);
   };
 
   const handleFlyCatch = (userName) => {
@@ -694,17 +709,20 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
                 const prevMsg = idx > 0 ? msgs[idx - 1] : null;
                 const nextMsg = idx < msgs.length - 1 ? msgs[idx + 1] : null;
                 const isOwnMessage = msg.sender_id === currentUser?.id;
+                const repliedTo = msg.reply_to ? messages.find(m => m.id === msg.reply_to) : null;
 
                 return (
                   <div 
                     key={msg.id} 
+                    data-msg-id={msg.id}
                     className="group relative"
-                    onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, attachments: msg.attachments })}
+                    onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, sender_id: msg.sender_id, sender_name: msg.sender_name, sender_avatar: msg.sender_avatar, attachments: msg.attachments })}
                   >
                     <MessageItem
                       msg={msg}
                       prevMsg={prevMsg}
                       isOwnMessage={isOwnMessage}
+                      repliedTo={repliedTo}
                       onProfileClick={(userId) => setSelectedProfileUserId(userId)}
                       currentUser={currentUser}
                       onReactionToggle={async (msgId, emoji) => {
@@ -769,12 +787,43 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
 
       {/* Input Deck */}
       <div className="p-3 sm:p-4 relative z-20 w-full max-w-full overflow-hidden box-border bg-[#050505]">
+        {replyingTo && (
+          <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-[#FF3333]/8 border border-[#FF3333]/30 rounded-lg shadow-[0_0_15px_rgba(255,51,51,0.05)]">
+            <CornerUpLeft size={14} className="text-[#FF3333] flex-shrink-0" />
+            <div className="flex-1 min-w-0 flex items-baseline gap-1.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-[#FF3333] flex-shrink-0">
+                Replying to
+              </span>
+              <span className="text-xs font-bold text-white truncate">
+                {replyingTo.user_name || 'User'}
+              </span>
+              <span className="text-xs text-zinc-500 truncate font-mono">
+                · {(replyingTo.content || '').slice(0, 80) || '(attachment)'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              title="Cancel reply (Esc)"
+              className="flex-shrink-0 w-6 h-6 rounded-md text-zinc-500 hover:text-white hover:bg-white/5 flex items-center justify-center transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
         <MessageInputBar
           value={message}
           onChange={setMessage}
           onSend={handleSendWithAttachments}
-          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendWithAttachments([])}
-          placeholder={`Message ${displayName}...`}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSendWithAttachments([]);
+            } else if (e.key === 'Escape' && replyingTo) {
+              setReplyingTo(null);
+            }
+          }}
+          placeholder={replyingTo ? `Reply to ${replyingTo.user_name}…` : `Message ${displayName}...`}
           currentUser={currentUser}
           disabled={sendMessageMutation.isPending}
           mentionUsers={[{

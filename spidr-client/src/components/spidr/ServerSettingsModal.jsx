@@ -148,14 +148,43 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
   };
 
   const addEmoji = async () => {
-    if (!newEmoji.name.trim() || !newEmoji.url.trim()) return;
-    const emojiId = newEmoji.name.toLowerCase().replace(/\s+/g, '-');
-    setEmojis([...emojis, { id: emojiId, ...newEmoji }]);
+    if (!newEmoji.name.trim() || !newEmoji.url.trim()) {
+      toast.error('Need both a name and an image');
+      return;
+    }
+    const emojiId = newEmoji.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '');
+    if (emojis.some(e => e.id === emojiId)) {
+      toast.error('An emoji with that name already exists');
+      return;
+    }
+    const newList = [...emojis, { id: emojiId, name: newEmoji.name.trim(), url: newEmoji.url }];
+    setEmojis(newList);
     setNewEmoji({ name: '', url: '' });
+    // Persist immediately so user doesn't have to remember to click Save
+    try {
+      await entities.Server.update(server.id, { emojis: newList });
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      queryClient.invalidateQueries({ queryKey: ['all-servers'] });
+      queryClient.invalidateQueries({ queryKey: ['community-emojis-picker'] });
+      toast.success(`Emoji :${emojiId}: added!`);
+    } catch (err) {
+      // Roll back local state if the save failed
+      setEmojis(emojis);
+      toast.error('Could not save emoji: ' + (err?.message || 'unknown'));
+    }
   };
 
   const removeEmoji = async (id) => {
-    setEmojis(emojis.filter(e => e.id !== id));
+    const newList = emojis.filter(e => e.id !== id);
+    setEmojis(newList);
+    try {
+      await entities.Server.update(server.id, { emojis: newList });
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      queryClient.invalidateQueries({ queryKey: ['community-emojis-picker'] });
+    } catch (err) {
+      setEmojis(emojis);
+      toast.error('Could not remove emoji: ' + (err?.message || 'unknown'));
+    }
   };
 
   const handleEmojiUpload = async (e) => {

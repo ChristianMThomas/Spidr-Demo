@@ -122,6 +122,15 @@ export default function Layout({ children }) {
             background: linear-gradient(to bottom, #FF3333, rgba(255, 51, 51, 0.2));
             box-shadow: 0 0 8px rgba(255, 51, 51, 0.4);
           }
+
+          /* Reply scroll-target highlight flash — fired when a reply card is clicked */
+          .msg-flash {
+            animation: msg-flash-anim 1.2s ease-out;
+          }
+          @keyframes msg-flash-anim {
+            0%   { background-color: rgba(255, 51, 51, 0.18); box-shadow: inset 0 0 20px rgba(255,51,51,0.25); border-radius: 8px; }
+            100% { background-color: transparent; box-shadow: none; }
+          }
       `}</style>
       {children}
       <SpidrMenu />
