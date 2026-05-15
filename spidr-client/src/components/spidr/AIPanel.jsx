@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { entities, integrations } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -23,7 +24,8 @@ const TABS = [
 ];
 
 // ── Root Panel ────────────────────────────────────────────────────────────────
-export default function AIPanel({ currentUser }) {
+export default function AIPanel() {
+  const { currentUser } = useOutletContext();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('server');
   return (

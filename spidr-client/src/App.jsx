@@ -2,24 +2,30 @@ import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
-import { pagesConfig } from './pages.config'
-import { HashRouter, BrowserRouter, Route, Routes, Navigate } from 'react-router-dom';
+import { HashRouter, BrowserRouter, Route, Routes, Navigate, Outlet } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import LoginPage from '@/components/spidr/LoginPage';
 import LandingPage from '@/pages/LandingPage';
 import JoinServer from '@/pages/JoinServer';
+import Layout from './Layout';
+import AppShell from '@/components/spidr/AppShell';
+import HomeContent from '@/pages/Home';
+import FriendsPanel from '@/components/spidr/FriendsPanel';
+import ServersPanel from '@/components/spidr/ServersPanel';
+import FeedPanel from '@/components/spidr/FeedPanel';
+import BotLaboratory from '@/components/spidr/BotLaboratory';
+import AIPanel from '@/components/spidr/AIPanel';
+import SettingsPanel from '@/components/spidr/SettingsPanel';
+import ModuleNexus from '@/components/nexus/ModuleNexus';
+import NerveCenter from '@/components/spidr/NerveCenter';
+import GlobalReports from '@/pages/GlobalReports';
+import GifsEmojis from '@/pages/GifsEmojis';
 import { useEffect } from 'react';
 import { getSocket } from '@/api/apiClient';
 
-const { Pages, Layout } = pagesConfig;
-
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron');
 const Router = isElectron ? HashRouter : BrowserRouter;
-
-const LayoutWrapper = ({ children, currentPageName }) => Layout
-  ? <Layout currentPageName={currentPageName}>{children}</Layout>
-  : <>{children}</>;
 
 function AppRoutes() {
   const { isLoadingAuth, isAuthenticated } = useAuth();
@@ -33,17 +39,12 @@ function AppRoutes() {
     socket.on('user:online', invalidateProfile);
     socket.on('user:offline', invalidateProfile);
 
-    // Presence heartbeat — keeps us marked online on the server.
-    // Server reaper kicks us at 60s with no ping; we send every 25s.
+    // Presence heartbeat — server reaper at 60s, we ping every 25s
     const ping = () => socket.emit('presence:ping');
-    ping(); // immediately on connect
+    ping();
     const interval = setInterval(ping, 25 * 1000);
 
-    // Send a final ping right before tab close so the user doesn't get
-    // stuck "online" for a full reaper cycle when they refresh.
-    const handleUnload = () => {
-      try { socket.disconnect(); } catch {}
-    };
+    const handleUnload = () => { try { socket.disconnect(); } catch {} };
     window.addEventListener('beforeunload', handleUnload);
 
     return () => {
@@ -64,36 +65,43 @@ function AppRoutes() {
 
   return (
     <Routes>
-      {/* Public — landing page */}
-      <Route
-        path="/"
-        element={isAuthenticated ? <Navigate to="/Home" replace /> : <LandingPage />}
-      />
+      {/* Public */}
+      <Route path="/" element={isAuthenticated ? <Navigate to="/home" replace /> : <LandingPage />} />
+      <Route path="/login" element={isAuthenticated ? <Navigate to="/home" replace /> : <LoginPage />} />
 
-      {/* Public — login/signup/otp/forgot-password */}
-      <Route
-        path="/login"
-        element={isAuthenticated ? <Navigate to="/Home" replace /> : <LoginPage />}
-      />
+      {/* Legacy capitalised URL — redirect so old links still work */}
+      <Route path="/Home" element={<Navigate to="/home" replace />} />
 
-      {/* Auth-gated — server invite landing */}
-      <Route
-        path="/join/:code"
-        element={isAuthenticated ? <JoinServer /> : <Navigate to="/login" replace />}
-      />
+      {/* Invite landing — no shell needed */}
+      <Route path="/join/:code" element={isAuthenticated ? <JoinServer /> : <Navigate to="/login" replace />} />
 
-      {/* Protected — all app pages */}
-      {Object.entries(Pages).map(([path, Page]) => (
-        <Route
-          key={path}
-          path={`/${path}`}
-          element={
-            isAuthenticated
-              ? <LayoutWrapper currentPageName={path}><Page /></LayoutWrapper>
-              : <Navigate to="/login" replace />
-          }
-        />
-      ))}
+      {/* All authenticated routes — Layout always wraps (preserves CSS vars + MenuProvider) */}
+      <Route
+        element={
+          isAuthenticated
+            ? <Layout><Outlet /></Layout>
+            : <Navigate to="/login" replace />
+        }
+      >
+        <Route element={<AppShell />}>
+          <Route index element={<Navigate to="/home" replace />} />
+          <Route path="/home" element={<HomeContent />} />
+          <Route path="/friends" element={<FriendsPanel />} />
+          <Route path="/friends/@me/:conversationId" element={<FriendsPanel />} />
+          <Route path="/channels" element={<ServersPanel />} />
+          <Route path="/channels/:serverId" element={<ServersPanel />} />
+          <Route path="/channels/:serverId/:channelId" element={<ServersPanel />} />
+          <Route path="/feed" element={<FeedPanel />} />
+          <Route path="/bots" element={<BotLaboratory />} />
+          <Route path="/ai" element={<AIPanel />} />
+          <Route path="/settings" element={<SettingsPanel />} />
+          <Route path="/modules" element={<ModuleNexus />} />
+          <Route path="/radar" element={null} />
+          <Route path="/nerve-center" element={<NerveCenter />} />
+          <Route path="/global-reports" element={<GlobalReports />} />
+          <Route path="/gifs" element={<GifsEmojis />} />
+        </Route>
+      </Route>
 
       <Route path="*" element={<PageNotFound />} />
     </Routes>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -36,7 +37,10 @@ import ReportModal from './ReportModal';
 import SignalTracker from './SignalTracker';
 import ErrorBoundary from './ErrorBoundary';
 
-export default function ServersPanel({ currentUser, selectedServerId, onSelectServer, onVoiceJoin, onVoiceLeave, onMinimizeCall }) {
+export default function ServersPanel() {
+  const { currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall } = useOutletContext();
+  const { serverId: selectedServerId } = useParams();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const queryClient = useQueryClient();
   const { triggerMenu } = useMenu();
@@ -75,7 +79,7 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
             {filteredServers.map((server) => (
               <motion.button
                 key={server.id}
-                onClick={() => onSelectServer(server.id)}
+                onClick={() => navigate('/channels/' + server.id)}
                 onContextMenu={(e) => triggerMenu(e, 'server_sidebar', { id: server.id, name: server.name })}
                 onMouseEnter={() => playSound('hover')}
                 className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${

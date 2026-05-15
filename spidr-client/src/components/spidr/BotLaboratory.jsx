@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useOutletContext } from 'react-router-dom';
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -81,7 +82,8 @@ const TABS = [
   { id: 'import', label: 'IMPORT (Discord)', icon: Globe },
 ];
 
-export default function BotLaboratory({ onClose, currentUser }) {
+export default function BotLaboratory() {
+  const { currentUser } = useOutletContext();
   const [activeTab, setActiveTab] = useState('store');
   const [searchQuery, setSearchQuery] = useState('');
   const [installedBots, setInstalledBots] = useState(new Set());
