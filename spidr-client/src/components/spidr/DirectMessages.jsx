@@ -85,7 +85,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     queryKey: ['dm-messages', activeConversationId],
     queryFn: () => entities.DirectMessage.filter({ conversation_id: activeConversationId }),
     enabled: !!activeConversationId,
-    refetchInterval: 2000,
+    refetchInterval: 10000,
     staleTime: 1000,
   });
 

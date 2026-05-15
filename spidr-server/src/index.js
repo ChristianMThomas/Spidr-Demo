@@ -55,7 +55,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 1000, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path.startsWith('/uploads') }));
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 2000, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path.startsWith('/uploads') }));
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.use('/auth',               require('./routes/auth'));
