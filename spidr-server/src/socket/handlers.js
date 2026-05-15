@@ -22,7 +22,10 @@ const getSecret = () => {
   return Buffer.from(raw, 'base64');
 };
 
-module.exports = function registerHandlers(io) {
+// Exported so routes can read the live socket connection set
+const onlineUsers = new Map(); // userId → socketId
+
+function registerHandlers(io) {
 
   // ── Auth middleware for Socket.io ──────────────────────────────────────────
   io.use((socket, next) => {
@@ -38,7 +41,6 @@ module.exports = function registerHandlers(io) {
   });
 
   // ── Presence tracking ──────────────────────────────────────────────────────
-  const onlineUsers = new Map(); // userId → socketId
 
   io.on('connection', (socket) => {
     const userId = socket.userId;
@@ -277,3 +279,6 @@ function normalise(doc) {
   const { _id, __v, ...rest } = doc;
   return { id: _id?.toString(), ...rest };
 }
+
+module.exports = registerHandlers;
+module.exports.onlineUsers = onlineUsers;
