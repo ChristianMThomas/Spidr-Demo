@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
@@ -26,7 +27,8 @@ import ApexVisuals from './ApexVisuals';
 import { USERNAME_FONTS, USERNAME_WEIGHTS, USERNAME_STYLES } from '@/lib/usernameStyle';
 import { toast } from 'sonner';
 
-export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) {
+export default function SettingsPanel() {
+  const { currentUser, appTheme, onThemeChange } = useOutletContext();
   const { logout } = useAuth();
   const queryClient = useQueryClient();
   

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, searchUsers, getSocket } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -24,7 +25,10 @@ const statusColors = {
   offline: 'bg-zinc-500'
 };
 
-export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall, pendingDM, onPendingDMHandled }) {
+export default function FriendsPanel() {
+  const { currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall } = useOutletContext();
+  const { conversationId } = useParams();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [addFriendInput, setAddFriendInput] = useState('');
   const [selectedProfileId, setSelectedProfileId] = useState(null);
@@ -33,13 +37,13 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const queryClient = useQueryClient();
 
-  // Auto-open DM when navigated from profile card or other component
+  // Auto-open DM when conversationId is in the URL
   React.useEffect(() => {
-    if (pendingDM) {
-      setActiveDM({ friendId: pendingDM.friendId, conversationId: pendingDM.conversationId });
-      onPendingDMHandled?.();
-    }
-  }, [pendingDM]);
+    if (!conversationId || !currentUser?.id) return;
+    const parts = conversationId.split('-');
+    const friendUserId = parts.find(p => p !== currentUser.id) || parts[0];
+    setActiveDM({ friendId: friendUserId, conversationId });
+  }, [conversationId, currentUser?.id]);
 
   const { data: friends = [] } = useQuery({
     queryKey: ['friends', currentUser?.id],
@@ -163,8 +167,9 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     }
   };
 
-  const handleOpenDM = (friendId, conversationId) => {
-    setActiveDM({ friendId, conversationId });
+  const handleOpenDM = (friendId, dmConversationId) => {
+    setActiveDM({ friendId, conversationId: dmConversationId });
+    navigate('/friends/@me/' + dmConversationId);
   };
 
   const handleOpenGroup = (groupId) => {

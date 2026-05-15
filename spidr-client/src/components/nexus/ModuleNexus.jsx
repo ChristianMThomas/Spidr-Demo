@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
@@ -8,7 +9,8 @@ import ModuleCard from './ModuleCard';
 import ModuleFabricator from './ModuleFabricator';
 import InstalledModules from './InstalledModules';
 
-export default function ModuleNexus({ currentUser }) {
+export default function ModuleNexus() {
+  const { currentUser } = useOutletContext();
   const [activeTab, setActiveTab] = useState('discover');
   const [searchQuery, setSearchQuery] = useState('');
   const [installingId, setInstallingId] = useState(null);
