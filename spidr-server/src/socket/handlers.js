@@ -12,6 +12,7 @@ const GroupChat    = require('../models/GroupChat');
 const VoiceSession = require('../models/VoiceSession');
 const Friend       = require('../models/Friend');
 const UserProfile  = require('../models/UserProfile');
+const { onlineUsers } = require('../state/presence');
 
 // Spring Boot signs with base64-decoded JWT_SECRET — must decode the same way here.
 // Matches middleware/auth.js exactly so HTTP and socket verification use the same key.
@@ -21,9 +22,6 @@ const getSecret = () => {
   if (!raw) return Buffer.from(SPRING_BOOT_DEV_FALLBACK, 'base64');
   return Buffer.from(raw, 'base64');
 };
-
-// Exported so routes can read the live socket connection set
-const onlineUsers = new Map(); // userId → socketId
 
 function registerHandlers(io) {
 
@@ -281,4 +279,3 @@ function normalise(doc) {
 }
 
 module.exports = registerHandlers;
-module.exports.onlineUsers = onlineUsers;
