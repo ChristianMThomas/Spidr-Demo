@@ -33,6 +33,12 @@ router.get('/search', authMW, async (req, res) => {
   }
 });
 
+// Returns the set of user IDs with an active socket connection right now
+router.get('/online', authMW, (req, res) => {
+  const { onlineUsers } = require('../socket/handlers');
+  res.json([...onlineUsers.keys()]);
+});
+
 // Mount standard CRUD (GET /, GET /:id, POST /, PATCH /:id, DELETE /:id)
 // but strip password from all responses
 const crud = crudRouter(User);

@@ -15,6 +15,16 @@ export default function EngagementHub({ currentUser, onNavigate, onNavigateToDM 
     staleTime: 60000,
   });
 
+  // Live socket-connected user IDs — source of truth for "online now"
+  const { data: onlineIds = [] } = useQuery({
+    queryKey: ['online-users'],
+    queryFn: () => fetch(`${import.meta.env.VITE_API_URL || ''}/users/online`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('spidr_token')}` },
+    }).then(r => r.json()),
+    staleTime: 15000,
+    refetchInterval: 30000,
+  });
+
   const { data: servers = [] } = useQuery({
     queryKey: ['servers-engagement'],
     queryFn: () => entities.Server.list('-created_date', 20),
@@ -32,8 +42,9 @@ export default function EngagementHub({ currentUser, onNavigate, onNavigateToDM 
     .sort((a, b) => (b.members?.length || 0) - (a.members?.length || 0))
     .slice(0, 3);
 
-  // Active users (online)
-  const onlineUsers = profiles.filter(p => p.status === 'online' && p.user_id !== currentUser?.id).slice(0, 5);
+  // Active users — filter by actual live socket connections, not DB status field
+  const onlineSet = new Set(onlineIds);
+  const onlineUsers = profiles.filter(p => onlineSet.has(p.user_id) && p.user_id !== currentUser?.id).slice(0, 5);
 
   // Top creators (most clips)
   const creatorCounts = {};
