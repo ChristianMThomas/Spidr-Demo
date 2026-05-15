@@ -163,11 +163,11 @@ module.exports = function registerHandlers(io) {
     });
 
     socket.on('join:dm', ({ conversationId }) => {
-      // conversation_id is constructed client-side as [uid1, uid2].sort().join('-')
-      // Verify this user's id appears as one of the two parts
+      // conversation_id is [uid1, uid2].sort().join('-').
+      // Check containment instead of split-by-hyphen because user IDs may be
+      // UUIDs (which themselves contain hyphens), making split unreliable.
       if (typeof conversationId !== 'string') return;
-      const parts = conversationId.split('-');
-      if (!parts.includes(userId)) {
+      if (!conversationId.includes(userId)) {
         return socket.emit('error', { message: 'Not a participant in this conversation' });
       }
       socket.join(`dm:${conversationId}`);
