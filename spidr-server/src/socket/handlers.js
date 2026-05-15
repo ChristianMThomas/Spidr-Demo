@@ -11,9 +11,16 @@ const Server       = require('../models/Server');
 const GroupChat    = require('../models/GroupChat');
 const VoiceSession = require('../models/VoiceSession');
 const Friend       = require('../models/Friend');
+const UserProfile  = require('../models/UserProfile');
 
-// Use same secret fallback as auth routes so JWT verification is consistent
-const getSecret = () => process.env.JWT_SECRET || 'spidr-fallback-dev-secret-please-set-in-env';
+// Spring Boot signs with base64-decoded JWT_SECRET — must decode the same way here.
+// Matches middleware/auth.js exactly so HTTP and socket verification use the same key.
+const SPRING_BOOT_DEV_FALLBACK = 'c3BpZHItZGV2LWZhbGxiYWNrLXNlY3JldC1rZXktcGxlYXNlLXNldC1pbi1lbnY=';
+const getSecret = () => {
+  const raw = process.env.JWT_SECRET;
+  if (!raw) return Buffer.from(SPRING_BOOT_DEV_FALLBACK, 'base64');
+  return Buffer.from(raw, 'base64');
+};
 
 module.exports = function registerHandlers(io) {
 
@@ -23,7 +30,7 @@ module.exports = function registerHandlers(io) {
     if (!token) return next(new Error('Authentication required'));
     try {
       const decoded = jwt.verify(token, getSecret());
-      socket.userId = decoded.id;
+      socket.userId = decoded.userId || decoded.id;
       next();
     } catch {
       next(new Error('Invalid token'));
@@ -37,6 +44,7 @@ module.exports = function registerHandlers(io) {
     const userId = socket.userId;
     onlineUsers.set(userId, socket.id);
     io.emit('user:online', { userId });
+    UserProfile.findOneAndUpdate({ user_id: userId }, { status: 'online' }).catch(() => {});
 
     // ── Room management (all joins are auth-checked) ─────────────────────────
     socket.on('join:server', async ({ serverId }) => {
@@ -255,6 +263,7 @@ module.exports = function registerHandlers(io) {
     socket.on('disconnect', async () => {
       onlineUsers.delete(userId);
       io.emit('user:offline', { userId });
+      UserProfile.findOneAndUpdate({ user_id: userId }, { status: 'offline' }).catch(() => {});
       try {
         await VoiceSession.deleteMany({ user_id: userId, is_spidr_ai: { $ne: true } });
       } catch { /* ignore */ }

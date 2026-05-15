@@ -1,6 +1,6 @@
 # FIXME.md — Spidr App Bug & Task List
 
-Last audited: 2026-04-15
+Last audited: 2026-05-14
 
 > Stack: React 18 + Vite + Electron (client) · Node/Express + MongoDB + Socket.io (server)
 
@@ -113,46 +113,7 @@ Frontend fires silently on: video pause/end, like, share, skip (< 2s watch time)
 
 ---
 
-### ~~[INFRA-A] Migrate file storage from Azure Blob → Cloudflare R2~~ ✅ Done
-
-~~Azure SDK removed, `@aws-sdk/client-s3` installed, `azureStorage.js` rewritten, `.env.example` updated. Bucket created, public r2.dev access enabled, API token generated, credentials added to `.env`.~~
-
----
-
-### ~~[INFRA-B] Migrate backend: Express + MongoDB → Go + PostgreSQL + Redis~~ ❌ Superseded
-
-~~Replaced by ARCH-A/B/C plan above. Go+PostgreSQL migration cancelled — keeping MongoDB, splitting by service instead.~~
-
----
-
 ## spidr-auth (Spring Boot) — Backlog
-
-> Audited: 2026-04-15. Grouped by effort. Tackle after core auth flows are wired to frontend.
-
-### ~~Quick Wins~~ ✅ All Fixed (2026-04-15)
-
-| ID | File | Issue |
-|----|------|-------|
-| ~~AUTH-Q1~~ | ~~`UserController.java`~~ | ~~`changePassword()` + `deleteAccount()` exist in `UserService` but have no controller endpoints — dead code~~ ✅ Added `PATCH /users/change-password` + `DELETE /users/me` |
-| ~~AUTH-Q2~~ | ~~`AuthService.java:generateVerificationCode()`~~ | ~~Uses `new Random()` — not cryptographically secure.~~ ✅ Replaced with `SecureRandom` |
-| ~~AUTH-Q3~~ | ~~`AuthService.java:register()` / `login()`~~ | ~~No email normalization — duplicate accounts possible.~~ ✅ `.toLowerCase().trim()` added to all email lookups |
-| ~~AUTH-Q4~~ | ~~`RegisterUserDTO.java`~~ | ~~Username only checks `@NotBlank`.~~ ✅ `@Pattern(regexp = "^[a-zA-Z0-9_]{3,20}$")` added |
-| ~~AUTH-Q5~~ | ~~`AuthController.java:/resend`~~ | ~~Takes raw `Map<String, String>` with no validation.~~ ✅ `ResendOtpDTO` created and wired in |
-| ~~AUTH-Q6~~ | ~~`users.java`~~ | ~~No `@Indexed` on `email`, `username` — full collection scan on every login.~~ ✅ `@Indexed(unique=true)` added to both |
-| ~~AUTH-Q7~~ | ~~`JwtService.java:generateToken()`~~ | ~~Role and user ID not embedded in JWT claims.~~ ✅ `userId` + `role` added to token claims |
-| ~~AUTH-Q8~~ | ~~`AuthService.java:resetPassword()`~~ | ~~No confirmation email after password reset.~~ ✅ `sendPasswordResetConfirmationEmail` added |
-| ~~AUTH-Q9~~ | ~~`UserController.java:getAllUsers()`~~ | ~~Returns raw `users` object with sensitive fields.~~ ✅ `UserResponseDTO` created, used on `/all` and `/me` |
-
-### ~~Medium~~ ✅ All Fixed (2026-04-15)
-
-| ID | File | Issue |
-|----|------|-------|
-| ~~AUTH-M1~~ | ~~`AuthController.java`~~ | ~~No rate limiting.~~ ✅ `RateLimiterService` (sliding-window, per-IP): signup 5/hr, login 10/15min, verify 10/15min, forgot 3/hr |
-| ~~AUTH-M2~~ | ~~`AuthService.java:login()`~~ | ~~No account lockout.~~ ✅ Lock after 5 failed attempts for 15 min; counter resets on success |
-| ~~AUTH-M3~~ | ~~All controllers~~ | ~~Raw exception messages returned to client.~~ ✅ `GlobalExceptionHandler` (`@RestControllerAdvice`) — controllers no longer catch exceptions |
-| ~~AUTH-M4~~ | ~~`application.properties`~~ | ~~Email credentials committed in plaintext.~~ ✅ Moved to `${SPRING_MAIL_USERNAME}` / `${SPRING_MAIL_PASSWORD}` env vars |
-| ~~AUTH-M5~~ | ~~`AuthService.java:resendVerificationCode()`~~ | ~~No resend rate limit.~~ ✅ 3 resends per 24h per account enforced in DB |
-| ~~AUTH-M6~~ | ~~`users.java`~~ | ~~No unique DB index — race condition allows duplicate accounts.~~ ✅ Covered by `@Indexed(unique=true)` (AUTH-Q6) |
 
 ### Bigger Features (2–4 hours each)
 
@@ -167,37 +128,20 @@ Frontend fires silently on: video pause/end, like, share, skip (< 2s watch time)
 
 ## PRIORITY 1 — CRITICAL
 
-### ~~[P1-A] MongoDB not running — server crashes on start~~
-~~Use Atlas M0 or run `mongod` locally. Set `MONGO_URI` in `.env`.~~ ✅ Resolved
+### [LOCAL-DEV] Fix Local Development Environment — Atlas + CORS
+**Files:** `spidr-server/.env`, `spidr-auth/.env`
 
-### ~~[P1-B] `moment` not installed — crashes BanScreen + EnhancedFeed~~
-~~`BanScreen.jsx` and `EnhancedFeed.jsx` imported moment which wasn't in package.json.~~ ✅ Fixed — replaced with native JS date helpers
+`spidr-server/.env` has `NODE_ENV=production` which locks CORS to only `https://spidrapp.infinitetechteam.com` — blocking `localhost:5173`. `spidr-auth/.env` still points to `localhost:27017` (no real data). Both services also have mismatched `JWT_SECRET` values, which means Spring Boot-issued tokens are rejected by Node.js locally — breaking login end-to-end.
 
-### ~~[P1-C] Axios security breach — removed from entire codebase~~
-~~`apiClient.js` and `audio.js` used axios. Replaced with native fetch throughout.~~ ✅ Fixed
+**Steps (no code changes — env only):**
 
----
+1. `spidr-server/.env` → change `NODE_ENV=production` to `NODE_ENV=development`
+2. `spidr-auth/.env` → replace `MONGO_URI=mongodb://localhost:27017/spidr` with the Atlas URI from `spidr-server/.env`
+3. `spidr-auth/.env` → copy `JWT_SECRET` from `spidr-server/.env` (must be identical in both services)
+4. MongoDB Atlas UI → Network Access → Add IP Address → whitelist your local machine IP (or `0.0.0.0/0` for dev)
+5. MongoDB Compass → New Connection → paste the Atlas URI from `spidr-server/.env` → you now have a full GUI to the staging data
 
-## SECURITY — New Issues
-
-### ~~[SEC-A] OTP generated with `Math.random()` — predictable~~ ✅ Fixed
-~~**File:** `spidr-server/src/routes/auth.js:37`~~
-
-~~`Math.random()` is not cryptographically secure; OTPs could be predicted. Replaced with `crypto.randomInt(100000, 1000000).toString()`.~~
-
----
-
-### ~~[SEC-B] No ownership check on CRUD mutations — users can delete others' content~~ ✅ Fixed
-~~**Files:** `spidr-server/src/routes/comments.js`, `clips.js`, `messages.js`~~
-
-~~`crudRouter` PATCH/DELETE now fetch the doc first and return 403 if `req.user.id` doesn't match the owner field. Routes pass `ownerField: 'user_id'` (comments), `'author_id'` (clips), `['user_id','author_id']` (messages).~~
-
----
-
-### ~~[SEC-C] Unvalidated stream URL in CinemaStage — XSS risk~~ ✅ Fixed
-~~**File:** `spidr-client/src/components/spidr/CinemaStage.jsx:14-31`~~
-
-~~`getEmbedUrl` now parses with `new URL()` first, rejects non-https and unrecognised hostnames, and removes the unsafe fallback that passed raw URLs to the iframe.~~
+**Verify:** `spidr-server` terminal shows `✓ MongoDB connected` with the Atlas host. Login succeeds end-to-end. `localhost:5173` loads with no CORS errors.
 
 ---
 
@@ -380,23 +324,19 @@ Direct access to `req.user.id` with no null check; crashes if auth middleware fa
 
 ---
 
-
-
----
-
 ## Quick Reference
 
 | ID | File | Issue |
 |----|------|-------|
+| **LOCAL-DEV** | `spidr-server/.env`, `spidr-auth/.env` | **Fix local dev — Atlas URI + CORS + JWT_SECRET match** |
 | **ARCH-D** | `EngagementEvent.js` (new) | **Start collecting FYP training data — urgent** |
 | ARCH-A | `spidr-auth/` (new service) | Spring Boot auth microservice — Phase 2 |
 | ARCH-B | `spidr-server/` | Node.js core API — trim auth routes when ARCH-A ready |
 | ARCH-C | `spidr-ai/` (new service) | FastAPI AI service (Spidr Bot + FYP) — Phase 1 |
-| ~~INFRA-A~~ | ~~`azureStorage.js`~~ | ~~Azure Blob → R2~~ ✅ Done |
-| ~~INFRA-B~~ | ~~`spidr-server/`~~ | ~~Go+PostgreSQL migration~~ ❌ Superseded by ARCH plan |
-| ~~SEC-A~~ | ~~`auth.js:37`~~ | ~~OTP uses `Math.random()`~~ ✅ Fixed |
-| ~~SEC-B~~ | ~~`comments.js`, `clips.js`, `messages.js`~~ | ~~No ownership check on CRUD mutations~~ ✅ Fixed |
-| ~~SEC-C~~ | ~~`CinemaStage.jsx:14`~~ | ~~Unvalidated stream URL — XSS risk~~ ✅ Fixed |
+| AUTH-F1 | `JwtService.java` | No refresh token mechanism |
+| AUTH-F2 | System-wide | No token revocation on logout/ban |
+| AUTH-F3 | System-wide | No TOTP 2FA in Spring Boot |
+| AUTH-F4 | `UserController.java` | No admin promotion endpoint |
 | P2-A | `SettingsPanel.jsx:443` | Sound/notification toggles not persisted |
 | P2-B | `Home.jsx` | Theme lost on refresh |
 | P2-C | `ImportBotTab.jsx:10` | Remove hardcoded Discord bot catalog |
@@ -422,22 +362,3 @@ Direct access to `req.user.id` with no null check; crashes if auth middleware fa
 | P4-F | `AVLab.jsx:118` | `console.log` in production |
 | P4-G | `VoiceChannel.jsx:96` | Silently swallows cleanup errors |
 | P4-H | `algorithm.js:33` | No `req.user` null guard |
-| ~~AUTH-Q1~~ | ~~`UserController.java`~~ | ~~`changePassword()` + `deleteAccount()` dead code~~ ✅ Fixed |
-| ~~AUTH-Q2~~ | ~~`AuthService.java`~~ | ~~`new Random()` for OTP~~ ✅ Fixed — `SecureRandom` |
-| ~~AUTH-Q3~~ | ~~`AuthService.java`~~ | ~~No email normalization~~ ✅ Fixed |
-| ~~AUTH-Q4~~ | ~~`RegisterUserDTO.java`~~ | ~~No username pattern validation~~ ✅ Fixed |
-| ~~AUTH-Q5~~ | ~~`AuthController.java`~~ | ~~`/resend` uses raw Map~~ ✅ Fixed — `ResendOtpDTO` |
-| ~~AUTH-Q6~~ | ~~`users.java`~~ | ~~No `@Indexed` on email/username~~ ✅ Fixed |
-| ~~AUTH-Q7~~ | ~~`JwtService.java`~~ | ~~Role + user ID not in JWT claims~~ ✅ Fixed |
-| ~~AUTH-Q8~~ | ~~`AuthService.java`~~ | ~~No confirmation email after password reset~~ ✅ Fixed |
-| ~~AUTH-Q9~~ | ~~`UserController.java`~~ | ~~`/users/all` leaks sensitive fields~~ ✅ Fixed — `UserResponseDTO` |
-| ~~AUTH-M1~~ | ~~`AuthController.java`~~ | ~~No rate limiting~~ ✅ Fixed — per-IP sliding window |
-| ~~AUTH-M2~~ | ~~`AuthService.java`~~ | ~~No account lockout~~ ✅ Fixed — lock after 5 fails |
-| ~~AUTH-M3~~ | ~~All controllers~~ | ~~No centralized error handler~~ ✅ Fixed — `GlobalExceptionHandler` |
-| ~~AUTH-M4~~ | ~~`application.properties`~~ | ~~Email credentials in plaintext~~ ✅ Fixed — env vars |
-| ~~AUTH-M5~~ | ~~`AuthService.java`~~ | ~~No resend OTP rate limit~~ ✅ Fixed — 3/24h per account |
-| ~~AUTH-M6~~ | ~~`users.java`~~ | ~~No unique DB index~~ ✅ Fixed — `@Indexed(unique=true)` |
-| AUTH-F1 | `JwtService.java` | No refresh token mechanism |
-| AUTH-F2 | System-wide | No token revocation on logout/ban |
-| AUTH-F3 | System-wide | No TOTP 2FA (Node.js server has it, Spring Boot doesn't) |
-| AUTH-F4 | `UserController.java` | No admin promotion endpoint |
