@@ -2,6 +2,7 @@ const express  = require('express');
 const authMW   = require('../middleware/auth');
 const User     = require('../models/User');
 const crudRouter = require('../utils/crudRouter');
+const { onlineUsers } = require('../state/presence');
 
 const router = express.Router();
 
@@ -35,8 +36,11 @@ router.get('/search', authMW, async (req, res) => {
 
 // Returns the set of user IDs with an active socket connection right now
 router.get('/online', authMW, (req, res) => {
-  const { onlineUsers } = require('../socket/handlers');
-  res.json([...onlineUsers.keys()]);
+  try {
+    res.json([...onlineUsers.keys()]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Mount standard CRUD (GET /, GET /:id, POST /, PATCH /:id, DELETE /:id)
