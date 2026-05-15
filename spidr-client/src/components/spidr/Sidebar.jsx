@@ -8,8 +8,11 @@ import { playSound } from './SoundEngine';
 import ApexStore from './ApexStore';
 import { useMenu } from '@/components/MenuContext';
 import { ServerPulse } from '@/components/ui/PulseBadge';
+import { useNavigate, useLocation } from 'react-router-dom';
 
-export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGlass = false }) {
+export default function Sidebar({ onCreateServer, isGlass = false }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [hovered, setHovered] = useState(null);
   const [showApex, setShowApex] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -92,7 +95,7 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
         className="mb-8 w-12 h-12 bg-red-600/10 rounded-xl flex items-center justify-center border border-red-600/20 cursor-pointer hover:bg-red-600/20 transition-all"
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.95 }}
-        onClick={() => setActiveTab('home')}
+        onClick={() => navigate('/home')}
         style={{ boxShadow: '0 0 15px rgba(229, 62, 62, 0.2)' }}
       >
         <SpiderLogo size={32} />
@@ -101,13 +104,15 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
       {/* Navigation */}
       <div className="flex flex-col gap-4 flex-1 w-full px-2">
         {navItems.map((item) => {
-          const isActive = activeTab === item.id;
+          const isActive = item.id === 'servers'
+            ? location.pathname.startsWith('/channels')
+            : location.pathname.startsWith('/' + item.id);
           const isHovered = hovered === item.id;
-          
+
           return (
             <div
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => item.id === 'servers' ? navigate('/channels') : navigate('/' + item.id)}
               onMouseEnter={() => {
                 setHovered(item.id);
                 playSound('hover');
@@ -189,8 +194,8 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
         })}
       </div>
       
-      {/* Server list preview - only show when on servers tab */}
-      {activeTab === 'servers' && (
+      {/* Server list preview - only show when on a /channels route */}
+      {location.pathname.startsWith('/channels') && (
         <div className="flex flex-col gap-2 w-full px-2 mb-4">
           <div className="w-8 h-0.5 bg-red-900/50 rounded-full mx-auto mb-2" />
           
@@ -198,7 +203,7 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
             {servers.slice(0, 5).map((server) => (
               <div key={server.id} className="relative mx-auto">
                 <motion.button
-                  onClick={() => setActiveTab(`server-${server.id}`)}
+                  onClick={() => navigate('/channels/' + server.id)}
                   onContextMenu={(e) => triggerMenu(e, 'server_sidebar', { id: server.id, name: server.name })}
                   onMouseEnter={() => playSound('hover')}
                   className="w-12 h-12 rounded-2xl bg-zinc-800/50 overflow-hidden hover:rounded-xl transition-all duration-200"
