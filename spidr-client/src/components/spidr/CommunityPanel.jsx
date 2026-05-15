@@ -40,7 +40,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
     queryKey: ['voiceSessions', server?.id],
     queryFn: () => entities.VoiceSession.filter({ server_id: server.id }),
     enabled: !!server?.id,
-    refetchInterval: 3000
+    refetchInterval: 15000
   });
 
   const getProfile = (userId) => profiles.find(p => p.user_id === userId);

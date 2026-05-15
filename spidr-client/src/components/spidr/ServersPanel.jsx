@@ -197,7 +197,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       channel_id: selectedChannel 
     }, '-created_date', 50),
     staleTime: 1000,
-    refetchInterval: 2000,
+    refetchInterval: 10000,
   });
 
   // Lookup table so a message's `reply_to` ID can resolve to the original
