@@ -55,7 +55,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path.startsWith('/uploads') }));
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 1000, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path.startsWith('/uploads') }));
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.use('/auth',               require('./routes/auth'));
@@ -158,8 +158,12 @@ setTimeout(() => maybeStartSocketIO(false), 2000);
 // ── MongoDB ───────────────────────────────────────────────────────────────────
 mongoose
   .connect(process.env.MONGO_URI || 'mongodb://localhost:27017/spidr')
-  .then(() => {
+  .then(async () => {
     console.log('✓ MongoDB connected');
+    // Clear stale online statuses from previous session so users who are not
+    // connected right now don't show as online after a restart.
+    const UserProfile = require('./models/UserProfile');
+    await UserProfile.updateMany({ status: 'online' }, { status: 'offline' }).catch(() => {});
     const PORT = process.env.PORT || 4000;
     server.listen(PORT, () => console.log(`✓ Spidr server running on port ${PORT}`));
   })
