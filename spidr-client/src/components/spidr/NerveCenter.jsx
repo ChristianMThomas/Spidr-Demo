@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { entities, getSocket } from '@/api/apiClient';
 import {
@@ -178,7 +179,8 @@ function Tile({ icon: Icon, value, label, sub, color = '#FF3333', pulse }) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function NerveCenter({ currentUser }) {
+export default function NerveCenter() {
+  const { currentUser } = useOutletContext();
   const [telemetry, setTelemetry] = useState(null);
   const [connected, setConnected] = useState(false);
 
