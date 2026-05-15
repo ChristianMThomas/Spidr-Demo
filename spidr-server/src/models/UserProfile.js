@@ -23,6 +23,15 @@ const s = new Schema({
   profile_pattern:  { type: String, default: 'none' },
   profile_frame:    { type: String, default: 'default' },
 
+  // username display customization (free for all users)
+  username_font:    { type: String, default: 'default' },   // default, serif, mono, display, handwriting
+  username_weight:  { type: String, default: 'bold' },      // normal, medium, bold, black
+  username_style:   { type: String, default: 'normal' },    // normal, italic
+  username_color:   { type: String, default: '' },          // optional explicit color (falls back to accent_color)
+
+  // presence
+  last_seen:        { type: Date, default: Date.now },
+
   // subscriptions / features
   apex_tier:      { type: String, enum: ['free','apex'], default: 'free' },
   apex_features:  { type: Schema.Types.Mixed, default: {} },

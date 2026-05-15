@@ -106,7 +106,21 @@ export const entities = {
   User:             entity('users'),
   UserProfile:      entity('user-profiles'),
   Friend:           entity('friends'),
-  Server:           entity('servers'),
+  Server: {
+    ...entity('servers'),
+    // POST /servers/:id/invite → { invite_code, invite_url }
+    generateInvite: (id, rotate = false) =>
+      api.post(`/servers/${id}/invite`, { rotate }),
+    // POST /servers/join → { id, name, already_member }
+    joinByCode: (invite_code, user) =>
+      api.post('/servers/join', {
+        invite_code,
+        user_name: user?.full_name || user?.username || user?.display_name || 'User',
+        user_avatar: user?.avatar_url || '',
+      }),
+    // GET /servers/lookup/:code → { id, name, description, icon_url, banner_url, member_count }
+    lookupByCode: (code) => api.get(`/servers/lookup/${code}`),
+  },
   Message:          entity('messages'),
   DirectMessage:    entity('direct-messages'),
   GroupChat:        entity('group-chats'),

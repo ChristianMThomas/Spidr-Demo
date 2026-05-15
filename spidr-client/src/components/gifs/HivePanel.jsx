@@ -27,6 +27,8 @@ export default function HivePanel({ currentUser, search }) {
   });
 
   const filtered = assets.filter(a => {
+    // Hide private uploads from anyone except the author
+    if (a.is_public === false && a.author_id !== currentUser?.id) return false;
     if (typeFilter !== 'all' && a.type !== typeFilter) return false;
     if (search && !a.name?.toLowerCase().includes(search.toLowerCase()) && !(a.tags || []).some(t => t.toLowerCase().includes(search.toLowerCase()))) return false;
     return true;

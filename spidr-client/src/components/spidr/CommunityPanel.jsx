@@ -391,7 +391,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
   if (!server) return null;
 
   return (
-    <div className="w-72 bg-zinc-900/80 backdrop-blur-xl border-l border-red-900/20 flex flex-col">
+    <div className="w-72 shrink-0 bg-zinc-900/80 backdrop-blur-xl border-l border-red-900/20 flex flex-col">
       <div className="p-4 border-b border-red-900/20">
         <h3 className="font-bold text-white flex items-center gap-2">
           <Shield className="w-5 h-5 text-red-500" />

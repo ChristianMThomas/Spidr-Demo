@@ -1,27 +1,54 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
-import { Shield, AlertTriangle, Eye, X, Check, Ban, ArrowUpRight, Clock, Activity, Unlock } from 'lucide-react';
+import { entities, auth } from '@/api/apiClient';
+import {
+  AlertTriangle, Eye, X, Check, Ban, Unlock, Activity,
+} from 'lucide-react';
 import BanModal from '../components/spidr/BanModal';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const SEVERITY_COLORS = {
-  low: 'bg-blue-500',
-  medium: 'bg-yellow-500',
-  high: 'bg-orange-500',
-  critical: 'bg-red-500'
+// ─── Pill / badge palettes ───────────────────────────────────────────────────
+// Severity badge — solid color background matching the image
+const SEVERITY_PILL = {
+  low:      { bg: 'bg-blue-500',    text: 'text-white' },
+  medium:   { bg: 'bg-yellow-500',  text: 'text-black' },
+  high:     { bg: 'bg-orange-500',  text: 'text-white' },
+  critical: { bg: 'bg-red-600',     text: 'text-white' },
+};
+// Severity side-bar (vertical pill on the left of each report row)
+const SEVERITY_BAR = {
+  low:      'bg-blue-500',
+  medium:   'bg-yellow-500',
+  high:     'bg-orange-500',
+  critical: 'bg-red-600',
+};
+// Status badge — colored translucent
+const STATUS_PILL = {
+  pending:   { bg: 'bg-yellow-500',  text: 'text-black' },
+  reviewing: { bg: 'bg-blue-500',    text: 'text-white' },
+  resolved:  { bg: 'bg-green-500',   text: 'text-white' },
+  dismissed: { bg: 'bg-zinc-500',    text: 'text-white' },
+  escalated: { bg: 'bg-red-600',     text: 'text-white' },
 };
 
-const STATUS_COLORS = {
-  pending: 'text-yellow-400 bg-yellow-400/10',
-  reviewing: 'text-blue-400 bg-blue-400/10',
-  resolved: 'text-green-400 bg-green-400/10',
-  dismissed: 'text-gray-400 bg-gray-400/10',
-  escalated: 'text-red-400 bg-red-400/10'
-};
+// Small colored "pulse" version of the Activity icon for the header
+function PulseIcon({ size = 28, color = '#FF3333' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path
+        d="M2 12h3l2-6 4 12 3-9 2 6 2-3h4"
+        stroke={color}
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ filter: `drop-shadow(0 0 4px ${color})` }}
+      />
+    </svg>
+  );
+}
 
 export default function GlobalReports() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -44,7 +71,7 @@ export default function GlobalReports() {
   const { data: reports = [], isLoading } = useQuery({
     queryKey: ['global-reports'],
     queryFn: () => entities.Report.list('-created_date', 200),
-    enabled: authorized
+    enabled: authorized,
   });
 
   const updateMutation = useMutation({
@@ -53,7 +80,7 @@ export default function GlobalReports() {
       queryClient.invalidateQueries({ queryKey: ['global-reports'] });
       toast.success('Report updated');
       setSelectedReport(null);
-    }
+    },
   });
 
   const unbanMutation = useMutation({
@@ -65,13 +92,13 @@ export default function GlobalReports() {
         ban_reason: '',
         ban_until: '',
         banned_by: '',
-        ban_report_id: ''
+        ban_report_id: '',
       });
     },
     onSuccess: () => {
       toast.success('User unbanned');
       queryClient.invalidateQueries({ queryKey: ['global-reports'] });
-    }
+    },
   });
 
   const filtered = reports.filter(r => {
@@ -81,17 +108,17 @@ export default function GlobalReports() {
   });
 
   const stats = {
-    total: reports.length,
-    pending: reports.filter(r => r.status === 'pending').length,
+    total:     reports.length,
+    pending:   reports.filter(r => r.status === 'pending').length,
     escalated: reports.filter(r => r.status === 'escalated').length,
-    critical: reports.filter(r => r.severity === 'critical').length,
+    critical:  reports.filter(r => r.severity === 'critical').length,
   };
 
   if (!authorized) {
     return (
       <div className="flex-1 flex items-center justify-center bg-black">
         <div className="text-center">
-          <Shield className="w-16 h-16 text-red-500 mx-auto mb-4 opacity-30" />
+          <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4 opacity-30" />
           <p className="text-red-500 font-bold text-lg uppercase">Access Denied</p>
           <p className="text-gray-600 text-sm mt-2">Only app admins can access global reports</p>
         </div>
@@ -101,63 +128,74 @@ export default function GlobalReports() {
 
   return (
     <div className="flex-1 flex flex-col bg-black text-white overflow-hidden">
-      {/* Header */}
-      <div className="border-b border-red-900/30 p-6 bg-[#050505]">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Activity className="text-red-500" size={28} />
-            <div>
-              <h1 className="text-2xl font-black uppercase tracking-tight">Global Overwatch</h1>
-              <p className="text-[10px] text-red-400 font-mono uppercase">
-                AUTH: {currentUser?.email} • CLEARANCE: ADMIN
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-[#111] border border-white/5 rounded-xl p-3">
-            <p className="text-2xl font-black">{stats.total}</p>
-            <p className="text-[10px] text-gray-500 uppercase font-bold">Total Reports</p>
-          </div>
-          <div className="bg-[#111] border border-yellow-500/20 rounded-xl p-3">
-            <p className="text-2xl font-black text-yellow-400">{stats.pending}</p>
-            <p className="text-[10px] text-gray-500 uppercase font-bold">Pending</p>
-          </div>
-          <div className="bg-[#111] border border-red-500/20 rounded-xl p-3">
-            <p className="text-2xl font-black text-red-400">{stats.escalated}</p>
-            <p className="text-[10px] text-gray-500 uppercase font-bold">Escalated</p>
-          </div>
-          <div className="bg-[#111] border border-red-500/30 rounded-xl p-3">
-            <p className="text-2xl font-black text-red-500">{stats.critical}</p>
-            <p className="text-[10px] text-gray-500 uppercase font-bold">Critical</p>
+      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
+      <div className="px-8 pt-6 pb-5 border-b border-white/5 flex-shrink-0">
+        <div className="flex items-center gap-4 mb-1">
+          <PulseIcon size={32} />
+          <div>
+            <h1 className="text-3xl font-black uppercase tracking-tight text-white leading-none">
+              GLOBAL OVERWATCH
+            </h1>
+            <p className="text-[10px] text-[#FF3333] font-mono uppercase tracking-[0.25em] mt-2">
+              AUTH: {currentUser?.email || '—'} &nbsp;•&nbsp; CLEARANCE: ADMIN
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="px-6 py-3 border-b border-white/5 flex items-center gap-4 bg-[#050505]">
-        <div className="flex gap-1 bg-zinc-800/50 rounded-lg p-1">
+      {/* ── STAT CARDS ─────────────────────────────────────────────────────── */}
+      <div className="px-8 py-5 grid grid-cols-4 gap-4 flex-shrink-0">
+        <StatCard
+          number={stats.total}
+          label="Total Reports"
+          color="white"
+        />
+        <StatCard
+          number={stats.pending}
+          label="Pending"
+          color="yellow"
+        />
+        <StatCard
+          number={stats.escalated}
+          label="Escalated"
+          color="orange"
+        />
+        <StatCard
+          number={stats.critical}
+          label="Critical"
+          color="red"
+        />
+      </div>
+
+      {/* ── FILTERS ────────────────────────────────────────────────────────── */}
+      <div className="px-8 py-3 border-y border-white/5 flex items-center gap-4 flex-shrink-0 flex-wrap">
+        {/* Status filter — red active state */}
+        <div className="flex gap-1 bg-zinc-900/50 rounded-lg p-1">
           {['all', 'pending', 'escalated', 'reviewing', 'resolved', 'dismissed'].map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${
-                filter === f ? 'bg-[#FF3333] text-white' : 'text-gray-500 hover:text-white'
+              className={`px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${
+                filter === f
+                  ? 'bg-[#FF3333] text-white shadow-[0_0_10px_rgba(255,51,51,0.3)]'
+                  : 'text-zinc-500 hover:text-white'
               }`}
             >
               {f}
             </button>
           ))}
         </div>
-        <div className="flex gap-1 bg-zinc-800/50 rounded-lg p-1 ml-auto">
+
+        {/* Severity filter — black/dark active state */}
+        <div className="flex gap-1 bg-zinc-900/50 rounded-lg p-1 ml-auto">
           {['all', 'critical', 'high', 'medium', 'low'].map(s => (
             <button
               key={s}
               onClick={() => setSeverityFilter(s)}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase transition-all ${
-                severityFilter === s ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white'
+              className={`px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${
+                severityFilter === s
+                  ? 'bg-zinc-700/80 text-white border border-white/10'
+                  : 'text-zinc-500 hover:text-white'
               }`}
             >
               {s}
@@ -166,100 +204,40 @@ export default function GlobalReports() {
         </div>
       </div>
 
-      {/* Reports List */}
+      {/* ── REPORTS LIST ───────────────────────────────────────────────────── */}
       <ScrollArea className="flex-1">
-        <div className="p-6 space-y-3">
-          {isLoading && <p className="text-gray-500 text-center py-12 font-mono text-xs">LOADING REPORTS...</p>}
-          
+        <div className="px-8 py-5 space-y-3">
+          {isLoading && (
+            <p className="text-zinc-600 text-center py-12 font-mono text-xs uppercase tracking-widest">
+              LOADING REPORTS…
+            </p>
+          )}
+
           {!isLoading && filtered.length === 0 && (
-            <div className="text-center py-20 text-gray-600 font-mono text-xs">
+            <div className="text-center py-20 text-zinc-700 font-mono text-xs uppercase tracking-widest">
               NO MATCHING REPORTS
             </div>
           )}
 
           <AnimatePresence>
-            {filtered.map((report) => (
-              <motion.div
+            {filtered.map(report => (
+              <ReportRow
                 key={report.id}
-                layout
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="bg-[#0a0a0a] border border-white/5 rounded-xl p-5 hover:border-white/10 transition-colors cursor-pointer group"
+                report={report}
                 onClick={() => setSelectedReport(report)}
-              >
-                <div className="flex items-start gap-4">
-                  <div className={`w-1.5 self-stretch rounded-full ${SEVERITY_COLORS[report.severity]}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded uppercase">{report.reason}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${STATUS_COLORS[report.status]}`}>
-                        {report.status}
-                      </span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${SEVERITY_COLORS[report.severity]} text-white`}>
-                        {report.severity}
-                      </span>
-                      {report.server_name && (
-                        <span className="text-[10px] text-gray-600 font-mono">in {report.server_name}</span>
-                      )}
-                      <span className="text-[10px] text-gray-600 font-mono ml-auto">
-                        {new Date(report.created_date).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div>
-                        <p className="text-sm text-gray-300">
-                          Target: <span className="text-white font-bold">{report.target_name}</span>
-                          <span className="text-gray-600 text-xs ml-1">({report.target_type})</span>
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          Reported by: {report.reporter_name}
-                        </p>
-                      </div>
-                    </div>
-                    {report.details && (
-                      <p className="text-xs text-gray-500 mt-2 line-clamp-2">{report.details}</p>
-                    )}
-                  </div>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                    {(report.status === 'pending' || report.status === 'escalated' || report.status === 'reviewing') && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateMutation.mutate({ id: report.id, data: { status: 'resolved', resolution: 'Resolved by admin', resolved_by: currentUser?.id } });
-                          }}
-                          className="text-green-400 hover:text-green-300 h-8"
-                        >
-                          <Check size={14} />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            updateMutation.mutate({ id: report.id, data: { status: 'dismissed', resolution: 'Dismissed by admin', resolved_by: currentUser?.id } });
-                          }}
-                          className="text-gray-400 hover:text-gray-300 h-8"
-                        >
-                          <X size={14} />
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
+              />
             ))}
           </AnimatePresence>
         </div>
       </ScrollArea>
 
-      {/* Detail Modal */}
+      {/* ── DETAIL MODAL ───────────────────────────────────────────────────── */}
       <AnimatePresence>
         {selectedReport && (
-          <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4" onClick={() => setSelectedReport(null)}>
+          <div
+            className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4"
+            onClick={() => setSelectedReport(null)}
+          >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -270,7 +248,9 @@ export default function GlobalReports() {
               <div className="bg-red-500/10 p-4 border-b border-red-500/20 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="text-red-500" size={18} />
-                  <span className="font-bold text-white uppercase text-sm">Report #{selectedReport.id?.toString().slice(-6)}</span>
+                  <span className="font-bold text-white uppercase text-sm">
+                    Report #{selectedReport.id?.toString().slice(-6)}
+                  </span>
                 </div>
                 <button onClick={() => setSelectedReport(null)} className="text-gray-500 hover:text-white">
                   <X size={18} />
@@ -291,10 +271,11 @@ export default function GlobalReports() {
                   </div>
                 </div>
 
-                <div className="bg-[#111] rounded-lg p-3 flex items-center gap-3">
-                  <div className={`w-3 h-3 rounded-full ${SEVERITY_COLORS[selectedReport.severity]}`} />
+                <div className="bg-[#111] rounded-lg p-3 flex items-center gap-3 flex-wrap">
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${SEVERITY_PILL[selectedReport.severity]?.bg} ${SEVERITY_PILL[selectedReport.severity]?.text}`}>
+                    {selectedReport.severity}
+                  </span>
                   <span className="text-xs font-black text-white uppercase">{selectedReport.reason}</span>
-                  <span className="text-[10px] text-gray-500 uppercase">{selectedReport.severity} severity</span>
                   {selectedReport.server_name && (
                     <span className="text-[10px] text-gray-500 ml-auto">Server: {selectedReport.server_name}</span>
                   )}
@@ -363,7 +344,7 @@ export default function GlobalReports() {
                     </Button>
                   </>
                 )}
-                {/* Ban / Unban - always visible for user-type reports */}
+
                 {selectedReport.target_type === 'user' && (
                   <>
                     <Button
@@ -372,7 +353,7 @@ export default function GlobalReports() {
                         setBanTarget({
                           userId: selectedReport.target_id,
                           userName: selectedReport.target_name,
-                          reportId: selectedReport.id
+                          reportId: selectedReport.id,
                         });
                         setSelectedReport(null);
                       }}
@@ -390,7 +371,7 @@ export default function GlobalReports() {
                     </Button>
                   </>
                 )}
-                {/* For message reports, offer to ban the message author */}
+
                 {selectedReport.target_type === 'message' && (
                   <Button
                     size="sm"
@@ -398,7 +379,7 @@ export default function GlobalReports() {
                       setBanTarget({
                         userId: selectedReport.reporter_id !== selectedReport.target_id ? selectedReport.target_id : '',
                         userName: selectedReport.target_name,
-                        reportId: selectedReport.id
+                        reportId: selectedReport.id,
                       });
                       setSelectedReport(null);
                     }}
@@ -422,5 +403,80 @@ export default function GlobalReports() {
         currentUser={currentUser}
       />
     </div>
+  );
+}
+
+// ─── Stat card ────────────────────────────────────────────────────────────────
+function StatCard({ number, label, color }) {
+  const palette = {
+    white:  'text-white',
+    yellow: 'text-yellow-400',
+    orange: 'text-orange-400',
+    red:    'text-red-500',
+  };
+  return (
+    <div className="bg-zinc-900/40 border border-white/5 rounded-2xl p-5">
+      <p className={`text-5xl font-black leading-none mb-3 ${palette[color]}`}>
+        {number}
+      </p>
+      <p className="text-[10px] text-zinc-500 uppercase font-black tracking-[0.2em]">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+// ─── Report row ───────────────────────────────────────────────────────────────
+function ReportRow({ report, onClick }) {
+  const severityPill = SEVERITY_PILL[report.severity] || SEVERITY_PILL.low;
+  const statusPill = STATUS_PILL[report.status] || STATUS_PILL.pending;
+  const severityBar = SEVERITY_BAR[report.severity] || 'bg-zinc-500';
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      onClick={onClick}
+      className="relative flex items-stretch gap-4 bg-zinc-900/40 border border-white/5 rounded-xl p-4 hover:border-white/10 hover:bg-zinc-900/60 transition-all cursor-pointer overflow-hidden"
+    >
+      {/* Left severity color bar */}
+      <div className={`w-1 self-stretch rounded-full ${severityBar} flex-shrink-0`} />
+
+      <div className="flex-1 min-w-0">
+        {/* Top row of pills */}
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className="px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-black text-white border border-white/10">
+            {report.reason}
+          </span>
+          <span className={`px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${statusPill.bg} ${statusPill.text}`}>
+            {report.status}
+          </span>
+          <span className={`px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${severityPill.bg} ${severityPill.text}`}>
+            {report.severity}
+          </span>
+          {report.server_name && (
+            <span className="text-[10px] text-zinc-500 font-mono">in {report.server_name}</span>
+          )}
+          <span className="text-[10px] text-zinc-600 font-mono ml-auto">
+            {new Date(report.created_date).toLocaleString()}
+          </span>
+        </div>
+
+        {/* Target + reporter */}
+        <p className="text-sm text-zinc-300">
+          Target: <span className="text-white font-black">{report.target_name}</span>
+          <span className="text-zinc-600 text-xs ml-1.5">({report.target_type})</span>
+        </p>
+        <p className="text-xs text-zinc-500 mt-0.5">
+          Reported by: {report.reporter_name}
+        </p>
+
+        {report.details && (
+          <p className="text-xs text-zinc-600 mt-2 line-clamp-2 italic">{report.details}</p>
+        )}
+      </div>
+    </motion.div>
   );
 }

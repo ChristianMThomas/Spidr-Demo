@@ -5,9 +5,9 @@ import MentionParser from './MentionParser';
 import GhostMessage from './GhostMessage';
 import KineticText from './KineticText';
 import ReactionBar from './ReactionBar';
-import { Crown } from 'lucide-react';
+import { Crown, CornerUpLeft } from 'lucide-react';
 
-export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick, currentUser, apexUsers, onReactionToggle }) {
+export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick, currentUser, apexUsers, onReactionToggle, repliedTo }) {
   const isMentioned = currentUser && msg.content?.includes(`@${currentUser.full_name?.split(' ')[0]}`);
   const isApex = apexUsers?.includes?.(msg.sender_id);
   const isChained = prevMsg && prevMsg.sender_id === msg.sender_id;
@@ -66,6 +66,50 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
 
           {/* Content */}
           <div className="flex-1 min-w-0">
+            {/* Reply card — themed in spidr red, matches the BotMessage SPIDR_AI card shape */}
+            {msg.reply_to && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!repliedTo) return;
+                  const el = document.querySelector(`[data-msg-id="${repliedTo.id}"]`);
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.classList.add('msg-flash');
+                    setTimeout(() => el.classList.remove('msg-flash'), 1200);
+                  }
+                }}
+                className="relative w-full mb-2 text-left bg-[#0a0a0a] border border-[#FF3333]/30 rounded-lg overflow-hidden shadow-[0_0_12px_rgba(255,51,51,0.04)] hover:border-[#FF3333]/50 transition-colors group/reply"
+              >
+                <div className="h-[3px] w-full bg-gradient-to-r from-[#FF3333] via-[#FF3333] to-[#990000]" />
+                <div className="p-2 flex gap-2 items-start">
+                  <div className="relative w-6 h-6 flex-shrink-0 mt-0.5">
+                    <div className="absolute inset-0 bg-[#FF3333] blur-[10px] opacity-15 group-hover/reply:opacity-25 transition-opacity" />
+                    <div className="w-full h-full bg-black border border-[#FF3333]/60 rounded flex items-center justify-center relative z-10">
+                      <CornerUpLeft size={11} className="text-[#FF3333]" />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="font-black text-[10px] text-[#FF3333] tracking-wide truncate">
+                        {repliedTo ? (repliedTo.author_name || repliedTo.user_name || repliedTo.sender_name || 'User') : 'Original message'}
+                      </span>
+                      <span className="text-[7px] bg-[#FF3333]/10 text-[#FF3333] px-1 py-px rounded border border-[#FF3333]/20 font-bold uppercase tracking-wider">
+                        Reply
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 font-mono leading-snug line-clamp-2 break-words">
+                      {repliedTo
+                        ? (repliedTo.content || (repliedTo.attachments?.length ? `[${repliedTo.attachments.length} attachment${repliedTo.attachments.length === 1 ? '' : 's'}]` : '—'))
+                        : 'Original message no longer available'}
+                    </p>
+                  </div>
+                </div>
+                <div className="absolute inset-0 opacity-5 pointer-events-none" style={{
+                  backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(255,51,51,0.2) 0%, transparent 50%)'
+                }} />
+              </button>
+            )}
             {/* Name + Apex Badge + hover timestamp (first in chain only) */}
             {!isChained && (
               <div className={`flex items-center gap-1.5 mb-0.5 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>

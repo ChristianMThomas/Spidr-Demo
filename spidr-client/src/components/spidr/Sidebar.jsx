@@ -15,11 +15,20 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
   const [currentUser, setCurrentUser] = useState(null);
   const { triggerMenu } = useMenu();
   
-  const { data: servers = [] } = useQuery({
+  const { data: allServers = [] } = useQuery({
     queryKey: ['servers'],
-    queryFn: () => entities.Server.list('-created_date', 20),
+    queryFn: () => entities.Server.list('-created_date', 50),
     staleTime: 30000,
   });
+
+  // Only show servers the user actually belongs to (owner or member)
+  const servers = React.useMemo(() => {
+    if (!currentUser?.id) return [];
+    return allServers.filter(s =>
+      s.owner_id === currentUser.id ||
+      (s.members || []).some(m => m.user_id === currentUser.id)
+    );
+  }, [allServers, currentUser?.id]);
 
   const { data: unreadDMs = [] } = useQuery({
     queryKey: ['unread-dms-sidebar', currentUser?.id],

@@ -4,7 +4,7 @@ import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Send, ArrowLeft, Users, Settings, Ghost, Pin, Phone, Video, Archive } from 'lucide-react';
+import { Send, ArrowLeft, Users, Settings, Ghost, Pin, Phone, Video, Archive, CornerUpLeft, X } from 'lucide-react';
 import StickyWeb from './StickyWeb';
 import { toast } from 'sonner';
 import GhostOverlay from './GhostOverlay';
@@ -38,6 +38,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const [showStickyWeb, setShowStickyWeb] = useState(false);
   const [showCallDeck, setShowCallDeck] = useState(false);
   const [showSpidrAI, setShowSpidrAI] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
   const bottomRef = useRef(null);
   const queryClient = useQueryClient();
   // ── Socket.io: instant group message delivery ────────────────────────────
@@ -49,6 +50,9 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     socket.on('group:message', refresh);
     return () => socket.off('group:message', refresh);
   }, [groupId, queryClient]);
+
+  // A reply set up in one group shouldn't carry over when switching groups.
+  useEffect(() => { setReplyingTo(null); }, [groupId]);
 
 
   const { triggerMenu } = useMenu();
@@ -101,7 +105,13 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
         } else if (action === 'pin' && data?.id) {
           toggleWebbedMutation.mutate({ id: data.id, isWebbed: false });
         } else if (action === 'reply') {
-          setInputText(`> ${data?.content?.slice(0, 40) || '...'}\n`);
+          setReplyingTo({
+            id: data?.id,
+            content: data?.content || '',
+            user_name: data?.user_name || data?.sender_name || data?.author_name || 'User',
+            user_avatar: data?.user_avatar || data?.sender_avatar || '',
+            user_id: data?.user_id || data?.sender_id || '',
+          });
         } else if (action === 'delete' && data?.id) {
           deleteMessageMutation.mutate(data.id);
         } else if (action === 'edit' && data?.id) {
@@ -191,9 +201,11 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
       content: inputText,
       attachments: attachments.map(att => att.url),
       is_ghost: ghostMode,
-      text_effect: textEffect
+      text_effect: textEffect,
+      reply_to: replyingTo?.id || undefined,
     });
     setInputText('');
+    setReplyingTo(null);
   };
 
   const { data: currentProfile } = useQuery({
@@ -571,13 +583,15 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
             return (
               <div 
                 key={msg.id} 
+                data-msg-id={msg.id}
                 className="group relative"
-                onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, attachments: msg.attachments })}
+                onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, sender_id: msg.sender_id, sender_name: msg.sender_name, sender_avatar: msg.sender_avatar, attachments: msg.attachments })}
               >
                 <MessageItem
                   msg={msg}
                   prevMsg={prevMsg?.type === 'combo' ? null : prevMsg}
                   isOwnMessage={isOwnMessage}
+                  repliedTo={msg.reply_to ? messages.find(m => m.id === msg.reply_to) : null}
                   onProfileClick={(userId) => setSelectedProfileUserId(userId)}
                   currentUser={currentUser}
                   onReactionToggle={async (msgId, emoji) => {
@@ -634,6 +648,30 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
 
       {/* Input Deck */}
       <div className="p-3 sm:p-4 relative z-20 w-full max-w-full overflow-hidden box-border bg-[#050505]">
+        {replyingTo && (
+          <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-[#FF3333]/8 border border-[#FF3333]/30 rounded-lg shadow-[0_0_15px_rgba(255,51,51,0.05)]">
+            <CornerUpLeft size={14} className="text-[#FF3333] flex-shrink-0" />
+            <div className="flex-1 min-w-0 flex items-baseline gap-1.5">
+              <span className="text-[10px] font-black uppercase tracking-wider text-[#FF3333] flex-shrink-0">
+                Replying to
+              </span>
+              <span className="text-xs font-bold text-white truncate">
+                {replyingTo.user_name || 'User'}
+              </span>
+              <span className="text-xs text-zinc-500 truncate font-mono">
+                · {(replyingTo.content || '').slice(0, 80) || '(attachment)'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              title="Cancel reply (Esc)"
+              className="flex-shrink-0 w-6 h-6 rounded-md text-zinc-500 hover:text-white hover:bg-white/5 flex items-center justify-center transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
         <MessageInputBar
           value={inputText}
           onChange={(text) => {
@@ -642,8 +680,15 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
             setTimeout(() => setTypingCount(0), 2000);
           }}
           onSend={handleSendWithAttachments}
-          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendWithAttachments([])}
-          placeholder="Type a message..."
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSendWithAttachments([]);
+            } else if (e.key === 'Escape' && replyingTo) {
+              setReplyingTo(null);
+            }
+          }}
+          placeholder={replyingTo ? `Reply to ${replyingTo.user_name}…` : "Type a message..."}
           currentUser={currentUser}
           disabled={sendMessageMutation.isPending}
           mentionUsers={group?.members?.map(m => ({

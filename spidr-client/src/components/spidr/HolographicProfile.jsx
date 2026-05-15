@@ -18,6 +18,7 @@ import BioTab from './profile/BioTab';
 import MutualsTab from './profile/MutualsTab';
 import LinksTab from './profile/LinksTab';
 import ModulesTab from './profile/ModulesTab';
+import { buildUsernameStyle } from '@/lib/usernameStyle';
 
 export default function HolographicProfile({ open, onClose, userId, currentUser, onOpenDM }) {
   const queryClient = useQueryClient();
@@ -54,10 +55,11 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
   });
 
   const { data: servers = [] } = useQuery({
-    queryKey: ['user-servers'],
+    queryKey: ['user-servers', currentUser?.id],
     queryFn: async () => {
       const allServers = await entities.Server.list();
-      return allServers.filter(server => 
+      return allServers.filter(server =>
+        server.owner_id === currentUser?.id ||
         server.members?.some(member => member.user_id === currentUser?.id)
       );
     },
@@ -136,13 +138,33 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
   const addToServer = useMutation({
     mutationFn: async () => {
       const server = servers.find(s => s.id === selectedServerId);
-      if (!server) return;
-      if (server.members?.some(m => m.user_id === userId)) { toast.error('Already a member'); return; }
+      if (!server) throw new Error('Server not found in your list');
+      if (server.members?.some(m => m.user_id === userId)) {
+        throw new Error('User is already a member of this server');
+      }
       await entities.Server.update(selectedServerId, {
-        members: [...(server.members || []), { user_id: userId, user_name: userProfile?.display_name || 'User', user_avatar: userProfile?.avatar_url || '', role: 'Member' }]
+        members: [
+          ...(server.members || []),
+          {
+            user_id: userId,
+            user_name: userProfile?.display_name || 'User',
+            user_avatar: userProfile?.avatar_url || '',
+            role: 'Member',
+          },
+        ],
       });
+      return server.name;
     },
-    onSuccess: () => { toast.success('User added to server!'); queryClient.invalidateQueries({ queryKey: ['servers'] }); queryClient.invalidateQueries({ queryKey: ['user-servers'] }); setShowAddToServer(false); setSelectedServerId(''); }
+    onSuccess: (serverName) => {
+      toast.success(`Added to ${serverName}!`);
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      queryClient.invalidateQueries({ queryKey: ['user-servers'] });
+      setShowAddToServer(false);
+      setSelectedServerId('');
+    },
+    onError: (err) => {
+      toast.error(err?.message || 'Could not add user to server');
+    },
   });
 
 
@@ -336,7 +358,15 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
             {/* LAYER 2: Identity — @username#tag */}
             <div style={{ zIndex: 5 }} className="relative px-10 mt-4">
               <div className="flex items-center gap-3">
-                <h2 className="text-3xl font-black tracking-tight" style={{ color: isApex ? accentColor : '#fff' }}>
+                <h2
+                  className="text-3xl tracking-tight"
+                  style={{
+                    // Default size is 3xl + heavy weight, then overridden by user prefs
+                    fontWeight: 900,
+                    color: isApex ? accentColor : '#fff',
+                    ...buildUsernameStyle(userProfile, { fallbackColor: isApex ? accentColor : '#fff' }),
+                  }}
+                >
                   {userProfile?.display_name || 'User'}
                 </h2>
                 {isApex && (
@@ -404,19 +434,55 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                 />
 
                 {showAddToServer && (
-                  <div className="mt-3 p-3 bg-black/80 border border-white/10 rounded-xl" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    className="mt-3 p-3 bg-black/80 border border-white/10 rounded-xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <div className="text-xs font-bold text-white mb-2">Add to Server</div>
-                    <Select value={selectedServerId} onValueChange={setSelectedServerId}>
-                      <SelectTrigger className="bg-black/50 border-red-900/30 text-white text-xs h-8 mb-2">
-                        <SelectValue placeholder="Select a server..." />
-                      </SelectTrigger>
-                      <SelectContent className="bg-zinc-900 border-red-900/30 z-[200]">
-                        {servers.map(s => <SelectItem key={s.id} value={s.id} className="text-white hover:bg-zinc-800 text-xs">{s.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+
+                    {servers.length === 0 ? (
+                      <div className="py-3 px-2 text-center">
+                        <p className="text-[11px] text-zinc-400 mb-2">You're not in any servers yet.</p>
+                        <p className="text-[10px] text-zinc-600">Join or create a server first to invite people.</p>
+                      </div>
+                    ) : (
+                      <Select value={selectedServerId} onValueChange={setSelectedServerId}>
+                        <SelectTrigger className="bg-black/50 border-red-900/30 text-white text-xs h-8 mb-2">
+                          <SelectValue placeholder="Select a server..." />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-900 border-red-900/30 z-[200]">
+                          {servers.map(s => {
+                            const already = s.members?.some(m => m.user_id === userId);
+                            return (
+                              <SelectItem
+                                key={s.id}
+                                value={s.id}
+                                disabled={already}
+                                className="text-white hover:bg-zinc-800 text-xs data-[disabled]:opacity-50"
+                              >
+                                {s.name} {already && <span className="text-[10px] text-zinc-500">(already a member)</span>}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    )}
+
                     <div className="flex gap-2">
-                      <Button onClick={() => addToServer.mutate()} disabled={!selectedServerId} className="flex-1 bg-red-600 hover:bg-red-700 h-8 text-xs">Add</Button>
-                      <Button variant="outline" onClick={() => { setShowAddToServer(false); setSelectedServerId(''); }} className="flex-1 border-red-900/30 h-8 text-xs">Cancel</Button>
+                      <Button
+                        onClick={() => addToServer.mutate()}
+                        disabled={!selectedServerId || addToServer.isPending || servers.length === 0}
+                        className="flex-1 bg-red-600 hover:bg-red-700 h-8 text-xs disabled:opacity-40"
+                      >
+                        {addToServer.isPending ? 'Adding…' : 'Add'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => { setShowAddToServer(false); setSelectedServerId(''); }}
+                        className="flex-1 border-red-900/30 h-8 text-xs"
+                      >
+                        Cancel
+                      </Button>
                     </div>
                   </div>
                 )}

@@ -70,7 +70,12 @@ export default function Fabricator({ currentUser }) {
         tags,
         is_public: isPublic,
       });
+      // Invalidate every consumer of CommunityAsset so freshly-uploaded
+      // GIFs/emojis appear immediately in the Hive, picker, and renderer.
       queryClient.invalidateQueries({ queryKey: ['community-assets'] });
+      queryClient.invalidateQueries({ queryKey: ['community-gifs-picker'] });
+      queryClient.invalidateQueries({ queryKey: ['community-emojis-picker'] });
+      queryClient.invalidateQueries({ queryKey: ['community-assets-emojis'] });
       toast.success('Signal transmitted to the Hive!');
       setFile(null);
       setPreview(null);

@@ -24,6 +24,20 @@ const getSecret = () => {
 
 module.exports = function registerHandlers(io) {
 
+  // ── Reset everyone to offline on server start ──────────────────────────────
+  // Anyone still marked online from a previous run is stale — they can't be
+  // connected through this process. Clean slate.
+  UserProfile.updateMany(
+    { status: { $in: ['online', 'idle', 'streaming'] } },
+    { $set: { status: 'offline' } }
+  ).then((r) => {
+    if (r.modifiedCount > 0) {
+      console.log(`✓ Presence reset: ${r.modifiedCount} stale users → offline`);
+    }
+  }).catch((err) => {
+    console.error('Presence reset failed:', err.message);
+  });
+
   // ── Auth middleware for Socket.io ──────────────────────────────────────────
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token || socket.handshake.query?.token;
@@ -38,13 +52,74 @@ module.exports = function registerHandlers(io) {
   });
 
   // ── Presence tracking ──────────────────────────────────────────────────────
-  const onlineUsers = new Map(); // userId → socketId
+  // userId → Set<socketId>  (a user can have multiple tabs / devices)
+  const onlineUsers = new Map();
+  // socketId → { userId, lastSeen }  (for heartbeat reaper)
+  const socketHeartbeats = new Map();
+
+  const addSocket = (userId, socketId) => {
+    if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set());
+    onlineUsers.get(userId).add(socketId);
+    socketHeartbeats.set(socketId, { userId, lastSeen: Date.now() });
+  };
+
+  const removeSocket = (userId, socketId) => {
+    socketHeartbeats.delete(socketId);
+    const set = onlineUsers.get(userId);
+    if (!set) return false;
+    set.delete(socketId);
+    if (set.size === 0) {
+      onlineUsers.delete(userId);
+      return true; // user is now fully offline
+    }
+    return false; // still has other connections
+  };
+
+  // Sweep dead sockets every 15s. If we haven't seen a heartbeat in 60s,
+  // assume the client is gone (browser killed, network died, etc).
+  const HEARTBEAT_TIMEOUT_MS = 60 * 1000;
+  setInterval(() => {
+    const now = Date.now();
+    for (const [socketId, info] of socketHeartbeats) {
+      if (now - info.lastSeen > HEARTBEAT_TIMEOUT_MS) {
+        const userId = info.userId;
+        const wentOffline = removeSocket(userId, socketId);
+        if (wentOffline) {
+          io.emit('user:offline', { userId });
+          UserProfile.findOneAndUpdate(
+            { user_id: userId },
+            { $set: { status: 'offline', last_seen: new Date() } }
+          ).catch(() => {});
+        }
+        // Force-disconnect the zombie socket if it's still in the io instance
+        const sock = io.sockets.sockets.get(socketId);
+        if (sock) sock.disconnect(true);
+      }
+    }
+  }, 15 * 1000);
 
   io.on('connection', (socket) => {
     const userId = socket.userId;
-    onlineUsers.set(userId, socket.id);
-    io.emit('user:online', { userId });
-    UserProfile.findOneAndUpdate({ user_id: userId }, { status: 'online' }).catch(() => {});
+    const wasOffline = !onlineUsers.has(userId);
+    addSocket(userId, socket.id);
+    if (wasOffline) {
+      io.emit('user:online', { userId });
+    }
+    UserProfile.findOneAndUpdate(
+      { user_id: userId },
+      { $set: { status: 'online', last_seen: new Date() } }
+    ).catch(() => {});
+
+    // Client heartbeat — sent every 25s. Refreshes lastSeen so the reaper
+    // won't kill this socket. Also persists last_seen to MongoDB.
+    socket.on('presence:ping', () => {
+      const info = socketHeartbeats.get(socket.id);
+      if (info) info.lastSeen = Date.now();
+      UserProfile.findOneAndUpdate(
+        { user_id: userId },
+        { $set: { last_seen: new Date() } }
+      ).catch(() => {});
+    });
 
     // ── Room management (all joins are auth-checked) ─────────────────────────
     socket.on('join:server', async ({ serverId }) => {
@@ -190,9 +265,11 @@ module.exports = function registerHandlers(io) {
         const out = normalise(dm.toObject());
         // Emit to both sides of the conversation
         io.to(`dm:${data.conversation_id}`).emit('dm:new', out);
-        // Also notify receiver if not in the DM room
-        const receiverSocket = onlineUsers.get(data.receiver_id);
-        if (receiverSocket) io.to(receiverSocket).emit('dm:notification', out);
+        // Also notify receiver on every tab/device they have open
+        const recvSockets = onlineUsers.get(data.receiver_id);
+        if (recvSockets) {
+          for (const sid of recvSockets) io.to(sid).emit('dm:notification', out);
+        }
       } catch (err) {
         socket.emit('error', { message: err.message });
       }
@@ -237,17 +314,21 @@ module.exports = function registerHandlers(io) {
 
     // ── Friend request notification ──────────────────────────────────────────
     socket.on('friend:notify-user', ({ recipientId, senderName, senderAvatar }) => {
-      const recipientSocket = onlineUsers.get(recipientId);
-      if (recipientSocket) {
-        io.to(recipientSocket).emit('friend:incoming', { senderName, senderAvatar });
+      const recvSockets = onlineUsers.get(recipientId);
+      if (recvSockets) {
+        for (const sid of recvSockets) {
+          io.to(sid).emit('friend:incoming', { senderName, senderAvatar });
+        }
       }
     });
 
     // ── DM real-time relay (no DB write — just broadcasts to room) ───────────
     socket.on('dm:notify', ({ conversationId, recipientId }) => {
       io.to(`dm:${conversationId}`).emit('dm:new', {});
-      const recipientSocket = onlineUsers.get(recipientId);
-      if (recipientSocket) io.to(recipientSocket).emit('dm:notification', {});
+      const recvSockets = onlineUsers.get(recipientId);
+      if (recvSockets) {
+        for (const sid of recvSockets) io.to(sid).emit('dm:notification', {});
+      }
     });
 
     // ── Disconnecting: notify voice rooms while rooms are still populated ────
@@ -261,9 +342,14 @@ module.exports = function registerHandlers(io) {
 
     // ── Disconnect ───────────────────────────────────────────────────────────
     socket.on('disconnect', async () => {
-      onlineUsers.delete(userId);
-      io.emit('user:offline', { userId });
-      UserProfile.findOneAndUpdate({ user_id: userId }, { status: 'offline' }).catch(() => {});
+      const wentOffline = removeSocket(userId, socket.id);
+      if (wentOffline) {
+        io.emit('user:offline', { userId });
+        UserProfile.findOneAndUpdate(
+          { user_id: userId },
+          { $set: { status: 'offline', last_seen: new Date() } }
+        ).catch(() => {});
+      }
       try {
         await VoiceSession.deleteMany({ user_id: userId, is_spidr_ai: { $ne: true } });
       } catch { /* ignore */ }

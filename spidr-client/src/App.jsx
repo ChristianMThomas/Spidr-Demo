@@ -8,6 +8,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import LoginPage from '@/components/spidr/LoginPage';
 import LandingPage from '@/pages/LandingPage';
+import JoinServer from '@/pages/JoinServer';
 import { useEffect } from 'react';
 import { getSocket } from '@/api/apiClient';
 
@@ -31,7 +32,23 @@ function AppRoutes() {
       queryClient.invalidateQueries({ queryKey: ['userProfile', userId] });
     socket.on('user:online', invalidateProfile);
     socket.on('user:offline', invalidateProfile);
+
+    // Presence heartbeat — keeps us marked online on the server.
+    // Server reaper kicks us at 60s with no ping; we send every 25s.
+    const ping = () => socket.emit('presence:ping');
+    ping(); // immediately on connect
+    const interval = setInterval(ping, 25 * 1000);
+
+    // Send a final ping right before tab close so the user doesn't get
+    // stuck "online" for a full reaper cycle when they refresh.
+    const handleUnload = () => {
+      try { socket.disconnect(); } catch {}
+    };
+    window.addEventListener('beforeunload', handleUnload);
+
     return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleUnload);
       socket.off('user:online', invalidateProfile);
       socket.off('user:offline', invalidateProfile);
     };
@@ -57,6 +74,12 @@ function AppRoutes() {
       <Route
         path="/login"
         element={isAuthenticated ? <Navigate to="/Home" replace /> : <LoginPage />}
+      />
+
+      {/* Auth-gated — server invite landing */}
+      <Route
+        path="/join/:code"
+        element={isAuthenticated ? <JoinServer /> : <Navigate to="/login" replace />}
       />
 
       {/* Protected — all app pages */}
