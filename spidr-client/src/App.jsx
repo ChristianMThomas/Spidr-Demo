@@ -1,5 +1,5 @@
 import { Toaster } from "@/components/ui/toaster"
-import { QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
 import { pagesConfig } from './pages.config'
@@ -8,6 +8,8 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import LoginPage from '@/components/spidr/LoginPage';
 import LandingPage from '@/pages/LandingPage';
+import { useEffect } from 'react';
+import { getSocket } from '@/api/apiClient';
 
 const { Pages, Layout } = pagesConfig;
 
@@ -20,6 +22,20 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout
 
 function AppRoutes() {
   const { isLoadingAuth, isAuthenticated } = useAuth();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const socket = getSocket();
+    const invalidateProfile = ({ userId }) =>
+      queryClient.invalidateQueries({ queryKey: ['userProfile', userId] });
+    socket.on('user:online', invalidateProfile);
+    socket.on('user:offline', invalidateProfile);
+    return () => {
+      socket.off('user:online', invalidateProfile);
+      socket.off('user:offline', invalidateProfile);
+    };
+  }, [isAuthenticated, queryClient]);
 
   if (isLoadingAuth) {
     return (

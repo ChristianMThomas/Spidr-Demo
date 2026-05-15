@@ -44,7 +44,7 @@ export default function UserProfileWidget({ currentUser, onOpenSettings }) {
     }
   });
 
-  const status = userProfile?.status || 'online';
+  const status = userProfile?.status || 'offline';
   const neuralLinks = currentUser?.neural_links || {};
   const hasActivity = neuralLinks.spotify || neuralLinks.steam;
 
