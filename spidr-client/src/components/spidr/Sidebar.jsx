@@ -3,25 +3,27 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Server, Settings, MessageCircle, Plus, Network, Radio, Shield, Blocks, Activity } from 'lucide-react';
 import SpiderLogo from './SpiderLogo';
 import { useQuery } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities, auth } from '@/api/apiClient';
 import { playSound } from './SoundEngine';
 import ApexStore from './ApexStore';
 import { useMenu } from '@/components/MenuContext';
 import { ServerPulse } from '@/components/ui/PulseBadge';
+import { useNavigate, useLocation } from 'react-router-dom';
 
-export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGlass = false }) {
+export default function Sidebar({ onCreateServer, isGlass = false, onRadarOpen }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [hovered, setHovered] = useState(null);
   const [showApex, setShowApex] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const { triggerMenu } = useMenu();
-  
+
   const { data: allServers = [] } = useQuery({
     queryKey: ['servers'],
     queryFn: () => entities.Server.list('-created_date', 50),
     staleTime: 30000,
   });
 
-  // Only show servers the user actually belongs to (owner or member)
   const servers = React.useMemo(() => {
     if (!currentUser?.id) return [];
     return allServers.filter(s =>
@@ -62,12 +64,11 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
   });
 
   const friendRequestCount = friendRequests.length;
-
   const totalMentions = friendRequestCount + dmUnreadCount;
 
   const navItems = [
     { id: 'friends', icon: Users, label: 'Friends', mentions: totalMentions },
-    { id: 'servers', icon: Server, label: 'Servers' },
+    { id: 'channels', icon: Server, label: 'Servers' },
     { id: 'radar', icon: Radio, label: 'Signal Radar' },
     { id: 'feed', icon: Network, label: 'THE WEB' },
     { id: 'bots', icon: MessageCircle, label: 'Bot Lab' },
@@ -80,6 +81,19 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
     { id: 'settings', icon: Settings, label: 'Settings' },
   ];
 
+  const isItemActive = (itemId) => {
+    if (itemId === 'channels') return location.pathname.startsWith('/channels');
+    return location.pathname === '/' + itemId;
+  };
+
+  const handleNavClick = (itemId) => {
+    if (itemId === 'radar') {
+      onRadarOpen?.();
+    } else {
+      navigate('/' + itemId);
+    }
+  };
+
   return (
     <>
       <AnimatePresence>
@@ -88,26 +102,26 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
 
       <div className={`w-[72px] flex flex-col items-center py-6 border-r h-screen z-50 relative transition-all ${isGlass ? "bg-black/30 backdrop-blur-xl border-white/10" : "bg-[#050505] border-white/5"}`}>
       {/* Logo */}
-      <motion.div 
+      <motion.div
         className="mb-8 w-12 h-12 bg-red-600/10 rounded-xl flex items-center justify-center border border-red-600/20 cursor-pointer hover:bg-red-600/20 transition-all"
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.95 }}
-        onClick={() => setActiveTab('home')}
+        onClick={() => navigate('/home')}
         style={{ boxShadow: '0 0 15px rgba(229, 62, 62, 0.2)' }}
       >
         <SpiderLogo size={32} />
       </motion.div>
-      
+
       {/* Navigation */}
       <div className="flex flex-col gap-4 flex-1 w-full px-2">
         {navItems.map((item) => {
-          const isActive = activeTab === item.id;
+          const isActive = isItemActive(item.id);
           const isHovered = hovered === item.id;
-          
+
           return (
             <div
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => handleNavClick(item.id)}
               onMouseEnter={() => {
                 setHovered(item.id);
                 playSound('hover');
@@ -121,9 +135,9 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
                   layoutId="spider-thread"
                   className="absolute left-0 w-[3px] bg-red-600 rounded-r-full z-10"
                   initial={{ height: 0, opacity: 0 }}
-                  animate={{ 
+                  animate={{
                     height: isActive ? '70%' : '40%',
-                    opacity: 1 
+                    opacity: 1
                   }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{
@@ -139,7 +153,7 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
 
               {/* Horizontal Silk Connector */}
               {(isActive || isHovered) && (
-                <motion.div 
+                <motion.div
                   layoutId="spider-silk-connector"
                   className="absolute left-[3px] w-[10px] h-[1px] bg-red-600/50"
                   transition={{ duration: 0.2 }}
@@ -147,12 +161,12 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
               )}
 
               {/* Icon with Glow */}
-              <div 
+              <div
                 className={`relative z-20 w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 ${
-                  isActive 
-                    ? 'bg-red-600 text-white scale-105' 
-                    : isHovered 
-                      ? 'bg-white/10 text-white' 
+                  isActive
+                    ? 'bg-red-600 text-white scale-105'
+                    : isHovered
+                      ? 'bg-white/10 text-white'
                       : 'text-zinc-500 bg-transparent'
                 }`}
                 style={isActive ? { boxShadow: '0 0 20px rgba(229, 62, 62, 0.5)' } : {}}
@@ -188,17 +202,17 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
           );
         })}
       </div>
-      
-      {/* Server list preview - only show when on servers tab */}
-      {activeTab === 'servers' && (
+
+      {/* Server list preview — shown when on any /channels route */}
+      {location.pathname.startsWith('/channels') && (
         <div className="flex flex-col gap-2 w-full px-2 mb-4">
           <div className="w-8 h-0.5 bg-red-900/50 rounded-full mx-auto mb-2" />
-          
+
           <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto scrollbar-thin">
             {servers.slice(0, 5).map((server) => (
               <div key={server.id} className="relative mx-auto">
                 <motion.button
-                  onClick={() => setActiveTab(`server-${server.id}`)}
+                  onClick={() => navigate('/channels/' + server.id)}
                   onContextMenu={(e) => triggerMenu(e, 'server_sidebar', { id: server.id, name: server.name })}
                   onMouseEnter={() => playSound('hover')}
                   className="w-12 h-12 rounded-2xl bg-zinc-800/50 overflow-hidden hover:rounded-xl transition-all duration-200"
@@ -217,7 +231,7 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
               </div>
             ))}
           </div>
-          
+
           <motion.button
             onClick={onCreateServer}
             className="w-12 h-12 rounded-2xl bg-zinc-800/30 text-green-500 hover:bg-green-600 hover:text-white flex items-center justify-center transition-all duration-200 mx-auto"
@@ -239,12 +253,12 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
         >
           {/* Shine Effect */}
           <div className="absolute inset-0 bg-white/20 translate-y-full skew-y-12 group-hover:-translate-y-full transition-transform duration-700 ease-in-out" />
-          
+
           {/* Icon */}
           <div className="relative z-10 drop-shadow-md group-hover:scale-110 transition-transform">
             <SpiderLogo size={24} />
           </div>
-          
+
           {/* Notification Ping */}
           <div className="absolute top-2 right-2 w-2 h-2 bg-white rounded-full animate-ping" />
         </motion.button>

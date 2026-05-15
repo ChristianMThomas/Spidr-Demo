@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -36,7 +37,10 @@ import ReportModal from './ReportModal';
 import SignalTracker from './SignalTracker';
 import ErrorBoundary from './ErrorBoundary';
 
-export default function ServersPanel({ currentUser, selectedServerId, onSelectServer, onVoiceJoin, onVoiceLeave, onMinimizeCall }) {
+export default function ServersPanel() {
+  const { serverId: selectedServerId } = useParams();
+  const navigate = useNavigate();
+  const { currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall } = useOutletContext();
   const [searchQuery, setSearchQuery] = useState('');
   const queryClient = useQueryClient();
   const { triggerMenu } = useMenu();
@@ -75,7 +79,7 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
             {filteredServers.map((server) => (
               <motion.button
                 key={server.id}
-                onClick={() => onSelectServer(server.id)}
+                onClick={() => navigate('/channels/' + server.id)}
                 onContextMenu={(e) => triggerMenu(e, 'server_sidebar', { id: server.id, name: server.name })}
                 onMouseEnter={() => playSound('hover')}
                 className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
@@ -138,9 +142,18 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
 function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall }) {
   const queryClient = useQueryClient();
   const { triggerMenu } = useMenu();
+  const { channelId: urlChannelId } = useParams();
+  const navigate = useNavigate();
   const [selectedChannel, setSelectedChannel] = useState(() => {
-    return server.channels?.[0]?.id || 'general';
+    return urlChannelId || server.channels?.[0]?.id || 'general';
   });
+
+  // Sync selected channel with URL param (for deep links and navigation)
+  useEffect(() => {
+    if (urlChannelId && urlChannelId !== selectedChannel) {
+      setSelectedChannel(urlChannelId);
+    }
+  }, [urlChannelId]);
   const [message, setMessage] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -853,7 +866,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             {channels.filter(c => c.type === 'text').map((channel) => (
               <button
                 key={channel.id}
-                onClick={() => setSelectedChannel(channel.id)}
+                onClick={() => navigate('/channels/' + server.id + '/' + channel.id)}
                 onContextMenu={(e) => triggerMenu(e, 'channel_text', { id: channel.id, name: channel.name, server_id: server.id })}
                 onMouseEnter={() => playSound('hover')}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${

@@ -11,7 +11,7 @@ import { toast } from 'sonner';
  *
  * Flow:
  *   1. Look up the invite code → show server preview
- *   2. Confirm "Join Server" → POST /servers/join → navigate to /Home with the server selected
+ *   2. Confirm "Join Server" → POST /servers/join → navigate to /channels/:serverId
  */
 export default function JoinServer() {
   const { code } = useParams();
@@ -45,8 +45,7 @@ export default function JoinServer() {
       } else {
         toast.success(`Joined ${result.name}!`);
       }
-      // Land in Home; ServersPanel will pick the server up from the URL hash
-      navigate(`/Home#server-${result.id}`);
+      navigate('/channels/' + result.id);
     } catch (err) {
       toast.error('Could not join: ' + (err?.message || 'unknown error'));
     } finally {
@@ -90,7 +89,7 @@ export default function JoinServer() {
               <h2 className="text-lg font-black text-white mb-1">Invalid Invite</h2>
               <p className="text-zinc-500 text-sm mb-6">{error}</p>
               <button
-                onClick={() => navigate('/Home')}
+                onClick={() => navigate('/home')}
                 className="px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-all"
               >
                 Back to Spidr
@@ -126,7 +125,7 @@ export default function JoinServer() {
 
               <div className="flex gap-2">
                 <button
-                  onClick={() => navigate('/Home')}
+                  onClick={() => navigate('/home')}
                   disabled={joining}
                   className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-all disabled:opacity-40"
                 >

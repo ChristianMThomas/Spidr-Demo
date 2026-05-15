@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, integrations, algorithm } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -65,7 +66,8 @@ function useEngagement(clip, isVisible, hasLiked, videoRef) {
 }
 
 // ── Main FeedPanel ────────────────────────────────────────────────────────────
-export default function FeedPanel({ currentUser }) {
+export default function FeedPanel() {
+  const { currentUser } = useOutletContext();
   const [showUpload, setShowUpload]     = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [activeTab, setActiveTab]       = useState('main');

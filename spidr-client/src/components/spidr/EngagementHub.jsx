@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities } from '@/api/apiClient';
 import { motion } from 'framer-motion';
 import { TrendingUp, Users, Flame, Star, Trophy, ArrowRight } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { useNavigate } from 'react-router-dom';
 import HolographicProfile from './HolographicProfile';
 
-export default function EngagementHub({ currentUser, onNavigate, onNavigateToDM }) {
+export default function EngagementHub({ currentUser, onNavigateToDM }) {
+  const navigate = useNavigate();
   const [selectedProfileId, setSelectedProfileId] = useState(null);
 
   const { data: profiles = [] } = useQuery({
@@ -60,7 +62,7 @@ export default function EngagementHub({ currentUser, onNavigate, onNavigateToDM 
             <motion.button
               key={server.id}
               whileHover={{ x: 4 }}
-              onClick={() => onNavigate?.(`server-${server.id}`)}
+              onClick={() => navigate('/channels/' + server.id)}
               className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-800/70 transition-colors w-full text-left"
             >
               <div className="relative">
