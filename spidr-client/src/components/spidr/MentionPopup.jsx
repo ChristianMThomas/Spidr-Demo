@@ -16,9 +16,12 @@ export default function MentionPopup({
     { id: 'here', name: 'here', role: 'special', description: 'Notify online members' }
   ];
 
-  const allOptions = [...specialMentions, ...users];
-  const filtered = allOptions.filter(u => 
-    u.name.toLowerCase().includes(filter.toLowerCase())
+  // Drop any users that come in without a usable name — otherwise the .toLowerCase()
+  // filter below would throw and crash the @ popup entirely.
+  const safeUsers = users.filter(u => u && typeof u.name === 'string' && u.name.trim().length > 0);
+  const allOptions = [...specialMentions, ...safeUsers];
+  const filtered = allOptions.filter(u =>
+    u.name.toLowerCase().includes((filter || '').toLowerCase())
   ).slice(0, 8);
 
   if (filtered.length === 0) return null;

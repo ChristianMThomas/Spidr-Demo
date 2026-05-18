@@ -43,3 +43,6 @@ CLAUDE.md
 # Spidr landing
 spidr-landing
 spidr-landing/*
+
+# Merge backups
+.merge-backup/

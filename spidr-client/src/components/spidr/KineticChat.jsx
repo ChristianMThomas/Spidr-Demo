@@ -86,9 +86,30 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     queryKey: ['group-messages', groupId],
     queryFn: () => entities.GroupChatMessage.filter({ group_id: groupId }, '-created_date', 100),
     enabled: !!groupId,
-    refetchInterval: 10000,
-    staleTime: 1000,
+    staleTime: 30000,
   });
+
+  // Profiles for everyone in this group — used to render each sender's name
+  // in their chosen font/color/effect.
+  const memberUserIds = React.useMemo(
+    () => (group?.members || []).map(m => m.user_id).filter(Boolean),
+    [group?.members]
+  );
+  const { data: memberProfiles = [] } = useQuery({
+    queryKey: ['group-member-profiles', groupId, memberUserIds.join(',')],
+    queryFn: async () => {
+      if (memberUserIds.length === 0) return [];
+      const all = await entities.UserProfile.list('-created_date', 200);
+      return all.filter(p => memberUserIds.includes(p.user_id));
+    },
+    enabled: !!groupId && memberUserIds.length > 0,
+    staleTime: 60000,
+  });
+  const profilesByUserId = React.useMemo(() => {
+    const map = {};
+    for (const p of memberProfiles) if (p.user_id) map[p.user_id] = p;
+    return map;
+  }, [memberProfiles]);
 
   const pinnedMessages = messages.filter(msg => msg.is_webbed);
 
@@ -178,7 +199,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     queryFn: () => entities.VoiceSession.filter({ channel_id: groupId }),
     enabled: inCall && !!groupId,
     refetchInterval: 10000,
-    staleTime: 1000,
+    staleTime: 5000,
   });
 
   const sendMessageMutation = useMutation({
@@ -592,6 +613,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
                   prevMsg={prevMsg?.type === 'combo' ? null : prevMsg}
                   isOwnMessage={isOwnMessage}
                   repliedTo={msg.reply_to ? messages.find(m => m.id === msg.reply_to) : null}
+                  senderProfile={profilesByUserId[msg.sender_id || msg.user_id]}
                   onProfileClick={(userId) => setSelectedProfileUserId(userId)}
                   currentUser={currentUser}
                   onReactionToggle={async (msgId, emoji) => {

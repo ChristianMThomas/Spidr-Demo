@@ -40,7 +40,8 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
     queryKey: ['voiceSessions', server?.id],
     queryFn: () => entities.VoiceSession.filter({ server_id: server.id }),
     enabled: !!server?.id,
-    refetchInterval: 15000
+    refetchInterval: 10000,
+    staleTime: 5000,
   });
 
   const getProfile = (userId) => profiles.find(p => p.user_id === userId);
@@ -270,7 +271,10 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
     if (member) {
       const header = document.createElement('div');
       header.className = 'px-4 py-2 border-b border-zinc-700 mb-1';
-      header.innerHTML = `<div class="text-white font-semibold text-sm">${member.nickname || member.user_name}</div>`;
+      const nameNode = document.createElement('div');
+      nameNode.className = 'text-white font-semibold text-sm';
+      nameNode.textContent = member.nickname || member.user_name || '';
+      header.appendChild(nameNode);
       menuElement.appendChild(header);
     }
     

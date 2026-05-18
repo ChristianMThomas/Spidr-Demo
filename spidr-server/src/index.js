@@ -55,8 +55,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.set('trust proxy', 1);
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 2000, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path.startsWith('/uploads') }));
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path.startsWith('/uploads') }));
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.use('/auth',               require('./routes/auth'));
@@ -89,6 +88,10 @@ app.use('/ai',                 require('./routes/ai'));
 app.use('/algorithm',          require('./routes/algorithm'));
 app.use('/audio',              require('./routes/audio'));
 app.use('/uploads',            require('express').static(path.join(__dirname, '../uploads')));
+
+// WebRTC ICE config (STUN+TURN) for voice channels
+const { getTurnConfig } = require('./socket/voiceSignaling');
+app.get('/voice/ice', getTurnConfig);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
@@ -161,6 +164,11 @@ mongoose
   .connect(process.env.MONGO_URI || 'mongodb://localhost:27017/spidr')
   .then(() => {
     console.log('✓ MongoDB connected');
+    // Seed defaults — idempotent, safe to run on every start
+    const { seedDefaultModules } = require('./utils/seedDefaultModules');
+    const { seedDefaultBots }    = require('./utils/seedDefaultBots');
+    seedDefaultModules();
+    seedDefaultBots();
     const PORT = process.env.PORT || 4000;
     server.listen(PORT, () => console.log(`✓ Spidr server running on port ${PORT}`));
   })

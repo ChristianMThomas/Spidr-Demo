@@ -1,20 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { entities, getSocket } from '@/api/apiClient';
+import { entities } from '@/api/apiClient';
 import {
-  Activity, Users, Server as ServerIcon, MessageSquare, Film, Shield,
-  Wifi, Database, Zap, Crown,
+  Activity, Users, Server as ServerIcon, MessageSquare, Film,
+  Heart, Crown, Zap, Hash, Calendar, Clock,
 } from 'lucide-react';
 
 /**
- * NerveCenter — admin telemetry dashboard.
+ * NerveCenter — personal stats dashboard for the viewing user.
  *
- * Layout matches the SPIDR NERVE CENTER mock:
- *   • Header: title + LIVE signal pulse
- *   • CORE RESONANCE: 5 ring gauges (GRID TENSION / VOICE NODES / SYMBIOTE PULSE / APEX DENSITY / THREAT INDEX)
- *   • DATA SILK FLOW: two stacked line charts (grid tension over time, latency over time)
- *   • Stat tiles: registered users, active servers, messages, clips, voice sessions, apex members, audio tracks, pending reports
+ * Same visual style as the original mock (CORE RESONANCE ring gauges,
+ * DATA SILK FLOW line charts, stat tiles), but every metric is scoped to
+ * the current user's own activity rather than platform-wide telemetry.
  */
 
 // ─── Line Chart Canvas ────────────────────────────────────────────────────────
@@ -33,7 +30,7 @@ function LineCanvas({ history = [], color = '#FF3333', max = 100, label, value, 
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, cssW, cssH);
 
-    // Subtle gridlines
+    // Gridlines
     ctx.strokeStyle = 'rgba(255,255,255,0.04)';
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
@@ -49,11 +46,10 @@ function LineCanvas({ history = [], color = '#FF3333', max = 100, label, value, 
     const drawableH = cssH - padding * 2;
     const points = history.map((v, i) => {
       const x = (i / Math.max(history.length - 1, 1)) * cssW;
-      const y = cssH - padding - ((v / max) * drawableH);
+      const y = cssH - padding - ((v / Math.max(max, 1)) * drawableH);
       return [x, y];
     });
 
-    // Filled gradient under the line
     const grad = ctx.createLinearGradient(0, 0, 0, cssH);
     grad.addColorStop(0, color + '50');
     grad.addColorStop(1, color + '00');
@@ -65,19 +61,14 @@ function LineCanvas({ history = [], color = '#FF3333', max = 100, label, value, 
     ctx.closePath();
     ctx.fill();
 
-    // Glowing line
     ctx.shadowColor = color;
     ctx.shadowBlur = 12;
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    points.forEach(([x, y], i) => {
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
+    points.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
     ctx.stroke();
 
-    // Trailing dot
     const [lx, ly] = points[points.length - 1];
     ctx.shadowBlur = 16;
     ctx.fillStyle = color;
@@ -91,24 +82,17 @@ function LineCanvas({ history = [], color = '#FF3333', max = 100, label, value, 
       <div className="flex justify-between items-end">
         <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/40 font-mono">{label}</span>
         <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/40 font-mono">
-          {typeof value === 'number' ? (value < 10 ? value.toFixed(1) : Math.round(value)) : value}{unit}
+          {typeof value === 'number' ? Math.round(value) : value}{unit}
         </span>
       </div>
-      <canvas
-        ref={ref}
-        className="w-full h-[120px] rounded-lg bg-black/30 border border-white/5"
-      />
-      <div className="flex justify-between text-[8px] text-white/25 font-mono uppercase tracking-widest">
-        <span>{label.split(' ')[0]}</span>
-        <span>{label.split(' ')[0]}</span>
-      </div>
+      <canvas ref={ref} className="w-full h-[120px] rounded-lg bg-black/30 border border-white/5" />
     </div>
   );
 }
 
 // ─── Ring Gauge ───────────────────────────────────────────────────────────────
 function Ring({ value = 0, max = 100, color = '#FF3333', label, sub, pulse }) {
-  const pct = Math.min(value / max, 1);
+  const pct = Math.min(value / Math.max(max, 1), 1);
   const r = 30, cx = 36, cy = 36;
   const circ = 2 * Math.PI * r;
   const dash = circ * pct;
@@ -152,12 +136,9 @@ function Ring({ value = 0, max = 100, color = '#FF3333', label, sub, pulse }) {
 }
 
 // ─── Stat Tile ────────────────────────────────────────────────────────────────
-function Tile({ icon: Icon, value, label, sub, color = '#FF3333', pulse }) {
+function Tile({ icon: Icon, value, label, sub, color = '#FF3333' }) {
   return (
-    <div
-      className="bg-zinc-900/40 border border-white/5 rounded-xl p-4 relative overflow-hidden hover:border-white/10 transition-colors"
-      style={pulse ? { boxShadow: `inset 0 0 30px ${color}10` } : undefined}
-    >
+    <div className="bg-zinc-900/40 border border-white/5 rounded-xl p-4 relative overflow-hidden hover:border-white/10 transition-colors">
       <div className="flex items-start justify-between mb-3">
         <div
           className="w-9 h-9 rounded-lg flex items-center justify-center"
@@ -165,9 +146,6 @@ function Tile({ icon: Icon, value, label, sub, color = '#FF3333', pulse }) {
         >
           <Icon size={15} style={{ color }} />
         </div>
-        {pulse && (
-          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }} />
-        )}
       </div>
       <div className="text-3xl font-black text-white font-mono leading-none mb-1">
         {typeof value === 'number' ? value.toLocaleString() : (value ?? '—')}
@@ -178,75 +156,122 @@ function Tile({ icon: Icon, value, label, sub, color = '#FF3333', pulse }) {
   );
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function buildDailyHistogram(messages, days = 14) {
+  // Returns an array of message counts per day, oldest → newest
+  const buckets = new Array(days).fill(0);
+  const now = Date.now();
+  const dayMs = 86400000;
+  for (const m of messages) {
+    const t = new Date(m.created_date).getTime();
+    const daysAgo = Math.floor((now - t) / dayMs);
+    if (daysAgo >= 0 && daysAgo < days) {
+      buckets[days - 1 - daysAgo]++;
+    }
+  }
+  return buckets;
+}
+
+function buildActivityScore(buckets) {
+  // Activity score = recent 3 days' messages / max-day-in-window, 0-100
+  const recent3 = buckets.slice(-3).reduce((a, b) => a + b, 0);
+  const peak = Math.max(...buckets, 1);
+  return Math.min(100, Math.round((recent3 / (peak * 3 || 1)) * 100));
+}
+
+function calcStreak(buckets) {
+  // Streak = number of consecutive most-recent days with ≥1 message
+  let streak = 0;
+  for (let i = buckets.length - 1; i >= 0; i--) {
+    if (buckets[i] > 0) streak++;
+    else break;
+  }
+  return streak;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function NerveCenter() {
-  const { currentUser } = useOutletContext();
-  const [telemetry, setTelemetry] = useState(null);
-  const [connected, setConnected] = useState(false);
+export default function NerveCenter({ currentUser }) {
+  const userId = currentUser?.id;
 
-  // Socket telemetry stream
-  useEffect(() => {
-    const socket = getSocket();
-    if (!socket) return;
-    socket.emit('join:nerve-center');
-    setConnected(true);
-    const onTelemetry = (data) => setTelemetry(data);
-    socket.on('server:telemetry', onTelemetry);
-    return () => {
-      socket.emit('leave:nerve-center');
-      socket.off('server:telemetry', onTelemetry);
-    };
-  }, []);
+  // Pull everything scoped to this user. All best-effort — empty arrays on fail.
+  const { data: myMessages = [] } = useQuery({
+    queryKey: ['nc-my-messages', userId],
+    queryFn: () => entities.Message.filter({ author_id: userId }),
+    enabled: !!userId,
+    refetchInterval: 30000,
+    staleTime: 15000,
+  });
 
-  // DB metrics (polled, not live)
-  const { data: servers = [] } = useQuery({
-    queryKey: ['nc-servers'],
-    queryFn: () => entities.Server.list('-created_date', 200),
-    refetchInterval: 15000,
-  });
-  const { data: users = [] } = useQuery({
-    queryKey: ['nc-users'],
-    queryFn: () => entities.UserProfile.list('-created_date', 200),
-    refetchInterval: 15000,
-  });
-  const { data: messages = [] } = useQuery({
-    queryKey: ['nc-messages'],
-    queryFn: () => entities.Message.list('-created_date', 500),
-    refetchInterval: 15000,
-  });
-  const { data: clips = [] } = useQuery({
-    queryKey: ['nc-clips'],
-    queryFn: () => entities.Clip.list('-created_date', 200),
-    refetchInterval: 15000,
-  });
-  const { data: audioTracks = [] } = useQuery({
-    queryKey: ['nc-audio-tracks'],
-    queryFn: () => entities.AudioTrack.list('-created_date', 200),
+  const { data: myDMs = [] } = useQuery({
+    queryKey: ['nc-my-dms', userId],
+    queryFn: () => entities.DirectMessage.filter({ sender_id: userId }),
+    enabled: !!userId,
     refetchInterval: 30000,
   });
-  const { data: voiceSessions = [] } = useQuery({
-    queryKey: ['nc-voice-sessions'],
-    queryFn: () => entities.VoiceSession.list('-created_date', 200),
-    refetchInterval: 5000,
-  });
-  const { data: reports = [] } = useQuery({
-    queryKey: ['nc-reports'],
-    queryFn: () => entities.Report.filter({ status: 'pending' }),
-    refetchInterval: 15000,
+
+  const { data: myFriends = [] } = useQuery({
+    queryKey: ['nc-my-friends', userId],
+    queryFn: () => entities.Friend.filter({ user_id: userId, status: 'accepted' }),
+    enabled: !!userId,
+    refetchInterval: 30000,
   });
 
-  // Derived telemetry indicators
-  const onlineUsers = users.filter(u => u.status === 'online').length;
-  const apexUsers = users.filter(u => u.apex_tier === 'apex').length;
-  const apexPct = users.length > 0 ? (apexUsers / users.length) * 100 : 0;
-  const totalMembers = servers.reduce((acc, s) => acc + (s.members?.length || 0), 0);
-  const totalViews = clips.reduce((acc, c) => acc + (c.views || 0), 0);
+  const { data: allServers = [] } = useQuery({
+    queryKey: ['nc-all-servers'],
+    queryFn: () => entities.Server.list('-created_date', 200),
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
 
-  // GRID TENSION: socket connections relative to max we've seen.
-  // Default to telemetry.cpu if connections is not yet reporting.
-  const gridTension = telemetry?.cpu ?? 0;
-  // SYMBIOTE PULSE: rough latency from telemetry. 0 means we haven't heard back.
-  const latency = telemetry?.latency ?? 17;
+  const { data: myClips = [] } = useQuery({
+    queryKey: ['nc-my-clips', userId],
+    queryFn: () => entities.Clip.filter({ author_id: userId }),
+    enabled: !!userId,
+    refetchInterval: 60000,
+  });
+
+  const { data: myProfile } = useQuery({
+    queryKey: ['nc-my-profile', userId],
+    queryFn: async () => {
+      const profiles = await entities.UserProfile.filter({ user_id: userId });
+      return profiles[0];
+    },
+    enabled: !!userId,
+  });
+
+  // ── Derived stats ──────────────────────────────────────────────────────────
+  const myServers = allServers.filter(s =>
+    s.owner_id === userId || (s.members || []).some(m => m.user_id === userId)
+  );
+
+  const messageHistory = useMemo(() => buildDailyHistogram(myMessages, 14), [myMessages]);
+  const dmHistory      = useMemo(() => buildDailyHistogram(myDMs, 14), [myDMs]);
+
+  const totalMsgs = myMessages.length + myDMs.length;
+  const todayMsgs = messageHistory[messageHistory.length - 1] + dmHistory[dmHistory.length - 1];
+  const activityScore = buildActivityScore(messageHistory.map((v, i) => v + (dmHistory[i] || 0)));
+  const streak = calcStreak(messageHistory.map((v, i) => v + (dmHistory[i] || 0)));
+  const friendsOf = myFriends.length;
+  const serversOf = myServers.length;
+  const isApex = myProfile?.apex_tier === 'apex';
+
+  // Account age in days
+  const accountAgeDays = useMemo(() => {
+    if (!myProfile?.created_date) return 0;
+    return Math.floor((Date.now() - new Date(myProfile.created_date).getTime()) / 86400000);
+  }, [myProfile]);
+
+  // Reaction-count style "engagement" metric — average reactions received per message
+  const totalReactionsReceived = myMessages.reduce((acc, m) => {
+    if (!m.reactions || typeof m.reactions !== 'object') return acc;
+    return acc + Object.values(m.reactions).reduce((s, arr) => s + (Array.isArray(arr) ? arr.length : 0), 0);
+  }, 0);
+  const avgReactionsPerMsg = myMessages.length > 0 ? (totalReactionsReceived / myMessages.length) : 0;
+
+  // Total clip views (vanity metric, but a nice one)
+  const totalClipViews = myClips.reduce((acc, c) => acc + (c.views || 0), 0);
+
+  const displayName = myProfile?.display_name || currentUser?.full_name || 'You';
 
   return (
     <div className="flex-1 flex flex-col bg-black overflow-hidden">
@@ -256,19 +281,19 @@ export default function NerveCenter() {
           <Activity className="text-[#FF3333]" size={32} strokeWidth={2.5} />
           <div>
             <h1 className="text-2xl font-black uppercase tracking-tight text-white leading-none">
-              SPIDR NERVE CENTER
+              NERVE CENTER
             </h1>
             <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-[0.25em] mt-1">
-              ADMIN TELEMETRY // LIVE
+              YOUR SPIDR // PERSONAL TELEMETRY
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#FF3333]/30 bg-[#FF3333]/5">
-          <div className={`w-1.5 h-1.5 rounded-full ${connected && telemetry ? 'bg-[#FF3333] animate-pulse' : 'bg-zinc-600'}`}
-            style={connected && telemetry ? { boxShadow: '0 0 6px #FF3333' } : undefined} />
+          <div className="w-1.5 h-1.5 rounded-full bg-[#FF3333] animate-pulse"
+            style={{ boxShadow: '0 0 6px #FF3333' }} />
           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#FF3333] font-mono">
-            {connected && telemetry ? 'SIGNAL ACTIVE' : 'AWAITING SIGNAL'}
+            {displayName}
           </span>
         </div>
       </div>
@@ -276,65 +301,61 @@ export default function NerveCenter() {
       {/* ── BODY ──────────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
 
-        {/* CORE RESONANCE — SYSTEM VITALS */}
+        {/* CORE RESONANCE — YOUR VITALS */}
         <section className="bg-zinc-900/30 border border-white/5 rounded-2xl p-6">
           <p className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.3em] font-mono mb-5">
-            CORE RESONANCE — SYSTEM VITALS
+            CORE RESONANCE — YOUR VITALS
           </p>
           <div className="flex justify-around items-center flex-wrap gap-6">
             <Ring
-              value={Math.round(gridTension)} max={100}
-              color="#FF3333" label="GRID TENSION"
-              sub="%"
-              pulse
+              value={activityScore} max={100}
+              color="#FF3333" label="ACTIVITY"
+              sub="%" pulse={activityScore > 50}
             />
             <Ring
-              value={voiceSessions.length} max={Math.max(voiceSessions.length, 50)}
-              color="#A855F7" label="VOICE NODES"
-              sub="live"
+              value={streak} max={Math.max(streak, 14)}
+              color="#F59E0B" label="STREAK"
+              sub="days" pulse={streak > 0}
             />
             <Ring
-              value={Math.round(latency)} max={500}
-              color="#22D3EE" label="SYMBIOTE PULSE"
-              sub="ms"
-            />
-            <Ring
-              value={apexUsers} max={Math.max(users.length, 1)}
-              color="#FF3333" label="APEX DENSITY"
+              value={friendsOf} max={Math.max(friendsOf + 5, 25)}
+              color="#22D3EE" label="FRIENDS"
               sub="users"
-              pulse={apexUsers > 0}
             />
             <Ring
-              value={reports.length} max={Math.max(reports.length + 10, 20)}
-              color={reports.length > 0 ? '#EF4444' : '#6B7280'}
-              label="THREAT INDEX"
-              sub="flags"
-              pulse={reports.length > 0}
+              value={serversOf} max={Math.max(serversOf + 2, 10)}
+              color="#A855F7" label="SERVERS"
+              sub="joined"
+            />
+            <Ring
+              value={Math.round(avgReactionsPerMsg * 10)} max={50}
+              color={isApex ? '#EAB308' : '#10B981'} label="ENGAGEMENT"
+              sub="avg"
             />
           </div>
         </section>
 
-        {/* DATA SILK FLOW — LIVE SIGNAL MONITOR */}
+        {/* DATA SILK FLOW — YOUR ACTIVITY */}
         <section className="bg-zinc-900/30 border border-white/5 rounded-2xl p-6">
           <p className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.3em] font-mono mb-5">
-            DATA SILK FLOW — LIVE SIGNAL MONITOR
+            DATA SILK FLOW — LAST 14 DAYS
           </p>
           <div className="space-y-6">
             <LineCanvas
-              history={telemetry?.history?.cpu || []}
+              history={messageHistory}
               color="#FF3333"
-              max={100}
-              label="GRID TENSION"
-              value={gridTension}
-              unit="%"
+              max={Math.max(...messageHistory, 5)}
+              label="SERVER MESSAGES"
+              value={messageHistory.reduce((a, b) => a + b, 0)}
+              unit=" total"
             />
             <LineCanvas
-              history={telemetry?.history?.connections || []}
+              history={dmHistory}
               color="#22D3EE"
-              max={Math.max(...(telemetry?.history?.connections || [50]), 50)}
-              label="SYMBIOTE PULSE (LATENCY)"
-              value={latency}
-              unit="ms"
+              max={Math.max(...dmHistory, 5)}
+              label="DIRECT MESSAGES SENT"
+              value={dmHistory.reduce((a, b) => a + b, 0)}
+              unit=" total"
             />
           </div>
         </section>
@@ -342,101 +363,109 @@ export default function NerveCenter() {
         {/* STAT TILES */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Tile
+            icon={MessageSquare}
+            value={totalMsgs}
+            label="Total Messages"
+            sub={`${todayMsgs} today`}
+            color="#FF3333"
+          />
+          <Tile
             icon={Users}
-            value={users.length}
-            label="Registered Users"
-            sub={`${onlineUsers} online`}
+            value={friendsOf}
+            label="Friends"
+            sub="accepted connections"
             color="#22D3EE"
-            pulse={onlineUsers > 0}
           />
           <Tile
             icon={ServerIcon}
-            value={servers.length}
-            label="Active Servers"
-            sub={`${totalMembers} total members`}
+            value={serversOf}
+            label="Servers Joined"
+            sub={myServers.filter(s => s.owner_id === userId).length + ' owned'}
             color="#A855F7"
           />
           <Tile
-            icon={MessageSquare}
-            value={messages.length}
-            label="Messages Sent"
-            sub="all time"
-            color="#10B981"
-          />
-          <Tile
             icon={Film}
-            value={clips.length}
+            value={myClips.length}
             label="Clips Posted"
-            sub={`${totalViews.toLocaleString()} views`}
+            sub={`${totalClipViews.toLocaleString()} total views`}
             color="#F59E0B"
           />
           <Tile
-            icon={Wifi}
-            value={voiceSessions.length}
-            label="Voice Sessions"
-            sub="currently in call"
-            color="#FF3333"
-            pulse={voiceSessions.length > 0}
+            icon={Heart}
+            value={totalReactionsReceived}
+            label="Reactions Received"
+            sub={`${avgReactionsPerMsg.toFixed(1)} avg per message`}
+            color="#EC4899"
           />
           <Tile
-            icon={Crown}
-            value={apexUsers}
-            label="APEX Members"
-            sub={`${apexPct.toFixed(0)}% of users`}
-            color="#EAB308"
+            icon={Zap}
+            value={streak}
+            label="Day Streak"
+            sub={streak > 0 ? 'keep it going!' : 'start chatting today'}
+            color="#F59E0B"
           />
           <Tile
-            icon={Database}
-            value={audioTracks.length}
-            label="Audio Tracks"
-            sub="in library"
+            icon={isApex ? Crown : Calendar}
+            value={accountAgeDays}
+            label={isApex ? 'APEX Member' : 'Days on Spidr'}
+            sub={isApex ? 'thanks for supporting' : 'account age'}
+            color={isApex ? '#EAB308' : '#10B981'}
+          />
+          <Tile
+            icon={Clock}
+            value={todayMsgs}
+            label="Today"
+            sub="messages sent"
             color="#06B6D4"
-          />
-          <Tile
-            icon={Shield}
-            value={reports.length}
-            label="Pending Reports"
-            sub="need review"
-            color={reports.length > 0 ? '#EF4444' : '#6B7280'}
-            pulse={reports.length > 0}
           />
         </section>
 
-        {/* SERVER TOPOLOGY — NODE REGISTRY (preview) */}
+        {/* SERVER MEMBERSHIP REGISTRY */}
         <section className="bg-zinc-900/30 border border-white/5 rounded-2xl p-6">
           <p className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.3em] font-mono mb-5">
-            SERVER TOPOLOGY — NODE REGISTRY
+            YOUR SERVERS — MEMBERSHIP REGISTRY
           </p>
-          {servers.length === 0 ? (
-            <p className="text-zinc-600 text-sm text-center py-6 font-mono">NO_SERVERS</p>
+          {myServers.length === 0 ? (
+            <p className="text-zinc-600 text-sm text-center py-6 font-mono">
+              NOT_IN_ANY_SERVERS — Join one to see it here.
+            </p>
           ) : (
             <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
-              {servers.slice(0, 10).map(server => (
-                <div
-                  key={server.id}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-black/30 border border-white/5"
-                >
-                  <div className="w-9 h-9 rounded-lg overflow-hidden bg-zinc-800 flex-shrink-0">
-                    {server.icon_url ? (
-                      <img src={server.icon_url} alt={server.name} className="w-full h-full object-cover" />
+              {myServers.slice(0, 10).map(server => {
+                const isOwner = server.owner_id === userId;
+                return (
+                  <div
+                    key={server.id}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-black/30 border border-white/5"
+                  >
+                    <div className="w-9 h-9 rounded-lg overflow-hidden bg-zinc-800 flex-shrink-0">
+                      {server.icon_url ? (
+                        <img src={server.icon_url} alt={server.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-red-700 to-red-950 flex items-center justify-center text-white text-sm font-black">
+                          {server.name?.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-white truncate">{server.name}</p>
+                      <p className="text-[10px] text-zinc-500 font-mono">
+                        {(server.members?.length || 0)} members · {(server.channels?.length || 0)} channels
+                      </p>
+                    </div>
+                    {isOwner ? (
+                      <span className="text-[9px] uppercase tracking-widest font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
+                        Owner
+                      </span>
                     ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-red-700 to-red-950 flex items-center justify-center text-white text-sm font-black">
-                        {server.name?.charAt(0).toUpperCase()}
+                      <div className="flex items-center gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                        <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-mono">Member</span>
                       </div>
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-white truncate">{server.name}</p>
-                    <p className="text-[10px] text-zinc-500 font-mono">
-                      {(server.members?.length || 0)} members · {(server.channels?.length || 0)} channels
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                    <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-mono">ACTIVE</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

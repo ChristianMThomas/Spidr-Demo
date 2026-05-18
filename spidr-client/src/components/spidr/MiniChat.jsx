@@ -17,7 +17,7 @@ export default function MiniChat({ server, channel, onClose }) {
       channel_id: channel.id 
     }, '-created_date', 20),
     enabled: !!server && !!channel,
-    refetchInterval: 15000
+    staleTime: 30000,
   });
 
   const handleMouseDown = (e) => {

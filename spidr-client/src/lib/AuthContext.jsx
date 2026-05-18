@@ -18,10 +18,7 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const token = localStorage.getItem('spidr_token');
     if (!token) { setLoadingAuth(false); return; }
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('auth_timeout')), 8000)
-    );
-    Promise.race([auth.me(), timeout])
+    auth.me()
       .then((u) => { setUser(u); setIsAuth(true); })
       .catch(() => { localStorage.removeItem('spidr_token'); })
       .finally(() => setLoadingAuth(false));

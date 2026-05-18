@@ -6,7 +6,6 @@ import { useAuth } from '@/lib/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import HolographicProfile from './HolographicProfile';
 import ApexStore from './ApexStore';
-import { useNavigate } from 'react-router-dom';
 
 const STATUS_COLORS = {
   online:    '#10B981',
@@ -16,9 +15,8 @@ const STATUS_COLORS = {
   streaming: '#A855F7',
 };
 
-export default function UserProfilePod({ onProfileClick }) {
+export default function UserProfilePod({ onSettingsClick }) {
   const { logout } = useAuth();
-  const navigate = useNavigate();
   const [expanded,     setExpanded]     = useState(false);
   const [micActive,    setMicActive]    = useState(true);
   const [deafened,     setDeafened]     = useState(false);
@@ -192,7 +190,7 @@ export default function UserProfilePod({ onProfileClick }) {
 
                 {/* Settings */}
                 <button
-                  onClick={() => { navigate('/settings'); setExpanded(false); }}
+                  onClick={() => { onSettingsClick?.(); setExpanded(false); }}
                   className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
                 >
                   <Settings size={14} />

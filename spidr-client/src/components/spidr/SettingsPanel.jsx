@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useOutletContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
@@ -24,11 +23,10 @@ import SecurityMatrix from './SecurityMatrix';
 import SpidrProtocolSettings from './SpidrProtocolSettings';
 import TelemetryDeck from './TelemetryDeck';
 import ApexVisuals from './ApexVisuals';
-import { USERNAME_FONTS, USERNAME_WEIGHTS, USERNAME_STYLES } from '@/lib/usernameStyle';
+import { USERNAME_FONTS, USERNAME_WEIGHTS, USERNAME_STYLES, USERNAME_EFFECTS, buildUsernameStyle } from '@/lib/usernameStyle';
 import { toast } from 'sonner';
 
-export default function SettingsPanel() {
-  const { currentUser, appTheme, onThemeChange } = useOutletContext();
+export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) {
   const { logout } = useAuth();
   const queryClient = useQueryClient();
   
@@ -56,6 +54,7 @@ export default function SettingsPanel() {
     username_weight: 'bold',
     username_style: 'normal',
     username_color: '',
+    username_effect: 'none',
     apex_features: {}
 
   });
@@ -82,6 +81,7 @@ export default function SettingsPanel() {
         username_weight: profile.username_weight || 'bold',
         username_style: profile.username_style || 'normal',
         username_color: profile.username_color || '',
+        username_effect: profile.username_effect || 'none',
         apex_features: {
           thread_skin: 'default',
           entry_protocol: 'none',
@@ -110,8 +110,13 @@ export default function SettingsPanel() {
       }
     },
     onSuccess: () => {
+      // ['userProfile', userId] is the canonical view-side key — invalidate it
+      // explicitly, then the broader 'userProfile' prefix as a safety net so
+      // every cached profile view refreshes.
+      queryClient.invalidateQueries({ queryKey: ['userProfile', currentUser?.id] });
       queryClient.invalidateQueries({ queryKey: ['userProfile'] });
       queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
       toast.success('Profile updated!');
     }
   });
@@ -264,7 +269,12 @@ export default function SettingsPanel() {
                 </div>
                 
                 <h3 className="text-xl font-bold text-white">{formData.display_name || 'Username'}</h3>
-                <p className="text-zinc-400 text-sm">{currentUser?.email}</p>
+                <p className="text-zinc-400 text-sm font-mono">
+                  @{currentUser?.username || 'username'}
+                  {(profile?.discriminator || currentUser?.discriminator) && (
+                    <span className="text-zinc-500">#{profile?.discriminator || currentUser?.discriminator}</span>
+                  )}
+                </p>
                 {formData.bio && <p className="text-zinc-300 mt-2">{formData.bio}</p>}
               </div>
             </div>
@@ -388,16 +398,7 @@ export default function SettingsPanel() {
                 <div className="bg-black/40 border border-white/10 rounded-xl px-4 py-5 mb-5 flex items-center justify-center">
                   <span
                     className="text-3xl tracking-tight leading-none"
-                    style={(() => {
-                      const f = USERNAME_FONTS.find(x => x.value === formData.username_font);
-                      const w = USERNAME_WEIGHTS.find(x => x.value === formData.username_weight);
-                      return {
-                        fontFamily: f && f.value !== 'default' ? f.css : undefined,
-                        fontWeight: w ? w.css : 700,
-                        fontStyle: formData.username_style === 'italic' ? 'italic' : 'normal',
-                        color: formData.username_color || formData.accent_color || '#FF3333',
-                      };
-                    })()}
+                    style={buildUsernameStyle(formData, { fallbackColor: '#FF3333' })}
                   >
                     {formData.display_name || 'Your Name'}
                   </span>
@@ -502,6 +503,35 @@ export default function SettingsPanel() {
                         />
                         <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Custom</span>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Effect — animated visual effects applied on top of color */}
+                  <div>
+                    <Label className="text-zinc-300 mb-2 block text-xs uppercase tracking-wider font-bold">
+                      Effect <span className="text-zinc-500 normal-case text-[10px] font-normal ml-1">(animated effects don't apply to server role names)</span>
+                    </Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {USERNAME_EFFECTS.map(eff => (
+                        <button
+                          key={eff.value}
+                          type="button"
+                          onClick={() => updateFormData({ username_effect: eff.value })}
+                          className={`px-3 py-3 rounded-lg text-sm transition-all border relative overflow-hidden ${
+                            formData.username_effect === eff.value
+                              ? 'bg-red-600/15 border-red-500/50 text-white ring-1 ring-red-500/30'
+                              : 'bg-zinc-900/50 border-white/5 text-zinc-400 hover:text-white hover:border-white/15'
+                          }`}
+                        >
+                          {/* Render the label IN the effect so users can preview */}
+                          <span style={buildUsernameStyle(
+                            { ...formData, username_effect: eff.value },
+                            { fallbackColor: '#FF3333' }
+                          )}>
+                            {eff.label}
+                          </span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>

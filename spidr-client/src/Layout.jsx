@@ -131,6 +131,20 @@ export default function Layout({ children }) {
             0%   { background-color: rgba(255, 51, 51, 0.18); box-shadow: inset 0 0 20px rgba(255,51,51,0.25); border-radius: 8px; }
             100% { background-color: transparent; box-shadow: none; }
           }
+
+          /* Username effects — used by lib/usernameStyle.js */
+          @keyframes username-rainbow {
+            0%   { background-position: 0% 50%; }
+            100% { background-position: 200% 50%; }
+          }
+          @keyframes username-pulse {
+            0%, 100% { opacity: 1;    filter: brightness(1);   }
+            50%      { opacity: 0.55; filter: brightness(1.4); }
+          }
+          @keyframes username-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+          }
       `}</style>
       {children}
       <SpidrMenu />

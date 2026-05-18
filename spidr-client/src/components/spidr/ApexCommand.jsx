@@ -69,8 +69,12 @@ export default function ApexCommand({ isOpen, onClose, currentTier = 'free', cur
             plan_type: planType,
           }
         });
+        // Invalidate every key that holds a copy of the user profile so the
+        // APEX tab, badge, and unlocked features appear immediately.
+        queryClient.invalidateQueries({ queryKey: ['userProfile', profile.user_id] });
         queryClient.invalidateQueries({ queryKey: ['userProfile'] });
-        queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+        queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
+        queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
       }
 
       toast.success('🕷️ APEX ACTIVATED — Welcome to the network.');

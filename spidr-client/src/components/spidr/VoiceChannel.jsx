@@ -68,7 +68,8 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voiceSessions', server.id, channel.id],
     queryFn: () => entities.VoiceSession.filter({ server_id: server.id, channel_id: channel.id }),
-    refetchInterval: 4000,
+    refetchInterval: 15000,
+    staleTime: 8000,
   });
 
   const joinMutation = useMutation({

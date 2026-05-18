@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Server, Settings, MessageCircle, Plus, Network, Radio, Shield, Blocks, Activity } from 'lucide-react';
 import SpiderLogo from './SpiderLogo';
@@ -8,11 +9,9 @@ import { playSound } from './SoundEngine';
 import ApexStore from './ApexStore';
 import { useMenu } from '@/components/MenuContext';
 import { ServerPulse } from '@/components/ui/PulseBadge';
-import { useNavigate, useLocation } from 'react-router-dom';
 
-export default function Sidebar({ onCreateServer, isGlass = false }) {
+export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGlass = false }) {
   const navigate = useNavigate();
-  const location = useLocation();
   const [hovered, setHovered] = useState(null);
   const [showApex, setShowApex] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -37,8 +36,8 @@ export default function Sidebar({ onCreateServer, isGlass = false }) {
     queryKey: ['unread-dms-sidebar', currentUser?.id],
     queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id, is_read: false }),
     enabled: !!currentUser?.id,
-    refetchInterval: 5000,
-    staleTime: 3000,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 
   const dmUnreadCount = unreadDMs.length;
@@ -76,9 +75,9 @@ export default function Sidebar({ onCreateServer, isGlass = false }) {
     { id: 'bots', icon: MessageCircle, label: 'Bot Lab' },
     { id: 'ai', icon: null, label: 'Spidr AI' },
     { id: 'modules', icon: Blocks, label: 'Module Nexus' },
+    { id: 'nerve-center', icon: Activity, label: 'Nerve Center' },
     ...(isAdmin ? [
       { id: 'global-reports', icon: Shield, label: 'Global Reports' },
-      { id: 'nerve-center', icon: Activity, label: 'Nerve Center' },
     ] : []),
     { id: 'settings', icon: Settings, label: 'Settings' },
   ];
@@ -95,7 +94,7 @@ export default function Sidebar({ onCreateServer, isGlass = false }) {
         className="mb-8 w-12 h-12 bg-red-600/10 rounded-xl flex items-center justify-center border border-red-600/20 cursor-pointer hover:bg-red-600/20 transition-all"
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.95 }}
-        onClick={() => navigate('/home')}
+        onClick={() => setActiveTab('home')}
         style={{ boxShadow: '0 0 15px rgba(229, 62, 62, 0.2)' }}
       >
         <SpiderLogo size={32} />
@@ -104,15 +103,13 @@ export default function Sidebar({ onCreateServer, isGlass = false }) {
       {/* Navigation */}
       <div className="flex flex-col gap-4 flex-1 w-full px-2">
         {navItems.map((item) => {
-          const isActive = item.id === 'servers'
-            ? location.pathname.startsWith('/channels')
-            : location.pathname.startsWith('/' + item.id);
+          const isActive = activeTab === item.id;
           const isHovered = hovered === item.id;
-
+          
           return (
             <div
               key={item.id}
-              onClick={() => item.id === 'servers' ? navigate('/channels') : navigate('/' + item.id)}
+              onClick={() => setActiveTab(item.id)}
               onMouseEnter={() => {
                 setHovered(item.id);
                 playSound('hover');
@@ -194,8 +191,8 @@ export default function Sidebar({ onCreateServer, isGlass = false }) {
         })}
       </div>
       
-      {/* Server list preview - only show when on a /channels route */}
-      {location.pathname.startsWith('/channels') && (
+      {/* Server list preview - only show when on servers tab */}
+      {activeTab === 'servers' && (
         <div className="flex flex-col gap-2 w-full px-2 mb-4">
           <div className="w-8 h-0.5 bg-red-900/50 rounded-full mx-auto mb-2" />
           
@@ -203,7 +200,7 @@ export default function Sidebar({ onCreateServer, isGlass = false }) {
             {servers.slice(0, 5).map((server) => (
               <div key={server.id} className="relative mx-auto">
                 <motion.button
-                  onClick={() => navigate('/channels/' + server.id)}
+                  onClick={() => navigate(`/servers/${server.id}`)}
                   onContextMenu={(e) => triggerMenu(e, 'server_sidebar', { id: server.id, name: server.name })}
                   onMouseEnter={() => playSound('hover')}
                   className="w-12 h-12 rounded-2xl bg-zinc-800/50 overflow-hidden hover:rounded-xl transition-all duration-200"

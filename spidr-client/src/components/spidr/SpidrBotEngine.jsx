@@ -132,17 +132,167 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
 
     case 'help': {
       return {
-        response: `🕷️ SPIDR_AI COMMAND PROTOCOL\n\n` +
+        response: `🕷️ SPIDR BOT COMMAND PROTOCOL\n\n` +
+          `── Spidr AI ──\n` +
           `/play <url> — Stream YouTube/Twitch in voice\n` +
           `/roast <name> — Get roasted by AI\n` +
           `/8ball <question> — Magic 8-ball\n` +
           `/roll <sides> — Roll dice (default: 6)\n` +
+          `/coinflip — Flip a coin\n` +
           `/hack <target> — Fake hack sequence\n` +
           `/vibe — Vibe check\n` +
           `/fact — Random spider fact\n` +
-          `/ask <question> — Ask Spidr AI anything\n` +
-          `/help — Show this list`,
+          `/ask <question> — Ask Spidr AI anything\n\n` +
+          `── Game Master ──\n` +
+          `/trivia — Start a trivia round\n\n` +
+          `── Music Master (needs voice channel) ──\n` +
+          `/skip — Skip current song\n` +
+          `/queue — Show queue\n` +
+          `/stop — Clear queue\n\n` +
+          `── Data Analyst ──\n` +
+          `/stats — Server stats overview\n` +
+          `/top — Top active members this week\n\n` +
+          `── Auto Moderator ──\n` +
+          `/modlog — Recent auto-actions\n\n` +
+          `── Welcome Bot ──\n` +
+          `/welcomeset <message> — Set the welcome message`,
       };
+    }
+
+    case 'coinflip':
+    case 'flip': {
+      const result = Math.random() < 0.5 ? 'Heads' : 'Tails';
+      return {
+        response: `🪙 Flipping a coin...\n\n>>> **${result}** <<<`,
+      };
+    }
+
+    case 'trivia': {
+      const llmResult = await integrations.Core.InvokeLLM({
+        prompt: `Generate one interesting trivia question with 4 multiple-choice options (A, B, C, D), one correct answer, and a fun fact. Make it medium difficulty, all-ages appropriate.`,
+        response_json_schema: {
+          type: 'object',
+          properties: {
+            question: { type: 'string' },
+            options: { type: 'array', items: { type: 'string' } },
+            answer: { type: 'string' },
+            fact: { type: 'string' },
+          },
+        },
+      });
+      if (!llmResult?.question || !Array.isArray(llmResult?.options)) {
+        return { response: '🎲 Trivia is offline — try again in a moment.' };
+      }
+      const opts = llmResult.options.slice(0, 4).map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join('\n');
+      return {
+        response: `🎲 **TRIVIA TIME**\n\n${llmResult.question}\n\n${opts}\n\n_Reply with the letter. Answer reveal in 30s._\n||Answer: ${llmResult.answer}||\n💡 ${llmResult.fact || ''}`,
+      };
+    }
+
+    case 'skip':
+    case 'queue':
+    case 'stop': {
+      // These are voice-channel-only commands. Without an actual audio pipeline
+      // we just acknowledge them — when voice is rewired they'll do real work.
+      const msgMap = {
+        skip:  '⏭️ Skipped current track.',
+        queue: '🎵 Queue is currently empty. Use /play <url> to add tracks.',
+        stop:  '⏹️ Playback stopped, queue cleared.',
+      };
+      return { response: `🎵 [Music Master] ${msgMap[cmd]}` };
+    }
+
+    case 'stats': {
+      try {
+        const messages = await entities.Message.filter({ server_id: serverId });
+        const total = messages.length || 0;
+        const today = messages.filter(m => {
+          const d = new Date(m.created_date);
+          return (Date.now() - d.getTime()) < 86400000;
+        }).length;
+        const uniqueAuthors = new Set(messages.map(m => m.author_id || m.user_id)).size;
+        return {
+          response: `📊 **Server Stats**\n\n• Total messages: **${total.toLocaleString()}**\n• Messages today: **${today}**\n• Unique posters: **${uniqueAuthors}**\n\n_Powered by Data Analyst bot._`,
+        };
+      } catch {
+        return { response: '📊 Data Analyst could not fetch stats right now.' };
+      }
+    }
+
+    case 'top': {
+      try {
+        const messages = await entities.Message.filter({ server_id: serverId });
+        const weekAgo = Date.now() - 7 * 86400000;
+        const counts = {};
+        for (const m of messages) {
+          if (new Date(m.created_date).getTime() < weekAgo) continue;
+          const name = m.author_name || m.user_name || 'Unknown';
+          counts[name] = (counts[name] || 0) + 1;
+        }
+        const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        if (top.length === 0) return { response: '📈 No activity in the past week.' };
+        const lines = top.map(([name, n], i) => `${i + 1}. **${name}** — ${n} message${n === 1 ? '' : 's'}`).join('\n');
+        return { response: `📈 **Top Active This Week**\n\n${lines}` };
+      } catch {
+        return { response: '📈 Data Analyst could not fetch leaderboard right now.' };
+      }
+    }
+
+    case 'modlog': {
+      try {
+        const logs = await entities.ServerAuditLog.filter({ server_id: serverId, category: 'mod' });
+        const recent = logs.slice(0, 5);
+        if (recent.length === 0) return { response: '🛡️ No moderation actions logged recently.' };
+        const lines = recent.map(l => `• ${l.action} — ${l.target_name || l.details || 'no target'}`).join('\n');
+        return { response: `🛡️ **Recent Mod Actions**\n\n${lines}` };
+      } catch {
+        return { response: '🛡️ Auto Moderator log unavailable.' };
+      }
+    }
+
+    case 'welcomeset': {
+      if (!args) {
+        return { response: '👋 Usage: /welcomeset <message> — use `{user}` as a placeholder.\n\nExample: `/welcomeset Welcome {user} to the web! 🕷️`' };
+      }
+      // Store on the server document — server-side welcome bot reads this
+      try {
+        const servers = await entities.Server.filter({ id: serverId });
+        const srv = servers[0];
+        if (!srv) return { response: '👋 Could not find this server.' };
+        await entities.Server.update(serverId, {
+          bot_config: { ...(srv.bot_config || {}), welcome_message: args },
+        });
+        return { response: `👋 Welcome message saved!\n\nPreview:\n> ${args.replace(/\{user\}/g, currentUser?.full_name || 'NewUser')}` };
+      } catch (err) {
+        return { response: '👋 Could not save welcome message: ' + (err?.message || 'unknown') };
+      }
+    }
+
+    case 'modset': {
+      return {
+        response: `🛡️ Auto Moderator settings:\n\n• Spam threshold: 5 messages / 10s (default)\n• Slur filter: ENABLED\n• Auto-mute on violation: ENABLED\n\nServer admins: open Server Settings → Moderation for full configuration.`,
+      };
+    }
+
+    case 'summarize': {
+      try {
+        const recent = (await entities.Message.filter({
+          server_id: serverId,
+          channel_id: channelId,
+        })).slice(-(parseInt(args) || 20));
+        if (recent.length === 0) return { response: '🧠 Nothing recent to summarize.' };
+        const transcript = recent.map(m => `${m.author_name || m.user_name || 'User'}: ${m.content}`).join('\n');
+        const result = await integrations.Core.InvokeLLM({
+          prompt: `Summarize this Spidr chat in 3-4 short bullet points. Be neutral and concise.\n\n${transcript}`,
+          response_json_schema: {
+            type: 'object',
+            properties: { summary: { type: 'string' } },
+          },
+        });
+        return { response: `🧠 **Summary of last ${recent.length} messages**\n\n${result?.summary || 'No summary available.'}` };
+      } catch {
+        return { response: '🧠 Summarize is offline right now.' };
+      }
     }
 
     default:

@@ -2,6 +2,7 @@ const express = require('express');
 const crudRouter = require('../utils/crudRouter');
 const authMiddleware = require('../middleware/auth');
 const Server = require('../models/Server');
+const feedEvents = require('../utils/feedEvents');
 
 const router = express.Router();
 
@@ -83,6 +84,15 @@ router.post('/join', authMiddleware, async (req, res) => {
       },
     ];
     await server.save();
+
+    // Fire-and-forget feed event so this shows up in the home activity feed
+    feedEvents.serverJoin({
+      user_id: userId,
+      user_name: user_name || 'User',
+      user_avatar: user_avatar || '',
+      server_id: server._id.toString(),
+      server_name: server.name,
+    });
 
     res.json({
       id: server._id.toString(),

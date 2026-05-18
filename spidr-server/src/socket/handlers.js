@@ -98,6 +98,8 @@ module.exports = function registerHandlers(io) {
     }
   }, 15 * 1000);
 
+  const { attachVoiceHandlers } = require('./voiceSignaling');
+
   io.on('connection', (socket) => {
     const userId = socket.userId;
     const wasOffline = !onlineUsers.has(userId);
@@ -109,6 +111,27 @@ module.exports = function registerHandlers(io) {
       { user_id: userId },
       { $set: { status: 'online', last_seen: new Date() } }
     ).catch(() => {});
+
+    // Look up the user once so voice signaling has display info to broadcast
+    // to other peers when this socket joins/leaves a channel.
+    let userForVoice = { id: userId, full_name: null, username: null, avatar_url: '' };
+    UserProfile.findOne({ user_id: userId }).lean().then((profile) => {
+      if (profile) {
+        userForVoice = {
+          id: userId,
+          full_name: profile.display_name,
+          username: profile.username,
+          avatar_url: profile.avatar_url,
+        };
+      }
+      // Attach voice handlers AFTER user info loads so peer roster entries
+      // include the right display name/avatar from the start.
+      attachVoiceHandlers(io, socket, userForVoice);
+    }).catch(() => {
+      // Even without profile data, voice should work — peers will see
+      // their socketId but no name/avatar until next page load.
+      attachVoiceHandlers(io, socket, userForVoice);
+    });
 
     // Client heartbeat — sent every 25s. Refreshes lastSeen so the reaper
     // won't kill this socket. Also persists last_seen to MongoDB.
@@ -163,11 +186,11 @@ module.exports = function registerHandlers(io) {
     });
 
     socket.on('join:dm', ({ conversationId }) => {
-      // conversation_id is [uid1, uid2].sort().join('-').
-      // Check containment instead of split-by-hyphen because user IDs may be
-      // UUIDs (which themselves contain hyphens), making split unreliable.
+      // conversation_id is constructed client-side as [uid1, uid2].sort().join('-')
+      // Verify this user's id appears as one of the two parts
       if (typeof conversationId !== 'string') return;
-      if (!conversationId.includes(userId)) {
+      const parts = conversationId.split('-');
+      if (!parts.includes(userId)) {
         return socket.emit('error', { message: 'Not a participant in this conversation' });
       }
       socket.join(`dm:${conversationId}`);

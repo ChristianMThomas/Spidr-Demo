@@ -6,8 +6,12 @@ import GhostMessage from './GhostMessage';
 import KineticText from './KineticText';
 import ReactionBar from './ReactionBar';
 import { Crown, CornerUpLeft } from 'lucide-react';
+import { buildUsernameStyle } from '@/lib/usernameStyle';
+import ContextableImage from '@/components/ui/ContextableImage';
+import { useMenu } from '@/components/MenuContext';
 
-export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick, currentUser, apexUsers, onReactionToggle, repliedTo }) {
+export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick, currentUser, apexUsers, onReactionToggle, repliedTo, senderProfile }) {
+  const { triggerMenu } = useMenu();
   const isMentioned = currentUser && msg.content?.includes(`@${currentUser.full_name?.split(' ')[0]}`);
   const isApex = apexUsers?.includes?.(msg.sender_id);
   const isChained = prevMsg && prevMsg.sender_id === msg.sender_id;
@@ -49,7 +53,16 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
         <div className="flex gap-2.5">
           {/* Embedded Avatar (incoming) */}
           {!isOwnMessage && (
-            <button onClick={() => onProfileClick?.(msg.sender_id)} className="flex-shrink-0 mt-0.5">
+            <button
+              onClick={() => onProfileClick?.(msg.sender_id)}
+              onContextMenu={(e) => triggerMenu(e, 'profile', {
+                id: msg.sender_id,
+                user_id: msg.sender_id,
+                name: msg.sender_name,
+                avatar: msg.sender_avatar,
+              })}
+              className="flex-shrink-0 mt-0.5"
+            >
               <div className="relative w-8 h-8">
                 {isApex && (
                   <div className="absolute -inset-0.5 bg-gradient-to-tr from-[#FF3333] to-purple-600 rounded-lg blur-[2px] opacity-50 animate-pulse" />
@@ -115,11 +128,16 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
               <div className={`flex items-center gap-1.5 mb-0.5 ${isOwnMessage ? 'flex-row-reverse' : ''}`}>
                 <button
                   onClick={() => onProfileClick?.(msg.sender_id)}
-                  className={`text-[12px] font-bold cursor-pointer hover:underline decoration-1 underline-offset-2
-                    ${isApex && !isOwnMessage
-                      ? 'text-[#FF3333] drop-shadow-[0_0_6px_rgba(255,51,51,0.4)]'
-                      : isOwnMessage ? 'text-[#FF3333]/80' : 'text-zinc-400'}
-                  `}
+                  className="text-[12px] font-bold cursor-pointer hover:underline decoration-1 underline-offset-2"
+                  style={senderProfile
+                    ? buildUsernameStyle(senderProfile, {
+                        fallbackColor: isApex && !isOwnMessage ? '#FF3333' : (isOwnMessage ? 'rgba(255,51,51,0.8)' : '#a1a1aa'),
+                      })
+                    : {
+                        color: isApex && !isOwnMessage ? '#FF3333' : (isOwnMessage ? 'rgba(255,51,51,0.8)' : '#a1a1aa'),
+                        filter: isApex && !isOwnMessage ? 'drop-shadow(0 0 6px rgba(255,51,51,0.4))' : undefined,
+                      }
+                  }
                 >
                   {msg.sender_name}
                 </button>
@@ -171,7 +189,7 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
             {!msg.is_clip_share && msg.attachments?.length > 0 && (
               <div className="flex gap-2 flex-wrap mt-2">
                 {msg.attachments.map((url, i) => (
-                  <img key={i} src={url} alt="attachment" className="max-w-[200px] max-h-[180px] rounded-lg border border-white/10 hover:border-[#FF3333]/30 transition-colors cursor-pointer object-cover" />
+                  <ContextableImage key={i} src={url} alt="attachment" className="max-w-[200px] max-h-[180px] rounded-lg border border-white/10 hover:border-[#FF3333]/30 transition-colors cursor-pointer object-cover" />
                 ))}
               </div>
             )}

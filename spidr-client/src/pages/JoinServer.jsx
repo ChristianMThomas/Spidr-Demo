@@ -45,7 +45,8 @@ export default function JoinServer() {
       } else {
         toast.success(`Joined ${result.name}!`);
       }
-      navigate('/channels/' + result.id);
+      // Land in Home; ServersPanel will pick the server up from the URL hash
+      navigate(`/servers/${result.id}`);
     } catch (err) {
       toast.error('Could not join: ' + (err?.message || 'unknown error'));
     } finally {

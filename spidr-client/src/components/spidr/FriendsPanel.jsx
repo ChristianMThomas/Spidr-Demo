@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, searchUsers, getSocket } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -10,6 +9,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useMenu } from '@/components/MenuContext';
 import HolographicProfile from './HolographicProfile';
 import DirectMessages from './DirectMessages';
 import KineticChat from './KineticChat';
@@ -25,25 +25,34 @@ const statusColors = {
   offline: 'bg-zinc-500'
 };
 
-export default function FriendsPanel() {
-  const { currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall } = useOutletContext();
-  const { conversationId } = useParams();
-  const navigate = useNavigate();
+export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall, pendingDM, onPendingDMHandled, initialTab, onInitialTabConsumed, onTabChange }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [addFriendInput, setAddFriendInput] = useState('');
   const [selectedProfileId, setSelectedProfileId] = useState(null);
   const [activeDM, setActiveDM] = useState(null);
   const [activeGroup, setActiveGroup] = useState(null);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
+  // Controlled tab so we can deep-link from Home's "Find Friends" button
+  // (it requests 'add'); falls back to 'all' for normal usage.
+  const [tab, setTab] = useState(initialTab || 'all');
   const queryClient = useQueryClient();
 
-  // Auto-open DM when conversationId is in the URL
+  // When the parent passes a fresh initialTab, snap to it and consume it
   React.useEffect(() => {
-    if (!conversationId || !currentUser?.id) return;
-    const parts = conversationId.split('-');
-    const friendUserId = parts.find(p => p !== currentUser.id) || parts[0];
-    setActiveDM({ friendId: friendUserId, conversationId });
-  }, [conversationId, currentUser?.id]);
+    if (initialTab) {
+      setTab(initialTab);
+      onInitialTabConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTab]);
+
+  // Auto-open DM when navigated from profile card or other component
+  React.useEffect(() => {
+    if (pendingDM) {
+      setActiveDM({ friendId: pendingDM.friendId, conversationId: pendingDM.conversationId });
+      onPendingDMHandled?.();
+    }
+  }, [pendingDM]);
 
   const { data: friends = [] } = useQuery({
     queryKey: ['friends', currentUser?.id],
@@ -167,9 +176,8 @@ export default function FriendsPanel() {
     }
   };
 
-  const handleOpenDM = (friendId, dmConversationId) => {
-    setActiveDM({ friendId, conversationId: dmConversationId });
-    navigate('/friends/@me/' + dmConversationId);
+  const handleOpenDM = (friendId, conversationId) => {
+    setActiveDM({ friendId, conversationId });
   };
 
   const handleOpenGroup = (groupId) => {
@@ -232,7 +240,7 @@ export default function FriendsPanel() {
       <QuickHeads currentUser={currentUser} onOpenDM={handleOpenDM} onOpenGroup={handleOpenGroup} />
 
       <div className="flex-1 overflow-hidden">
-        <Tabs defaultValue="all" className="h-full flex flex-col">
+        <Tabs value={tab} onValueChange={(t) => { setTab(t); onTabChange?.(t); }} className="h-full flex flex-col">
           <div className="px-4 pt-4">
             <TabsList className="bg-zinc-800/50 border border-red-900/20">
               <TabsTrigger value="all" className="data-[state=active]:bg-red-600">All</TabsTrigger>
@@ -475,6 +483,7 @@ export default function FriendsPanel() {
 function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, handleOpenDM, unreadInfo }) {
   const [showNicknameDialog, setShowNicknameDialog] = useState(false);
   const [nickname, setNickname] = useState(friend.nickname || '');
+  const { triggerMenu } = useMenu();
 
   const displayName = friend.nickname || profile?.display_name || friend.friend_name;
 
@@ -511,6 +520,12 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
         exit={{ opacity: 0, y: -20 }}
         className="flex items-center gap-3 p-3 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 transition-colors group cursor-pointer"
         onClick={onViewProfile}
+        onContextMenu={(e) => triggerMenu(e, 'friend', {
+          id: friend.friend_id,
+          user_id: friend.friend_id,
+          name: displayName,
+          avatar: friend.friend_avatar,
+        })}
       >
         <div className="relative">
           <Avatar className="w-10 h-10">
