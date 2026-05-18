@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { toast } from 'sonner';
-import { Hash, Volume2, Plus, Trash2, Shield, Users, Settings, Image, X, FileText, Globe, Lock } from 'lucide-react';
+import { Hash, Volume2, Plus, Trash2, Shield, Users, Settings, Image, X, FileText, Globe, Lock, Flag, ShieldCheck, BookOpen, ListChecks } from 'lucide-react';
 import SanctuaryProtocols from './SanctuaryProtocols';
 import ServerAuditLog from './ServerAuditLog';
 import ServerReportsPanel from './ServerReportsPanel';
@@ -239,55 +239,178 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
 
   const isOwner = currentUser?.id === server?.owner_id || currentUser?.email === server?.owner_id;
 
+  // ── Vertical tab definitions ───────────────────────────────────────────
+  // Centralized so the left rail and the tab content stay in sync.
+  const TAB_GROUPS = [
+    {
+      label: 'Server',
+      items: [
+        { id: 'overview',   label: 'Overview',   icon: Settings,    color: 'text-white' },
+        { id: 'channels',   label: 'Channels',   icon: Hash,        color: 'text-white' },
+        { id: 'roles',      label: 'Roles',      icon: Shield,      color: 'text-white' },
+        { id: 'emojis',     label: 'Emojis',     icon: Image,       color: 'text-white' },
+        { id: 'visibility', label: 'Visibility', icon: Globe,       color: 'text-white' },
+      ],
+    },
+    {
+      label: 'Community',
+      items: [
+        { id: 'members',    label: 'Members',    icon: Users,       color: 'text-white' },
+      ],
+    },
+    {
+      label: 'Moderation',
+      items: [
+        { id: 'reports',    label: 'Reports',    icon: Flag,        color: 'text-orange-400' },
+        { id: 'airlock',    label: 'Airlock',    icon: ShieldCheck, color: 'text-purple-400' },
+        { id: 'sanctuary',  label: 'Safety',     icon: Lock,        color: 'text-red-400' },
+        { id: 'logs',       label: 'Audit Log',  icon: ListChecks,  color: 'text-yellow-400' },
+      ],
+    },
+  ];
+  const [activeTab, setActiveTab] = useState('overview');
+
   if (!server) return null;
+  if (!open) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="bg-zinc-900 border-red-900/30 max-w-2xl max-h-[80vh] overflow-hidden">
-        <DialogHeader>
-          <DialogTitle className="text-white flex items-center gap-2">
-            <Settings className="w-5 h-5 text-red-500" />
-            Server Settings - {server.name}
-          </DialogTitle>
-        </DialogHeader>
-
-        <Tabs defaultValue="overview" className="flex-1">
-          <TabsList className="bg-zinc-800 border-red-900/30 flex-wrap h-auto gap-1">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="channels">Channels</TabsTrigger>
-            <TabsTrigger value="roles">Roles</TabsTrigger>
-            <TabsTrigger value="visibility">Visibility</TabsTrigger>
-            <TabsTrigger value="emojis">Emojis</TabsTrigger>
-            <TabsTrigger value="members">Members</TabsTrigger>
-            <TabsTrigger value="reports" className="text-orange-400">🚩 Reports</TabsTrigger>
-            <TabsTrigger value="airlock" className="text-purple-400">🛡️ Airlock</TabsTrigger>
-            <TabsTrigger value="sanctuary" className="text-red-400">🔒 Safety</TabsTrigger>
-            <TabsTrigger value="logs" className="text-yellow-400">📋 Logs</TabsTrigger>
-          </TabsList>
-
-          <ScrollArea className="h-[400px] mt-4">
-            <TabsContent value="overview" className="space-y-4">
-              <div>
-                <label className="text-sm text-zinc-400 mb-1 block">Server Name</label>
-                <Input
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="bg-zinc-800 border-zinc-700 text-white"
-                  disabled={!isOwner}
-                />
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4"
+        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      >
+        <motion.div
+          initial={{ scale: 0.96, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.96, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+          className="bg-[#020202] border border-white/10 rounded-2xl shadow-[0_0_60px_rgba(220,38,38,0.15)] overflow-hidden flex w-full max-w-5xl"
+          style={{ height: 'min(80vh, 720px)' }}
+        >
+          {/* ─── Left rail ──────────────────────────────────────────────── */}
+          <aside className="w-60 shrink-0 bg-[#050505] border-r border-white/5 flex flex-col">
+            {/* Server identity header */}
+            <div className="px-5 py-5 border-b border-white/5 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-red-600/15 to-transparent pointer-events-none" />
+              <div className="relative flex items-center gap-3">
+                {server.icon_url ? (
+                  <img src={server.icon_url} alt={server.name} className="w-10 h-10 rounded-lg object-cover border border-white/10" />
+                ) : (
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center text-white text-base font-bold">
+                    {server.name?.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[9px] text-zinc-500 font-mono uppercase tracking-widest leading-none">Settings</p>
+                  <p className="text-white text-sm font-bold truncate mt-1">{server.name}</p>
+                </div>
               </div>
-              <div>
-                <label className="text-sm text-zinc-400 mb-1 block">Description</label>
-                <Textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="bg-zinc-800 border-zinc-700 text-white"
-                  disabled={!isOwner}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+            </div>
+
+            {/* Tab nav */}
+            <nav className="flex-1 overflow-y-auto py-3">
+              {TAB_GROUPS.map((group) => (
+                <div key={group.label} className="mb-4">
+                  <p className="px-5 mb-1.5 text-[9px] font-black text-zinc-600 uppercase tracking-widest">
+                    {group.label}
+                  </p>
+                  <div className="space-y-0.5 px-2">
+                    {group.items.map((tab) => {
+                      const isActive = activeTab === tab.id;
+                      const Icon = tab.icon;
+                      return (
+                        <button
+                          key={tab.id}
+                          onClick={() => setActiveTab(tab.id)}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-all relative group ${
+                            isActive
+                              ? 'bg-red-600/10 text-white'
+                              : `${tab.color} opacity-70 hover:opacity-100 hover:bg-white/5`
+                          }`}
+                        >
+                          {isActive && (
+                            <motion.div
+                              layoutId="server-settings-pill"
+                              className="absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-red-500 rounded-r-full"
+                              transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                            />
+                          )}
+                          <Icon className={`w-3.5 h-3.5 ${isActive ? tab.color : ''}`} />
+                          <span className="text-xs font-semibold">{tab.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </nav>
+
+            {/* Footer — close button */}
+            <div className="border-t border-white/5 p-3">
+              <button
+                onClick={onClose}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white text-xs font-semibold transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                Close
+              </button>
+            </div>
+          </aside>
+
+          {/* ─── Right content panel ─────────────────────────────────────── */}
+          <section className="flex-1 flex flex-col min-w-0 bg-[#020202]">
+            {/* Content header */}
+            <div className="px-8 py-5 border-b border-white/5 bg-[#0a0a0a] relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-red-600/10 to-transparent pointer-events-none" />
+              <div className="relative flex items-center justify-between">
                 <div>
-                  <label className="text-sm text-zinc-400 mb-1 block">Server Icon</label>
+                  <h2 className="text-xl font-black uppercase italic tracking-tight text-white">
+                    {TAB_GROUPS.flatMap(g => g.items).find(t => t.id === activeTab)?.label || 'Settings'}
+                  </h2>
+                  <p className="text-[10px] text-zinc-500 font-mono tracking-wider mt-1">
+                    {'>'} {activeTab.toUpperCase()} :: {server.id?.slice(-6).toUpperCase()}
+                  </p>
+                </div>
+                {isOwner && updateServerMutation && (
+                  <Button
+                    onClick={handleSave}
+                    disabled={updateServerMutation.isPending}
+                    className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-wider px-5"
+                  >
+                    Save Changes
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Tab content area */}
+            <Tabs value={activeTab} className="flex-1 flex flex-col min-h-0">
+              <ScrollArea className="flex-1 px-8 py-6">
+                <TabsContent value="overview" className="space-y-4 mt-0">
+                  <div>
+                    <label className="text-sm text-zinc-400 mb-1 block">Server Name</label>
+                    <Input
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      className="bg-zinc-800 border-zinc-700 text-white"
+                      disabled={!isOwner}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm text-zinc-400 mb-1 block">Description</label>
+                    <Textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      className="bg-zinc-800 border-zinc-700 text-white"
+                      disabled={!isOwner}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm text-zinc-400 mb-1 block">Server Icon</label>
                   <div className="flex items-center gap-3">
                     {formData.icon_url ? (
                       <img src={formData.icon_url} className="w-16 h-16 rounded-xl object-cover" />
@@ -649,23 +772,17 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                 )}
               </div>
             </TabsContent>
-          </ScrollArea>
-        </Tabs>
+              </ScrollArea>
+            </Tabs>
+          </section>
+        </motion.div>
 
-        <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-zinc-800">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          {isOwner && (
-            <Button onClick={handleSave} className="bg-red-600 hover:bg-red-700" disabled={updateServerMutation.isPending}>
-              Save Changes
-            </Button>
-          )}
-        </div>
         <ContentBlockedModal
           open={!!blockedCategory}
           onClose={() => setBlockedCategory(null)}
           category={blockedCategory}
         />
-      </DialogContent>
-    </Dialog>
+      </motion.div>
+    </AnimatePresence>
   );
 }

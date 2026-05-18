@@ -30,4 +30,29 @@ const s = new Schema({
 
   created_date: { type: Date, default: Date.now, index: true },
 }, { timestamps: true });
+
+// Emit a Feed event when a clip is freshly created.
+s.post('save', async function (doc) {
+  if (!doc.wasNew) return;
+  try {
+    const feedEvents = require('../utils/feedEvents');
+    feedEvents.clipPosted({
+      user_id:      doc.author_id,
+      user_name:    doc.author_name || 'A user',
+      user_avatar:  doc.author_avatar || '',
+      clip_id:      doc._id.toString(),
+      image_url:    doc.thumbnail_url || '',
+      title:        doc.caption ? `Posted: ${doc.caption.slice(0, 80)}` : 'Posted a new clip',
+    });
+  } catch (err) {
+    console.warn('Clip feed hook failed:', err?.message);
+  }
+});
+
+// Track new-vs-update for the post-save hook above
+s.pre('save', function (next) {
+  this.wasNew = this.isNew;
+  next();
+});
+
 module.exports = model('Clip', s);

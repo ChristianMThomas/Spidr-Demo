@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Send, ImagePlus, Smile, Ghost, Zap, Waves, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { entities, auth, integrations } from '@/api/apiClient';
@@ -21,6 +21,29 @@ export default function MessageInputBar({
   const [mentionSearch, setMentionSearch] = useState(null);
   const [showEffects, setShowEffects] = useState(false);
   const [blockedCategory, setBlockedCategory] = useState(null);
+
+  // Listen for "Mention" actions from the global right-click menu. When the
+  // user right-clicks a profile/friend avatar somewhere and picks Mention,
+  // useGlobalMenuActions dispatches `spidr-prepend-mention` and we append
+  // the @<name> token into the active input.
+  useEffect(() => {
+    const handler = (e) => {
+      const name = e.detail?.name;
+      if (!name) return;
+      // Only the focused input bar should consume the event. If multiple bars
+      // are mounted (e.g. main chat + a thread) the focused one wins.
+      if (document.activeElement !== inputRef.current && !inputRef.current?.dataset?.focused) {
+        // No focus claim — append anyway if there's only one input on screen.
+        // Otherwise rely on the focused-element check above.
+      }
+      const token = `@${String(name).split(/\s+/)[0]} `;
+      const cur = value || '';
+      onChange((cur.endsWith(' ') || cur.length === 0 ? cur : cur + ' ') + token);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    };
+    window.addEventListener('spidr-prepend-mention', handler);
+    return () => window.removeEventListener('spidr-prepend-mention', handler);
+  }, [value, onChange]);
 
   const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files || []);

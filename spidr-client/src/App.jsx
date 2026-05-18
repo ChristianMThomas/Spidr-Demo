@@ -1,36 +1,69 @@
-import { Toaster } from "@/components/ui/toaster"
-import { QueryClientProvider, useQueryClient } from '@tanstack/react-query'
-import { queryClientInstance } from '@/lib/query-client'
-import NavigationTracker from '@/lib/NavigationTracker'
-import { HashRouter, BrowserRouter, Route, Routes, Navigate, Outlet } from 'react-router-dom';
+import React, { lazy, useEffect } from 'react';
+import { Toaster } from "@/components/ui/toaster";
+import { QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { queryClientInstance } from '@/lib/query-client';
+import NavigationTracker from '@/lib/NavigationTracker';
+import { HashRouter, BrowserRouter, Route, Routes, Navigate } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import LoginPage from '@/components/spidr/LoginPage';
 import LandingPage from '@/pages/LandingPage';
 import JoinServer from '@/pages/JoinServer';
-import Layout from './Layout';
-import AppShell from '@/components/spidr/AppShell';
-import HomeContent from '@/pages/Home';
-import FriendsPanel from '@/components/spidr/FriendsPanel';
-import ServersPanel from '@/components/spidr/ServersPanel';
-import FeedPanel from '@/components/spidr/FeedPanel';
-import BotLaboratory from '@/components/spidr/BotLaboratory';
-import AIPanel from '@/components/spidr/AIPanel';
-import SettingsPanel from '@/components/spidr/SettingsPanel';
-import ModuleNexus from '@/components/nexus/ModuleNexus';
-import NerveCenter from '@/components/spidr/NerveCenter';
-import GlobalReports from '@/pages/GlobalReports';
-import GifsEmojis from '@/pages/GifsEmojis';
-import { useEffect } from 'react';
 import { getSocket } from '@/api/apiClient';
+import { AppShellProvider } from '@/context/AppShellContext';
+import SpidrShell from '@/components/SpidrShell';
+
+/**
+ * App routing — every top-level surface gets its own URL.
+ *
+ * The persistent SpidrShell wraps every protected route, so the sidebar,
+ * voice dock, and global menu provider mount once and stay mounted across
+ * navigation. Per-page content is lazy-loaded so a fresh user only downloads
+ * the dashboard chunk on first visit — the bots panel, video feed, etc.
+ * lazily load when navigated to.
+ *
+ * Path → page:
+ *   /                       → landing or redirect to /home
+ *   /login                  → login
+ *   /join/:code             → server invite (auth-gated)
+ *
+ *   /home                   → dashboard (HomeDashboard)
+ *   /friends                → friends list
+ *   /friends/:tab           → friends sub-tab (all/online/pending/blocked/add/dms)
+ *   /servers                → server browser
+ *   /servers/:serverId      → specific server (deep-linkable)
+ *   /feed                   → THE WEB video feed
+ *   /ai                     → Spidr AI chat
+ *   /bots                   → Bot Laboratory
+ *   /modules                → Module Nexus
+ *   /nerve-center           → personal stats
+ *   /settings               → user settings
+ *   /gifs                   → GIFs & emoji
+ *   /global-reports         → admin reports (gated server-side)
+ */
 
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron');
 const Router = isElectron ? HashRouter : BrowserRouter;
+
+// Lazy-load every page so a fresh user only downloads the code they need.
+// Suspense fallback in SpidrShell.jsx shows a spinner during the chunk load.
+const HomeDashboard = lazy(() => import('@/pages/HomeDashboard'));
+const FriendsPage   = lazy(() => import('@/pages/Friends'));
+const ServersPage   = lazy(() => import('@/pages/Servers'));
+const TheWebPage    = lazy(() => import('@/pages/TheWeb'));
+const AIPage        = lazy(() => import('@/pages/AI'));
+const BotsPage      = lazy(() => import('@/pages/Bots'));
+const ModulesPage   = lazy(() => import('@/pages/Modules'));
+const NerveCenter   = lazy(() => import('@/pages/NerveCenter'));
+const SettingsPage  = lazy(() => import('@/pages/Settings'));
+const GifsEmojis    = lazy(() => import('@/pages/GifsEmojis'));
+const GlobalReports = lazy(() => import('@/pages/GlobalReports'));
 
 function AppRoutes() {
   const { isLoadingAuth, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
 
+  // Global presence heartbeat — runs once per session
   useEffect(() => {
     if (!isAuthenticated) return;
     const socket = getSocket();
@@ -39,7 +72,6 @@ function AppRoutes() {
     socket.on('user:online', invalidateProfile);
     socket.on('user:offline', invalidateProfile);
 
-    // Presence heartbeat — server reaper at 60s, we ping every 25s
     const ping = () => socket.emit('presence:ping');
     ping();
     const interval = setInterval(ping, 25 * 1000);
@@ -68,40 +100,32 @@ function AppRoutes() {
       {/* Public */}
       <Route path="/" element={isAuthenticated ? <Navigate to="/home" replace /> : <LandingPage />} />
       <Route path="/login" element={isAuthenticated ? <Navigate to="/home" replace /> : <LoginPage />} />
-
-      {/* Legacy capitalised URL — redirect so old links still work */}
-      <Route path="/Home" element={<Navigate to="/home" replace />} />
-
-      {/* Invite landing — no shell needed */}
       <Route path="/join/:code" element={isAuthenticated ? <JoinServer /> : <Navigate to="/login" replace />} />
 
-      {/* All authenticated routes — Layout always wraps (preserves CSS vars + MenuProvider) */}
-      <Route
-        element={
-          isAuthenticated
-            ? <Layout><Outlet /></Layout>
-            : <Navigate to="/login" replace />
-        }
-      >
-        <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/home" replace />} />
-          <Route path="/home" element={<HomeContent />} />
-          <Route path="/friends" element={<FriendsPanel />} />
-          <Route path="/friends/@me/:conversationId" element={<FriendsPanel />} />
-          <Route path="/channels" element={<ServersPanel />} />
-          <Route path="/channels/:serverId" element={<ServersPanel />} />
-          <Route path="/channels/:serverId/:channelId" element={<ServersPanel />} />
-          <Route path="/feed" element={<FeedPanel />} />
-          <Route path="/bots" element={<BotLaboratory />} />
-          <Route path="/ai" element={<AIPanel />} />
-          <Route path="/settings" element={<SettingsPanel />} />
-          <Route path="/modules" element={<ModuleNexus />} />
-          <Route path="/radar" element={null} />
-          <Route path="/nerve-center" element={<NerveCenter />} />
+      {/* Protected — the AppShell wraps everything below it */}
+      {isAuthenticated ? (
+        <Route element={<AppShellProvider><SpidrShell /></AppShellProvider>}>
+          <Route path="/home"            element={<HomeDashboard />} />
+          <Route path="/friends"         element={<FriendsPage />} />
+          <Route path="/friends/:tab"    element={<FriendsPage />} />
+          <Route path="/servers"         element={<ServersPage />} />
+          <Route path="/servers/:serverId" element={<ServersPage />} />
+          <Route path="/feed"            element={<TheWebPage />} />
+          <Route path="/ai"              element={<AIPage />} />
+          <Route path="/bots"            element={<BotsPage />} />
+          <Route path="/modules"         element={<ModulesPage />} />
+          <Route path="/nerve-center"    element={<NerveCenter />} />
+          <Route path="/settings"        element={<SettingsPage />} />
+          <Route path="/gifs"            element={<GifsEmojis />} />
           <Route path="/global-reports" element={<GlobalReports />} />
-          <Route path="/gifs" element={<GifsEmojis />} />
+
+          {/* Legacy uppercase /Home URL → redirect to lowercase */}
+          <Route path="/Home" element={<Navigate to="/home" replace />} />
         </Route>
-      </Route>
+      ) : (
+        // Not authenticated — every protected path redirects to /login
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      )}
 
       <Route path="*" element={<PageNotFound />} />
     </Routes>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket } from '@/api/apiClient';
+import { resolveServerUsername } from '@/lib/usernameStyle';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import HolographicProfile from './HolographicProfile';
 import VoiceWeb from './VoiceWeb';
 import EmojiPicker from './EmojiPicker';
 import GhostOverlay from './GhostOverlay';
+import ContextableImage from '@/components/ui/ContextableImage';
 import { playSound } from './SoundEngine';
 import { useMenu } from '@/components/MenuContext';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -37,10 +38,7 @@ import ReportModal from './ReportModal';
 import SignalTracker from './SignalTracker';
 import ErrorBoundary from './ErrorBoundary';
 
-export default function ServersPanel() {
-  const { currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall } = useOutletContext();
-  const { serverId: selectedServerId } = useParams();
-  const navigate = useNavigate();
+export default function ServersPanel({ currentUser, selectedServerId, onSelectServer, onVoiceJoin, onVoiceLeave, onMinimizeCall }) {
   const [searchQuery, setSearchQuery] = useState('');
   const queryClient = useQueryClient();
   const { triggerMenu } = useMenu();
@@ -79,7 +77,7 @@ export default function ServersPanel() {
             {filteredServers.map((server) => (
               <motion.button
                 key={server.id}
-                onClick={() => navigate('/channels/' + server.id)}
+                onClick={() => onSelectServer(server.id)}
                 onContextMenu={(e) => triggerMenu(e, 'server_sidebar', { id: server.id, name: server.name })}
                 onMouseEnter={() => playSound('hover')}
                 className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
@@ -200,8 +198,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       server_id: server.id, 
       channel_id: selectedChannel 
     }, '-created_date', 50),
-    staleTime: 1000,
-    refetchInterval: 10000,
+    staleTime: 30000,
   });
 
   // Lookup table so a message's `reply_to` ID can resolve to the original
@@ -212,13 +209,26 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     return map;
   }, [messages]);
 
+  // Author profiles — needed to apply each user's custom font/color/effect to
+  // their messages in chat. Cached globally so we don't refetch per channel.
+  const { data: allProfiles = [] } = useQuery({
+    queryKey: ['profiles-for-chat'],
+    queryFn: () => entities.UserProfile.list('-created_date', 200),
+    staleTime: 60000,
+  });
+  const profilesByUserId = React.useMemo(() => {
+    const map = {};
+    for (const p of allProfiles) if (p.user_id) map[p.user_id] = p;
+    return map;
+  }, [allProfiles]);
+
 
 
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voice-sessions', server.id],
     queryFn: () => entities.VoiceSession.filter({ server_id: server.id }),
-    refetchInterval: 4000,
-    staleTime: 2000,
+    refetchInterval: 15000,
+    staleTime: 8000,
   });
 
   const { data: events = [] } = useQuery({
@@ -620,8 +630,35 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             toast.success('Friend request sent!');
           } catch { toast.error('Could not send request'); }
         } else if (action === 'nickname') {
-          const nick = window.prompt('Set nickname for this user:', data?.name || '');
-          if (nick !== null) toast.success(nick ? `Nickname set to "${nick}"` : 'Nickname cleared');
+          // Server-only nickname — overrides display_name when this user
+          // is rendered in this server (chat, member list, etc).
+          const member = (server.members || []).find(m => m.user_id === targetUserId);
+          const currentNick = member?.nickname || '';
+          const nick = window.prompt(
+            `Set a server nickname for ${data?.name || 'this user'}:\n(Leave empty to clear)`,
+            currentNick || data?.name || ''
+          );
+          if (nick === null) return; // user cancelled
+          try {
+            const newMembers = (server.members || []).map(m =>
+              m.user_id === targetUserId
+                ? { ...m, nickname: nick.trim() || undefined }
+                : m
+            );
+            await entities.Server.update(server.id, { members: newMembers });
+            await entities.ServerAuditLog.create({
+              server_id: server.id, actor_id: currentUser?.id,
+              actor_name: currentUser?.full_name || currentUser?.username,
+              action: nick.trim() ? 'NICKNAME_SET' : 'NICKNAME_CLEAR',
+              category: 'mod', target_name: data?.name || targetUserId,
+              details: nick.trim() ? `Nickname set to "${nick.trim()}"` : 'Nickname cleared',
+            });
+            queryClient.invalidateQueries({ queryKey: ['servers'] });
+            queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
+            toast.success(nick.trim() ? `Nickname set to "${nick.trim()}"` : 'Nickname cleared');
+          } catch (err) {
+            toast.error('Could not save nickname: ' + (err?.message || 'unknown'));
+          }
         } else if (action === 'volume') {
           toast.info('Volume control — use your device volume for now');
         } else if (action === 'mute' && isAdmin) {
@@ -743,13 +780,36 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       }
     };
     window.addEventListener('spidr-menu-action', handler);
-    return () => window.removeEventListener('spidr-menu-action', handler);
+
+    // Global open-via-event handlers — fired by useGlobalMenuActions when the
+    // right-click menu offers "Invite" or "Server Settings" outside a chat
+    // panel (e.g. from the server-sidebar context).
+    const handleOpenInvite = (e) => {
+      if (e.detail?.serverId === server.id) setShowInviteModal(true);
+    };
+    const handleOpenSettings = (e) => {
+      if (e.detail?.serverId === server.id) setShowSettings(true);
+    };
+    window.addEventListener('spidr-open-invite-modal', handleOpenInvite);
+    window.addEventListener('spidr-open-server-settings', handleOpenSettings);
+
+    return () => {
+      window.removeEventListener('spidr-menu-action', handler);
+      window.removeEventListener('spidr-open-invite-modal', handleOpenInvite);
+      window.removeEventListener('spidr-open-server-settings', handleOpenSettings);
+    };
   }, [server.id, selectedChannel, currentUser?.id, isAdmin]);
 
   const seenMemberIds = new Set();
   const serverMembers = (server.members || [])
-    .filter(m => { if (seenMemberIds.has(m.user_id)) return false; seenMemberIds.add(m.user_id); return true; })
-    .map(m => ({ id: m.user_id, name: m.user_name, avatar: m.user_avatar, role: m.role }));
+    .filter(m => {
+      // Drop dupes and members missing identifiers — they'd crash MentionPopup
+      if (!m?.user_id || !m?.user_name) return false;
+      if (seenMemberIds.has(m.user_id)) return false;
+      seenMemberIds.add(m.user_id);
+      return true;
+    })
+    .map(m => ({ id: m.user_id, name: m.nickname?.trim() || m.user_name, avatar: m.user_avatar, role: m.role }));
 
   const isMatureServer = server.sanctuary?.is_mature;
   const needsAgeGate = isMatureServer && !ageVerified;
@@ -1095,12 +1155,42 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     );
                   })()}
                   <div className="flex items-baseline gap-2">
-                    <span 
-                      className="font-medium text-white hover:underline cursor-pointer"
-                      onClick={() => setSelectedUserId(msg.author_id || msg.user_id)}
-                    >
-                      {msg.author_name || msg.user_name}
-                    </span>
+                    {(() => {
+                      const authorId = msg.author_id || msg.user_id;
+                      const authorProfile = profilesByUserId[authorId];
+                      const resolved = resolveServerUsername({
+                        profile: authorProfile,
+                        server,
+                        userId: authorId,
+                        fallbackName: msg.author_name || msg.user_name,
+                      });
+                      return (
+                        <>
+                          <span
+                            className="font-medium hover:underline cursor-pointer"
+                            style={resolved.style}
+                            onClick={() => setSelectedUserId(authorId)}
+                            title={resolved.hasNickname && authorProfile?.display_name
+                              ? `${authorProfile.display_name}${authorProfile?.discriminator ? `#${authorProfile.discriminator}` : ''}`
+                              : undefined}
+                          >
+                            {resolved.name}
+                          </span>
+                          {resolved.roleName && resolved.roleColor && (
+                            <span
+                              className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
+                              style={{
+                                backgroundColor: resolved.roleColor + '20',
+                                color: resolved.roleColor,
+                                border: `1px solid ${resolved.roleColor}40`,
+                              }}
+                            >
+                              {resolved.roleName}
+                            </span>
+                          )}
+                        </>
+                      );
+                    })()}
                     <span className="text-xs text-zinc-500">
                       {new Date(msg.created_date).toLocaleTimeString()}
                       {msg.edited_at && <span className="ml-1 text-zinc-600">(edited)</span>}
@@ -1123,7 +1213,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                   {msg.attachments?.length > 0 && (
                     <div className="flex gap-2 flex-wrap mt-2">
                       {msg.attachments.map((url, i) => (
-                        <img key={i} src={url} alt="attachment" className="max-w-[200px] rounded-lg" />
+                        <ContextableImage key={i} src={url} alt="attachment" className="max-w-[200px] rounded-lg" />
                       ))}
                     </div>
                   )}

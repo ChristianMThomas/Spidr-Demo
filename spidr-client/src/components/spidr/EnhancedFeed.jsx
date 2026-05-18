@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Heart, MessageCircle, Share2, Pin, TrendingUp, Users, Award, Megaphone, Zap, Send } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Pin, TrendingUp, Users, Award, Megaphone, Zap, Send, AtSign, UserCog } from 'lucide-react';
 function fromNow(date) {
   const diff = Date.now() - new Date(date).getTime();
   const abs  = Math.abs(diff);
@@ -31,6 +32,8 @@ const typeIcons = {
   clip_posted: Share2,
   milestone: TrendingUp,
   trending: TrendingUp,
+  mention: AtSign,
+  profile_update: UserCog,
 };
 
 const typeColors = {
@@ -42,15 +45,19 @@ const typeColors = {
   clip_posted: 'text-purple-400',
   milestone: 'text-orange-400',
   trending: 'text-cyan-400',
+  mention: 'text-red-400',
+  profile_update: 'text-emerald-400',
 };
 
 export default function EnhancedFeed({ currentUser }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const { data: feedItems = [], isLoading } = useQuery({
     queryKey: ['enhanced-feed'],
     queryFn: () => entities.Feed.list('-created_date', 30),
-    refetchInterval: 30000,
+    refetchInterval: 60000,
+    staleTime: 30000,
   });
 
   const reactMutation = useMutation({
@@ -96,26 +103,45 @@ export default function EnhancedFeed({ currentUser }) {
       {pinnedItems.length > 0 && (
         <div className="space-y-2 mb-4">
           {pinnedItems.map(item => (
-            <FeedCard key={item.id} item={item} currentUser={currentUser} onReact={reactMutation.mutate} isPinned />
+            <FeedCard key={item.id} item={item} currentUser={currentUser} onReact={reactMutation.mutate} navigate={navigate} isPinned />
           ))}
         </div>
       )}
 
       <AnimatePresence>
         {regularItems.map((item, i) => (
-          <FeedCard key={item.id} item={item} currentUser={currentUser} onReact={reactMutation.mutate} index={i} />
+          <FeedCard key={item.id} item={item} currentUser={currentUser} onReact={reactMutation.mutate} navigate={navigate} index={i} />
         ))}
       </AnimatePresence>
     </div>
   );
 }
 
-function FeedCard({ item, currentUser, onReact, isPinned, index = 0 }) {
+function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 }) {
   const [showCommentInput, setShowCommentInput] = useState(false);
   const Icon = typeIcons[item.type] || Zap;
   const colorClass = typeColors[item.type] || 'text-zinc-400';
   const reactions = item.reactions || {};
   const quickEmojis = ['🔥', '❤️', '👀', '💀', '🕷️'];
+
+  // Each event type knows where it can deep-link to. Clicking the title/content
+  // of the card jumps the user to the source. Reactions/comments stay inert.
+  const deepLink = (() => {
+    if (item.type === 'mention' && item.server_id && item.channel_id) {
+      return `/servers/${item.server_id}`;
+    }
+    if (item.type === 'server_join' && item.server_id) {
+      return `/servers/${item.server_id}`;
+    }
+    if (item.type === 'clip_posted') {
+      return '/feed';
+    }
+    if (item.type === 'profile_update' && item.user_id) {
+      // No standalone profile route yet — open a notification toast instead.
+      return null;
+    }
+    return null;
+  })();
 
   return (
     <motion.div
@@ -146,13 +172,26 @@ function FeedCard({ item, currentUser, onReact, isPinned, index = 0 }) {
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="font-semibold text-white text-sm truncate">{item.user_name || item.title}</span>
-            <span className={`text-[10px] uppercase font-mono tracking-wider ${colorClass}`}>{item.type?.replace('_', ' ')}</span>
-            <span className="text-zinc-600 text-[10px] ml-auto shrink-0">{fromNow(item.created_date)}</span>
+          <div
+            className={`${deepLink ? 'cursor-pointer hover:opacity-90' : ''}`}
+            onClick={() => { if (deepLink && navigate) navigate(deepLink); }}
+          >
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="font-semibold text-white text-sm truncate">{item.user_name || item.title}</span>
+              <span className={`text-[10px] uppercase font-mono tracking-wider ${colorClass}`}>{item.type?.replace('_', ' ')}</span>
+              <span className="text-zinc-600 text-[10px] ml-auto shrink-0">{fromNow(item.created_date)}</span>
+            </div>
+            {/* For mention events show "Title" then snippet on second line */}
+            {item.type === 'mention' && item.content ? (
+              <>
+                <p className="text-zinc-200 text-sm leading-relaxed font-medium">{item.title}</p>
+                <p className="text-zinc-400 text-[13px] leading-relaxed italic mt-0.5 line-clamp-2">"{item.content}"</p>
+              </>
+            ) : (
+              <p className="text-zinc-300 text-sm leading-relaxed">{item.content || item.title}</p>
+            )}
           </div>
-          <p className="text-zinc-300 text-sm leading-relaxed">{item.content || item.title}</p>
-          
+
           {item.image_url && (
             <img src={item.image_url} alt="" className="mt-2 rounded-lg max-h-48 object-cover w-full" />
           )}

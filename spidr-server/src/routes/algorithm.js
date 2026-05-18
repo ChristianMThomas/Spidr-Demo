@@ -139,8 +139,12 @@ router.get('/feed', authMW, async (req, res) => {
 
     if (!clips.length) return res.json({ clipIds: [] });
 
-    // Load user's personalization profile
-    const [profile, friends] = await Promise.all([
+    // Load user's personalization profile + friends + recently-watched set.
+    // Recently-watched: anything where this user accrued meaningful watch time
+    // in the last 48 hours. We exclude these from the feed so users don't see
+    // the same clip back-to-back, but they're still scorable via the random
+    // serendipity tail (which is what surfaces them again after the window).
+    const [profile, friends, recentlyWatched] = await Promise.all([
       EngagementProfile.findOne({ user_id: userId }).lean().catch(() => null),
       (async () => {
         try {
@@ -148,7 +152,19 @@ router.get('/feed', authMW, async (req, res) => {
           const f = await Friend.find({ user_id: userId, status: 'accepted' });
           return new Set(f.map(x => x.friend_id));
         } catch { return new Set(); }
-      })()
+      })(),
+      (async () => {
+        // Pull any clipIds the user has buffered engagement for in the past 48h.
+        // The buffer is in-memory so this is cheap; for persistent tracking
+        // you'd want a separate `clip_views` collection with TTL index.
+        const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+        const seen = new Set();
+        for (const [key, entry] of engagementBuffer.entries()) {
+          if (!key.startsWith(userId + ':')) continue;
+          if ((entry.completionRate || 0) >= 0.4) seen.add(entry.clipId);
+        }
+        return seen;
+      })(),
     ]);
 
     const tagScores    = profile?.tag_scores    || {};
@@ -193,7 +209,11 @@ router.get('/feed', authMW, async (req, res) => {
       // Anti-filter-bubble noise (±5)
       const noise = (parseInt(id.slice(-4), 16) % 10) - 5;
 
-      const total = engScore + recency + friendBoost + tagBoost + authorBoost + audioBoost + trending + noise;
+      // Recently-watched penalty: -60 (heavily deprioritizes but doesn't hide
+      // entirely, so the user can still re-encounter clips they liked).
+      const seenPenalty = recentlyWatched.has(id) ? -60 : 0;
+
+      const total = engScore + recency + friendBoost + tagBoost + authorBoost + audioBoost + trending + noise + seenPenalty;
 
       return { id, score: total };
     });

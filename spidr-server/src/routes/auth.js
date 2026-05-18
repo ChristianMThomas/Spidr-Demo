@@ -25,13 +25,15 @@ try {
   redis.on('error', () => { redis = null; });
 } catch {}
 
+const SPRING_BOOT_DEV_FALLBACK = 'c3BpZHItZGV2LWZhbGxiYWNrLXNlY3JldC1rZXktcGxlYXNlLXNldC1pbi1lbnY=';
 const getSecret = () => {
-  if (!process.env.JWT_SECRET) {
+  const raw = process.env.JWT_SECRET;
+  if (!raw) {
     if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET is required in production');
     console.warn('[SECURITY] JWT_SECRET not set — using insecure dev fallback. Set JWT_SECRET in .env');
-    return 'spidr-fallback-dev-secret-please-set-in-env';
+    return Buffer.from(SPRING_BOOT_DEV_FALLBACK, 'base64');
   }
-  return process.env.JWT_SECRET;
+  return Buffer.from(raw, 'base64');
 };
 
 const generateOTP  = () => require('crypto').randomInt(100000, 1000000).toString();

@@ -8,7 +8,8 @@ import {
   CheckCircle, BellOff, Pin, Lock, Settings, Mic, Monitor,
   UserPlus, LogOut, Shield, Hash, Volume2, Zap, Eye, EyeOff,
   Bell, Bookmark, Share2, Flag, Clock, Pencil, Users,
-  Link, Download, Image as ImageIcon, Reply, SmilePlus
+  Link, Download, Image as ImageIcon, Reply, SmilePlus,
+  AtSign, ExternalLink, UserX,
 } from 'lucide-react';
 
 export default function SpidrMenu() {
@@ -58,6 +59,47 @@ export default function SpidrMenu() {
           { separator: true },
           { icon: Trash2, label: 'Delete Message', color: 'text-[#FF3333]', action: 'delete' },
         ];
+
+      // ─── Profile (avatar in friend list, home dashboard, etc.) ──────────
+      case 'profile':
+        return [
+          { icon: User, label: 'View Profile', color: 'text-white', action: 'view-profile' },
+          { icon: MessageSquare, label: 'Send Message', color: 'text-white', action: 'send-message' },
+          { icon: AtSign, label: 'Mention', color: 'text-white', action: 'mention' },
+          { separator: true },
+          { icon: UserPlus, label: 'Add Friend', color: 'text-white', action: 'add-friend' },
+          { icon: VolumeX, label: 'Mute User', color: 'text-white', action: 'mute' },
+          { icon: Ban, label: 'Block User', color: 'text-[#FF3333]', action: 'block-user' },
+          { separator: true },
+          { icon: Flag, label: 'Report User', color: 'text-yellow-400', action: 'report' },
+          { icon: Copy, label: 'Copy User ID', color: 'text-zinc-400', action: 'copy-user-id' },
+        ];
+
+      // ─── Friend (avatar/row inside Friends panel) ───────────────────────
+      case 'friend':
+        return [
+          { icon: MessageSquare, label: 'Send Message', color: 'text-white', action: 'send-message' },
+          { icon: User, label: 'View Profile', color: 'text-white', action: 'view-profile' },
+          { icon: AtSign, label: 'Mention', color: 'text-white', action: 'mention' },
+          { separator: true },
+          { icon: VolumeX, label: 'Mute', color: 'text-white', action: 'mute' },
+          { icon: UserX, label: 'Remove Friend', color: 'text-orange-400', action: 'remove-friend' },
+          { icon: Ban, label: 'Block User', color: 'text-[#FF3333]', action: 'block-user' },
+          { separator: true },
+          { icon: Copy, label: 'Copy User ID', color: 'text-zinc-400', action: 'copy-user-id' },
+        ];
+
+      // ─── Media (right-click on an image/GIF/video thumbnail) ────────────
+      case 'media':
+        return [
+          { icon: ExternalLink, label: 'Open in New Tab', color: 'text-white', action: 'open-new-tab' },
+          { icon: Link, label: 'Copy Image Link', color: 'text-white', action: 'copy-image-link' },
+          { icon: Download, label: 'Save Image', color: 'text-white', action: 'download' },
+          { icon: Bookmark, label: 'Save to Collection', color: 'text-white', action: 'save-to-collection' },
+          { separator: true },
+          { icon: Flag, label: 'Report Image', color: 'text-yellow-400', action: 'report-media' },
+        ];
+
       case 'user':
         return [
           { icon: User, label: 'View Profile', color: 'text-white', action: 'profile' },
@@ -139,9 +181,36 @@ export default function SpidrMenu() {
 
   const isMessageMenu = menu.type === 'message';
   const optionsList = getOptions;
-  const menuHeight = optionsList.filter(o => !o.separator).length * 36 + optionsList.filter(o => o.separator).length * 9 + (isMessageMenu ? 80 : 40);
-  const adjustedY = Math.min(menu.y, window.innerHeight - menuHeight - 10);
-  const adjustedX = Math.min(menu.x, window.innerWidth - 220);
+
+  // Edge-detection positioning. We measure intent from menu.x/y (where the
+  // click was) and adjust to keep the menu fully on-screen. Flip vertically
+  // when there isn't enough room below, horizontally when not enough room
+  // to the right. Corners are handled implicitly because both checks run.
+  const MENU_WIDTH = 240;
+  const optionRows = optionsList.filter(o => !o.separator).length;
+  const separatorRows = optionsList.filter(o => o.separator).length;
+  const headerHeight = 40;
+  const quickReactionHeight = isMessageMenu ? 44 : 0;
+  const menuHeight = optionRows * 36 + separatorRows * 9 + headerHeight + quickReactionHeight + 12;
+
+  const winW = typeof window !== 'undefined' ? window.innerWidth  : 1024;
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 768;
+  const PADDING = 8;
+
+  let adjustedX = menu.x;
+  let adjustedY = menu.y;
+
+  // Horizontal: flip to the left of the cursor if we'd overflow right
+  if (adjustedX + MENU_WIDTH + PADDING > winW) {
+    adjustedX = Math.max(PADDING, menu.x - MENU_WIDTH);
+  }
+  // Vertical: flip above the cursor if we'd overflow bottom
+  if (adjustedY + menuHeight + PADDING > winH) {
+    adjustedY = Math.max(PADDING, menu.y - menuHeight);
+  }
+  // Final clamp in case the menu itself is taller than the viewport
+  adjustedX = Math.max(PADDING, Math.min(adjustedX, winW - MENU_WIDTH - PADDING));
+  adjustedY = Math.max(PADDING, Math.min(adjustedY, winH - menuHeight - PADDING));
 
   const handleReact = (emoji) => {
     window.dispatchEvent(new CustomEvent('spidr-menu-action', {

@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useOutletContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, integrations, algorithm } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -66,8 +65,7 @@ function useEngagement(clip, isVisible, hasLiked, videoRef) {
 }
 
 // ── Main FeedPanel ────────────────────────────────────────────────────────────
-export default function FeedPanel() {
-  const { currentUser } = useOutletContext();
+export default function FeedPanel({ currentUser }) {
   const [showUpload, setShowUpload]     = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [activeTab, setActiveTab]       = useState('main');
@@ -80,8 +78,8 @@ export default function FeedPanel() {
   const { data: allClips = [], isLoading } = useQuery({
     queryKey: ['clips'],
     queryFn:  () => entities.Clip.list('-created_date', 200),
-    staleTime: 5000,
-    refetchInterval: 10000,
+    staleTime: 30000,
+    refetchInterval: 60000,
   });
 
   const { data: feedData } = useQuery({

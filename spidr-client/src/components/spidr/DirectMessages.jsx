@@ -85,8 +85,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     queryKey: ['dm-messages', activeConversationId],
     queryFn: () => entities.DirectMessage.filter({ conversation_id: activeConversationId }),
     enabled: !!activeConversationId,
-    refetchInterval: 10000,
-    staleTime: 1000,
+    staleTime: 30000,
   });
 
   const pinnedMessages = messages.filter(msg => msg.is_webbed);
@@ -723,6 +722,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
                       prevMsg={prevMsg}
                       isOwnMessage={isOwnMessage}
                       repliedTo={repliedTo}
+                      senderProfile={isOwnMessage ? currentProfile : recipientProfile}
                       onProfileClick={(userId) => setSelectedProfileUserId(userId)}
                       currentUser={currentUser}
                       onReactionToggle={async (msgId, emoji) => {
