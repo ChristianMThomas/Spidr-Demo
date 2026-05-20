@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, integrations } from '@/api/apiClient';
+import { entities, integrations, getSocket } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Mic, MicOff, Video, VideoOff, Monitor, PhoneOff,
@@ -66,10 +66,16 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
     queryFn: () => entities.UserProfile.list(),
   });
 
+  useEffect(() => {
+    const socket = getSocket();
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['voiceSessions', server.id, channel.id] });
+    socket.on('voice:session-changed', refresh);
+    return () => socket.off('voice:session-changed', refresh);
+  }, [server.id, channel.id, queryClient]);
+
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voiceSessions', server.id, channel.id],
     queryFn: () => entities.VoiceSession.filter({ server_id: server.id, channel_id: channel.id }),
-    refetchInterval: 4000,
   });
 
   const joinMutation = useMutation({

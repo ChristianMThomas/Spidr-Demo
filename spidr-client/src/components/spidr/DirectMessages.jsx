@@ -85,7 +85,6 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     queryKey: ['dm-messages', activeConversationId],
     queryFn: () => entities.DirectMessage.filter({ conversation_id: activeConversationId }),
     enabled: !!activeConversationId,
-    refetchInterval: 2000,
     staleTime: 1000,
   });
 
@@ -215,11 +214,18 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const displayName = conversation?.friendName || recipientProfile?.display_name || 'User';
   const displayAvatar = conversation?.friendAvatar || recipientProfile?.avatar_url;
 
+  useEffect(() => {
+    if (!activeConversationId) return;
+    const socket = getSocket();
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['voice-sessions', activeConversationId] });
+    socket.on('voice:session-changed', refresh);
+    return () => socket.off('voice:session-changed', refresh);
+  }, [activeConversationId, queryClient]);
+
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voice-sessions', activeConversationId],
     queryFn: () => entities.VoiceSession.filter({ channel_id: activeConversationId }),
     enabled: inCall && !!activeConversationId,
-    refetchInterval: 10000,
     staleTime: 5000,
   });
 
