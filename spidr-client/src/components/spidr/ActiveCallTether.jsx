@@ -2,13 +2,21 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, PhoneOff, Maximize2, Volume2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 
 export default function ActiveCallTether({ callInfo, onExpand, onDisconnect, onToggleMute, isMuted }) {
   const [isHovered, setIsHovered] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const queryClient = useQueryClient();
   
+  useEffect(() => {
+    if (!callInfo) return;
+    const socket = getSocket();
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['tether-voiceSessions'] });
+    socket.on('voice:session-changed', refresh);
+    return () => socket.off('voice:session-changed', refresh);
+  }, [callInfo, queryClient]);
+
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['tether-voiceSessions', callInfo?.type, callInfo?.serverId, callInfo?.channelId, callInfo?.groupId, callInfo?.conversationId],
     queryFn: () => {
@@ -28,18 +36,8 @@ export default function ActiveCallTether({ callInfo, onExpand, onDisconnect, onT
       }
       return [];
     },
-    refetchInterval: 5000,
     enabled: !!callInfo
   });
-
-  // Poll for voice session updates when minimized
-  useEffect(() => {
-    if (!callInfo) return;
-    const interval = setInterval(() => {
-      queryClient.invalidateQueries({ queryKey: ['tether-voiceSessions'] });
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [callInfo, queryClient]);
 
   const activeSpeakers = voiceSessions.filter(s => !s.is_muted).length;
   const isSpeaking = activeSpeakers > 0;
