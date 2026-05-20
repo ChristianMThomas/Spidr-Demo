@@ -114,6 +114,7 @@ function startSocketIO(withRedis) {
     },
     maxHttpBufferSize: 5e6,
   });
+  app.set('io', io);
   if (withRedis) {
     const pub = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
     const sub = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');

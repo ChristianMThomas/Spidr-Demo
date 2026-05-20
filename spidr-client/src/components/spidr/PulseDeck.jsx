@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Activity, UserPlus, AtSign, MessageSquare, Check, X, Bell } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { toast } from 'sonner';
 
@@ -10,12 +10,25 @@ export default function PulseDeck({ currentUser, onNavigateDM, onNavigateServer 
   const [isOpen, setIsOpen] = useState(false);
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const socket = getSocket();
+    const refreshRequests = () => queryClient.invalidateQueries({ queryKey: ['friend-requests-pulse', currentUser.id] });
+    const refreshDMs = () => queryClient.invalidateQueries({ queryKey: ['unread-dms-pulse', currentUser.id] });
+    socket.on('friend:incoming', refreshRequests);
+    socket.on('dm:notification', refreshDMs);
+    return () => {
+      socket.off('friend:incoming', refreshRequests);
+      socket.off('dm:notification', refreshDMs);
+    };
+  }, [currentUser?.id, queryClient]);
+
   // Fetch pending friend requests
   const { data: friendRequests = [] } = useQuery({
     queryKey: ['friend-requests-pulse', currentUser?.id],
     queryFn: () => entities.Friend.filter({ friend_id: currentUser?.id, status: 'pending_incoming' }),
     enabled: !!currentUser?.id,
-    refetchInterval: 10000,
+    refetchInterval: 60000,
   });
 
   // Fetch unread DMs
@@ -23,7 +36,7 @@ export default function PulseDeck({ currentUser, onNavigateDM, onNavigateServer 
     queryKey: ['unread-dms-pulse', currentUser?.id],
     queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id, is_read: false }),
     enabled: !!currentUser?.id,
-    refetchInterval: 5000,
+    refetchInterval: 60000,
   });
 
   // Group unread DMs by sender

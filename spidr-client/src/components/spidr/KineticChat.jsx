@@ -83,7 +83,6 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     queryKey: ['group-messages', groupId],
     queryFn: () => entities.GroupChatMessage.filter({ group_id: groupId }, '-created_date', 100),
     enabled: !!groupId,
-    refetchInterval: 2000,
     staleTime: 1000,
   });
 
@@ -192,11 +191,18 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     return () => window.removeEventListener('spidr-menu-action', handler);
   }, [messages, currentUser?.id]);
 
+  useEffect(() => {
+    if (!groupId) return;
+    const socket = getSocket();
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['voice-sessions', groupId] });
+    socket.on('voice:session-changed', refresh);
+    return () => socket.off('voice:session-changed', refresh);
+  }, [groupId, queryClient]);
+
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voice-sessions', groupId],
     queryFn: () => entities.VoiceSession.filter({ channel_id: groupId }),
     enabled: inCall && !!groupId,
-    refetchInterval: 2000,
     staleTime: 1000,
   });
 

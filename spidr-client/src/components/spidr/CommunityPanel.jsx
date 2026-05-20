@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -36,11 +36,18 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
     queryFn: () => entities.UserProfile.list(),
   });
 
+  useEffect(() => {
+    if (!server?.id) return;
+    const socket = getSocket();
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['voiceSessions', server.id] });
+    socket.on('voice:session-changed', refresh);
+    return () => socket.off('voice:session-changed', refresh);
+  }, [server?.id, queryClient]);
+
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voiceSessions', server?.id],
     queryFn: () => entities.VoiceSession.filter({ server_id: server.id }),
     enabled: !!server?.id,
-    refetchInterval: 3000
   });
 
   const getProfile = (userId) => profiles.find(p => p.user_id === userId);
