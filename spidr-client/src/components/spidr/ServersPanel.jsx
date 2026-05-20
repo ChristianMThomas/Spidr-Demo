@@ -238,12 +238,11 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
 
   const { data: messages = [] } = useQuery({
     queryKey: ['messages', server.id, selectedChannel],
-    queryFn: () => entities.Message.filter({ 
-      server_id: server.id, 
-      channel_id: selectedChannel 
+    queryFn: () => entities.Message.filter({
+      server_id: server.id,
+      channel_id: selectedChannel
     }, '-created_date', 50),
     staleTime: 8000,
-    refetchInterval: 15000,
   });
 
   // Lookup table so a message's `reply_to` ID can resolve to the original
@@ -292,10 +291,16 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
 
 
 
+  useEffect(() => {
+    const socket = getSocket();
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['voice-sessions', server.id] });
+    socket.on('voice:session-changed', refresh);
+    return () => socket.off('voice:session-changed', refresh);
+  }, [server.id, queryClient]);
+
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voice-sessions', server.id],
     queryFn: () => entities.VoiceSession.filter({ server_id: server.id }),
-    refetchInterval: 15000,
     staleTime: 8000,
   });
 

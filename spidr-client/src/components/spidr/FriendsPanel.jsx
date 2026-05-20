@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, searchUsers, getSocket } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -83,12 +83,20 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     });
   }, [allGroups, currentUser?.id]);
 
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const socket = getSocket();
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['unread-dms-friends', currentUser.id] });
+    socket.on('dm:notification', refresh);
+    return () => socket.off('dm:notification', refresh);
+  }, [currentUser?.id, queryClient]);
+
   // Fetch unread DMs for badge previews on friend cards
   const { data: unreadDMs = [] } = useQuery({
     queryKey: ['unread-dms-friends', currentUser?.id],
     queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id, is_read: false }),
     enabled: !!currentUser?.id,
-    refetchInterval: 30000,
+    refetchInterval: 60000,
     staleTime: 15000,
   });
 

@@ -2,22 +2,37 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Minimize2, Maximize2 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useQuery } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 
 export default function MiniChat({ server, channel, onClose }) {
   const [isMinimized, setIsMinimized] = useState(false);
   const [position, setPosition] = useState({ x: window.innerWidth - 320, y: 80 });
   const [isDragging, setIsDragging] = useState(false);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!server?.id || !channel?.id) return;
+    const socket = getSocket();
+    socket.emit('join:channel', { serverId: server.id, channelId: channel.id });
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['messages', server.id, channel.id] });
+    socket.on('message:new', refresh);
+    socket.on('message:updated', refresh);
+    socket.on('message:deleted', refresh);
+    return () => {
+      socket.off('message:new', refresh);
+      socket.off('message:updated', refresh);
+      socket.off('message:deleted', refresh);
+    };
+  }, [server?.id, channel?.id, queryClient]);
 
   const { data: messages = [] } = useQuery({
     queryKey: ['messages', server?.id, channel?.id],
-    queryFn: () => entities.Message.filter({ 
-      server_id: server.id, 
-      channel_id: channel.id 
+    queryFn: () => entities.Message.filter({
+      server_id: server.id,
+      channel_id: channel.id
     }, '-created_date', 20),
     enabled: !!server && !!channel,
-    refetchInterval: 3000
   });
 
   const handleMouseDown = (e) => {

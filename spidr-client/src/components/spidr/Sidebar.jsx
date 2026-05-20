@@ -1,10 +1,10 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Server, Settings, MessageCircle, Plus, Network, Radio, Shield, Blocks, Activity } from 'lucide-react';
 import SpiderLogo from './SpiderLogo';
-import { useQuery } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { playSound } from './SoundEngine';
 import ApexStore from './ApexStore';
 import { useMenu } from '@/components/MenuContext';
@@ -16,6 +16,7 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
   const [showApex, setShowApex] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const { triggerMenu } = useMenu();
+  const queryClient = useQueryClient();
   
   const { data: allServers = [] } = useQuery({
     queryKey: ['servers'],
@@ -32,11 +33,24 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
     );
   }, [allServers, currentUser?.id]);
 
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const socket = getSocket();
+    const refreshDMs = () => queryClient.invalidateQueries({ queryKey: ['unread-dms-sidebar', currentUser.id] });
+    const refreshRequests = () => queryClient.invalidateQueries({ queryKey: ['friend-requests-sidebar', currentUser.id] });
+    socket.on('dm:notification', refreshDMs);
+    socket.on('friend:incoming', refreshRequests);
+    return () => {
+      socket.off('dm:notification', refreshDMs);
+      socket.off('friend:incoming', refreshRequests);
+    };
+  }, [currentUser?.id, queryClient]);
+
   const { data: unreadDMs = [] } = useQuery({
     queryKey: ['unread-dms-sidebar', currentUser?.id],
     queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id, is_read: false }),
     enabled: !!currentUser?.id,
-    refetchInterval: 30000,
+    refetchInterval: 60000,
     staleTime: 15000,
   });
 
@@ -59,7 +73,7 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
     queryKey: ['friend-requests-sidebar', currentUser?.id],
     queryFn: () => entities.Friend.filter({ friend_id: currentUser?.id, status: 'pending_incoming' }),
     enabled: !!currentUser?.id,
-    refetchInterval: 30000,
+    refetchInterval: 60000,
     staleTime: 15000,
   });
 
