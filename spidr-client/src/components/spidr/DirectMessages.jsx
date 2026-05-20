@@ -85,7 +85,8 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     queryKey: ['dm-messages', activeConversationId],
     queryFn: () => entities.DirectMessage.filter({ conversation_id: activeConversationId }),
     enabled: !!activeConversationId,
-    staleTime: 30000,
+    refetchInterval: 2000,
+    staleTime: 1000,
   });
 
   const pinnedMessages = messages.filter(msg => msg.is_webbed);

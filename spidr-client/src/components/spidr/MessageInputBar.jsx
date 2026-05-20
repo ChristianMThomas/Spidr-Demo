@@ -188,6 +188,46 @@ export default function MessageInputBar({
           value={value}
           onChange={handleInputChange}
           onKeyDown={onKeyDown}
+          onPaste={async (e) => {
+            // 1. Direct image on the clipboard (Ctrl+C an image from the OS) →
+            //    upload and attach as a normal image attachment.
+            const item = [...(e.clipboardData?.items || [])].find(it => it.type?.startsWith('image/'));
+            if (item) {
+              e.preventDefault();
+              const file = item.getAsFile();
+              if (file) {
+                setUploading(true);
+                try {
+                  const { url } = await integrations.Core.UploadFile({ file });
+                  setAttachments(prev => [...prev, { name: file.name || 'pasted-image', url, type: file.type }]);
+                } catch {
+                  toast.error('Could not upload pasted image');
+                } finally {
+                  setUploading(false);
+                }
+              }
+              return;
+            }
+
+            // 2. Pasted text that looks like an image/gif/video URL → attach it
+            //    directly without re-uploading. Recognizes common image
+            //    extensions and the platform's own CDN (pub-*.r2.dev).
+            const text = e.clipboardData?.getData('text');
+            if (text && /^https?:\/\//i.test(text.trim()) && !text.includes('\n')) {
+              const url = text.trim();
+              const looksLikeImage = /\.(gif|png|jpe?g|webp|avif)(\?|$)/i.test(url) || /pub-[0-9a-f]+\.r2\.dev/i.test(url);
+              const looksLikeVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url);
+              if (looksLikeImage || looksLikeVideo) {
+                e.preventDefault();
+                const type = looksLikeVideo ? 'video/mp4'
+                  : /\.gif/i.test(url) ? 'image/gif'
+                  : 'image/png';
+                setAttachments(prev => [...prev, { name: url.split('/').pop()?.split('?')[0] || 'media', url, type }]);
+                return;
+              }
+              // Otherwise let the default paste happen (text URL into the input)
+            }
+          }}
           disabled={disabled}
           className={`flex-1 bg-transparent border-0 outline-none text-[14px] text-white placeholder:text-zinc-600 font-medium px-2 min-w-0
             ${ghostMode ? 'font-mono text-purple-300' : ''}`}

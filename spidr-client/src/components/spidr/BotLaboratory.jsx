@@ -3,8 +3,9 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Search, Sparkles, Shield, Music, Bot, Plus, Check, Cpu, Loader2 } from 'lucide-react';
+import { Search, Sparkles, Shield, Music, Bot, Plus, Check, Cpu, Loader2, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
@@ -23,6 +24,7 @@ const CATEGORY_META = {
 const TABS = [
   { id: 'store',   label: 'BOT STORE',  icon: Bot },
   { id: 'my_bots', label: 'MY BOTS',    icon: Cpu },
+  { id: 'create',  label: 'CREATE',     icon: Plus },
   { id: 'import',  label: 'IMPORT',     icon: Plus },
 ];
 
@@ -71,8 +73,9 @@ export default function BotLaboratory({ currentUser }) {
 
   const installMutation = useMutation({
     mutationFn: async ({ bot, serverId }) => {
-      const servers = await entities.Server.filter({ id: serverId });
-      const server = servers[0];
+      let server;
+      try { server = await entities.Server.get(serverId); }
+      catch { throw new Error('Server not found'); }
       if (!server) throw new Error('Server not found');
       const existingBots = server.bots || [];
       if (existingBots.some(b => b.bot_id === bot.id)) {
@@ -251,6 +254,12 @@ export default function BotLaboratory({ currentUser }) {
             </motion.div>
           )}
 
+          {activeTab === 'create' && (
+            <motion.div key="create" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <CreateBotTab currentUser={currentUser} />
+            </motion.div>
+          )}
+
           {activeTab === 'import' && (
             <motion.div key="import" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <ImportBotTab currentUser={currentUser} />
@@ -333,6 +342,277 @@ export default function BotLaboratory({ currentUser }) {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/**
+ * CreateBotTab — user-built bot creator using simple trigger → response pairs.
+ *
+ * SECURITY MODEL — important to understand the boundaries:
+ *   • We do NOT execute user-supplied JavaScript anywhere. The CustomBot
+ *     schema has a `code` field reserved for a future sandboxed runtime,
+ *     but this UI only writes to the `commands` array, which is a list of
+ *     declarative {trigger, response} pairs interpreted by the server bot
+ *     engine. No arbitrary code path.
+ *   • Triggers are string matches (case-insensitive, exact or prefix).
+ *   • Responses are plain text. Template variables {user}, {server},
+ *     {channel} are substituted server-side at runtime — no eval.
+ *
+ * This is the safe MVP. A real "user-coded bots" feature with JS execution
+ * would need an isolated VM (vm2, isolated-vm) on the server and is
+ * deliberately out of scope here.
+ */
+function CreateBotTab({ currentUser }) {
+  const queryClient = useQueryClient();
+  const [name, setName] = React.useState('');
+  const [description, setDescription] = React.useState('');
+  const [iconEmoji, setIconEmoji] = React.useState('🤖');
+  const [commands, setCommands] = React.useState([{ trigger: '', response: '', description: '' }]);
+  const [testMessage, setTestMessage] = React.useState('');
+  const [testResult, setTestResult] = React.useState(null);
+
+  const addCommandRow = () => {
+    setCommands(cs => [...cs, { trigger: '', response: '', description: '' }]);
+  };
+
+  const updateCommand = (idx, field, value) => {
+    setCommands(cs => cs.map((c, i) => i === idx ? { ...c, [field]: value } : c));
+  };
+
+  const removeCommand = (idx) => {
+    setCommands(cs => cs.filter((_, i) => i !== idx));
+  };
+
+  // Local trigger-matching preview — mirrors the server-side logic.
+  // If the test message starts with a trigger (case-insensitive), echo the
+  // response with template variables substituted.
+  const runTest = () => {
+    if (!testMessage.trim()) { setTestResult(null); return; }
+    const msg = testMessage.trim();
+    const lowered = msg.toLowerCase();
+    const match = commands.find(c => {
+      if (!c.trigger) return false;
+      const t = c.trigger.toLowerCase();
+      return lowered === t || lowered.startsWith(t + ' ') || lowered.startsWith(t);
+    });
+    if (!match) {
+      setTestResult({ ok: false, text: 'No trigger matched.' });
+      return;
+    }
+    const response = (match.response || '')
+      .replace(/\{user\}/g, currentUser?.full_name || currentUser?.username || 'friend')
+      .replace(/\{server\}/g, 'Your Server')
+      .replace(/\{channel\}/g, '#general');
+    setTestResult({ ok: true, text: response, matched: match.trigger });
+  };
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      // Validation
+      if (!name.trim()) throw new Error('Bot name required');
+      const validCommands = commands.filter(c => c.trigger?.trim() && c.response?.trim());
+      if (validCommands.length === 0) throw new Error('Add at least one trigger + response');
+
+      return entities.CustomBot.create({
+        author_id:   currentUser?.id,
+        author_name: currentUser?.full_name || currentUser?.username,
+        owner_id:    currentUser?.id,
+        name:        name.trim(),
+        description: description.trim() || `Custom bot by ${currentUser?.full_name || 'you'}`,
+        icon_emoji:  iconEmoji,
+        category:    'custom',
+        commands:    validCommands.map(c => ({
+          trigger:     c.trigger.trim(),
+          response:    c.response.trim(),
+          description: c.description?.trim() || '',
+        })),
+        is_public:   false,
+        is_official: false,
+        is_active:   true,
+        // Mark as user-built so the bot engine doesn't try to look it up in
+        // the built-in registry. The bot engine handles the `commands`
+        // array directly for these.
+        code:        'user:commands',
+      });
+    },
+    onSuccess: () => {
+      toast.success('Bot created! Install it from My Bots.');
+      queryClient.invalidateQueries({ queryKey: ['custom-bots'] });
+      // Reset form
+      setName(''); setDescription(''); setIconEmoji('🤖');
+      setCommands([{ trigger: '', response: '', description: '' }]);
+      setTestMessage(''); setTestResult(null);
+    },
+    onError: (err) => toast.error(err?.message || 'Could not save bot'),
+  });
+
+  const validCount = commands.filter(c => c.trigger?.trim() && c.response?.trim()).length;
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-2xl font-black uppercase italic tracking-tight text-white mb-1">
+          Fabricate a Bot
+        </h2>
+        <p className="text-zinc-500 text-sm">
+          Build a simple bot with trigger → response pairs. No code required.
+        </p>
+      </div>
+
+      {/* Identity card */}
+      <div className="bg-zinc-900/60 rounded-2xl border border-white/5 p-5 space-y-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              // Cycle through a friendly set of emoji icons. Real implementation
+              // would open a picker — this is the shipping MVP.
+              const palette = ['🤖','🕷️','👾','🦾','🧠','⚙️','🎲','🎮','📡','🛡️','⚡','🔮'];
+              const cur = palette.indexOf(iconEmoji);
+              setIconEmoji(palette[(cur + 1) % palette.length]);
+            }}
+            className="w-14 h-14 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-white/10 flex items-center justify-center text-3xl transition-colors"
+            title="Click to cycle icon"
+          >
+            {iconEmoji}
+          </button>
+          <div className="flex-1 min-w-0">
+            <Input
+              placeholder="Bot name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="bg-zinc-800 border-zinc-700 text-white text-base font-bold"
+              maxLength={50}
+            />
+            <Input
+              placeholder="Short description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="bg-zinc-800 border-zinc-700 text-white text-xs mt-2"
+              maxLength={120}
+            />
+          </div>
+        </div>
+        <p className="text-zinc-600 text-[10px]">Click the icon to cycle through preset emojis. Custom images coming soon.</p>
+      </div>
+
+      {/* Commands */}
+      <div className="bg-zinc-900/60 rounded-2xl border border-white/5 p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white font-bold">Triggers & Responses</p>
+            <p className="text-zinc-500 text-xs mt-0.5">
+              When a message matches a trigger, your bot responds. Use <code className="text-red-400 font-mono">{'{user}'}</code>, <code className="text-red-400 font-mono">{'{server}'}</code>, <code className="text-red-400 font-mono">{'{channel}'}</code> as substitutions.
+            </p>
+          </div>
+          <button
+            onClick={addCommandRow}
+            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-1.5 shrink-0"
+          >
+            <Plus size={12} /> Add
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          {commands.map((cmd, idx) => (
+            <div key={idx} className="bg-zinc-800/60 rounded-lg p-3 border border-white/5 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-500 text-[10px] font-mono w-6 text-right">{idx + 1}.</span>
+                <Input
+                  placeholder="Trigger (e.g. !hello or hey bot)"
+                  value={cmd.trigger}
+                  onChange={(e) => updateCommand(idx, 'trigger', e.target.value)}
+                  className="bg-black/40 border-zinc-700 text-white text-sm font-mono flex-1"
+                  maxLength={40}
+                />
+                {commands.length > 1 && (
+                  <button
+                    onClick={() => removeCommand(idx)}
+                    className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-red-900/40 text-zinc-500 hover:text-red-400 flex items-center justify-center transition-colors"
+                    title="Remove"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <Textarea
+                placeholder={'Response — what the bot says back.\nUse {user} to mention the sender.'}
+                value={cmd.response}
+                onChange={(e) => updateCommand(idx, 'response', e.target.value)}
+                className="bg-black/40 border-zinc-700 text-white text-sm resize-none"
+                rows={2}
+                maxLength={500}
+              />
+              <Input
+                placeholder="Description (optional, shown in install dialog)"
+                value={cmd.description}
+                onChange={(e) => updateCommand(idx, 'description', e.target.value)}
+                className="bg-black/40 border-zinc-700 text-zinc-400 text-[11px]"
+                maxLength={100}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Tester */}
+      <div className="bg-zinc-900/60 rounded-2xl border border-white/5 p-5 space-y-3">
+        <div>
+          <p className="text-white font-bold">Test your bot</p>
+          <p className="text-zinc-500 text-xs mt-0.5">Type a fake message and see what your bot would say.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Try typing one of your triggers..."
+            value={testMessage}
+            onChange={(e) => setTestMessage(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') runTest(); }}
+            className="bg-black/40 border-zinc-700 text-white text-sm flex-1"
+          />
+          <button
+            onClick={runTest}
+            className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white text-xs font-bold"
+          >
+            Run
+          </button>
+        </div>
+        {testResult && (
+          <div className={`rounded-lg p-3 border ${testResult.ok ? 'bg-green-900/15 border-green-500/30' : 'bg-zinc-800/60 border-white/5'}`}>
+            <p className={`text-[10px] uppercase font-bold tracking-wider mb-1 ${testResult.ok ? 'text-green-400' : 'text-zinc-500'}`}>
+              {testResult.ok ? `Matched "${testResult.matched}"` : 'No match'}
+            </p>
+            <p className="text-white text-sm whitespace-pre-wrap">{testResult.text}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Save action */}
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <p className="text-zinc-500 text-xs">
+          {validCount} valid command{validCount === 1 ? '' : 's'}
+        </p>
+        <Button
+          onClick={() => saveMut.mutate()}
+          disabled={saveMut.isPending || !name.trim() || validCount === 0}
+          className="bg-red-600 hover:bg-red-500 text-white font-bold"
+        >
+          {saveMut.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Check className="w-4 h-4 mr-1.5" />}
+          Save Bot
+        </Button>
+      </div>
+
+      {/* Honest note about the JS path */}
+      <div className="bg-yellow-900/15 border border-yellow-500/20 rounded-xl p-4">
+        <p className="text-yellow-400 text-xs font-bold mb-1">About JavaScript bots</p>
+        <p className="text-zinc-400 text-[11px] leading-relaxed">
+          The schema reserves a <code className="text-yellow-300 font-mono">code</code> field for future
+          JavaScript-powered bots, but we haven't shipped the sandboxed runtime yet
+          and won't until we can guarantee safe isolation. For now, all user-made
+          bots are trigger/response pairs — which is enough for greeters, FAQ
+          bots, role-grant prompts, and simple commands.
+        </p>
+      </div>
     </div>
   );
 }

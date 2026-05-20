@@ -240,17 +240,17 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
     <>
       {/* Full-screen backdrop */}
       <div 
-        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto"
         onClick={onClose}
       >
-        <div onClick={(e) => e.stopPropagation()}>
+        <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[720px]">
           <motion.div
             ref={cardRef}
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.8, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 200, damping: 25 }}
-            className="relative w-[720px] mx-auto"
+            className="relative w-full max-w-[720px] mx-auto"
           >
             {/* LAYER 0: Card base background */}
             <div 

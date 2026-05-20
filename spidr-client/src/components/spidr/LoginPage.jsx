@@ -48,7 +48,14 @@ function AuthGateway({ onSuccess, onForgot }) {
     try {
       const result = mode === 'login'
         ? await login(form.email, form.password)
-        : await register({ email: form.email, password: form.password, username: form.username, full_name: form.full_name });
+        : await register({
+            email: form.email,
+            password: form.password,
+            username: form.username,
+            full_name: form.full_name,
+            // Empty discriminator means "server, please pick one for me"
+            discriminator: (form.discriminator || '').trim() || undefined,
+          });
 
       if (result?.requires2FA || result?.requiresVerification) {
         onSuccess({ email: form.email, mode: result.requires2FA ? 'login' : 'verify' });
@@ -99,7 +106,30 @@ function AuthGateway({ onSuccess, onForgot }) {
                 </div>
                 <div>
                   <label className="text-white/30 text-[10px] font-bold tracking-widest uppercase block mb-1.5">Alias</label>
-                  <input type="text" placeholder="Choose your handle" className={inp} value={form.username} onChange={set('username')} required={mode==='register'} />
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      placeholder="Choose your handle"
+                      className={inp + ' flex-1'}
+                      value={form.username}
+                      onChange={set('username')}
+                      required={mode === 'register'}
+                    />
+                    <span className="text-white/30 text-xs font-mono select-none">#</span>
+                    <input
+                      type="text"
+                      placeholder="abcd"
+                      maxLength={4}
+                      pattern="[a-z0-9]{4}"
+                      title="Optional — 4 lowercase letters or numbers. Leave blank to auto-assign."
+                      className={inp + ' w-16 text-center font-mono lowercase'}
+                      value={form.discriminator || ''}
+                      onChange={(e) => setForm(f => ({ ...f, discriminator: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4) }))}
+                    />
+                  </div>
+                  <p className="text-white/25 text-[9px] mt-1.5 leading-snug">
+                    Your @username and a 4-character tag together make you unique. Leave the tag empty and we'll pick one for you.
+                  </p>
                 </div>
               </motion.div>
             )}

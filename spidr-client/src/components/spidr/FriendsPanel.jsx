@@ -67,6 +67,22 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     staleTime: 60000,
   });
 
+  // Group chats the current user is a member of. Listed in the new Groups tab.
+  const { data: allGroups = [] } = useQuery({
+    queryKey: ['group-chats-friends', currentUser?.id],
+    queryFn: () => entities.GroupChat.list('-created_date', 100),
+    enabled: !!currentUser?.id,
+    staleTime: 30000,
+  });
+  const myGroups = React.useMemo(() => {
+    if (!currentUser?.id) return [];
+    return allGroups.filter(g => {
+      const members = g.members || [];
+      // Support both shapes: ['user_id', ...] and [{ user_id, ...}, ...]
+      return members.some(m => (typeof m === 'string' ? m : m?.user_id) === currentUser.id);
+    });
+  }, [allGroups, currentUser?.id]);
+
   // Fetch unread DMs for badge previews on friend cards
   const { data: unreadDMs = [] } = useQuery({
     queryKey: ['unread-dms-friends', currentUser?.id],
@@ -245,6 +261,9 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
             <TabsList className="bg-zinc-800/50 border border-red-900/20">
               <TabsTrigger value="all" className="data-[state=active]:bg-red-600">All</TabsTrigger>
               <TabsTrigger value="online" className="data-[state=active]:bg-red-600">Online</TabsTrigger>
+              <TabsTrigger value="groups" className="data-[state=active]:bg-red-600">
+                <Users className="w-4 h-4 mr-1" /> Groups
+              </TabsTrigger>
               <TabsTrigger value="pending" className="data-[state=active]:bg-red-600">
                 Pending {pendingIncoming.length > 0 && `(${pendingIncoming.length})`}
               </TabsTrigger>
@@ -303,6 +322,45 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                 />
               );
             })}
+          </TabsContent>
+
+          <TabsContent value="groups" className="flex-1 overflow-y-auto p-4 space-y-2">
+            <button
+              onClick={() => setShowCreateGroup(true)}
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-red-600/10 hover:bg-red-600/20 border border-red-900/30 text-red-400 hover:text-red-300 transition-colors text-sm font-semibold"
+            >
+              <UserPlus className="w-4 h-4" /> New Group Chat
+            </button>
+            {myGroups.length === 0 ? (
+              <div className="text-center text-zinc-500 py-8 text-sm">
+                No group chats yet. Start one by clicking above.
+              </div>
+            ) : (
+              myGroups.map((group) => {
+                const memberCount = (group.members || []).length;
+                return (
+                  <motion.button
+                    key={group.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    onClick={() => handleOpenGroup(group.id)}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                      {group.icon_url ? (
+                        <img src={group.icon_url} alt={group.name} className="w-full h-full rounded-full object-cover" />
+                      ) : (
+                        (group.name || 'G').charAt(0).toUpperCase()
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-white text-sm font-semibold truncate">{group.name || 'Untitled group'}</p>
+                      <p className="text-zinc-500 text-xs truncate">{memberCount} member{memberCount === 1 ? '' : 's'}</p>
+                    </div>
+                  </motion.button>
+                );
+              })
+            )}
           </TabsContent>
 
           <TabsContent value="pending" className="flex-1 overflow-y-auto p-4 space-y-4">

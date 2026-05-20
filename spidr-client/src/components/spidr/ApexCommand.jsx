@@ -70,8 +70,12 @@ export default function ApexCommand({ isOpen, onClose, currentTier = 'free', cur
           }
         });
         // Invalidate every key that holds a copy of the user profile so the
-        // APEX tab, badge, and unlocked features appear immediately.
+        // APEX tab, badge, and unlocked features appear immediately. We hit
+        // both the user_id-keyed cache (used by HolographicProfile) and the
+        // currentUser.id-keyed cache (used by Settings) — they're the same
+        // string in practice, but explicit is safer than implicit.
         queryClient.invalidateQueries({ queryKey: ['userProfile', profile.user_id] });
+        queryClient.invalidateQueries({ queryKey: ['userProfile', currentUser?.id] });
         queryClient.invalidateQueries({ queryKey: ['userProfile'] });
         queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
         queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
@@ -93,7 +97,9 @@ export default function ApexCommand({ isOpen, onClose, currentTier = 'free', cur
       if (profile?.id) {
         await entities.UserProfile.update(profile.id, { apex_tier: 'free' });
         queryClient.invalidateQueries({ queryKey: ['userProfile'] });
-        queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+        queryClient.invalidateQueries({ queryKey: ['userProfile', profile.user_id] });
+        queryClient.invalidateQueries({ queryKey: ['userProfile', currentUser?.id] });
+        queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
       }
       toast('Subscription cancelled. Access until next billing cycle.');
       setShowCancelDialog(false);

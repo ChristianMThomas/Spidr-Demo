@@ -13,7 +13,9 @@ import { useMenu } from '@/components/MenuContext';
 export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick, currentUser, apexUsers, onReactionToggle, repliedTo, senderProfile }) {
   const { triggerMenu } = useMenu();
   const isMentioned = currentUser && msg.content?.includes(`@${currentUser.full_name?.split(' ')[0]}`);
-  const isApex = apexUsers?.includes?.(msg.sender_id);
+  // Prefer senderProfile.apex_tier — it's the canonical signal. Fall back to
+  // the legacy apexUsers Set prop in case any caller still uses that shape.
+  const isApex = senderProfile?.apex_tier === 'apex' || apexUsers?.includes?.(msg.sender_id);
   const isChained = prevMsg && prevMsg.sender_id === msg.sender_id;
 
   return (

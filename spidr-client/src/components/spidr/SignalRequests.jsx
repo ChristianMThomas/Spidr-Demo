@@ -13,8 +13,7 @@ export default function SignalRequests({ currentUser }) {
     queryKey: ['signal-requests-dms', currentUser?.id],
     queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id, is_read: false }),
     enabled: !!currentUser?.id,
-    refetchInterval: 30000,
-    staleTime: 15000,
+    refetchInterval: 10000,
   });
 
   const { data: friends = [] } = useQuery({

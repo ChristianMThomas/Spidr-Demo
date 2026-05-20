@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { toast } from 'sonner';
-import { Hash, Volume2, Plus, Trash2, Shield, Users, Settings, Image, X, FileText, Globe, Lock, Flag, ShieldCheck, BookOpen, ListChecks } from 'lucide-react';
+import { Hash, Volume2, Plus, Trash2, Shield, Users, Settings, Image, X, FileText, Globe, Lock, Flag, ShieldCheck, BookOpen, ListChecks, GripVertical } from 'lucide-react';
 import SanctuaryProtocols from './SanctuaryProtocols';
 import ServerAuditLog from './ServerAuditLog';
 import ServerReportsPanel from './ServerReportsPanel';
@@ -61,6 +62,24 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
   const [blockedCategory, setBlockedCategory] = useState(null);
 
   const queryClient = useQueryClient();
+
+  // Resolve member display info from UserProfile so the members tab shows
+  // @username#discriminator (the user's actual identity) instead of raw
+  // user_ids (which are sometimes emails for legacy accounts).
+  const memberUserIds = React.useMemo(
+    () => [...new Set((server?.members || []).map(m => m.user_id).filter(Boolean))],
+    [server?.members]
+  );
+  const { data: memberProfiles = [] } = useQuery({
+    queryKey: ['server-member-profiles', server?.id, memberUserIds.length],
+    queryFn: () => entities.UserProfile.filter({ user_id: memberUserIds.join(',') }),
+    enabled: open && memberUserIds.length > 0,
+    staleTime: 30000,
+  });
+  const profileByUserId = React.useMemo(
+    () => Object.fromEntries(memberProfiles.map(p => [p.user_id, p])),
+    [memberProfiles]
+  );
 
   const updateServerMutation = useMutation({
     mutationFn: (data) => entities.Server.update(server.id, data),
@@ -475,34 +494,116 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
 
               <div className="space-y-2">
                 <p className="text-xs text-zinc-500 uppercase font-semibold">Text Channels</p>
-                {channels.filter(c => c.type === 'text').map((channel) => (
-                  <div key={channel.id} className="flex items-center justify-between bg-zinc-800 rounded-lg px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <Hash className="w-4 h-4 text-zinc-500" />
-                      <span className="text-white">{channel.name}</span>
-                    </div>
-                    {isOwner && channel.id !== 'general' && (
-                      <Button size="icon" variant="ghost" onClick={() => removeChannel(channel.id)} className="text-red-500 hover:text-red-400">
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                <DragDropContext
+                  onDragEnd={(result) => {
+                    if (!result.destination || !isOwner) return;
+                    if (result.source.index === result.destination.index) return;
+                    // Reorder within text-channels only. Reconstruct the full
+                    // channels list by interleaving the reordered text list
+                    // with the untouched voice list, preserving original order
+                    // of voice channels.
+                    const textChannels = channels.filter(c => c.type === 'text');
+                    const voiceChannels = channels.filter(c => c.type === 'voice');
+                    const [moved] = textChannels.splice(result.source.index, 1);
+                    textChannels.splice(result.destination.index, 0, moved);
+                    setChannels([...textChannels, ...voiceChannels]);
+                  }}
+                >
+                  <Droppable droppableId="text-channels">
+                    {(provided) => (
+                      <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-2">
+                        {channels.filter(c => c.type === 'text').map((channel, idx) => (
+                          <Draggable
+                            key={channel.id}
+                            draggableId={`tch-${channel.id}`}
+                            index={idx}
+                            isDragDisabled={!isOwner}
+                          >
+                            {(p, snapshot) => (
+                              <div
+                                ref={p.innerRef}
+                                {...p.draggableProps}
+                                className={`flex items-center justify-between bg-zinc-800 rounded-lg px-3 py-2 ${
+                                  snapshot.isDragging ? 'ring-2 ring-red-500 shadow-xl' : ''
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  {isOwner && (
+                                    <span {...p.dragHandleProps} className="text-zinc-600 hover:text-zinc-400 cursor-grab active:cursor-grabbing">
+                                      <GripVertical className="w-4 h-4" />
+                                    </span>
+                                  )}
+                                  <Hash className="w-4 h-4 text-zinc-500 shrink-0" />
+                                  <span className="text-white truncate">{channel.name}</span>
+                                </div>
+                                {isOwner && channel.id !== 'general' && (
+                                  <Button size="icon" variant="ghost" onClick={() => removeChannel(channel.id)} className="text-red-500 hover:text-red-400">
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
                     )}
-                  </div>
-                ))}
+                  </Droppable>
+                </DragDropContext>
 
                 <p className="text-xs text-zinc-500 uppercase font-semibold mt-4">Voice Channels</p>
-                {channels.filter(c => c.type === 'voice').map((channel) => (
-                  <div key={channel.id} className="flex items-center justify-between bg-zinc-800 rounded-lg px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <Volume2 className="w-4 h-4 text-zinc-500" />
-                      <span className="text-white">{channel.name}</span>
-                    </div>
-                    {isOwner && (
-                      <Button size="icon" variant="ghost" onClick={() => removeChannel(channel.id)} className="text-red-500 hover:text-red-400">
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                <DragDropContext
+                  onDragEnd={(result) => {
+                    if (!result.destination || !isOwner) return;
+                    if (result.source.index === result.destination.index) return;
+                    const textChannels = channels.filter(c => c.type === 'text');
+                    const voiceChannels = channels.filter(c => c.type === 'voice');
+                    const [moved] = voiceChannels.splice(result.source.index, 1);
+                    voiceChannels.splice(result.destination.index, 0, moved);
+                    setChannels([...textChannels, ...voiceChannels]);
+                  }}
+                >
+                  <Droppable droppableId="voice-channels">
+                    {(provided) => (
+                      <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-2">
+                        {channels.filter(c => c.type === 'voice').map((channel, idx) => (
+                          <Draggable
+                            key={channel.id}
+                            draggableId={`vch-${channel.id}`}
+                            index={idx}
+                            isDragDisabled={!isOwner}
+                          >
+                            {(p, snapshot) => (
+                              <div
+                                ref={p.innerRef}
+                                {...p.draggableProps}
+                                className={`flex items-center justify-between bg-zinc-800 rounded-lg px-3 py-2 ${
+                                  snapshot.isDragging ? 'ring-2 ring-red-500 shadow-xl' : ''
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  {isOwner && (
+                                    <span {...p.dragHandleProps} className="text-zinc-600 hover:text-zinc-400 cursor-grab active:cursor-grabbing">
+                                      <GripVertical className="w-4 h-4" />
+                                    </span>
+                                  )}
+                                  <Volume2 className="w-4 h-4 text-zinc-500 shrink-0" />
+                                  <span className="text-white truncate">{channel.name}</span>
+                                </div>
+                                {isOwner && (
+                                  <Button size="icon" variant="ghost" onClick={() => removeChannel(channel.id)} className="text-red-500 hover:text-red-400">
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
                     )}
-                  </div>
-                ))}
+                  </Droppable>
+                </DragDropContext>
               </div>
             </TabsContent>
 
@@ -527,44 +628,82 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                 </div>
               )}
 
-              <div className="space-y-4">
-                {roles.map((role) => (
-                  <div key={role.id} className="bg-zinc-800 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <Shield className="w-4 h-4" style={{ color: role.color }} />
-                        <span className="text-white font-semibold">{role.name}</span>
-                      </div>
-                      {isOwner && !['admin', 'member'].includes(role.id) && (
-                        <Button size="icon" variant="ghost" onClick={() => removeRole(role.id)} className="text-red-500 hover:text-red-400">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
+              <DragDropContext
+                onDragEnd={(result) => {
+                  if (!result.destination || !isOwner) return;
+                  if (result.source.index === result.destination.index) return;
+                  // Reorder roles by their position. Note: admin/member are
+                  // special system roles — we still let them move because some
+                  // servers genuinely want admin below others, but the delete
+                  // guard below still prevents removing them.
+                  const next = [...roles];
+                  const [moved] = next.splice(result.source.index, 1);
+                  next.splice(result.destination.index, 0, moved);
+                  setRoles(next);
+                }}
+              >
+                <Droppable droppableId="roles">
+                  {(provided) => (
+                    <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-4">
+                      {roles.map((role, idx) => (
+                        <Draggable
+                          key={role.id}
+                          draggableId={`role-${role.id}`}
+                          index={idx}
+                          isDragDisabled={!isOwner}
+                        >
+                          {(p, snapshot) => (
+                            <div
+                              ref={p.innerRef}
+                              {...p.draggableProps}
+                              className={`bg-zinc-800 rounded-lg p-3 ${snapshot.isDragging ? 'ring-2 ring-red-500 shadow-xl' : ''}`}
+                            >
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  {isOwner && (
+                                    <span {...p.dragHandleProps} className="text-zinc-600 hover:text-zinc-400 cursor-grab active:cursor-grabbing">
+                                      <GripVertical className="w-4 h-4" />
+                                    </span>
+                                  )}
+                                  <Shield className="w-4 h-4 shrink-0" style={{ color: role.color }} />
+                                  <span className="text-white font-semibold truncate">{role.name}</span>
+                                </div>
+                                {isOwner && !['admin', 'member'].includes(role.id) && (
+                                  <Button size="icon" variant="ghost" onClick={() => removeRole(role.id)} className="text-red-500 hover:text-red-400">
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                )}
+                              </div>
 
-                    {isOwner && (
-                      <div className="grid grid-cols-2 gap-2">
-                        {availablePermissions.map((perm) => (
-                          <label key={perm.id} className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer hover:text-white">
-                            <input
-                              type="checkbox"
-                              checked={role.permissions?.includes(perm.id) || false}
-                              onChange={(e) => {
-                                const newPerms = e.target.checked
-                                  ? [...(role.permissions || []), perm.id]
-                                  : (role.permissions || []).filter(p => p !== perm.id);
-                                updateRolePermissions(role.id, newPerms);
-                              }}
-                              className="w-4 h-4 rounded border-zinc-600 bg-zinc-700 cursor-pointer"
-                            />
-                            {perm.label}
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                              {isOwner && (
+                                <div className="grid grid-cols-2 gap-2">
+                                  {availablePermissions.map((perm) => (
+                                    <label key={perm.id} className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer hover:text-white">
+                                      <input
+                                        type="checkbox"
+                                        checked={role.permissions?.includes(perm.id) || false}
+                                        onChange={(e) => {
+                                          const newPerms = e.target.checked
+                                            ? [...(role.permissions || []), perm.id]
+                                            : (role.permissions || []).filter(p => p !== perm.id);
+                                          updateRolePermissions(role.id, newPerms);
+                                        }}
+                                        className="w-4 h-4 rounded border-zinc-600 bg-zinc-700 cursor-pointer"
+                                      />
+                                      {perm.label}
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+              </DragDropContext>
             </TabsContent>
 
             <TabsContent value="visibility" className="space-y-4">
@@ -629,6 +768,23 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                     </label>
                   ))}
                 </div>
+              </div>
+
+              {/* Show role labels in chat */}
+              <div className="bg-zinc-800 rounded-lg p-4 border border-zinc-700">
+                <label className="flex items-start justify-between gap-3 cursor-pointer">
+                  <div className="min-w-0">
+                    <p className="text-white font-semibold">Show role labels next to usernames</p>
+                    <p className="text-xs text-zinc-400 mt-1">When on, each member's role appears as a small colored badge next to their name in chat. Turn off for a cleaner look.</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={server.show_role_labels !== false}
+                    onChange={(e) => updateServerMutation.mutate({ show_role_labels: e.target.checked })}
+                    className="w-5 h-5 rounded border-zinc-600 bg-zinc-700 cursor-pointer accent-red-600 flex-shrink-0 mt-0.5"
+                    disabled={!isOwner}
+                  />
+                </label>
               </div>
             </TabsContent>
 
@@ -724,13 +880,26 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                 <div className="mb-4">
                   <p className="text-xs font-bold text-yellow-500 uppercase tracking-wider mb-2">⏳ Pending Verification</p>
                   <div className="space-y-2">
-                    {(server.members || []).filter(m => m.verified === false).map((member, idx) => (
+                    {(server.members || []).filter(m => m.verified === false).map((member, idx) => {
+                      const profile = profileByUserId[member.user_id];
+                      const displayName = profile?.display_name || member.user_name || 'User';
+                      const handle = profile?.username
+                        ? `@${profile.username}${profile.discriminator ? '#' + profile.discriminator : ''}`
+                        : null;
+                      return (
                       <div key={`pend-${idx}`} className="flex items-center justify-between bg-yellow-500/5 border border-yellow-500/20 rounded-lg px-3 py-2">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-yellow-900 flex items-center justify-center text-white text-sm">
-                            {member.user_name?.charAt(0) || '?'}
+                          {profile?.avatar_url ? (
+                            <img src={profile.avatar_url} alt={displayName} className="w-8 h-8 rounded-full object-cover" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-yellow-900 flex items-center justify-center text-white text-sm">
+                              {displayName.charAt(0)}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-white text-sm leading-tight truncate">{displayName}</p>
+                            {handle && <p className="text-zinc-500 text-[10px] font-mono leading-tight truncate">{handle}</p>}
                           </div>
-                          <span className="text-white">{member.user_name || member.user_id}</span>
                         </div>
                         {isOwner && (
                           <button
@@ -740,7 +909,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                               );
                               await entities.Server.update(server.id, { members: updatedMembers });
                               queryClient.invalidateQueries({ queryKey: ['servers'] });
-                              toast.success(`${member.user_name || 'User'} verified!`);
+                              toast.success(`${displayName} verified!`);
                             }}
                             className="px-3 py-1 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded-lg transition-colors"
                           >
@@ -748,25 +917,40 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                           </button>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
               <div className="space-y-2">
-                {(server.members || []).filter(m => m.verified !== false).map((member, idx) => (
+                {(server.members || []).filter(m => m.verified !== false).map((member, idx) => {
+                  const profile = profileByUserId[member.user_id];
+                  const displayName = member.nickname || profile?.display_name || member.user_name || 'User';
+                  const handle = profile?.username
+                    ? `@${profile.username}${profile.discriminator ? '#' + profile.discriminator : ''}`
+                    : null;
+                  return (
                   <div key={idx} className="flex items-center justify-between bg-zinc-800 rounded-lg px-3 py-2">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-red-900 flex items-center justify-center text-white text-sm">
-                        {member.user_name?.charAt(0) || member.user_id?.charAt(0) || '?'}
+                      {profile?.avatar_url ? (
+                        <img src={profile.avatar_url} alt={displayName} className="w-8 h-8 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-red-900 flex items-center justify-center text-white text-sm">
+                          {displayName.charAt(0)}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-white text-sm leading-tight truncate">{displayName}</p>
+                        {handle && <p className="text-zinc-500 text-[10px] font-mono leading-tight truncate">{handle}</p>}
                       </div>
-                      <span className="text-white">{member.user_name || member.user_id}</span>
                     </div>
                     <span className="text-xs px-2 py-1 rounded bg-zinc-700 text-zinc-300">
                       {member.role || 'member'}
                     </span>
                   </div>
-                ))}
+                  );
+                })}
                 {(!server.members || server.members.length === 0) && (
                   <p className="text-zinc-500 text-center py-4">No members yet</p>
                 )}

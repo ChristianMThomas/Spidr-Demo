@@ -12,6 +12,9 @@ const s = new Schema({
   muted_members: [String],
   timeouts:      [Schema.Types.Mixed],
   hidden_roles:  [String],
+  // When false, role badges next to usernames in chat are hidden.
+  // Default true so existing servers keep the label visible.
+  show_role_labels: { type: Boolean, default: true },
   sanctuary:     { type: Schema.Types.Mixed, default: {} },
   airlock:       { type: Schema.Types.Mixed, default: {} },
   // Installed bots (added via BotLaboratory)

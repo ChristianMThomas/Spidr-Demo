@@ -129,6 +129,9 @@ export default function DiscoverUsers({ currentUser, onNavigateToDM }) {
   }
 
   // ── Try to get suggestions via the LLM, with algorithmic fallback ──────────
+  // `silent` = first auto-load (shows results without spinner if cache hits).
+  // When the user explicitly clicks Rescan we re-shuffle the candidate pool so
+  // they see different suggestions even if the LLM is unavailable.
   const generateSuggestions = async (silent = false) => {
     if (!silent) setIsGenerating(true);
 
@@ -140,8 +143,10 @@ export default function DiscoverUsers({ currentUser, onNavigateToDM }) {
     }
 
     // Always compute the fallback first — we'll show it if the LLM fails OR
-    // we'll use it to enrich the LLM's response.
-    const algorithmic = rankAlgorithmic(candidates);
+    // we'll use it to enrich the LLM's response. On explicit rescans, shuffle
+    // the candidate pool so the algorithmic ranking lands on different people.
+    const pool = silent ? candidates : [...candidates].sort(() => Math.random() - 0.5);
+    const algorithmic = rankAlgorithmic(pool);
 
     // If the LLM has failed before in this session, skip straight to fallback.
     if (!aiAvailable) {
@@ -285,7 +290,7 @@ Return ONLY the JSON with no extra text.`,
         <div className="flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-yellow-500" />
           <h3 className="text-lg font-bold text-white">
-            {aiAvailable ? 'AI Discovery' : 'Suggested Friends'}
+            {aiAvailable ? 'Discover People' : 'Suggested for you'}
           </h3>
         </div>
         <Button
