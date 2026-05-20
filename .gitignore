@@ -47,3 +47,9 @@ spidr-landing/*
 # Merge artifacts
 .merge-backup/
 Spidr-Demo-dev/
+
+# Internal docs — not for repo
+pr
+pr/*
+BETA-COST-ANALYSIS.md
+BETA-SECURITY-AUDIT.md
