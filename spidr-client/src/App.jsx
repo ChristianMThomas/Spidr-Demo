@@ -58,6 +58,8 @@ const NerveCenter   = lazy(() => import('@/pages/NerveCenter'));
 const SettingsPage  = lazy(() => import('@/pages/Settings'));
 const GifsEmojis    = lazy(() => import('@/pages/GifsEmojis'));
 const GlobalReports = lazy(() => import('@/pages/GlobalReports'));
+const RadarPage     = lazy(() => import('@/pages/Radar'));
+const BiomassPage   = lazy(() => import('@/pages/Biomass'));
 
 function AppRoutes() {
   const { isLoadingAuth, isAuthenticated } = useAuth();
@@ -118,6 +120,8 @@ function AppRoutes() {
           <Route path="/settings"        element={<SettingsPage />} />
           <Route path="/gifs"            element={<GifsEmojis />} />
           <Route path="/global-reports" element={<GlobalReports />} />
+          <Route path="/radar"           element={<RadarPage />} />
+          <Route path="/biomass"         element={<BiomassPage />} />
 
           {/* Legacy uppercase /Home URL → redirect to lowercase */}
           <Route path="/Home" element={<Navigate to="/home" replace />} />

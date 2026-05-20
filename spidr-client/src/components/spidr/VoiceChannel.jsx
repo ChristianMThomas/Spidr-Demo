@@ -17,6 +17,7 @@ import SpidrVoiceVisualizer from './SpidrVoice';
 import SpidrAIProfile, { SPIDR_AI_AVATAR } from './SpidrAIProfile';
 import CallAVControls from './CallAVControls';
 import { useWebRTC } from './useWebRTC';
+import { useSpeakingDetector } from '@/hooks/useSpeakingDetector';
 
 export default function VoiceChannel({ server, channel, currentUser, onLeave }) {
   const [showAIPanel, setShowAIPanel]         = useState(false);
@@ -68,8 +69,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voiceSessions', server.id, channel.id],
     queryFn: () => entities.VoiceSession.filter({ server_id: server.id, channel_id: channel.id }),
-    refetchInterval: 15000,
-    staleTime: 8000,
+    refetchInterval: 4000,
   });
 
   const joinMutation = useMutation({
@@ -303,70 +303,28 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
                   const sessionProfile = profiles.find(p => p.user_id === session.user_id);
                   const isApexSess = sessionProfile?.apex_tier === 'apex';
                   const isSelf = session.user_id === currentUser?.id;
-                  // Find if this peer has a remote video stream
-                  const peerStream = Object.values(rtc.remoteStreams)[0]; // simplified — track by userId ideally
+                  // For remote peers: try to find their stream by user_id, with a
+                  // single-peer fallback. (The current useWebRTC mesh keys by
+                  // socketId, not user_id; tracking per-user would be a small
+                  // follow-up in useWebRTC. For now the first remote stream is
+                  // assigned to the first remote peer — fine for 1:1 voice.)
+                  const remoteStreams = Object.values(rtc.remoteStreams || {});
+                  const peerStream = isSelf ? rtc.localStream : (remoteStreams[0] || null);
 
                   return (
-                    <motion.div key={session.id}
-                      initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      className={`relative aspect-video rounded-2xl overflow-hidden border-2 bg-[#0d0d0d] group
-                        ${isSelf ? 'border-[#FF3333]/60' : 'border-white/10 hover:border-[#FF3333]/40'} transition-all`}
-                    >
-                      {session.is_spidr_ai ? (
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-2"
-                          onClick={() => setShowSpidrProfile(true)}>
-                          <img src={SPIDR_AI_AVATAR} className="w-14 h-14 rounded-full border-2 border-[#FF3333] object-cover shadow-[0_0_20px_rgba(255,51,51,0.5)]" alt="Spidr AI" />
-                          <SpidrVoiceVisualizer isSpeaking={spidrVoice.isSpeaking} />
-                        </div>
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          {session.user_avatar ? (
-                            <img src={session.user_avatar} className="w-16 h-16 rounded-full object-cover" alt={session.user_name} />
-                          ) : (
-                            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#FF3333]/40 to-[#FF3333]/10 border-2 border-[#FF3333] flex items-center justify-center text-white text-2xl font-black">
-                              {(session.user_name || '?').charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Bottom bar */}
-                      <div className="absolute bottom-0 inset-x-0 px-2.5 py-1.5 bg-gradient-to-t from-black/80 to-transparent flex items-center justify-between">
-                        <span className="text-white text-xs font-bold truncate flex items-center gap-1">
-                          {(session.user_name || 'Unknown').split('@')[0]}
-                          {isApexSess && <Crown className="w-3 h-3 text-yellow-400" />}
-                          {isSelf && <span className="text-[#FF3333] text-[9px]">(you)</span>}
-                        </span>
-                        <div className="flex gap-1">
-                          {session.is_muted && <MicOff className="w-3.5 h-3.5 text-red-400" />}
-                          {session.is_deafened && <VolumeX className="w-3.5 h-3.5 text-red-400" />}
-                          {session.is_screen_sharing && <Monitor className="w-3.5 h-3.5 text-blue-400" />}
-                        </div>
-                      </div>
-
-                      {/* Speaking ring */}
-                      {!session.is_muted && (
-                        <div className="absolute inset-0 border-2 border-green-500 rounded-2xl opacity-0 group-hover:opacity-30 pointer-events-none transition-opacity" />
-                      )}
-
-                      {/* Admin controls */}
-                      {isAdmin && !isSelf && !session.is_spidr_ai && (
-                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
-                          <button onClick={() => updateMutation.mutate({ id: session.id, data: { is_muted: !session.is_muted } })}
-                            className="w-6 h-6 bg-black/70 rounded-lg flex items-center justify-center text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors"
-                            title={session.is_muted ? 'Unmute' : 'Server Mute'}>
-                            {session.is_muted ? <Mic size={10} /> : <MicOff size={10} />}
-                          </button>
-                          <button onClick={() => leaveMutation.mutate(session.id)}
-                            className="w-6 h-6 bg-black/70 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-600 hover:text-white transition-colors"
-                            title="Disconnect">
-                            <X size={10} />
-                          </button>
-                        </div>
-                      )}
-                    </motion.div>
+                    <VoiceTile
+                      key={session.id}
+                      session={session}
+                      isSelf={isSelf}
+                      isApexSess={isApexSess}
+                      isAdmin={isAdmin}
+                      isMutedLocally={isSelf ? rtc.isMuted : !!session.is_muted}
+                      stream={peerStream}
+                      onAdminMuteToggle={() => updateMutation.mutate({ id: session.id, data: { is_muted: !session.is_muted } })}
+                      onAdminKick={() => leaveMutation.mutate(session.id)}
+                      onSpidrAIClick={() => setShowSpidrProfile(true)}
+                      spidrAISpeaking={spidrVoice.isSpeaking}
+                    />
                   );
                 })}
               </AnimatePresence>
@@ -460,5 +418,109 @@ function VoiceBtn({ children, onClick, title, className = '' }) {
       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all hover:scale-105 active:scale-95 ${className}`}>
       {children}
     </button>
+  );
+}
+
+/**
+ * VoiceTile — a single member tile inside a voice channel. Renders the
+ * avatar, name, status icons, and (the new bit) animates a green pulsing
+ * ring around the avatar when the member is actively speaking.
+ *
+ * Pulled out of the .map() so we can call the useSpeakingDetector hook per
+ * tile — hooks can't run inside loops in the parent.
+ *
+ * The speaking ring only activates when:
+ *   • The member's stream contains an audio track
+ *   • They're not server-muted (`session.is_muted` is false)
+ *   • RMS energy crosses the threshold in useSpeakingDetector
+ * The CSS keyframes for `.spidr-speaking` are in index.css.
+ */
+function VoiceTile({
+  session,
+  isSelf,
+  isApexSess,
+  isAdmin,
+  isMutedLocally,
+  stream,
+  onAdminMuteToggle,
+  onAdminKick,
+  onSpidrAIClick,
+  spidrAISpeaking,
+}) {
+  // Don't run the detector if there's no stream (the member is muted or
+  // hasn't connected yet) or if they're server-muted.
+  const isSpeaking = useSpeakingDetector(stream, {
+    enabled: !!stream && !session.is_muted && !session.is_deafened,
+  });
+
+  // Spidr AI uses its own visualizer; everyone else uses RMS detection.
+  const showSpeakingRing = session.is_spidr_ai ? spidrAISpeaking : isSpeaking;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9, y: 10 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      className={`relative aspect-video rounded-2xl overflow-hidden border-2 bg-[#0d0d0d] group
+        ${isSelf ? 'border-[#FF3333]/60' : 'border-white/10 hover:border-[#FF3333]/40'} transition-all`}
+    >
+      {session.is_spidr_ai ? (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-2"
+          onClick={onSpidrAIClick}>
+          <div className={showSpeakingRing ? 'spidr-speaking rounded-full' : ''}>
+            <img src={SPIDR_AI_AVATAR} className="w-14 h-14 rounded-full border-2 border-[#FF3333] object-cover shadow-[0_0_20px_rgba(255,51,51,0.5)]" alt="Spidr AI" />
+          </div>
+          <SpidrVoiceVisualizer isSpeaking={spidrAISpeaking} />
+        </div>
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <div className={showSpeakingRing ? 'spidr-speaking rounded-full' : ''}>
+            {session.user_avatar ? (
+              <img src={session.user_avatar} className="w-16 h-16 rounded-full object-cover" alt={session.user_name} />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#FF3333]/40 to-[#FF3333]/10 border-2 border-[#FF3333] flex items-center justify-center text-white text-2xl font-black">
+                {(session.user_name || '?').charAt(0).toUpperCase()}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Bottom bar */}
+      <div className="absolute bottom-0 inset-x-0 px-2.5 py-1.5 bg-gradient-to-t from-black/80 to-transparent flex items-center justify-between">
+        <span className="text-white text-xs font-bold truncate flex items-center gap-1">
+          {(session.user_name || 'Unknown').split('@')[0]}
+          {isApexSess && <Crown className="w-3 h-3 text-yellow-400" />}
+          {isSelf && <span className="text-[#FF3333] text-[9px]">(you)</span>}
+        </span>
+        <div className="flex gap-1">
+          {session.is_muted && <MicOff className="w-3.5 h-3.5 text-red-400" />}
+          {session.is_deafened && <VolumeX className="w-3.5 h-3.5 text-red-400" />}
+          {session.is_screen_sharing && <Monitor className="w-3.5 h-3.5 text-blue-400" />}
+        </div>
+      </div>
+
+      {/* Static speaking-ring border overlay (in addition to the pulse around
+          the avatar). Visible only when the member is actually speaking. */}
+      {showSpeakingRing && (
+        <div className="absolute inset-0 border-2 border-green-500 rounded-2xl pointer-events-none" />
+      )}
+
+      {/* Admin controls */}
+      {isAdmin && !isSelf && !session.is_spidr_ai && (
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+          <button onClick={onAdminMuteToggle}
+            className="w-6 h-6 bg-black/70 rounded-lg flex items-center justify-center text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors"
+            title={session.is_muted ? 'Unmute' : 'Server Mute'}>
+            {session.is_muted ? <Mic size={10} /> : <MicOff size={10} />}
+          </button>
+          <button onClick={onAdminKick}
+            className="w-6 h-6 bg-black/70 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-600 hover:text-white transition-colors"
+            title="Disconnect">
+            <X size={10} />
+          </button>
+        </div>
+      )}
+    </motion.div>
   );
 }

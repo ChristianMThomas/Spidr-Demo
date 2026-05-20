@@ -44,5 +44,6 @@ CLAUDE.md
 spidr-landing
 spidr-landing/*
 
-# Merge backups
+# Merge artifacts
 .merge-backup/
+Spidr-Demo-dev/

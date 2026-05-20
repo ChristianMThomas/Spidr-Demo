@@ -7,6 +7,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Heart, MessageCircle, Share2, Pin, TrendingUp, Users, Award, Megaphone, Zap, Send, AtSign, UserCog } from 'lucide-react';
+import FeedCommentsSection from './FeedCommentsSection';
 function fromNow(date) {
   const diff = Date.now() - new Date(date).getTime();
   const abs  = Math.abs(diff);
@@ -56,8 +57,8 @@ export default function EnhancedFeed({ currentUser }) {
   const { data: feedItems = [], isLoading } = useQuery({
     queryKey: ['enhanced-feed'],
     queryFn: () => entities.Feed.list('-created_date', 30),
-    refetchInterval: 60000,
-    staleTime: 30000,
+    refetchInterval: 10000,
+    staleTime: 5000,
   });
 
   const reactMutation = useMutation({
@@ -118,7 +119,7 @@ export default function EnhancedFeed({ currentUser }) {
 }
 
 function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 }) {
-  const [showCommentInput, setShowCommentInput] = useState(false);
+  const [showComments, setShowComments] = useState(false);
   const Icon = typeIcons[item.type] || Zap;
   const colorClass = typeColors[item.type] || 'text-zinc-400';
   const reactions = item.reactions || {};
@@ -128,7 +129,11 @@ function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 })
   // of the card jumps the user to the source. Reactions/comments stay inert.
   const deepLink = (() => {
     if (item.type === 'mention' && item.server_id && item.channel_id) {
-      return `/servers/${item.server_id}`;
+      // Include the message id so the chat can scroll-to + flash it. The
+      // ServersPanel reads ?msg= from the URL and uses data-msg-id to find
+      // the target after the messages query loads.
+      const qs = item.message_id ? `?channel=${item.channel_id}&msg=${item.message_id}` : `?channel=${item.channel_id}`;
+      return `/servers/${item.server_id}${qs}`;
     }
     if (item.type === 'server_join' && item.server_id) {
       return `/servers/${item.server_id}`;
@@ -227,13 +232,22 @@ function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 })
             </div>
 
             <button
-              onClick={() => setShowCommentInput(!showCommentInput)}
-              className="ml-auto flex items-center gap-1 text-zinc-500 hover:text-white text-xs transition-colors"
+              onClick={() => setShowComments(s => !s)}
+              className={`ml-auto flex items-center gap-1 text-xs transition-colors ${
+                showComments ? 'text-red-400' : 'text-zinc-500 hover:text-white'
+              }`}
             >
               <MessageCircle className="w-3.5 h-3.5" />
               {item.comments_count > 0 && <span>{item.comments_count}</span>}
             </button>
           </div>
+
+          {/* Comments section — only mounted when expanded so the feed
+              stays cheap to render. Each FeedCommentsSection runs its
+              own query for that feed item's comments. */}
+          {showComments && (
+            <FeedCommentsSection feedId={item.id} currentUser={currentUser} />
+          )}
         </div>
       </div>
     </motion.div>

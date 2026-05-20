@@ -49,6 +49,18 @@ s.post('save', async function (doc) {
   }
 });
 
+// Grant biomass for posting a clip. 100/clip, cap 200/day.
+s.post('save', async function (doc) {
+  if (!doc.wasNew) return;
+  if (!doc.author_id) return;
+  try {
+    const biomass = require('../utils/biomass');
+    await biomass.grant(doc.author_id, 100, 'Clip posted', doc._id.toString(), 'clip');
+  } catch (err) {
+    console.warn('Biomass grant on clip failed:', err?.message);
+  }
+});
+
 // Track new-vs-update for the post-save hook above
 s.pre('save', function (next) {
   this.wasNew = this.isNew;

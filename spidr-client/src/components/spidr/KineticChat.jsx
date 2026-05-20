@@ -75,10 +75,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
 
   const { data: group } = useQuery({
     queryKey: ['group-chat', groupId],
-    queryFn: async () => {
-      const groups = await entities.GroupChat.filter({ id: groupId });
-      return groups[0];
-    },
+    queryFn: () => entities.GroupChat.get(groupId),
     enabled: !!groupId
   });
 
@@ -86,7 +83,8 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     queryKey: ['group-messages', groupId],
     queryFn: () => entities.GroupChatMessage.filter({ group_id: groupId }, '-created_date', 100),
     enabled: !!groupId,
-    staleTime: 30000,
+    refetchInterval: 2000,
+    staleTime: 1000,
   });
 
   // Profiles for everyone in this group — used to render each sender's name
@@ -198,8 +196,8 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     queryKey: ['voice-sessions', groupId],
     queryFn: () => entities.VoiceSession.filter({ channel_id: groupId }),
     enabled: inCall && !!groupId,
-    refetchInterval: 10000,
-    staleTime: 5000,
+    refetchInterval: 2000,
+    staleTime: 1000,
   });
 
   const sendMessageMutation = useMutation({

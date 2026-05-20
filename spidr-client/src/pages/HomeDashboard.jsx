@@ -44,7 +44,7 @@ export default function HomeDashboard() {
 
   return (
     <div className="flex-1 bg-gradient-to-br from-zinc-900 via-zinc-900 to-red-950/20 overflow-y-auto">
-      <div className="flex gap-6 p-6 max-w-[1400px] mx-auto">
+      <div className="flex gap-6 p-4 sm:p-6 max-w-[1400px] mx-auto">
         {/* ── Main column ──────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0 space-y-6">
 
@@ -118,7 +118,7 @@ export default function HomeDashboard() {
           {servers.length > 0 && (
             <div>
               <h2 className="text-lg font-bold text-white mb-3">Recent Servers</h2>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {servers.slice(0, 4).map((server) => (
                   <motion.button
                     key={server.id}

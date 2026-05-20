@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Sparkles, Server, User, Bot, Send, MessageCircle,
-  Plus, Loader2, Wand2, Palette, Check, RotateCcw, X
+  Plus, Loader2, Wand2, Palette, Check, RotateCcw, X, Settings as SettingsIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
 import SpiderLogo from './SpiderLogo';
@@ -16,10 +16,11 @@ import ContentBlockedModal from './ContentBlockedModal';
 
 // ── Tab definitions ───────────────────────────────────────────────────────────
 const TABS = [
-  { id: 'server',  Icon: Server,        label: 'Server'  },
-  { id: 'profile', Icon: User,          label: 'Profile' },
-  { id: 'bot',     Icon: Bot,           label: 'Bot'     },
-  { id: 'chat',    Icon: MessageCircle, label: 'Chat'    },
+  { id: 'server',   Icon: Server,        label: 'Server'   },
+  { id: 'profile',  Icon: User,          label: 'Profile'  },
+  { id: 'bot',      Icon: Bot,           label: 'Bot'      },
+  { id: 'chat',     Icon: MessageCircle, label: 'Chat'     },
+  { id: 'settings', Icon: SettingsIcon,  label: 'Settings' },
 ];
 
 // ── Root Panel ────────────────────────────────────────────────────────────────
@@ -56,20 +57,20 @@ export default function AIPanel({ currentUser }) {
             </p>
           </div>
 
-          {/* Tab bar — matches screenshot exactly */}
+          {/* Tab bar — labels shrink on mobile so 5 tabs fit comfortably */}
           <div className="flex rounded-lg bg-zinc-900 border border-white/5 p-1 mb-6">
             {TABS.map(({ id, Icon, label }) => (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all
+                className={`flex-1 flex items-center justify-center gap-1 sm:gap-2 px-1 sm:px-3 py-2 rounded-md text-xs sm:text-sm font-medium transition-all
                   ${activeTab === id
                     ? 'bg-red-600 text-white shadow-sm'
                     : 'text-zinc-400 hover:text-zinc-200'
                   }`}
               >
-                <Icon className="w-4 h-4" />
-                {label}
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="hidden sm:inline">{label}</span>
               </button>
             ))}
           </div>
@@ -83,10 +84,11 @@ export default function AIPanel({ currentUser }) {
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.18 }}
             >
-              {activeTab === 'server'  && <ServerTab  currentUser={currentUser} queryClient={queryClient} />}
-              {activeTab === 'profile' && <ProfileTab currentUser={currentUser} queryClient={queryClient} />}
-              {activeTab === 'bot'     && <BotTab     currentUser={currentUser} queryClient={queryClient} />}
-              {activeTab === 'chat'    && <ChatTab    currentUser={currentUser} />}
+              {activeTab === 'server'   && <ServerTab     currentUser={currentUser} queryClient={queryClient} />}
+              {activeTab === 'profile'  && <ProfileTab    currentUser={currentUser} queryClient={queryClient} />}
+              {activeTab === 'bot'      && <BotTab        currentUser={currentUser} queryClient={queryClient} />}
+              {activeTab === 'chat'     && <ChatTab       currentUser={currentUser} />}
+              {activeTab === 'settings' && <AISettingsTab currentUser={currentUser} />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -238,7 +240,17 @@ function ProfileTab({ currentUser, queryClient }) {
       if (profiles[0]) return entities.UserProfile.update(profiles[0].id, data);
       return entities.UserProfile.create({ ...data, user_id: currentUser?.id });
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['userProfile'] }); toast.success('Profile updated!'); setSuggestions(null); setPrompt(''); },
+    onSuccess: () => {
+      // Invalidate every cache that holds a profile copy so the new look
+      // shows up immediately everywhere — chat, profile modal, settings.
+      queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+      queryClient.invalidateQueries({ queryKey: ['userProfile', currentUser?.id] });
+      queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
+      queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
+      toast.success('Profile updated!');
+      setSuggestions(null);
+      setPrompt('');
+    },
   });
 
   const generate = async () => {
@@ -246,14 +258,33 @@ function ProfileTab({ currentUser, queryClient }) {
     setLoading(true);
     try {
       const data = await integrations.Core.InvokeLLM({
-        prompt: `Generate profile customization for: "${prompt}". Return JSON with: display_name, bio (1-2 sentences), custom_status, accent_color (hex).`,
+        prompt: `Generate a full Spidr profile customization for: "${prompt}".
+Return JSON with these fields. Pick values that match the requested vibe:
+- display_name: short, memorable (max 25 chars)
+- bio: 1-2 sentence personality bio
+- custom_status: short status line (max 30 chars)
+- accent_color: hex color (e.g. "#22d3ee")
+- profile_gradient: pick ONE of "neon", "sunset", "ocean", "cyber", "blood", "void", or "" for none
+- username_font: pick ONE of "default", "serif", "mono", "display", "handwriting", "rounded"
+- username_weight: pick ONE of "normal", "medium", "bold", "black"
+- username_style: pick "normal" or "italic"
+- username_color: hex color (often same as accent_color, can differ)
+- username_effect: pick ONE of "none", "glow", "gradient", "rainbow", "pulse", "shimmer"
+
+Be tasteful — don't combine wild colors with wild effects unless the prompt explicitly asks for it.`,
         response_json_schema: {
           type: 'object',
           properties: {
-            display_name:  { type: 'string' },
-            bio:           { type: 'string' },
-            custom_status: { type: 'string' },
-            accent_color:  { type: 'string' },
+            display_name:     { type: 'string' },
+            bio:              { type: 'string' },
+            custom_status:    { type: 'string' },
+            accent_color:     { type: 'string' },
+            profile_gradient: { type: 'string' },
+            username_font:    { type: 'string' },
+            username_weight:  { type: 'string' },
+            username_style:   { type: 'string' },
+            username_color:   { type: 'string' },
+            username_effect:  { type: 'string' },
           },
         },
       });
@@ -286,12 +317,42 @@ function ProfileTab({ currentUser, queryClient }) {
                   style={{ backgroundColor: suggestions.accent_color || '#dc2626' }}>
                   {suggestions.display_name?.charAt(0)}
                 </div>
-                <div>
-                  <p className="text-white font-semibold">{suggestions.display_name}</p>
-                  <p className="text-zinc-400 text-xs">{suggestions.custom_status}</p>
+                <div className="min-w-0 flex-1">
+                  <p
+                    className="font-bold truncate"
+                    style={{
+                      color: suggestions.username_color || suggestions.accent_color || '#fff',
+                      fontFamily: suggestions.username_font && suggestions.username_font !== 'default'
+                        ? (suggestions.username_font === 'mono' ? "'JetBrains Mono', monospace"
+                          : suggestions.username_font === 'serif' ? "'Playfair Display', serif"
+                          : suggestions.username_font === 'display' ? "'Bebas Neue', Impact, sans-serif"
+                          : suggestions.username_font === 'handwriting' ? "'Caveat', cursive"
+                          : suggestions.username_font === 'rounded' ? "'Quicksand', sans-serif"
+                          : undefined)
+                        : undefined,
+                      fontStyle: suggestions.username_style === 'italic' ? 'italic' : 'normal',
+                      fontWeight: suggestions.username_weight === 'black' ? 900 : suggestions.username_weight === 'bold' ? 700 : suggestions.username_weight === 'medium' ? 500 : 400,
+                    }}
+                  >
+                    {suggestions.display_name}
+                  </p>
+                  <p className="text-zinc-400 text-xs truncate">{suggestions.custom_status}</p>
                 </div>
               </div>
               <p className="text-zinc-300 text-sm">{suggestions.bio}</p>
+              {/* Quick-scan summary of the style choices */}
+              <div className="flex flex-wrap gap-1.5">
+                {suggestions.username_effect && suggestions.username_effect !== 'none' && (
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-700 text-zinc-300">effect: {suggestions.username_effect}</span>
+                )}
+                {suggestions.username_font && suggestions.username_font !== 'default' && (
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-700 text-zinc-300">font: {suggestions.username_font}</span>
+                )}
+                {suggestions.profile_gradient && (
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-700 text-zinc-300">theme: {suggestions.profile_gradient}</span>
+                )}
+                <span className="text-[10px] px-2 py-0.5 rounded font-mono text-white" style={{ backgroundColor: suggestions.accent_color }}>{suggestions.accent_color}</span>
+              </div>
               <div className="flex gap-2">
                 <button onClick={() => applyMut.mutate(suggestions)} disabled={applyMut.isPending}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors">
@@ -302,6 +363,9 @@ function ProfileTab({ currentUser, queryClient }) {
                   <RotateCcw className="w-4 h-4" />
                 </button>
               </div>
+              <p className="text-zinc-600 text-[10px] leading-relaxed">
+                Note: avatar and banner images aren't generated here — head to Settings → Profile to upload those, or open Settings → Appearance → Theme Studio to pick a background.
+              </p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -461,10 +525,16 @@ function ChatTab({ currentUser }) {
     if (!input.trim() || loading || !selectedConvId) return;
     const text = input.trim();
 
-    // Content scan
+    // Read user-tuned AI preferences. They override / extend the base
+    // system preamble below. Defined at the bottom of this file.
+    const prefs = getAIPreferences();
+
+    // Content scan — honors the user's Safe Mode toggle. With safe mode off,
+    // we still scan but allow borderline content through; with it on (the
+    // default), unsafe prompts are blocked.
     setLoading(true);
     const scan = await scanPrompt(text);
-    if (!scan?.safe) {
+    if (prefs.safeMode && !scan?.safe) {
       setBlockedCat(scan?.category || 'unknown');
       setLoading(false);
       return;
@@ -474,36 +544,59 @@ function ChatTab({ currentUser }) {
     setMessages(prev => [...prev, userMsg]);
     setInput('');
 
-    saveLog.mutate({ user_id: currentUser?.id, conversation_id: selectedConvId, role: 'user', content: text });
+    // Only save logs if the user opted into Remember Conversations.
+    if (prefs.rememberChat) {
+      saveLog.mutate({ user_id: currentUser?.id, conversation_id: selectedConvId, role: 'user', content: text });
+    }
 
     const conv = conversations.find(c => c.id === selectedConvId);
-    if (conv?.title === 'New Chat') {
+    if (conv?.title === 'New Chat' && prefs.rememberChat) {
       updateConv.mutate({ id: selectedConvId, data: { title: text.slice(0, 50), last_message: text.slice(0, 100) } });
     }
 
+    // Build the system preamble from the user's preferences.
+    const verbosityHint =
+      prefs.verbosity === 'concise'  ? 'Keep responses under 80 words. Be direct and skip filler.'
+    : prefs.verbosity === 'detailed' ? 'Provide thorough, detailed explanations. Use examples when helpful.'
+    :                                  'Keep responses under 200 words unless detail is truly needed.';
+    const toneHint =
+      prefs.tone === 'playful'      ? 'Use a playful, casual tone with light humor.'
+    : prefs.tone === 'professional' ? 'Maintain a professional, formal tone.'
+    :                                 'Use a neutral, friendly tone.';
+    const personaLine = prefs.persona?.trim()
+      ? `Persona instruction from the user: ${prefs.persona.trim()}\n\n`
+      : '';
+    const systemPreamble = `You are Spidr AI — a helpful assistant in a gaming/Discord-like app called Spidr.\n${personaLine}${verbosityHint} ${toneHint} You may occasionally use spider/web metaphors.`;
+
     try {
       const reply = await integrations.Core.InvokeLLM({
-        prompt: `You are Spidr AI — a helpful, cool assistant in a gaming/Discord-like app called Spidr. Be friendly, concise, and occasionally use spider/web metaphors. Keep responses under 200 words unless detail is truly needed.\n\nUser: ${text}`,
+        prompt: `${systemPreamble}\n\nUser: ${text}`,
       });
 
       const replyText = typeof reply === 'string' ? reply : JSON.stringify(reply);
       setMessages(prev => [...prev, { role: 'assistant', content: replyText }]);
-      saveLog.mutate({ user_id: currentUser?.id, conversation_id: selectedConvId, role: 'assistant', content: replyText });
-      updateConv.mutate({ id: selectedConvId, data: { last_message: replyText.slice(0, 100) } });
+      if (prefs.rememberChat) {
+        saveLog.mutate({ user_id: currentUser?.id, conversation_id: selectedConvId, role: 'assistant', content: replyText });
+        updateConv.mutate({ id: selectedConvId, data: { last_message: replyText.slice(0, 100) } });
+      }
     } catch {
       toast.error('Spidr AI is temporarily unavailable');
     }
     setLoading(false);
   };
 
-  // ── Layout matches screenshot 2: left sidebar + right chat area ─────────────
+  // ── Layout: conversation list + chat area side-by-side on desktop;
+  //     conversation list collapses to a thin selector on mobile so the
+  //     chat itself doesn't get crushed. ─────────────────────────────────
   return (
-    <div className="flex gap-0 bg-zinc-900/80 border border-white/5 rounded-2xl overflow-hidden" style={{ minHeight: 460 }}>
+    <div className="flex flex-col md:flex-row gap-0 bg-zinc-900/80 border border-white/5 rounded-2xl overflow-hidden" style={{ minHeight: 460 }}>
       <ContentBlockedModal open={!!blockedCat} onClose={() => setBlockedCat(null)} category={blockedCat} />
 
-      {/* Left: conversation list */}
-      <div className="w-56 border-r border-white/5 flex flex-col flex-shrink-0">
-        <div className="p-3 border-b border-white/5">
+      {/* Left: conversation list. On desktop a 224px sidebar; on mobile a
+          short horizontal scroll-strip across the top so chats remain
+          accessible without eating vertical room. */}
+      <div className="md:w-56 border-b md:border-b-0 md:border-r border-white/5 flex md:flex-col flex-shrink-0 max-h-32 md:max-h-none overflow-hidden">
+        <div className="p-3 border-b border-white/5 md:w-full shrink-0">
           <button
             onClick={() => createConvMut.mutate()}
             disabled={createConvMut.isPending}
@@ -513,23 +606,23 @@ function ChatTab({ currentUser }) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+        <div className="flex md:flex-col flex-1 overflow-x-auto md:overflow-y-auto p-2 gap-1 md:gap-0 md:space-y-0.5">
           {conversations.map(conv => (
             <button
               key={conv.id}
               onClick={() => setSelectedConvId(conv.id)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors ${
+              className={`shrink-0 md:w-full text-left px-3 py-2.5 rounded-lg transition-colors max-w-[180px] md:max-w-none ${
                 selectedConvId === conv.id ? 'bg-red-600 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
               }`}
             >
               <p className="text-xs font-medium truncate">{conv.title}</p>
               {conv.last_message && (
-                <p className="text-[10px] opacity-60 truncate mt-0.5">{conv.last_message}</p>
+                <p className="text-[10px] opacity-60 truncate mt-0.5 hidden md:block">{conv.last_message}</p>
               )}
             </button>
           ))}
           {conversations.length === 0 && (
-            <p className="text-center text-zinc-600 text-xs py-6">No chats yet</p>
+            <p className="text-center text-zinc-600 text-xs py-6 md:w-full">No chats yet</p>
           )}
         </div>
       </div>
@@ -631,4 +724,166 @@ function ChatTab({ currentUser }) {
       </div>
     </div>
   );
+}
+
+// ── AI Settings Tab ──────────────────────────────────────────────────────────
+/**
+ * AISettingsTab — user-adjustable behaviors for Spidr AI.
+ *
+ * These preferences are stored client-side (localStorage) because they
+ * only affect *this user's* interactions with the AI; nothing on the
+ * server needs to know about them. Setting persistence keys:
+ *   spidr_ai_persona       — string, free-form personality preface
+ *   spidr_ai_verbosity     — 'concise' | 'normal' | 'detailed'
+ *   spidr_ai_tone          — 'neutral' | 'playful' | 'professional'
+ *   spidr_ai_remember_chat — boolean (saves chat history to AiConversation)
+ *   spidr_ai_safe_mode     — boolean (extra content filtering on AI prompts)
+ *
+ * AIPanel reads them when building the system prompt for each invocation.
+ * If you add a new preference here, update AIPanel's chat handler to honor it.
+ */
+function AISettingsTab({ currentUser }) {
+  const [persona,       setPersona]       = useState(() => localStorage.getItem('spidr_ai_persona') || '');
+  const [verbosity,     setVerbosity]     = useState(() => localStorage.getItem('spidr_ai_verbosity') || 'normal');
+  const [tone,          setTone]          = useState(() => localStorage.getItem('spidr_ai_tone') || 'neutral');
+  const [rememberChat,  setRememberChat]  = useState(() => localStorage.getItem('spidr_ai_remember_chat') !== 'false');
+  const [safeMode,      setSafeMode]      = useState(() => localStorage.getItem('spidr_ai_safe_mode') !== 'false');
+
+  // Persist on every change. No save button needed; immediate feedback.
+  React.useEffect(() => { localStorage.setItem('spidr_ai_persona', persona); }, [persona]);
+  React.useEffect(() => { localStorage.setItem('spidr_ai_verbosity', verbosity); }, [verbosity]);
+  React.useEffect(() => { localStorage.setItem('spidr_ai_tone', tone); }, [tone]);
+  React.useEffect(() => { localStorage.setItem('spidr_ai_remember_chat', String(rememberChat)); }, [rememberChat]);
+  React.useEffect(() => { localStorage.setItem('spidr_ai_safe_mode', String(safeMode)); }, [safeMode]);
+
+  const reset = () => {
+    setPersona('');
+    setVerbosity('normal');
+    setTone('neutral');
+    setRememberChat(true);
+    setSafeMode(true);
+    toast.success('AI settings reset to defaults');
+  };
+
+  return (
+    <Card icon={SettingsIcon} title="Spidr AI Settings">
+      <div className="space-y-5">
+        {/* Persona */}
+        <div>
+          <Label className="text-zinc-300 text-xs mb-1.5 block">Persona (optional)</Label>
+          <Textarea
+            value={persona}
+            onChange={(e) => setPersona(e.target.value.slice(0, 500))}
+            placeholder="E.g., Speak like a sarcastic hacker friend who loves '80s sci-fi."
+            className="bg-zinc-800 border-zinc-700 text-white resize-none text-sm"
+            rows={3}
+          />
+          <p className="text-zinc-600 text-[10px] mt-1">{persona.length}/500 — prepended to every AI prompt.</p>
+        </div>
+
+        {/* Verbosity */}
+        <div>
+          <Label className="text-zinc-300 text-xs mb-1.5 block">Response length</Label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: 'concise',  label: 'Concise',  desc: 'Short and direct' },
+              { id: 'normal',   label: 'Normal',   desc: 'Balanced' },
+              { id: 'detailed', label: 'Detailed', desc: 'Long explanations' },
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => setVerbosity(opt.id)}
+                className={`p-3 rounded-lg border text-left transition-colors ${
+                  verbosity === opt.id
+                    ? 'border-red-500 bg-red-500/10'
+                    : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+                }`}
+              >
+                <p className="text-white text-xs font-bold">{opt.label}</p>
+                <p className="text-zinc-500 text-[10px] mt-0.5">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tone */}
+        <div>
+          <Label className="text-zinc-300 text-xs mb-1.5 block">Tone</Label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: 'neutral',      label: 'Neutral' },
+              { id: 'playful',      label: 'Playful' },
+              { id: 'professional', label: 'Professional' },
+            ].map((opt) => (
+              <button
+                key={opt.id}
+                onClick={() => setTone(opt.id)}
+                className={`p-2 rounded-lg border text-xs font-bold transition-colors ${
+                  tone === opt.id
+                    ? 'border-red-500 bg-red-500/10 text-white'
+                    : 'border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-600'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Toggles */}
+        <div className="space-y-3 pt-1">
+          <label className="flex items-start justify-between gap-3 cursor-pointer">
+            <div>
+              <p className="text-white text-sm font-semibold">Remember conversations</p>
+              <p className="text-zinc-500 text-xs mt-0.5">Save your AI chat history so you can revisit it. Turn off for one-shot sessions only.</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={rememberChat}
+              onChange={(e) => setRememberChat(e.target.checked)}
+              className="w-5 h-5 rounded accent-red-600 cursor-pointer flex-shrink-0 mt-0.5"
+            />
+          </label>
+          <label className="flex items-start justify-between gap-3 cursor-pointer">
+            <div>
+              <p className="text-white text-sm font-semibold">Safe mode</p>
+              <p className="text-zinc-500 text-xs mt-0.5">Extra content filtering on prompts and responses. Recommended.</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={safeMode}
+              onChange={(e) => setSafeMode(e.target.checked)}
+              className="w-5 h-5 rounded accent-red-600 cursor-pointer flex-shrink-0 mt-0.5"
+            />
+          </label>
+        </div>
+
+        <button
+          onClick={reset}
+          className="w-full flex items-center justify-center gap-2 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white text-xs font-semibold rounded-lg transition-colors"
+        >
+          <RotateCcw className="w-3 h-3" /> Reset to Defaults
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Read the current user's AI preferences. Called by the chat handler to
+ * build a custom system preamble. Exported so other AI surfaces can also
+ * honor the same settings.
+ */
+export function getAIPreferences() {
+  try {
+    return {
+      persona:      localStorage.getItem('spidr_ai_persona') || '',
+      verbosity:    localStorage.getItem('spidr_ai_verbosity') || 'normal',
+      tone:         localStorage.getItem('spidr_ai_tone') || 'neutral',
+      rememberChat: localStorage.getItem('spidr_ai_remember_chat') !== 'false',
+      safeMode:     localStorage.getItem('spidr_ai_safe_mode') !== 'false',
+    };
+  } catch {
+    return { persona: '', verbosity: 'normal', tone: 'neutral', rememberChat: true, safeMode: true };
+  }
 }

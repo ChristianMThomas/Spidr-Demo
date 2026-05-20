@@ -166,8 +166,8 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-zinc-900 relative">
-      <Tabs defaultValue="profile" className="flex flex-col flex-1">
+    <div className="flex-1 flex flex-col bg-zinc-900 relative min-h-0">
+      <Tabs defaultValue="profile" className="flex flex-col flex-1 min-h-0">
         {/* Top Tab Navigation */}
         <div className="bg-zinc-800/50 border-b border-red-900/20 px-4 py-3 overflow-x-auto">
           <div className="flex items-center gap-4 min-w-max">
@@ -231,7 +231,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
         </div>
 
         {/* Settings Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto pb-32">
           <TabsContent value="profile" className="p-6 m-0">
             <h2 className="text-2xl font-bold text-white mb-6">My Profile</h2>
             
@@ -372,6 +372,9 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
           <TabsContent value="appearance" className="p-6 m-0">
             <h2 className="text-2xl font-bold text-white mb-6">Appearance</h2>
             <div className="space-y-6 max-w-lg">
+              {/* Floating dock preferences */}
+              <DockPreferencesCard />
+
               <div className="bg-zinc-800/50 backdrop-blur-xl rounded-2xl p-6 border border-red-900/20">
                 <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-red-500" />
@@ -1085,6 +1088,65 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
 
       {/* APEX Store */}
       <ApexStore isOpen={showApexStore} onClose={() => setShowApexStore(false)} currentTier={profile?.apex_tier} currentUser={currentUser} profile={profile} />
+    </div>
+  );
+}
+
+/**
+ * DockPreferencesCard — toggles the FloatingDock visibility and collapsed
+ * state. Both preferences are persisted in localStorage and read by
+ * FloatingDock on mount. We fire a custom event so the dock updates
+ * without requiring a page reload.
+ */
+function DockPreferencesCard() {
+  const [enabled, setEnabled] = React.useState(() => {
+    try { return localStorage.getItem('spidr_dock_enabled') !== 'false'; } catch { return true; }
+  });
+  const [collapsed, setCollapsed] = React.useState(() => {
+    try { return localStorage.getItem('spidr_dock_collapsed') === 'true'; } catch { return false; }
+  });
+
+  const persist = (k, v) => {
+    try { localStorage.setItem(k, String(v)); } catch {}
+    window.dispatchEvent(new Event('spidr-dock-pref-changed'));
+  };
+
+  return (
+    <div className="bg-zinc-800/50 backdrop-blur-xl rounded-2xl p-6 border border-red-900/20">
+      <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+        <Sparkles className="w-5 h-5 text-red-500" />
+        Floating Dock
+      </h3>
+      <p className="text-zinc-400 text-xs mb-4">
+        The bar at the bottom of the screen with quick-action buttons.
+      </p>
+      <div className="space-y-3">
+        <label className="flex items-center justify-between gap-3 cursor-pointer">
+          <div className="min-w-0">
+            <p className="text-white text-sm font-semibold">Show floating dock</p>
+            <p className="text-zinc-500 text-xs">Always visible at the bottom of every page.</p>
+          </div>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => { setEnabled(e.target.checked); persist('spidr_dock_enabled', e.target.checked); }}
+            className="w-5 h-5 accent-red-600 cursor-pointer flex-shrink-0"
+          />
+        </label>
+        <label className={`flex items-center justify-between gap-3 ${enabled ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}>
+          <div className="min-w-0">
+            <p className="text-white text-sm font-semibold">Start collapsed</p>
+            <p className="text-zinc-500 text-xs">Shows only a handle until you expand it. You can also use the chevron above the dock to toggle anytime.</p>
+          </div>
+          <input
+            type="checkbox"
+            checked={collapsed}
+            disabled={!enabled}
+            onChange={(e) => { setCollapsed(e.target.checked); persist('spidr_dock_collapsed', e.target.checked); }}
+            className="w-5 h-5 accent-red-600 cursor-pointer flex-shrink-0"
+          />
+        </label>
+      </div>
     </div>
   );
 }

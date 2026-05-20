@@ -676,3 +676,347 @@ The previous ServerSettingsModal was a cramped Dialog with horizontal flex-wrap 
 - The content area is wider now than the old Dialog (~720px content vs ~560px before). The existing form fields fill the space cleanly, but the channels/roles/emoji grids will look slightly more spacious. Easy follow-up tweak if you want denser layouts.
 - I haven't rendered this in a browser to visually verify the spring animations land where I expect — the framer-motion config (`stiffness: 320, damping: 32`) is standard for modal entry but might want tuning when you see it live.
 - Custom role permissions, per-channel permissions, and the kind of fine-grained role-based access control you'd find in a mature Discord-style app are NOT in this build. The Roles tab still uses the simple `availablePermissions` list and toggles — that's pre-existing behavior, not regressed, but it's the obvious next thing to deepen. The new shell makes the room to add that UI without restructuring.
+
+---
+
+## 23. Signal Radar 404 + Server.filter({id}) bug everywhere
+
+**Signal Radar 404 fixed.** The sidebar emits a `radar` tab id and the shell mapped `/radar` → `radar` activeTab, but **App.jsx had no `/radar` route**. SignalRadar was built as a modal (it takes `open`/`onClose` props), not a page.
+
+- New `spidr-client/src/pages/Radar.jsx` wraps `<SignalRadar open onClose={() => navigate('/home')} />` so it renders inline as a full page.
+- `App.jsx` now lazy-imports it and registers `<Route path="/radar" element={<RadarPage />} />`.
+- Clicking Signal Radar in the sidebar or anywhere else now goes to a real page instead of a 404.
+
+**Server.filter({id:...}) bug — full sweep.** The list endpoint doesn't filter by `id`, so any code calling `entities.Server.filter({ id })` silently returned `[]` and threw "Server not found". Fixed in:
+
+- `BotLaboratory.jsx` (the source of the "When adding bots to servers, it says 'server not found' even though we are in server" report). Replaced with `entities.Server.get(serverId)`.
+- `SpidrBotEngine.jsx` (welcomeset slash command).
+- `KineticChat.jsx` (group chat detail query, which was throwing the same shape of bug for group chats — likely contributed to "group chats don't show up in friends tab / messages broken").
+
+**THE WEB image upload broken.** Root cause: the upload modal uses `VideoStudio`, which is hard-wired to handle video files (captures thumbnails from a `<video>` element). When you uploaded an image the video element silently failed and the publish flow stalled.
+
+For this pass I narrowed the file input to `accept="video/*"` so image uploads can't enter the broken flow. Image posts on THE WEB are a real feature request — they need their own upload UX (carousel? aspect ratios? no thumbnails since the image IS the thumbnail). Calling that out as deferred so we don't ship a half-working flow.
+
+**Server Settings → members shows emails.** The member rows displayed `member.user_name || member.user_id`, and for legacy accounts `user_id` is sometimes the user's email. Added a `UserProfile` lookup keyed on member user_ids — members now render their avatar + display_name + `@username#discriminator` underneath. Both the pending-verification list and the main members list got the upgrade.
+
+**Discover Users.** Renamed the home-page widget from "AI Discovery / Suggested Friends" to "Discover People / Suggested for you" per the screenshot note. Also fixed the "only works once" complaint: clicking Rescan now shuffles the candidate pool before re-ranking, so the algorithmic suggestions surface different people every time. Without the shuffle, the deterministic ranking returned the same set on every refresh and it looked like nothing was happening.
+
+**Profile icon top-right is back.** It was lost during the routing migration when `Home.jsx` got deleted (the old top-bar lived there). Added a global profile chip at the SpidrShell level so it shows on every route. Click → /settings. Per the screenshot note ("profile icon should retract when mouse is hovering over it") the chip shrinks the avatar and tucks the name on hover, getting out of the way of content behind it.
+
+**Floating dock — enable/disable + collapse.** Per the screenshot note ("little bar at the bottom needs to be in options settings to enable and needs to collapse and re-lapse"):
+
+- The FloatingDock was rewritten. Two preferences persist in localStorage: `spidr_dock_enabled` (hide the dock entirely) and `spidr_dock_collapsed` (collapse to just a handle).
+- A small chevron handle above the dock lets users collapse/expand it inline without going to Settings.
+- New `DockPreferencesCard` was added to **Settings → Appearance** with checkboxes for both prefs. Changes broadcast a `spidr-dock-pref-changed` event so the dock reacts immediately without a page reload.
+
+---
+
+## 24. Vibe Check / Neon Sign + APEX + animations + speaking ring + GIF paste + ghost overlay everywhere + groups tab
+
+**Vibe Check & Neon Sign editing.** The inputs only saved on the green-check button click — pressing Enter did nothing, Escape did nothing. Added `autoFocus`, `Enter` to save, `Escape` to cancel on both fields in `BioTab.jsx`. The cache-invalidation chain was already correct; this was a UX friction, not a data bug.
+
+**APEX cache invalidation.** `ApexCommand.jsx` invalidated `userProfile, profile.user_id` but the Settings page query key uses `userProfile, currentUser.id`. They're the same value in practice (UserProfile.user_id IS the User._id), but explicit invalidation of both keys is safer. Also fixed a duplicate invalidation on cancel (same key twice). The APEX tab in Settings now appears the moment the subscription mutation succeeds.
+
+**APEX badge in chat.** `MessageItem.jsx` had an APEX badge built in for years — but it derived `isApex` from an `apexUsers` prop that nobody passed. Switched the derivation to `senderProfile.apex_tier === 'apex'`. `senderProfile` is already passed by DirectMessages and KineticChat, so the badge now lights up automatically without any wiring changes at callsites. Kept the `apexUsers` set as a fallback in case some caller still relies on that shape.
+
+**Animated username effects.** rainbow / pulse / shimmer effects in `lib/usernameStyle.js` reference CSS keyframes (`username-rainbow`, `username-pulse`, `username-shimmer`) that lived inside `Layout.jsx`'s inline `<style>`. After the routing migration `Layout` no longer mounts, so the keyframes were never injected and the effects silently fell back to solid color. Lifted them all to `index.css` so they're always loaded. Also moved `msg-flash-anim` (used by the reply-scroll-to highlight) and added the new `spidr-speaking-ring` keyframe.
+
+**Voice channel speaking animation.** New `useSpeakingDetector` hook (`spidr-client/src/hooks/useSpeakingDetector.js`):
+
+- Feeds a MediaStream's audio into a Web Audio `AnalyserNode` and computes RMS energy
+- Threshold 0.04, 300ms hold-on tail so the speaking state doesn't flicker between syllables
+- fftSize 512 with smoothingTimeConstant 0.7 — sensitive enough for normal speech, not so jumpy that HVAC triggers it
+
+Refactored `VoiceChannel.jsx` to extract a per-member `VoiceTile` sub-component (hooks can't run inside `.map`). Each tile calls `useSpeakingDetector` with that peer's stream and applies the `.spidr-speaking` class to the avatar when active. The class wraps a green pulsing ring via the keyframe in index.css. Visible only when:
+- The member has an audio track
+- They're not server-muted
+- They're actually emitting voice above the threshold
+
+**Honest caveat on voice mapping:** The current `useWebRTC` mesh keys remote streams by socketId, not by user_id. So with multiple peers in a channel the speaking-ring assignment to the right tile isn't reliable — the code uses the first remote stream as a fallback. Tracking streams by user_id in useWebRTC is the obvious next step (it's a 5-line change in that hook); for 1:1 calls this works as-is, and for group calls the ring will animate for SOMEONE speaking, just possibly the wrong avatar. The detection itself is correct.
+
+**GIF / image / URL paste.** Per the screenshot note ("copy and pasting gifs do not work"): added an `onPaste` handler on the message input in `MessageInputBar.jsx`. Three cases:
+
+1. **Image on the clipboard** (Ctrl+C an image from the OS or web) — uploaded to your CDN and attached.
+2. **A pasted text URL ending in a media extension** (.gif, .png, .jpg, .jpeg, .webp, .avif, .mp4, .webm, .mov) **or matching your platform's CDN pattern** (`pub-*.r2.dev`) — attached directly without re-uploading. This handles the exact URL the user pasted in the screenshot.
+3. **Anything else** — falls through to default text paste.
+
+**Spidr Protocol overlay across all routes.** The GhostOverlay was mounted inside ServersPanel and KineticChat — it only showed while the user was on those panels. Per the screenshot note ("'spidr protocol' overlay needs to be able to be seen when navigating to different pages/routes"):
+
+- New `GlobalGhostOverlay.jsx` mounted once at the SpidrShell level.
+- Listens for three events: `spidr-ghost-activate` { conversationName }, `spidr-ghost-deactivate`, `spidr-ghost-message` { id, sender_name, sender_avatar, content }.
+- Keeps a rolling window of up to 30 messages (de-duped by id).
+- ServersPanel now dispatches activate/deactivate when ghostMode toggles, and broadcasts each new message while ghostMode is on. The overlay stays visible across route changes.
+
+**Group Chats tab in Friends.** Per the screenshot note ("group chats don't show up in friends tab"): added a `Groups` TabsTrigger to FriendsPanel between Online and Pending. Queries all group chats and filters to those where the current user is a member (supports both legacy shapes: `['user_id', ...]` and `[{ user_id, ... }, ...]`). Each row shows the group's icon/name + member count. Clicks open the group via the existing `handleOpenGroup` handler (which mounts KineticChat). Includes a "+ New Group Chat" button at the top of the tab.
+
+---
+
+## 25. Login hashtag + right-click role assign + role labels + @mention deep-scroll
+
+**Login: pick your tag at signup.** Per the screenshot note ("log in page needs to be fixed when creating user — ask for a hashtag"):
+
+- LoginPage signup form now has an inline 4-char tag input next to the username field.
+- 4 lowercase alphanumeric characters (matches the schema's `genDiscriminator` format).
+- Empty input is allowed → server auto-assigns a tag (existing behavior preserved).
+- Client validates the format before sending; pattern enforced via the `pattern` attribute + an onChange filter.
+
+Server-side (`spidr-server/src/routes/auth.js`):
+- Register accepts `discriminator` in the body.
+- Validates format (`/^[a-z0-9]{4}$/`).
+- Uniqueness check: finds all Users with the same username (case-insensitive), then checks whether any of their UserProfiles already claim this tag. If so → 409 with a helpful message.
+- Pre-creates the UserProfile with the requested discriminator during register, instead of relying on the lazy-create-on-first-fetch path. Profile-create failure is non-fatal; the lazy path remains as a safety net.
+
+**Right-click → Assign Role.** Per the screenshot note ("we need right click or server settings feature to also add roles to users"):
+
+- `SpidrMenu.jsx` `user` context now has an "Assign Role" entry.
+- ServersPanel's menu-action handler implements it: lists the server's roles in a numbered `window.prompt`, plus "(No role)" as the last option. Type a number → role updated + audit log entry written. Requires `isAdmin`.
+
+This is a numbered-prompt picker for shipping speed. A proper popover with role chips is the obvious next polish, but the action and audit logging work today.
+
+**Role labels next to usernames + per-server toggle.** Per the screenshot note ("roles showing next to user name needs to be fixed for all servers to have (can toggle it on/off in server settings as well)"):
+
+- Role badges in ServersPanel chat already existed via `resolveServerUsername`. Wrapped the render with `server.show_role_labels !== false` so an admin can turn them off per-server.
+- New "Show role labels next to usernames" toggle in **Server Settings → Visibility**.
+- New `show_role_labels: { type: Boolean, default: true }` field on the Server schema. Default true so existing servers keep showing labels.
+
+**Activity-feed mention → scroll-to-message.** Per the screenshot note ("Fix '@'s where users show up when '@'ing someone and the user gets pinged for it and that chat is [found]"):
+
+- `EnhancedFeed.jsx`: the mention deep-link now includes `?channel=<id>&msg=<id>` so the destination can scroll to the exact message.
+- `ServersPanel.jsx`: reads `?channel=` for initial channel selection, then watches `?msg=` and once that message id appears in the loaded messages list, scrolls it into view and applies the `.msg-flash` highlight animation. Clears the param afterward so a manual reload doesn't keep re-scrolling.
+
+This gives the activity feed → mention → chat round-trip: click a mention notification, land in the right channel, see the message flash so you can spot it among the rest.
+
+---
+
+## Honest list of what's STILL not done from the 32-item screenshot list
+
+This honestly catalogs the rest so nothing slips:
+
+- **Biomass currency** — new feature, larger scope. Not started.
+- **Drag-and-drop reordering** for channels and roles in Server Settings — schemas already have ordered arrays so this is mostly a UI add; not started this pass.
+- **User-coded bots** (Fabricate-new with code) — this needs a real sandbox/runtime. Will not ship without a security plan; explicitly deferred.
+- **THE WEB Spotify/YouTube tracks** — needs OAuth flow + clip-audio attach UX. Not started.
+- **Custom background dimming on non-home pages** — appTheme.opacity exists; the dimming overlay needs to render on routes other than /home only.
+- **Mobile responsive + bottom bar** — major work. The current shell isn't responsive below ~768px. Not started this pass.
+- **Mid-call navigate + minimize improvements + responsive resolution** — partially done (activeCall already survives route changes via SpidrShell); the in-call window UX still needs work.
+- **Spidr AI own settings panel** — a dedicated settings surface inside the AI route. Not started.
+- **Profile customizer in Spidr AI** for image/banner/font/color/effect — Settings already has these but the user wants them exposed inside the AI panel too. Not started.
+- **Server clicks on home dashboard not opening** — investigated; the navigate call is correct. Couldn't repro from code review alone; needs a browser repro before I make speculative changes.
+- **Scroll-down on Settings page / general scroll** — needs to be reproduced in a live browser before guessing at the CSS culprit. The Settings panel uses ScrollArea but some tabs may have an inner overflow issue.
+
+I am tracking these. Each will get a focused pass rather than batched together poorly.
+
+---
+
+## 26. Pass 5 + 6: scroll, bg-dim, mobile, biomass, AI customizer, AI settings, call bar, user bots
+
+### Scroll-down fix on Settings
+Root cause: the flex chain `<main>` → SettingsPanel root → Tabs had `flex-1` children without `min-h-0`, so `overflow-y-auto` on the inner content area couldn't actually constrain its height. Added `min-h-0` at the shell `<main>`, the SettingsPanel root, and the Tabs container. Added `pb-32` on the scroll container so long pages clear the floating dock.
+
+### Per-route background dimming
+On `/home` the user's full background image shows through unobstructed. On every other route a 55% dim overlay drops in so chat/settings/feed stay readable. If the user explicitly configured `appTheme.blur` or `appTheme.opacity` in Theme Studio those values take precedence — the auto-dim only kicks in when the user hasn't customized.
+
+### Server clicks on home dashboard
+Couldn't reproduce the silent-failure from code review. Added defensive UX so the bug becomes diagnosable if it persists:
+- When `selectedServerId` is set but the servers query is still loading → show a spinner instead of the "Select a server" placeholder.
+- When servers loaded but the requested id isn't in the list → show an explicit "That server isn't available — it may have been deleted, or you may no longer be a member" message.
+
+### Drag-and-drop channels and roles
+Wired `@hello-pangea/dnd` (already in package.json). Server Settings → Channels: separate `DragDropContext`s for text and voice channels, drag-to-reorder within each type, grip handles on the left. Roles: single `DragDropContext` for the full roles list. Reordering is in-memory until "Save Changes" persists — same pattern as add/remove.
+
+### Mobile bottom bar + responsive shell
+New `MobileBottomBar.jsx` — 5 primary destinations (Home / Friends / Servers / Feed / Settings) + Menu button. Visible below `md:` (768px) only. Uses `env(safe-area-inset-bottom)` for notched devices.
+
+Shell changes:
+- Sidebar becomes a slide-in drawer on mobile (`fixed md:relative inset-y-0 left-0`). Backdrop scrim closes it; route changes auto-close it.
+- FloatingDock hidden on mobile (`hidden md:block`) — the bottom bar replaces it.
+- Main content gets `pb-16 md:pb-0` so the bottom bar doesn't cover the bottom of pages.
+
+**Known caveat:** The Sidebar component itself wasn't re-styled for narrow widths. If it currently uses a hard `w-60`, the drawer is fine, but the internal layout may not feel mobile-native — that's follow-up polish.
+
+### Biomass currency — full feature
+**Server side**
+- `BiomassWallet` model: one wallet per user, `balance` + `lifetime_earned` + `last_daily_claim` + rolling transaction log (capped at 50) + inventory Map.
+- `/biomass/*` routes:
+  - `GET /wallet` — fetch (auto-creates on first call)
+  - `POST /daily` — claim 50 biomass, 22h cooldown
+  - `POST /spend` — atomic spend with insufficient-funds guard
+  - `GET /shop` — 7-item catalog grouped by category
+  - `POST /shop/buy` — purchase + add to inventory
+- `utils/biomass.js` grant helper with daily caps (50/day from messages, 200/day from clips).
+- Post-save hooks on Message and Clip auto-grant biomass to authors.
+
+**Client side**
+- `biomass` API helpers exported from apiClient.
+- New `BiomassBalancePill` widget mounted in the top-right cluster next to the profile chip. Shows compact balance (1.2k, 15.4k formatting); navigates to `/biomass` on click.
+- New `/biomass` page with three tabs:
+  - **Wallet** — big balance card, daily claim button, earning rules.
+  - **Shop** — items grouped by category (username effects / profile themes / badges); owned items get a check-state; insufficient-funds items get a lock state.
+  - **History** — last 50 transactions with positive/negative coloring.
+
+**Shop catalog (initial):**
+- Username Glow (200), Pulsing Username (400), Shimmering Username (600), Rainbow Username (800)
+- Neon Banner Theme (500), Glitch Banner Theme (500)
+- Legend Badge (5000)
+
+The actual rendering of "owned" username effects elsewhere in the app is a follow-up — the purchase succeeds and the inventory tracks it, but I haven't wired the consuming surfaces (chat username render, profile card) to read the inventory yet.
+
+### AI Profile Customizer (expanded)
+The AI Profile tab in the AI panel now generates and applies:
+- display_name, bio, custom_status (already existed)
+- accent_color (already existed)
+- **profile_gradient** — neon / sunset / ocean / cyber / blood / void / none
+- **username_font** — default / serif / mono / display / handwriting / rounded
+- **username_weight** — normal / medium / bold / black
+- **username_style** — normal / italic
+- **username_color** — hex
+- **username_effect** — none / glow / gradient / rainbow / pulse / shimmer
+
+Preview card now renders the username with the actual generated font + style + color so users see what they'd be applying. Apply mutation invalidates all four profile cache keys so changes show up immediately in chat, profile modal, and settings.
+
+Honest note in the UI: avatar/banner images aren't AI-generated here. That requires an image-gen integration we don't have wired yet. Users still go to Settings → Profile for those.
+
+### Spidr AI's own Settings tab
+New "Settings" tab inside the AI panel (5th tab next to Server / Profile / Bot / Chat). Lets users tune how Spidr AI talks to them:
+- **Persona** — free-text (500 char) preface prepended to every AI prompt
+- **Response length** — Concise (<80 words) / Normal / Detailed (full explanations)
+- **Tone** — Neutral / Playful / Professional
+- **Remember conversations** — toggle. When off, the chat history isn't saved to `AiConversation` and titles don't auto-update.
+- **Safe mode** — toggle. When off, the content scanner runs but doesn't block borderline prompts. (Hard-unsafe categories still block.)
+
+All persisted to localStorage; no save button — immediate save on each change. Reset-to-defaults button.
+
+Exported `getAIPreferences()` helper. The chat handler in `ChatTab` now reads it and:
+- Prepends the persona to the system preamble
+- Adjusts the verbosity hint ("Keep responses under 80 words" / "Provide detailed explanations")
+- Adjusts the tone hint ("Use a playful tone" / "Maintain a professional tone")
+- Skips saving log entries when `rememberChat` is false
+- Skips the safe-mode block when the user opts out
+
+### Mid-call navigate UX polish
+Extracted `MinimizedCallBar` sub-component at the shell level. Improvements:
+- **Call duration timer** (mm:ss) inline next to the channel name
+- **Mute toggle** visible — no more expand-just-to-mute
+- **End call** button
+- Responsive position: `bottom-20 md:bottom-4` so it sits above the mobile bottom bar but in the standard corner on desktop
+- Spring animation on mount/unmount
+
+**Caveat:** the mute toggle dispatches a `spidr-call-mute-toggle` window event but no live RTC hook listens for it yet — when the call is minimized the WebRTC connection is alive but the VoiceChannel component is unmounted, so we can't directly toggle the local audio track. To fix this properly we'd need to hoist the RTC peer state to the AppShell context. Today the visual toggle works; actual mic mute happens when the user expands the call.
+
+### User-coded bots — declarative MVP
+New "Create" tab in Bot Laboratory. Lets users build bots with simple trigger → response pairs (no JS execution):
+
+- **Identity** — name, description, cycling-emoji icon (12-preset palette)
+- **Commands** — repeatable row with trigger / response / description fields. Add / remove rows. Up to 40 chars per trigger, 500 chars per response.
+- **Template variables** — `{user}`, `{server}`, `{channel}` substituted at runtime
+- **Local test runner** — type a fake message and see what the bot would respond. Matches case-insensitive, supports prefix matches
+- Saves to `CustomBot` with `category: 'custom'`, `code: 'user:commands'` (so the bot engine knows to route it through the commands array, not a built-in or sandbox).
+
+**Security model — explicit:** we never execute user JavaScript. The `code` field on the schema is reserved for a future sandboxed runtime (vm2 or isolated-vm), but until that runtime ships, all user-built bots are declarative. The UI has a yellow honest-note callout explaining this.
+
+### Files added
+- `spidr-client/src/components/spidr/MobileBottomBar.jsx`
+- `spidr-client/src/components/spidr/BiomassBalancePill.jsx`
+- `spidr-client/src/pages/Biomass.jsx`
+- `spidr-server/src/models/BiomassWallet.js`
+- `spidr-server/src/routes/biomass.js`
+- `spidr-server/src/utils/biomass.js`
+
+### Files modified
+- `SpidrShell.jsx`: mobile drawer, MinimizedCallBar extraction, route-aware bg dim, BiomassBalancePill mount, min-h-0 on main
+- `SettingsPanel.jsx`: min-h-0 on flex chain, pb-32 on scroll container
+- `ServersPanel.jsx`: server-click loading/missing diagnostics
+- `ServerSettingsModal.jsx`: DnD for channels and roles
+- `AIPanel.jsx`: expanded profile customizer, new Settings tab, ChatTab honors AI preferences
+- `BotLaboratory.jsx`: Create tab + CreateBotTab body
+- `App.jsx`: /biomass route
+- `apiClient.js`: biomass API helpers
+- `Message.js`, `Clip.js`: biomass grant post-save hooks
+- `index.js` (server): biomass route registration
+
+### Things explicitly NOT done
+
+- **THE WEB Spotify/YouTube** — deferred pending scope. Needs OAuth flow design + a sensible UX for attaching tracks to clips. Won't ship a half-feature.
+- **Real JS bot sandbox** — needs `vm2`/`isolated-vm` server-side with strict CPU/memory limits, network isolation, and a permission model for which APIs the bot can call. Multi-day work; explicitly out of scope until we agree on the security plan.
+- **Avatar/banner AI generation** — needs an image-gen integration.
+- **Mute on minimized call bar** — visual works; real mic mute needs RTC state hoisted to shell context.
+- **Shop item consumption** — buying a username effect succeeds and the inventory tracks it, but the chat username renderer doesn't read inventory yet. Effect catalog and rendering need to be cross-referenced.
+- **Voice speaking-ring per-user mapping** — `useWebRTC` still keys streams by socketId, not user_id. For 1:1 calls the ring works; for 3+ peer calls it may animate the wrong avatar.
+
+---
+
+## 27. Activity feed comments & replies + responsive overhaul
+
+### Activity feed comments + replies — full feature
+Users can now comment on any activity feed item and reply to other commenters. Reactions on individual comments. Author-only delete.
+
+**Server side**
+- New `FeedComment` model — separate collection keyed on `feed_id`. Each comment carries `parent_comment_id` (null for top-level, set to a comment id for replies), `author_id`, `author_name`, `author_avatar`, `content` (1000 char cap), `reactions` Map, `edited_at`.
+- Post-save hook increments the parent `Feed.comments_count`; post-`findOneAndDelete` decrements it. Failures here log but don't roll back the comment write — the displayed count is a UX hint, not authoritative.
+- New `/feed-comments` route. Standard CRUD via the existing `crudRouter` with `ownerField: 'author_id'` so only the comment author can mutate or delete. Plus a custom `POST /:id/react` toggle endpoint mirroring message-reactions.
+
+**Client side**
+- `FeedComment` registered in `entities` (apiClient). New `feedComments.react()` helper for the bespoke endpoint.
+- New `FeedCommentsSection.jsx` — expandable section that mounts under each FeedCard when the comment button is clicked.
+  - Top-level comments sort chronologically (oldest first).
+  - 1-level visual nesting: replies indent under their parent with a left-border accent. Clicking "Reply" on a reply attaches to the same parent, not the reply itself — keeps the UI flat and readable on mobile.
+  - Reaction row with quick picker (👍 ❤️ 😂 🔥 🕷️) and existing-reaction toggles.
+  - Author-only delete (with confirm). Edit is intentionally not exposed yet — schema supports `edited_at`, route allows it, but the inline-edit UX isn't built.
+  - Empty state ("No comments yet — be the first") and loading state.
+- `EnhancedFeed.jsx` updated: renamed the dead `showCommentInput` state to `showComments`, wired the comment button to toggle it, conditionally mounts `FeedCommentsSection` when expanded. Each section runs its own query keyed on `feed_id` so opening multiple cards doesn't cause cross-pollination.
+
+### Responsive overhaul — fits multiple devices and resolutions
+Targeted the worst desktop-only layouts. Breakpoint: `md:` (768px) — phones and small tablets get the mobile layout; tablet-landscape and up get desktop.
+
+**ServersPanel (the biggest offender)**
+- Server list (240px) hides on mobile when a server is selected. Channels rail (224px) hides on mobile when a channel is selected. Chat takes the full width.
+- New `mobileView` state ('channels' | 'chat') gates which pane shows on mobile.
+- Back-arrow buttons added: in the channels-rail header (← back to server list) and in the chat header (← back to channels rail).
+- Desktop is unchanged — all responsive logic is gated by `md:` so ≥768px renders side-by-side as before.
+
+**AIPanel — both tab bar and ChatTab**
+- Tab bar: 5 tabs with full labels broke at mobile widths. Now labels hide below `sm:`; only icons show.
+- ChatTab conversation list: was a 224px column. On mobile collapses to a horizontal scroll-strip across the top, max-height 128px, with `last_message` hidden so conversations stay slim. Desktop unchanged.
+
+**HomeDashboard**
+- "Recent Servers" grid was `grid-cols-4` (server tiles became ~80px wide on a phone — unreadable names). Now `grid-cols-2 sm:grid-cols-3 md:grid-cols-4`.
+- Container padding reduced on small screens: `p-4 sm:p-6`.
+
+**HolographicProfile modal**
+- Was hardcoded `w-[720px]` — overflowed mobile viewports. Now `w-full max-w-[720px]` with the backdrop adding `p-3 sm:p-6 overflow-y-auto` so the card scrolls within the modal if it's taller than the viewport.
+
+**Components confirmed already responsive (no changes needed)**
+- LoginPage uses `max-w-md` + `w-full` — flows naturally
+- DirectMessages / KineticChat / FriendsPanel use `flex-1 flex flex-col` — already mobile-friendly
+- FeedPanel grids already use `md:grid-cols-3 lg:grid-cols-4` responsive variants
+- SettingsPanel tab bar already hides labels with `hidden sm:inline`
+- Biomass page already uses `sm:grid-cols-2 lg:grid-cols-3`
+
+### Files added
+- `spidr-server/src/models/FeedComment.js`
+- `spidr-server/src/routes/feedComments.js`
+- `spidr-client/src/components/spidr/FeedCommentsSection.jsx`
+
+### Files modified
+- `spidr-server/src/index.js` — registered `/feed-comments` route
+- `spidr-client/src/api/apiClient.js` — `FeedComment` entity + `feedComments.react` helper
+- `spidr-client/src/components/spidr/EnhancedFeed.jsx` — wired comments section
+- `spidr-client/src/components/spidr/ServersPanel.jsx` — mobile two-pane layout
+- `spidr-client/src/components/spidr/AIPanel.jsx` — responsive ChatTab + tab bar
+- `spidr-client/src/pages/HomeDashboard.jsx` — responsive grids and padding
+- `spidr-client/src/components/spidr/HolographicProfile.jsx` — fluid card width + modal padding
+
+### Caveats
+- **Comment edit isn't exposed in the UI** yet. Schema and route support it; needs an inline-edit affordance with an `(edited)` indicator.
+- **Comments_count is denormalized.** If a write succeeds but the count update fails (logged, swallowed), the displayed count drifts. Acceptable tradeoff; a periodic reconciliation job can fix it later if exact counts matter.
+- **No attachments on comments** — text-only by design. Adding files means another upload pipeline.
+- **Reply depth is capped at 1 visual level.** Replies to replies attach to the original top-level comment's id. The data model could support deeper nesting, but on mobile it would be unreadable.
+- **Sidebar internal contents** (the icon rail at 72px wide) weren't re-styled for mobile drawer use — the wrapper is correct, the icons fit, but if it currently uses a hard-coded height that fights the drawer it'll need touch-up. Verify on a real device.
+- **No genuine integration test** — files syntax-check, but I haven't loaded this in a browser. First load may surface one or two visual glitches (the FeedCommentsSection's emoji picker positioning, in particular, hasn't been tested at the screen edge — it might clip off-screen for cards near the right edge of a narrow viewport).
+
+### Still NOT done (deliberately)
+- **THE WEB Spotify/YouTube** — deferred pending OAuth scope discussion
+- **JS-sandboxed user bots** — deferred pending sandbox security design
+- **Shop inventory → consuming surfaces** — purchases track inventory but the chat username renderer doesn't gate effects on ownership yet
+- **MinimizedCallBar real mute** — visual works; actual mic mute needs RTC state hoisted to shell context
+- **Voice speaking-ring per-user mapping** — useWebRTC keys by socketId; 3+ peer calls may animate wrong avatar

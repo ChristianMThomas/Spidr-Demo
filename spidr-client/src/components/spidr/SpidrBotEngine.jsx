@@ -256,8 +256,8 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
       }
       // Store on the server document — server-side welcome bot reads this
       try {
-        const servers = await entities.Server.filter({ id: serverId });
-        const srv = servers[0];
+        let srv;
+        try { srv = await entities.Server.get(serverId); } catch { srv = null; }
         if (!srv) return { response: '👋 Could not find this server.' };
         await entities.Server.update(serverId, {
           bot_config: { ...(srv.bot_config || {}), welcome_message: args },

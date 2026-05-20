@@ -55,7 +55,14 @@ export default function BioTab({ userProfile, isOwnProfile, onWidgetSave }) {
           <div className="text-[9px] text-[#FF3333] uppercase font-bold tracking-widest">Vibe Check</div>
           {editingActivity && isOwnProfile ? (
             <div className="flex gap-1 mt-0.5">
-              <Input value={activityVal} onChange={(e) => setActivityVal(e.target.value)} className="h-5 text-[10px] bg-black/50 border-red-900/30 px-1" placeholder="Playing..." />
+              <Input
+                autoFocus
+                value={activityVal}
+                onChange={(e) => setActivityVal(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveActivity(); else if (e.key === 'Escape') setEditingActivity(false); }}
+                className="h-5 text-[10px] bg-black/50 border-red-900/30 px-1"
+                placeholder="Playing..."
+              />
               <button onClick={saveActivity} className="text-green-500 hover:text-green-400"><Check size={12} /></button>
             </div>
           ) : (
@@ -69,7 +76,14 @@ export default function BioTab({ userProfile, isOwnProfile, onWidgetSave }) {
           <div className="text-[9px] text-[#FF3333] uppercase font-bold tracking-widest">Neon Sign</div>
           {editingPronouns && isOwnProfile ? (
             <div className="flex gap-1 mt-0.5">
-              <Input value={pronounsVal} onChange={(e) => setPronounsVal(e.target.value)} className="h-5 text-[10px] bg-black/50 border-red-900/30 px-1" placeholder="he/him" />
+              <Input
+                autoFocus
+                value={pronounsVal}
+                onChange={(e) => setPronounsVal(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') savePronouns(); else if (e.key === 'Escape') setEditingPronouns(false); }}
+                className="h-5 text-[10px] bg-black/50 border-red-900/30 px-1"
+                placeholder="he/him"
+              />
               <button onClick={savePronouns} className="text-green-500 hover:text-green-400"><Check size={12} /></button>
             </div>
           ) : (

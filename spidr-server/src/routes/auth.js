@@ -4,6 +4,7 @@ const jwt       = require('jsonwebtoken');
 const Redis     = require('ioredis');
 const rateLimit = require('express-rate-limit');
 const User      = require('../models/User');
+const UserProfile = require('../models/UserProfile');
 const authMW    = require('../middleware/auth');
 const { sendOTPEmail } = require('../utils/mailer');
 
@@ -25,15 +26,13 @@ try {
   redis.on('error', () => { redis = null; });
 } catch {}
 
-const SPRING_BOOT_DEV_FALLBACK = 'c3BpZHItZGV2LWZhbGxiYWNrLXNlY3JldC1rZXktcGxlYXNlLXNldC1pbi1lbnY=';
 const getSecret = () => {
-  const raw = process.env.JWT_SECRET;
-  if (!raw) {
+  if (!process.env.JWT_SECRET) {
     if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET is required in production');
     console.warn('[SECURITY] JWT_SECRET not set — using insecure dev fallback. Set JWT_SECRET in .env');
-    return Buffer.from(SPRING_BOOT_DEV_FALLBACK, 'base64');
+    return 'spidr-fallback-dev-secret-please-set-in-env';
   }
-  return Buffer.from(raw, 'base64');
+  return process.env.JWT_SECRET;
 };
 
 const generateOTP  = () => require('crypto').randomInt(100000, 1000000).toString();
@@ -68,7 +67,7 @@ async function deleteOTP(email) {
 // ── REGISTER — creates account + sends verification OTP ──────────────────────
 router.post('/register', authLimiter, async (req, res) => {
   try {
-    const { email, password, username, full_name } = req.body;
+    const { email, password, username, full_name, discriminator } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     if (!/\d/.test(password)) return res.status(400).json({ error: 'Password must contain at least one number' });
@@ -76,8 +75,53 @@ router.post('/register', authLimiter, async (req, res) => {
     const exists = await User.findOne({ $or: [{ email }, ...(username ? [{ username }] : [])] });
     if (exists) return res.status(409).json({ error: 'Email or username already taken' });
 
+    // Validate the requested discriminator (optional)
+    let requestedTag = null;
+    if (discriminator && typeof discriminator === 'string') {
+      const trimmed = discriminator.trim().toLowerCase();
+      if (trimmed) {
+        if (!/^[a-z0-9]{4}$/.test(trimmed)) {
+          return res.status(400).json({ error: 'Tag must be exactly 4 lowercase letters or numbers' });
+        }
+        // Uniqueness check on (username, discriminator). Username is unique on
+        // User; discriminator lives on UserProfile. Find any other User with
+        // the same username (case-insensitive) and check their profile's tag.
+        if (username) {
+          const otherUsers = await User.find({
+            username: { $regex: new RegExp(`^${username}$`, 'i') },
+          }).select('_id').lean();
+          const otherIds = otherUsers.map(u => u._id.toString());
+          if (otherIds.length > 0) {
+            const tagTaken = await UserProfile.findOne({
+              user_id: { $in: otherIds },
+              discriminator: trimmed,
+            });
+            if (tagTaken) {
+              return res.status(409).json({ error: `Tag ${username}#${trimmed} is already taken. Try another tag or leave blank.` });
+            }
+          }
+        }
+        requestedTag = trimmed;
+      }
+    }
+
     const hash = await bcrypt.hash(password, 12);
     const user = await User.create({ email, password: hash, username, full_name, is_verified: false });
+
+    // Pre-create the UserProfile with the requested discriminator (or let the
+    // schema's pre-save hook auto-generate one). Username goes into display_name
+    // so the profile has something to show right after signup.
+    try {
+      await UserProfile.create({
+        user_id: user._id.toString(),
+        display_name: full_name || username || email.split('@')[0],
+        ...(requestedTag ? { discriminator: requestedTag } : {}),
+      });
+    } catch (profileErr) {
+      // Profile creation failure is non-fatal — the lazy-create path will
+      // generate one on first profile fetch. Log it but don't block signup.
+      console.warn('Profile pre-create failed:', profileErr.message);
+    }
 
     // Send verification OTP (email failure is non-blocking)
     const otp = generateOTP();

@@ -127,6 +127,7 @@ export const entities = {
   GroupChatMessage: entity('group-chat-messages'),
   VoiceSession:     entity('voice-sessions'),
   Feed:             entity('feeds'),
+  FeedComment:      entity('feed-comments'),
   Comment:          entity('comments'),
   Report:           entity('reports'),
   AudioTrack:       entity('audio-tracks'),
@@ -226,6 +227,24 @@ export const algorithm = {
     api.post('/algorithm/track', data).catch(() => null),
   getFeed: (limit = 50) =>
     api.get('/algorithm/feed', { params: { limit } }),
+};
+
+// ─── Biomass currency ────────────────────────────────────────────────────────
+// One wallet per user (auto-created on first fetch). Earn from in-app actions
+// (server grants automatically) or daily claim. Spend at the shop or via
+// direct spend calls. All endpoints return the updated wallet.
+export const biomass = {
+  wallet:    ()                  => api.get('/biomass/wallet'),
+  claimDaily:()                  => api.post('/biomass/daily', {}),
+  spend:     (amount, reason)    => api.post('/biomass/spend', { amount, reason }),
+  shop:      ()                  => api.get('/biomass/shop'),
+  buy:       (itemId)            => api.post('/biomass/shop/buy', { itemId }),
+};
+
+// ─── Feed comments — extra endpoint beyond CRUD ──────────────────────────────
+// React toggle endpoint: posts {emoji} and gets back the updated comment.
+export const feedComments = {
+  react: (commentId, emoji) => api.post(`/feed-comments/${commentId}/react`, { emoji }),
 };
 
 // ─── Named export matching old base44 import shape ───────────────────────────

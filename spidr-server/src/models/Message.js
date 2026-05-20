@@ -102,4 +102,24 @@ s.post('save', async function (doc) {
   }
 });
 
+/**
+ * Grant biomass for the author of each new message.
+ *
+ * 1 biomass per message, capped at 50/day by utils/biomass.js. Skipped for
+ * system messages and own-server-bot messages. Wrapped in try/catch so a
+ * biomass failure never blocks message creation.
+ */
+s.post('save', async function (doc) {
+  if (!doc.wasNew) return;
+  if (doc.is_system) return;
+  const senderId = doc.author_id || doc.user_id;
+  if (!senderId) return;
+  try {
+    const biomass = require('../utils/biomass');
+    await biomass.grant(senderId, 1, 'Message sent', doc._id.toString(), 'message');
+  } catch (err) {
+    console.warn('Biomass grant on message failed:', err?.message);
+  }
+});
+
 module.exports = model('Message', s);

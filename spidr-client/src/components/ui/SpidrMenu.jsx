@@ -106,6 +106,7 @@ export default function SpidrMenu() {
           { icon: MessageSquare, label: 'Message', color: 'text-white', action: 'message' },
           { icon: UserPlus, label: 'Add Friend', color: 'text-white', action: 'add-friend' },
           { icon: Pencil, label: 'Set Nickname', color: 'text-white', action: 'nickname' },
+          { icon: Shield, label: 'Assign Role', color: 'text-white', action: 'assign-role' },
           { separator: true },
           { icon: VolumeX, label: 'Mute in Server', color: 'text-white', action: 'mute' },
           { icon: Volume2, label: 'Adjust Volume', color: 'text-white', action: 'volume' },
