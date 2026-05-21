@@ -67,13 +67,12 @@ app.use(express.urlencoded({ extended: true }));
 // authMiddleware is per-route, so we verify the token here independently
 // (same base64-decoded HS256 secret as middleware/auth.js + socket handlers).
 const jwt = require('jsonwebtoken');
-const RL_DEV_SECRET = 'c3BpZHItZGV2LWZhbGxiYWNrLXNlY3JldC1rZXktcGxlYXNlLXNldC1pbi1lbnY=';
-const rlSecret = () => Buffer.from(process.env.JWT_SECRET || RL_DEV_SECRET, 'base64');
+const { getSecret } = require('./utils/jwtSecret');
 const rateLimitKey = (req) => {
   const header = req.headers.authorization;
   if (header && header.startsWith('Bearer ')) {
     try {
-      const decoded = jwt.verify(header.slice(7), rlSecret());
+      const decoded = jwt.verify(header.slice(7), getSecret());
       const uid = decoded.userId || decoded.id;
       if (uid) return 'user:' + uid;
     } catch { /* invalid/expired token → fall through to IP */ }
