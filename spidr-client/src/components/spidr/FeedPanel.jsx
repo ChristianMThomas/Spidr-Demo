@@ -47,8 +47,8 @@ export default function FeedPanel({ currentUser }) {
   const { data: allClips = [], isLoading } = useQuery({
     queryKey: ['clips'],
     queryFn:  () => entities.Clip.list('-created_date', 200),
-    staleTime: 5000,
-    refetchInterval: 10000,
+    staleTime: 30000,
+    refetchInterval: 60000,
   });
 
   const { data: feedData } = useQuery({

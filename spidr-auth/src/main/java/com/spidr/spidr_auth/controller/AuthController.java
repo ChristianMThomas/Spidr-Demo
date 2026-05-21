@@ -92,18 +92,24 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("message", "Password reset code sent to your email."));
     }
 
-    // ── Verify Reset Code ─────────────────────────────────────────────────────
+    // ── Verify Reset Code — 10 per 15 min per IP (brute-force code guard) ─────
 
     @PostMapping("/verify-reset-code")
-    public ResponseEntity<?> verifyResetCode(@Valid @RequestBody VerifyResetCodeDTO dto) {
+    public ResponseEntity<?> verifyResetCode(
+            @Valid @RequestBody VerifyResetCodeDTO dto,
+            HttpServletRequest request) {
+        rateLimiter.check(clientIp(request) + ":verify-reset", 10, 900);
         authService.verifyResetCode(dto);
         return ResponseEntity.ok(Map.of("message", "Code verified. You may now reset your password."));
     }
 
-    // ── Reset Password ────────────────────────────────────────────────────────
+    // ── Reset Password — 10 per 15 min per IP ─────────────────────────────────
 
     @PostMapping("/reset-password")
-    public ResponseEntity<?> resetPassword(@Valid @RequestBody ResetPasswordDTO dto) {
+    public ResponseEntity<?> resetPassword(
+            @Valid @RequestBody ResetPasswordDTO dto,
+            HttpServletRequest request) {
+        rateLimiter.check(clientIp(request) + ":reset", 10, 900);
         authService.resetPassword(dto);
         return ResponseEntity.ok(Map.of("message", "Password reset successfully. You can now log in."));
     }

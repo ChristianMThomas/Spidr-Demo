@@ -13,14 +13,8 @@ const VoiceSession = require('../models/VoiceSession');
 const Friend       = require('../models/Friend');
 const UserProfile  = require('../models/UserProfile');
 
-// Spring Boot signs with base64-decoded JWT_SECRET — must decode the same way here.
-// Matches middleware/auth.js exactly so HTTP and socket verification use the same key.
-const SPRING_BOOT_DEV_FALLBACK = 'c3BpZHItZGV2LWZhbGxiYWNrLXNlY3JldC1rZXktcGxlYXNlLXNldC1pbi1lbnY=';
-const getSecret = () => {
-  const raw = process.env.JWT_SECRET;
-  if (!raw) return Buffer.from(SPRING_BOOT_DEV_FALLBACK, 'base64');
-  return Buffer.from(raw, 'base64');
-};
+// Shared secret resolver — keeps HTTP, socket, and rate-limit verification in sync.
+const { getSecret } = require('../utils/jwtSecret');
 
 module.exports = function registerHandlers(io) {
 
@@ -98,7 +92,25 @@ module.exports = function registerHandlers(io) {
     }
   }, 15 * 1000);
 
-  const { attachVoiceHandlers } = require('./voiceSignaling');
+  // ── Per-socket event rate limiting ─────────────────────────────────────────
+  // Cheap in-memory token bucket per socket. Stops a single connection from
+  // flooding the server (typing spam, signal storms, etc). Reads default to
+  // 30/sec; sends are tighter at 5/sec.
+  const socketEventCounts = new Map(); // socketId → { count, resetAt }
+  const socketRateLimit = (socket, limit = 30, windowMs = 1000) => {
+    const now = Date.now();
+    let entry = socketEventCounts.get(socket.id);
+    if (!entry || now > entry.resetAt) {
+      entry = { count: 0, resetAt: now + windowMs };
+      socketEventCounts.set(socket.id, entry);
+    }
+    entry.count++;
+    if (entry.count > limit) {
+      socket.emit('error', { message: 'Rate limit exceeded' });
+      return false;
+    }
+    return true;
+  };
 
   io.on('connection', (socket) => {
     const userId = socket.userId;
@@ -112,30 +124,10 @@ module.exports = function registerHandlers(io) {
       { $set: { status: 'online', last_seen: new Date() } }
     ).catch(() => {});
 
-    // Look up the user once so voice signaling has display info to broadcast
-    // to other peers when this socket joins/leaves a channel.
-    let userForVoice = { id: userId, full_name: null, username: null, avatar_url: '' };
-    UserProfile.findOne({ user_id: userId }).lean().then((profile) => {
-      if (profile) {
-        userForVoice = {
-          id: userId,
-          full_name: profile.display_name,
-          username: profile.username,
-          avatar_url: profile.avatar_url,
-        };
-      }
-      // Attach voice handlers AFTER user info loads so peer roster entries
-      // include the right display name/avatar from the start.
-      attachVoiceHandlers(io, socket, userForVoice);
-    }).catch(() => {
-      // Even without profile data, voice should work — peers will see
-      // their socketId but no name/avatar until next page load.
-      attachVoiceHandlers(io, socket, userForVoice);
-    });
-
     // Client heartbeat — sent every 25s. Refreshes lastSeen so the reaper
     // won't kill this socket. Also persists last_seen to MongoDB.
     socket.on('presence:ping', () => {
+      if (!socketRateLimit(socket)) return;
       const info = socketHeartbeats.get(socket.id);
       if (info) info.lastSeen = Date.now();
       UserProfile.findOneAndUpdate(
@@ -214,6 +206,7 @@ module.exports = function registerHandlers(io) {
 
     // ── Server messages ──────────────────────────────────────────────────────
     socket.on('message:send', async (data) => {
+      if (!socketRateLimit(socket, 5)) return;
       try {
         const msg = await Message.create({
           server_id:   data.server_id,
@@ -259,6 +252,7 @@ module.exports = function registerHandlers(io) {
 
     // ── Typing indicators ────────────────────────────────────────────────────
     socket.on('typing:start', ({ serverId, channelId, groupId, conversationId }) => {
+      if (!socketRateLimit(socket)) return;
       if (serverId && channelId)
         socket.to(`channel:${serverId}:${channelId}`).emit('typing:start', { userId });
       else if (groupId)
@@ -268,6 +262,7 @@ module.exports = function registerHandlers(io) {
     });
 
     socket.on('typing:stop', ({ serverId, channelId, groupId, conversationId }) => {
+      if (!socketRateLimit(socket)) return;
       if (serverId && channelId)
         socket.to(`channel:${serverId}:${channelId}`).emit('typing:stop', { userId });
       else if (groupId)
@@ -278,6 +273,7 @@ module.exports = function registerHandlers(io) {
 
     // ── Direct messages ──────────────────────────────────────────────────────
     socket.on('dm:send', async (data) => {
+      if (!socketRateLimit(socket, 5)) return;
       try {
         const dm = await DirectMessage.create({
           sender_id:   userId,
@@ -300,6 +296,7 @@ module.exports = function registerHandlers(io) {
 
     // ── Group chat messages ──────────────────────────────────────────────────
     socket.on('group:send', async (data) => {
+      if (!socketRateLimit(socket, 5)) return;
       try {
         const msg = await GroupChatMessage.create({
           group_id:    data.group_id,
@@ -328,10 +325,11 @@ module.exports = function registerHandlers(io) {
         ? `voice:server:${data.serverId}:${data.channelId}`
         : `voice:group:${data.groupId}`;
       socket.leave(room);
-      socket.to(room).emit('voice:peer-left', { userId });
+      socket.to(room).emit('voice:peer-left', { userId, socketId: socket.id });
     });
 
     socket.on('voice:signal', ({ to, signal }) => {
+      if (!socketRateLimit(socket)) return;
       io.to(to).emit('voice:signal', { from: socket.id, signal });
     });
 
@@ -358,13 +356,14 @@ module.exports = function registerHandlers(io) {
     socket.on('disconnecting', () => {
       for (const room of socket.rooms) {
         if (room.startsWith('voice:')) {
-          socket.to(room).emit('voice:peer-left', { userId });
+          socket.to(room).emit('voice:peer-left', { userId, socketId: socket.id });
         }
       }
     });
 
     // ── Disconnect ───────────────────────────────────────────────────────────
     socket.on('disconnect', async () => {
+      socketEventCounts.delete(socket.id);
       const wentOffline = removeSocket(userId, socket.id);
       if (wentOffline) {
         io.emit('user:offline', { userId });
