@@ -28,7 +28,6 @@ export default function PulseDeck({ currentUser, onNavigateDM, onNavigateServer 
     queryKey: ['friend-requests-pulse', currentUser?.id],
     queryFn: () => entities.Friend.filter({ friend_id: currentUser?.id, status: 'pending_incoming' }),
     enabled: !!currentUser?.id,
-    refetchInterval: 60000,
   });
 
   // Fetch unread DMs
@@ -36,7 +35,6 @@ export default function PulseDeck({ currentUser, onNavigateDM, onNavigateServer 
     queryKey: ['unread-dms-pulse', currentUser?.id],
     queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id, is_read: false }),
     enabled: !!currentUser?.id,
-    refetchInterval: 60000,
   });
 
   // Group unread DMs by sender

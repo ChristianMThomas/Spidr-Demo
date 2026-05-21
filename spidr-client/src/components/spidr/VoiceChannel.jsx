@@ -29,7 +29,9 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
   const [showSpidrProfile, setShowSpidrProfile] = useState(false);
   const [showCinema, setShowCinema]           = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const localVideoRef   = useRef(null);
+  const remoteAudioRefs = useRef({});
   const queryClient     = useQueryClient();
   const spidrVoice      = useSpidrVoice();
   const { stream: screenStream, isSharing, startShare, stopShare } = useScreenShare();
@@ -255,9 +257,33 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
         <div className="flex-1 p-4 overflow-y-auto">
           {/* Remote audio elements (hidden, for audio output) */}
           {Object.entries(rtc.remoteStreams).map(([socketId, stream]) => (
-            <audio key={socketId} autoPlay ref={el => { if (el) el.srcObject = stream; }}
+            <audio
+              key={socketId}
+              autoPlay
+              muted={false}
+              ref={el => {
+                if (!el) { delete remoteAudioRefs.current[socketId]; return; }
+                remoteAudioRefs.current[socketId] = el;
+                el.srcObject = stream;
+                el.volume = 1;
+                el.play().catch(() => setAudioBlocked(true));
+              }}
               style={{ display: 'none' }} />
           ))}
+
+          {/* Browser blocked autoplay — one tap unlocks remote audio. */}
+          {audioBlocked && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20">
+              <button
+                onClick={() => {
+                  Object.values(remoteAudioRefs.current).forEach(el => { el?.play?.().catch(() => {}); });
+                  setAudioBlocked(false);
+                }}
+                className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-xl text-sm font-bold shadow-lg flex items-center gap-2">
+                <Volume2 className="w-4 h-4" /> Enable audio
+              </button>
+            </div>
+          )}
 
           {voiceSessions.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-4 text-center">

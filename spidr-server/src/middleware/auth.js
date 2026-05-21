@@ -1,23 +1,6 @@
 const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
-
-// Spring Boot's JwtService calls Decoders.BASE64.decode(secretKey) before signing,
-// so Node.js must also base64-decode JWT_SECRET to use the same raw key bytes.
-// In dev (no JWT_SECRET set) we decode Spring Boot's application.properties fallback
-// so tokens issued by either service are cross-compatible out of the box.
-const SPRING_BOOT_DEV_FALLBACK =
-  'c3BpZHItZGV2LWZhbGxiYWNrLXNlY3JldC1rZXktcGxlYXNlLXNldC1pbi1lbnY=';
-
-const getSecret = () => {
-  const raw = process.env.JWT_SECRET;
-  if (!raw) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('JWT_SECRET environment variable is required in production');
-    }
-    return Buffer.from(SPRING_BOOT_DEV_FALLBACK, 'base64');
-  }
-  return Buffer.from(raw, 'base64');
-};
+const { getSecret } = require('../utils/jwtSecret');
 
 module.exports = async (req, res, next) => {
   const authHeader = req.headers.authorization;

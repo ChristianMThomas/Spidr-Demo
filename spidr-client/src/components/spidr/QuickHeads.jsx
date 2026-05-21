@@ -1,10 +1,18 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import React, { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion } from 'framer-motion';
 import { Users } from 'lucide-react';
 
-const QuickHeadItem = ({ friend, latestMessage, unreadCount, onClick }) => {
+const statusColors = {
+  online: 'bg-green-500',
+  streaming: 'bg-green-500',
+  idle: 'bg-yellow-500',
+  dnd: 'bg-red-500',
+  offline: 'bg-zinc-500',
+};
+
+const QuickHeadItem = ({ friend, latestMessage, unreadCount, status = 'offline', onClick }) => {
   const isTyping = false; // Can be extended later with real-time typing detection
   const hasUnread = unreadCount > 0;
   
@@ -71,9 +79,9 @@ const QuickHeadItem = ({ friend, latestMessage, unreadCount, onClick }) => {
           </motion.div>
         )}
 
-        {/* Online Status (green dot) */}
+        {/* Presence dot — reflects real status (gray when offline) */}
         {!isTyping && !hasUnread && (
-          <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-[#0a0a0a]" />
+          <div className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-[#0a0a0a] ${statusColors[status] || 'bg-zinc-500'}`} />
         )}
       </motion.div>
       
@@ -85,7 +93,33 @@ const QuickHeadItem = ({ friend, latestMessage, unreadCount, onClick }) => {
   );
 };
 
-export default function QuickHeads({ currentUser, onOpenDM, onOpenGroup }) {
+export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpenGroup }) {
+  const queryClient = useQueryClient();
+
+  // Map user_id → presence status so the avatar dot reflects real online state.
+  const statusByUser = React.useMemo(() => {
+    const m = {};
+    for (const p of profiles) m[p.user_id] = p.status;
+    return m;
+  }, [profiles]);
+
+  // Drive updates off socket events instead of 20s polling. A 120s interval
+  // stays as a safety net in case a socket event is missed.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const socket = getSocket();
+    const refreshDMs = () => queryClient.invalidateQueries({ queryKey: ['quickheads-dms', currentUser.id] });
+    const refreshGroups = () => queryClient.invalidateQueries({ queryKey: ['quickheads-groups', currentUser.id] });
+    socket.on('dm:new', refreshDMs);
+    socket.on('dm:notification', refreshDMs);
+    socket.on('group:message', refreshGroups);
+    return () => {
+      socket.off('dm:new', refreshDMs);
+      socket.off('dm:notification', refreshDMs);
+      socket.off('group:message', refreshGroups);
+    };
+  }, [currentUser?.id, queryClient]);
+
   const { data: allDMs = [] } = useQuery({
     queryKey: ['quickheads-dms', currentUser?.id],
     queryFn: async () => {
@@ -94,8 +128,8 @@ export default function QuickHeads({ currentUser, onOpenDM, onOpenGroup }) {
       return dms;
     },
     enabled: !!currentUser?.id,
-    staleTime: 20000,
-    refetchInterval: 20000,
+    staleTime: 30000,
+    refetchInterval: 120000,
   });
 
   const { data: allGroupMessages = [] } = useQuery({
@@ -106,8 +140,8 @@ export default function QuickHeads({ currentUser, onOpenDM, onOpenGroup }) {
       return msgs;
     },
     enabled: !!currentUser?.id,
-    staleTime: 20000,
-    refetchInterval: 20000,
+    staleTime: 30000,
+    refetchInterval: 120000,
   });
 
   const { data: groups = [] } = useQuery({
@@ -266,6 +300,7 @@ export default function QuickHeads({ currentUser, onOpenDM, onOpenGroup }) {
             friend={chat.friend}
             latestMessage={chat.latestMessage}
             unreadCount={chat.unreadCount}
+            status={statusByUser[chat.otherUserId] || 'offline'}
             onClick={() => onOpenDM(chat.friend.friend_id, chat.conversationId)}
           />
         ))}

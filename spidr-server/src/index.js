@@ -14,6 +14,11 @@ const rateLimit    = require('express-rate-limit');
 const app    = express();
 const server = http.createServer(app);
 
+// Behind Railway's proxy, trust the first X-Forwarded-For hop so req.ip resolves
+// to the real client IP. One hop (not `true`) satisfies express-rate-limit's
+// permissive-trust-proxy guard.
+app.set('trust proxy', 1);
+
 // ── Security middleware ──────────────────────────────────────────────────────
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -55,7 +60,41 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false, skip: (req) => req.path.startsWith('/uploads') }));
+
+// ── Rate limiting (tiered, per-user) ──────────────────────────────────────────
+// Key on the authenticated user when a valid Bearer token is present so abuse
+// can't hide behind IP rotation; fall back to IP for unauthenticated requests.
+// authMiddleware is per-route, so we verify the token here independently
+// (same base64-decoded HS256 secret as middleware/auth.js + socket handlers).
+const jwt = require('jsonwebtoken');
+const { getSecret } = require('./utils/jwtSecret');
+const rateLimitKey = (req) => {
+  const header = req.headers.authorization;
+  if (header && header.startsWith('Bearer ')) {
+    try {
+      const decoded = jwt.verify(header.slice(7), getSecret());
+      const uid = decoded.userId || decoded.id;
+      if (uid) return 'user:' + uid;
+    } catch { /* invalid/expired token → fall through to IP */ }
+  }
+  return 'ip:' + (req.ip || 'unknown');
+};
+
+const isUpload = (req) => req.path === '/upload' || req.path.startsWith('/upload/');
+const isStaticUpload = (req) => req.path.startsWith('/uploads');
+const limiterBase = {
+  windowMs: 60 * 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: rateLimitKey,
+  validate: false, // custom key handles auth/IP; trust proxy is set explicitly above
+};
+
+// Each tier is its own bucket; a request only counts against the tier it matches.
+const readLimiter   = rateLimit({ ...limiterBase, max: 300, skip: (req) => req.method !== 'GET' || isStaticUpload(req) });
+const writeLimiter  = rateLimit({ ...limiterBase, max: 30,  skip: (req) => !['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || isUpload(req) });
+const uploadLimiter = rateLimit({ ...limiterBase, max: 10,  skip: (req) => !isUpload(req) });
+app.use(readLimiter, writeLimiter, uploadLimiter);
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.use('/auth',               require('./routes/auth'));

@@ -240,22 +240,32 @@ function leaveCurrentChannel(io, socket) {
  *   - Xirsys
  */
 function getTurnConfig(req, res) {
-  // CONFIGURE: Replace with your TURN server. The fallback below is
-  // STUN-only — works for ~75% of users; the rest (symmetric NAT) need TURN.
-  const config = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      // CONFIGURE: add your TURN servers here
-      // {
-      //   urls: 'turn:your-turn-server.com:3478',
-      //   username: '<short-lived-token>',
-      //   credential: '<short-lived-credential>',
-      // },
-    ],
-    iceTransportPolicy: 'all',
-  };
-  res.json(config);
+  const stun = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ];
+
+  let turn;
+  if (process.env.TURN_URL) {
+    // Operator-provided TURN (most reliable). TURN_URL may be comma-separated
+    // for multiple transports, e.g. "turn:host:3478,turns:host:5349?transport=tcp".
+    const urls = process.env.TURN_URL.split(',').map((s) => s.trim()).filter(Boolean);
+    turn = [{
+      urls,
+      username: process.env.TURN_USERNAME,
+      credential: process.env.TURN_CREDENTIAL,
+    }];
+  } else {
+    // Free public TURN fallback for beta. Rate-limited and occasionally down —
+    // set TURN_URL/TURN_USERNAME/TURN_CREDENTIAL for production-grade relay.
+    turn = [
+      { urls: 'turn:openrelay.metered.ca:80',  username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    ];
+  }
+
+  res.json({ iceServers: [...stun, ...turn], iceTransportPolicy: 'all' });
 }
 
 module.exports = { attachVoiceHandlers, getTurnConfig };

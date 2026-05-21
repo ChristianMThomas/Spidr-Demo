@@ -57,8 +57,8 @@ export default function EnhancedFeed({ currentUser }) {
   const { data: feedItems = [], isLoading } = useQuery({
     queryKey: ['enhanced-feed'],
     queryFn: () => entities.Feed.list('-created_date', 30),
-    refetchInterval: 10000,
-    staleTime: 5000,
+    refetchInterval: 60000,
+    staleTime: 30000,
   });
 
   const reactMutation = useMutation({
