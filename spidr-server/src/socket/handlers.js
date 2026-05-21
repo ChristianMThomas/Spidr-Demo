@@ -13,14 +13,8 @@ const VoiceSession = require('../models/VoiceSession');
 const Friend       = require('../models/Friend');
 const UserProfile  = require('../models/UserProfile');
 
-// Spring Boot signs with base64-decoded JWT_SECRET — must decode the same way here.
-// Matches middleware/auth.js exactly so HTTP and socket verification use the same key.
-const SPRING_BOOT_DEV_FALLBACK = 'c3BpZHItZGV2LWZhbGxiYWNrLXNlY3JldC1rZXktcGxlYXNlLXNldC1pbi1lbnY=';
-const getSecret = () => {
-  const raw = process.env.JWT_SECRET;
-  if (!raw) return Buffer.from(SPRING_BOOT_DEV_FALLBACK, 'base64');
-  return Buffer.from(raw, 'base64');
-};
+// Shared secret resolver — keeps HTTP, socket, and rate-limit verification in sync.
+const { getSecret } = require('../utils/jwtSecret');
 
 module.exports = function registerHandlers(io) {
 
