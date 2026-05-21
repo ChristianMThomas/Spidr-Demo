@@ -198,36 +198,36 @@ export default function NerveCenter({ currentUser }) {
     queryKey: ['nc-my-messages', userId],
     queryFn: () => entities.Message.filter({ author_id: userId }),
     enabled: !!userId,
-    refetchInterval: 30000,
-    staleTime: 15000,
+    refetchInterval: 120000,
+    staleTime: 60000,
   });
 
   const { data: myDMs = [] } = useQuery({
     queryKey: ['nc-my-dms', userId],
     queryFn: () => entities.DirectMessage.filter({ sender_id: userId }),
     enabled: !!userId,
-    refetchInterval: 30000,
+    refetchInterval: 120000,
   });
 
   const { data: myFriends = [] } = useQuery({
     queryKey: ['nc-my-friends', userId],
     queryFn: () => entities.Friend.filter({ user_id: userId, status: 'accepted' }),
     enabled: !!userId,
-    refetchInterval: 30000,
+    refetchInterval: 120000,
   });
 
   const { data: allServers = [] } = useQuery({
     queryKey: ['nc-all-servers'],
     queryFn: () => entities.Server.list('-created_date', 200),
-    refetchInterval: 60000,
-    staleTime: 30000,
+    refetchInterval: 120000,
+    staleTime: 60000,
   });
 
   const { data: myClips = [] } = useQuery({
     queryKey: ['nc-my-clips', userId],
     queryFn: () => entities.Clip.filter({ author_id: userId }),
     enabled: !!userId,
-    refetchInterval: 60000,
+    refetchInterval: 120000,
   });
 
   const { data: myProfile } = useQuery({

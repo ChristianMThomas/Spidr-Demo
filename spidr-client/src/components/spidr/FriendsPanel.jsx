@@ -96,7 +96,6 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     queryKey: ['unread-dms-friends', currentUser?.id],
     queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id, is_read: false }),
     enabled: !!currentUser?.id,
-    refetchInterval: 60000,
     staleTime: 15000,
   });
 
@@ -261,7 +260,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
       </div>
 
       {/* Quick Heads - Story-style DM bubbles */}
-      <QuickHeads currentUser={currentUser} onOpenDM={handleOpenDM} onOpenGroup={handleOpenGroup} />
+      <QuickHeads currentUser={currentUser} profiles={profiles} onOpenDM={handleOpenDM} onOpenGroup={handleOpenGroup} />
 
       <div className="flex-1 overflow-hidden">
         <Tabs value={tab} onValueChange={(t) => { setTab(t); onTabChange?.(t); }} className="h-full flex flex-col">
