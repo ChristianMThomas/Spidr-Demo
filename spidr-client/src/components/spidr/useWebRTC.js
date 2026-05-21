@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { getSocket } from '@/api/apiClient';
+import api, { getSocket } from '@/api/apiClient';
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -29,9 +29,10 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
   const peersRef      = useRef({});
   const localStreamRef = useRef(null);
   const socketRef     = useRef(null);
+  const iceConfigRef  = useRef({ iceServers: ICE_SERVERS });
 
   const createPeer = useCallback((socketId, isInitiator) => {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection(iceConfigRef.current);
 
     // Add local tracks to connection
     if (localStreamRef.current) {
@@ -105,6 +106,17 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
       const socket = getSocket();
       socketRef.current = socket;
 
+      // Fetch ICE servers (STUN + TURN) once per join. TURN is what lets two
+      // users on different networks connect; fall back to STUN-only on failure.
+      try {
+        const cfg = await api.get('/voice/ice');
+        if (cfg && Array.isArray(cfg.iceServers) && cfg.iceServers.length) {
+          iceConfigRef.current = cfg;
+        }
+      } catch {
+        iceConfigRef.current = { iceServers: ICE_SERVERS };
+      }
+
       socket.emit('voice:join', {
         serverId, channelId, groupId,
         userId: currentUser.id,
@@ -127,7 +139,7 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
         }
 
         if (signal.type === 'offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+          await pc.setRemoteDescription(signal.sdp);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           socket.emit('voice:signal', {
@@ -135,19 +147,22 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
             signal: { type: 'answer', sdp: pc.localDescription }
           });
         } else if (signal.type === 'answer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+          await pc.setRemoteDescription(signal.sdp);
         } else if (signal.type === 'ice') {
           await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
         }
       });
 
-      // When a peer leaves
-      socket.on('voice:peer-left', ({ userId: leftUserId }) => {
-        Object.entries(peersRef.current).forEach(([sid, pc]) => {
-          pc.close();
-        });
-        setPeers({});
-        setRemoteStreams({});
+      // When a peer leaves — close only that peer, leave the rest connected.
+      socket.on('voice:peer-left', ({ socketId }) => {
+        if (!socketId) return;
+        const pc = peersRef.current[socketId];
+        if (pc) {
+          try { pc.close(); } catch {}
+          delete peersRef.current[socketId];
+        }
+        setPeers(prev => { const n = { ...prev }; delete n[socketId]; return n; });
+        setRemoteStreams(prev => { const n = { ...prev }; delete n[socketId]; return n; });
       });
 
     } catch (err) {

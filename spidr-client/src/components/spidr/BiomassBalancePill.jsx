@@ -17,8 +17,8 @@ export default function BiomassBalancePill() {
   const { data: wallet } = useQuery({
     queryKey: ['biomass-wallet'],
     queryFn: () => biomassApi.wallet().catch(() => null),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
   });
 
   if (!wallet) return null;

@@ -17,8 +17,8 @@ export default function TopFeedBar({ currentUser, onNavigateDM }) {
   const { data: feeds = [] } = useQuery({
     queryKey: ['feeds'],
     queryFn: () => entities.Feed.list('-created_date', 10),
-    staleTime: 60000,
-    refetchInterval: 60000,
+    staleTime: 120000,
+    refetchInterval: 120000,
   });
 
   return (

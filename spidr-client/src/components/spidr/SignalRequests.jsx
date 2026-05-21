@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { ShieldAlert, Check, UserX } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,12 +8,24 @@ import { motion, AnimatePresence } from 'framer-motion';
 export default function SignalRequests({ currentUser }) {
   const queryClient = useQueryClient();
 
+  // Refresh unknown-signal DMs in real time instead of polling every 10s.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const socket = getSocket();
+    const refresh = () => queryClient.invalidateQueries({ queryKey: ['signal-requests-dms', currentUser.id] });
+    socket.on('dm:new', refresh);
+    socket.on('dm:notification', refresh);
+    return () => {
+      socket.off('dm:new', refresh);
+      socket.off('dm:notification', refresh);
+    };
+  }, [currentUser?.id, queryClient]);
+
   // DMs from non-friends (unknown senders)
   const { data: allDMs = [] } = useQuery({
     queryKey: ['signal-requests-dms', currentUser?.id],
     queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id, is_read: false }),
     enabled: !!currentUser?.id,
-    refetchInterval: 10000,
   });
 
   const { data: friends = [] } = useQuery({

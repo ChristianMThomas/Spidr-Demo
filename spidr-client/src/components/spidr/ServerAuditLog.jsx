@@ -72,7 +72,7 @@ export default function ServerAuditLog({ serverId }) {
     queryKey: ['audit-logs', serverId],
     queryFn: () => entities.ServerAuditLog.filter({ server_id: serverId }, '-created_date', 100),
     enabled: !!serverId,
-    refetchInterval: 10000
+    refetchInterval: 60000
   });
 
   const filtered = logs.filter(log => {

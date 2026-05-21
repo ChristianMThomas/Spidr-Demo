@@ -50,7 +50,6 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
     queryKey: ['unread-dms-sidebar', currentUser?.id],
     queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id, is_read: false }),
     enabled: !!currentUser?.id,
-    refetchInterval: 60000,
     staleTime: 15000,
   });
 
@@ -73,7 +72,6 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
     queryKey: ['friend-requests-sidebar', currentUser?.id],
     queryFn: () => entities.Friend.filter({ friend_id: currentUser?.id, status: 'pending_incoming' }),
     enabled: !!currentUser?.id,
-    refetchInterval: 60000,
     staleTime: 15000,
   });
 
