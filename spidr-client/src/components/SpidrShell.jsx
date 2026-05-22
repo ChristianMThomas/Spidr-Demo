@@ -211,12 +211,10 @@ export default function SpidrShell() {
         </main>
 
         {/* Top-right cluster — biomass balance + redesigned profile chip
-            (Discord-style status card matching the reference mockups). */}
+            (Discord-style status card matching the reference mockups).
+            The spider toggle on UserStatusChip hides/shows both elements. */}
         {currentUser && (
-          <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
-            <BiomassBalancePill />
-            <UserStatusChip />
-          </div>
+          <TopRightCluster />
         )}
 
         {/* Mobile bottom nav — visible at <md only */}
@@ -283,6 +281,31 @@ export default function SpidrShell() {
         />
       </div>
     </MenuProvider>
+  );
+}
+
+/**
+ * TopRightCluster — wraps BiomassBalancePill + UserStatusChip so the spider
+ * toggle on the chip hides/reveals both elements together.
+ */
+function TopRightCluster() {
+  const [hidden, setHidden] = React.useState(false);
+  return (
+    <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
+      <AnimatePresence>
+        {!hidden && (
+          <motion.div
+            key="biomass"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+          >
+            <BiomassBalancePill />
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <UserStatusChip hidden={hidden} onToggleHidden={() => setHidden(v => !v)} />
+    </div>
   );
 }
 
