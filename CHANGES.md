@@ -1020,3 +1020,164 @@ Targeted the worst desktop-only layouts. Breakpoint: `md:` (768px) — phones an
 - **Shop inventory → consuming surfaces** — purchases track inventory but the chat username renderer doesn't gate effects on ownership yet
 - **MinimizedCallBar real mute** — visual works; actual mic mute needs RTC state hoisted to shell context
 - **Voice speaking-ring per-user mapping** — useWebRTC keys by socketId; 3+ peer calls may animate wrong avatar
+
+---
+
+## 28. Profile propagation, status chip redesign, voice messages, biomass fly, server 404, AI cleanup, protocol pin
+
+### Profile picture / banner propagate everywhere (requested 4×)
+Root cause: the shell's `currentUser` was loaded once into state and never re-synced after a profile edit, so avatars bound to it stayed stale. Fixed:
+- `AppShellContext` gains `refreshCurrentUser()` and a global `spidr-profile-updated` window-event listener. The listener optimistically merges any provided patch, then re-fetches to confirm.
+- Settings profile save and the AI profile customizer both broadcast `spidr-profile-updated` on success. Result: changing your PFP/banner updates the top-right chip and every currentUser-bound avatar immediately.
+
+### Top-right profile chip → Discord-style status card (matches mockups)
+New `UserStatusChip.jsx` replacing the old hover-retract chip:
+- Collapsed: avatar wrapped in an animated rotating audio ring when in a call, with a spider-logo "threat" toggle above it to collapse/expand the whole chip.
+- Expanded: dark rounded card with avatar + name + status, settings gear, a row of 4 status dots (online/idle/dnd/invisible) that persist to the profile, a Microphone toggle, a Deafen toggle, VIEW PROFILE, and DISCONNECT.
+- Mic/deafen/disconnect dispatch `spidr-call-mute-toggle` / `spidr-call-deafen-toggle` / `spidr-call-disconnect` events. VIEW PROFILE uses the existing global `spidr-open-profile` flow.
+
+### Voice messages in servers, DMs, and group chats (requested 2×)
+- New `VoiceRecorder.jsx`: MediaRecorder-based recorder (opus/webm), live timer, 5-minute cap, preview-before-send with discard, uploads via the existing file-upload integration.
+- Wired into `MessageInputBar` (used by ServersPanel, DirectMessages, KineticChat) so it's available in all three contexts.
+- `MessageItem` and the ServersPanel inline renderer detect audio attachments (by `voice-message-` filename or audio extension) and render an inline `<audio controls>` player. Video attachments now also render as `<video controls>` instead of trying to show as an image.
+
+### Biomass fly fixes (requested 3×)
+The fly catch previously showed "+10 Biomass" but granted nothing and recorded no history. Fixed:
+- New server endpoint `POST /biomass/fly` — fixed +10 reward, 200/day fly cap, records a "Caught a fly" transaction (so it appears in history).
+- `FlyHunt` onCatch now calls the endpoint, refreshes the balance pill query, and shows the actual granted amount. Handles the daily-cap case gracefully.
+
+### Server 404 from homepage (requested 2×)
+`ServersPanel` only fetched the most-recent-50 servers; a deep-linked server outside that window showed a misleading "not available" state. Now it fetches the specific server by id directly when it isn't in the list, so homepage server cards always open.
+
+### Spidr AI cleanup
+- Removed the Bot generator tab (per request).
+- Added per-conversation delete (hover trash button + confirm) that also deletes the conversation's chat logs and selects a neighbouring chat.
+- Fixed laggy sending: `saveLog` no longer invalidates the chat-logs query after every message (that refetch was clobbering the optimistic local message list).
+- Improved message bubble rendering: `whitespace-pre-wrap break-words` so multi-line / long AI responses lay out correctly.
+
+### Spidr Protocol pinnable while navigating
+`GlobalGhostOverlay` gains a pin toggle (persisted to localStorage). When pinned, the overlay ignores `spidr-ghost-deactivate` events and stays visible across route changes; it also auto-shows on mount if it was pinned in a previous session. New pin button in the `GhostOverlay` header.
+
+### Server member list collapse/expand
+The community/member panel in a server can now be collapsed and restored via a Users button in the channel header. State persists per-session in localStorage. (Hidden by default on mobile where space is tight.)
+
+### Messages show date, not just time
+Message timestamps now render as "Today 3:42 PM", "Yesterday 9:01 AM", or "Mar 5 2:30 PM" depending on age, instead of time only.
+
+### Custom Spidr scrollbar + APEX
+- App-wide custom red-gradient scrollbar (webkit + Firefox) added in `index.css`; opt out with `.native-scroll`.
+- Confirmed the APEX settings tab is correctly gated on `apex_tier === 'apex'` and the APEX badge already renders in View Profile; the profile-propagation fix above ensures both appear promptly after subscribing.
+
+### Files added
+- `spidr-client/src/components/spidr/UserStatusChip.jsx`
+- `spidr-client/src/components/spidr/VoiceRecorder.jsx`
+
+### Files modified
+- `spidr-client/src/context/AppShellContext.jsx` — refreshCurrentUser + profile-update listener
+- `spidr-client/src/components/SpidrShell.jsx` — mount UserStatusChip
+- `spidr-client/src/components/spidr/SettingsPanel.jsx`, `AIPanel.jsx` — broadcast profile updates; AI tab cleanup, delete chats, faster send
+- `spidr-client/src/components/spidr/ServersPanel.jsx` — server-by-id fetch (404 fix), fly grant, member-list collapse, audio/video render
+- `spidr-client/src/components/spidr/MessageInputBar.jsx`, `MessageItem.jsx` — voice messages
+- `spidr-client/src/components/spidr/GhostOverlay.jsx`, `GlobalGhostOverlay.jsx` — protocol pin
+- `spidr-client/src/api/apiClient.js` — biomass.catchFly
+- `spidr-client/src/index.css` — ring-spin keyframe + custom scrollbar
+- `spidr-server/src/routes/biomass.js` — /biomass/fly endpoint
+
+### Still pending from this request batch (next pass)
+THE WEB fixes (remove FYP tag, comment photos, username colors on comments, right-click on posts/comments, sling-to-DM, saving, user search + follow); group-chat accessibility + notifications; voice-chat polish (animation, laggy join/leave, minimize, mobile); right-click in server-settings members + AI; the spidr-style notifications system for new messages/DMs/friend-adds/server-events/@s.
+
+### Caveats
+- **Deafen / mic toggles in the status chip are decorative** unless a live call hook consumes the events — same limitation as the minimized call bar (real mute needs RTC state hoisted to shell context).
+- **Voice message duration** is captured at record time but not displayed in the player (the browser's native audio control shows its own duration once loaded).
+- **Not browser-tested** — all syntax-clean, but the MediaRecorder flow and the new status-chip popover positioning haven't been verified live.
+
+## 29. Sidebar position, floating dock removal, APEX unlock + entry protocol, sling-to-DM, profile widget hardening, THE WEB user search/follow
+
+### Sidebar position (left / right)
+New `SidebarPositionCard` in Settings → Appearance lets users dock the primary nav sidebar to the left or right edge. Persisted in `localStorage` (`spidr_sidebar_side`) and applied live via the `spidr-sidebar-side` event — `SpidrShell` uses flex `order` at md+ and flips the mobile drawer's anchor + slide direction. Replaced the now-defunct dock preferences card.
+
+### Floating dock removed
+Removed the `FloatingDock` import and render from `SpidrShell`. No dangling imports remain (the only other mentions are comments). The `FloatingDock.jsx` file is left in place but unused.
+
+### APEX unlock verified + entry protocol wired
+Confirmed the subscription path (`ApexCommand`) sets `apex_tier: 'apex'` and invalidates the profile queries, so subscribing genuinely unlocks the gated APEX tab and its features. Found `entry_protocol` was write-only (saved, never applied) and wired protocol-driven entrance animations (none / thunder strike / ripple wave / digital glitch) into `CallOverlay`'s `HangingFeed`, including a flash overlay for Thunder Strike. The other APEX features (thread_skin, show_aura, custom_bg, chroma color, squad overclock) were already consumed.
+
+### Sling-to-DM fixed (root cause)
+Added a shared `dmConversationId()` helper to `lib/utils.js` (canonical sorted-ids-joined-by-'-' format). `ShareWeb` previously used '_' (wrong conversation) and invalidated a dead query key (`directMessages`). Pointed it at the helper, fixed the keys to `dm-messages` / `all-dms` / `unread-dms`, and made the modal close on success.
+
+### Profile widget hardening (Vibe Check / Neon Sign)
+`handleWidgetSave` in `HolographicProfile` now guards against a not-yet-loaded profile and wraps the update in try/catch with an error toast, so the activity ("Vibe Check") and pronouns ("Neon Sign") edits no longer fail silently. The Bio tab is the default tab, so the widgets are reachable. NOTE: original symptom was vaguely specified — needs live verification.
+
+### THE WEB user search + follow
+New `WebUserResults` component shows matching operatives (by display name / username) as an overlay above the feed when searching THE WEB or LINKED NODES. Each result opens the user's profile on click and has a Link (follow) button that reuses the existing Friend social graph (the dual pending_outgoing / pending_incoming rows), showing Linked / Pending / Link state.
+
+### Corrected from previous note
+An earlier in-session claim that "none of last session's THE WEB work survived" was based on a misread marker check. In fact §28 already contained the right-click `web_post`/`web_comment` menus (`SpidrMenu`), the comment username colors (`RichComments` + `buildUsernameStyle`), and the improved saving toggle (`ClipFeed` `saveMut`). The only genuinely-broken piece was the ShareWeb sling, fixed above. The FYP tag was already absent from `FeedPanel`.
+
+### Files added
+- spidr-client/src/components/feed/WebUserResults.jsx
+
+### Files modified
+- spidr-client/src/components/SpidrShell.jsx
+- spidr-client/src/components/spidr/SettingsPanel.jsx
+- spidr-client/src/components/spidr/CallOverlay.jsx
+- spidr-client/src/components/spidr/ShareWeb.jsx
+- spidr-client/src/lib/utils.js
+- spidr-client/src/components/spidr/HolographicProfile.jsx
+- spidr-client/src/components/spidr/FeedPanel.jsx
+
+### Verification
+All added/modified .jsx/.js files pass esbuild parse checks. NOT browser-tested — entrance animations, sidebar repositioning, the sling round-trip, and the user-search overlay layout need live verification.
+
+### Still pending (next pass)
+Comment-photo end-to-end verification; group-chat accessibility + notifications; voice-chat polish (animation, laggy join/leave, minimize, mobile); right-click in server-settings members + AI; the notifications system (new messages / DMs / friend-adds / server-events / @s).
+
+## 30. Voice fix — peers couldn't hear each other (dropped ICE candidates)
+
+### Root cause
+Mic capture and the speaking indicator run on the local stream, independent of the peer connection — so the app showed users "speaking" while no audio ever flowed between them. The break was in `useWebRTC.js`: the `voice:signal` handler is async and Socket.IO doesn't serialize its invocations, so ICE candidates arriving right behind an offer ran `addIceCandidate()` before `setRemoteDescription()` had resolved. Those calls rejected and were swallowed by a `.catch(() => {})`, dropping early candidates and leaving the peers unable to find a working network path → silence in both directions. TURN was already configured (openrelay fallback in getTurnConfig), so NAT traversal was not the cause.
+
+### Fix (spidr-client/src/components/spidr/useWebRTC.js)
+- Buffer ICE candidates per peer (`pendingCandidatesRef`) when no remote description is set yet, and flush them immediately after `setRemoteDescription` succeeds (on both offer and answer paths).
+- Added lightweight perfect-negotiation glare handling: a stable socket-id comparison picks a polite peer; on an offer collision the impolite side ignores the incoming offer and the polite side rolls back its own before accepting. Politeness is set both when we initiate (peer-joined) and when we answer.
+- Defensively `socket.off` the voice listeners before re-registering on join, and clear the candidate/glare buffers on leave, so rejoins/reconnects can't stack duplicate handlers.
+
+### Verification
+esbuild parse check passes. NOT live-tested — diagnosis is static; the dropped-ICE-before-remote-description pattern is the textbook cause of "mic works, signaling works, no audio." A two-browser call is needed to confirm.
+
+## 31. Per-user volume control in voice calls
+
+### Feature
+Each member can now set how loud every other member is, independently and for themselves only. On each participant tile (other real users — not yourself, not Spidr AI) a hover-revealed control shows a speaker icon (click to locally mute/unmute) and a 0–100% slider. Volume is keyed by user_id and persisted in localStorage (`spidr_user_volumes`), so it survives reconnects (where socket ids change) and future sessions.
+
+### Supporting change (socket id ↔ user id mapping)
+The WebRTC mesh keyed peers by socket id with no reliable user id on the answering side, so the UI couldn't tell which stream belonged to which member. Offers and answers now carry `fromUserId`, and the receiver records it on the peer entry. `VoiceChannel` builds a socketId→userId map from `rtc.peers` and applies each member's chosen volume to the correct `<audio>` element (on attach and whenever the volume changes).
+
+### Files modified
+- spidr-client/src/components/spidr/VoiceChannel.jsx (volume state, persistence, slider UI, volume application)
+- spidr-client/src/components/spidr/useWebRTC.js (carry fromUserId in offer/answer; store peer userId)
+
+### Verification
+esbuild parse checks pass for both files. NOT live-tested — needs a real multi-user call to confirm the slider audibly changes a specific peer's level and that the socket→user mapping resolves on both initiator and answerer sides.
+
+## 32. Voice connection/volume debug logging (toggleable)
+
+### Feature
+Added opt-in diagnostics to help debug voice in a live multi-user test. All logs are prefixed `[voice]` and only fire when enabled, so production stays silent.
+
+Enable in the browser console:  `localStorage.setItem('spidr_voice_debug','1')` then rejoin the call.
+Disable: `localStorage.removeItem('spidr_voice_debug')`.
+
+### What it logs
+- useWebRTC: local media capture (audio/video track counts), ICE config source with an explicit warning if it's STUN-only (no TURN → relay fails across networks), peer-joined events, peer creation (initiator/answerer) + whether local tracks were attached, offer/answer send+receive with user ids, ICE candidates buffered before remote-description vs flushed (with counts), glare detection + politeness, ontrack arrivals (audio track count), and live iceConnectionState / iceGatheringState / connectionState transitions per peer.
+- VoiceChannel: the resolved volume applied to each audio element, with the socket→user mapping (flags when a stream's user is still unmapped so it's using the default level).
+
+### How to read it
+A healthy 1:1 connect looks like: got local media → peer-joined/offer → ontrack (audioTracks: 1) → iceConnectionState checking → connected → connectionState connected. If you see offers/answers but iceConnectionState never leaves "checking"/"failed", it's a relay problem (check the TURN warning). If you never see ontrack, tracks aren't being added/negotiated.
+
+### Files modified
+- spidr-client/src/components/spidr/useWebRTC.js
+- spidr-client/src/components/spidr/VoiceChannel.jsx
+
+### Verification
+esbuild parse checks pass for both files.

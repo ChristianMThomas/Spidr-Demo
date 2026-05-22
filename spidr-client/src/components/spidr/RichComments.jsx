@@ -10,6 +10,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import EmojiPicker from './EmojiPicker';
 import HolographicProfile from './HolographicProfile';
+import { buildUsernameStyle } from '@/lib/usernameStyle';
+import { useMenu } from '@/components/MenuContext';
 
 // Parse emoji syntax :emoji_name: -> <img> or emoji
 const parseEmojis = (text, serverEmojis = []) => {
@@ -46,7 +48,7 @@ const parseEmojis = (text, serverEmojis = []) => {
   return parts;
 };
 
-function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, level = 0 }) {
+function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, level = 0, profilesById = {} }) {
   const queryClient = useQueryClient();
   const [showReplyForm, setShowReplyForm] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -63,12 +65,52 @@ function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, leve
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comments', clipId] })
   });
 
+  const { triggerMenu } = useMenu();
+  const isOwner = (comment.author_id || comment.user_id) === currentUser?.id;
+
+  const deleteMutation = useMutation({
+    mutationFn: () => entities.Comment.delete(comment.id),
+    onSuccess: () => {
+      toast.success('Comment deleted');
+      queryClient.invalidateQueries({ queryKey: ['comments', clipId] });
+    },
+    onError: () => toast.error("Couldn't delete comment"),
+  });
+
+  // Right-click on a comment → web_comment menu. Match on comment id so only
+  // the targeted comment reacts to the dispatched action.
+  React.useEffect(() => {
+    const handler = (e) => {
+      const { action, data, type } = e.detail || {};
+      if (type !== 'web_comment' || data?.id !== comment.id) return;
+      if (action === 'reply') {
+        setShowReplyForm(true);
+      } else if (action === 'copy') {
+        navigator.clipboard?.writeText(comment.content || '').catch(() => {});
+        toast.success('Comment copied');
+      } else if (action === 'profile') {
+        setShowProfile(true);
+      } else if (action === 'report') {
+        toast.success('Comment reported to moderators');
+      } else if (action === 'delete' && isOwner) {
+        deleteMutation.mutate();
+      }
+    };
+    window.addEventListener('spidr-menu-action', handler);
+    return () => window.removeEventListener('spidr-menu-action', handler);
+  }, [comment.id, isOwner]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const hasLiked = comment.likes?.includes(currentUser?.id);
   const parsedContent = parseEmojis(comment.content, serverEmojis);
+  const commenterProfile = profilesById[comment.author_id] || profilesById[comment.user_id];
+  const nameStyle = commenterProfile ? buildUsernameStyle(commenterProfile, { fallbackColor: '#ffffff' }) : undefined;
 
   return (
     <>
-      <div className={`${level > 0 ? 'ml-8 mt-3' : 'mt-4'}`}>
+      <div
+        className={`${level > 0 ? 'ml-8 mt-3' : 'mt-4'}`}
+        onContextMenu={(e) => triggerMenu(e, 'web_comment', { id: comment.id, author_id: comment.author_id || comment.user_id, is_owner: isOwner })}
+      >
         <div className="flex gap-3">
           <Avatar 
             className="w-8 h-8 flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-red-500 transition-all"
@@ -88,6 +130,7 @@ function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, leve
               <div className="flex items-center gap-2 mb-1">
                 <span 
                   className="font-semibold text-white text-sm hover:underline cursor-pointer"
+                  style={nameStyle}
                   onClick={() => setShowProfile(true)}
                 >
                   {comment.author_name || comment.user_name}
@@ -327,6 +370,19 @@ export default function RichComments({ clipId, currentUser }) {
 
   const allServerEmojis = servers.flatMap(s => s.emojis || []);
 
+  // Load profiles so each commenter's name renders in their own
+  // color/effect/font (buildUsernameStyle). Keyed by user_id for O(1) lookup.
+  const { data: allProfiles = [] } = useQuery({
+    queryKey: ['all-profiles-for-comments'],
+    queryFn: () => entities.UserProfile.list(),
+    staleTime: 60000,
+  });
+  const profilesById = React.useMemo(() => {
+    const map = {};
+    (Array.isArray(allProfiles) ? allProfiles : []).forEach(p => { if (p?.user_id) map[p.user_id] = p; });
+    return map;
+  }, [allProfiles]);
+
   // Organize comments into threads
   const rootComments = comments.filter(c => !c.parent_comment_id);
   const getReplies = (commentId) => 
@@ -355,6 +411,7 @@ export default function RichComments({ clipId, currentUser }) {
                   currentUser={currentUser}
                   serverEmojis={allServerEmojis}
                   level={0}
+                  profilesById={profilesById}
                 />
                 
                 {/* Nested Replies */}
@@ -366,6 +423,7 @@ export default function RichComments({ clipId, currentUser }) {
                       currentUser={currentUser}
                       serverEmojis={allServerEmojis}
                       level={1}
+                  profilesById={profilesById}
                     />
                     
                     {/* Second level replies */}
@@ -377,6 +435,7 @@ export default function RichComments({ clipId, currentUser }) {
                         currentUser={currentUser}
                         serverEmojis={allServerEmojis}
                         level={2}
+                  profilesById={profilesById}
                       />
                     ))}
                   </div>

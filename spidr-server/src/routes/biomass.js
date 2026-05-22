@@ -75,6 +75,31 @@ router.post('/daily', authMW, async (req, res) => {
   }
 });
 
+// ── POST /biomass/fly — reward for catching the hunt fly ───────────────────
+// Server-authoritative fixed reward so clients can't grant arbitrary amounts.
+// Capped at 200/day from flies to prevent farming. Records a transaction so
+// it shows in history (fixes "biomass history for catching fly").
+router.post('/fly', authMW, async (req, res) => {
+  try {
+    const w = await getOrCreateWallet(req.user.id);
+    const reward = 10;
+    const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    const earnedFromFliesToday = (w.transactions || [])
+      .filter(t => t.amount > 0 && t.reason === 'Caught a fly' && new Date(t.created_date) >= dayStart)
+      .reduce((s, t) => s + t.amount, 0);
+    if (earnedFromFliesToday >= 200) {
+      return res.status(429).json({ error: 'Daily fly reward cap reached', balance: w.balance, capped: true });
+    }
+    w.balance += reward;
+    w.lifetime_earned += reward;
+    pushTx(w, reward, 'Caught a fly');
+    await w.save();
+    res.json({ amount: reward, balance: w.balance, wallet: w });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /biomass/spend — atomic spend with FX check ───────────────────────
 router.post('/spend', authMW, async (req, res) => {
   try {

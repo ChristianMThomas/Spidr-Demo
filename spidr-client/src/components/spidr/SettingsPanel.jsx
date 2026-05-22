@@ -109,7 +109,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
         return entities.UserProfile.create({ ...data, user_id: currentUser?.id });
       }
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       // ['userProfile', userId] is the canonical view-side key — invalidate it
       // explicitly, then the broader 'userProfile' prefix as a safety net so
       // every cached profile view refreshes.
@@ -117,6 +117,11 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
       queryClient.invalidateQueries({ queryKey: ['userProfile'] });
       queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
+      // Broadcast so the shell currentUser (and every avatar bound to it,
+      // including the top-right chip) re-syncs immediately app-wide.
+      window.dispatchEvent(new CustomEvent('spidr-profile-updated', {
+        detail: { profile: { ...formData, ...(saved || {}) } },
+      }));
       toast.success('Profile updated!');
     }
   });
@@ -372,8 +377,8 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
           <TabsContent value="appearance" className="p-6 m-0">
             <h2 className="text-2xl font-bold text-white mb-6">Appearance</h2>
             <div className="space-y-6 max-w-lg">
-              {/* Floating dock preferences */}
-              <DockPreferencesCard />
+              {/* Sidebar position (left / right) */}
+              <SidebarPositionCard />
 
               <div className="bg-zinc-800/50 backdrop-blur-xl rounded-2xl p-6 border border-red-900/20">
                 <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
@@ -1093,59 +1098,60 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
 }
 
 /**
- * DockPreferencesCard — toggles the FloatingDock visibility and collapsed
- * state. Both preferences are persisted in localStorage and read by
- * FloatingDock on mount. We fire a custom event so the dock updates
- * without requiring a page reload.
+ * SidebarPositionCard — lets the user dock the primary navigation sidebar to
+ * the left or right edge of the app. The choice is persisted in localStorage
+ * and broadcast via the `spidr-sidebar-side` event so SpidrShell repositions
+ * the sidebar live without a page reload.
  */
-function DockPreferencesCard() {
-  const [enabled, setEnabled] = React.useState(() => {
-    try { return localStorage.getItem('spidr_dock_enabled') !== 'false'; } catch { return true; }
-  });
-  const [collapsed, setCollapsed] = React.useState(() => {
-    try { return localStorage.getItem('spidr_dock_collapsed') === 'true'; } catch { return false; }
+function SidebarPositionCard() {
+  const [side, setSide] = React.useState(() => {
+    try { return localStorage.getItem('spidr_sidebar_side') === 'right' ? 'right' : 'left'; }
+    catch { return 'left'; }
   });
 
-  const persist = (k, v) => {
-    try { localStorage.setItem(k, String(v)); } catch {}
-    window.dispatchEvent(new Event('spidr-dock-pref-changed'));
+  const choose = (next) => {
+    setSide(next);
+    try { localStorage.setItem('spidr_sidebar_side', next); } catch {}
+    window.dispatchEvent(new CustomEvent('spidr-sidebar-side', { detail: { side: next } }));
   };
+
+  const options = [
+    { value: 'left', label: 'Left' },
+    { value: 'right', label: 'Right' },
+  ];
 
   return (
     <div className="bg-zinc-800/50 backdrop-blur-xl rounded-2xl p-6 border border-red-900/20">
       <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
         <Sparkles className="w-5 h-5 text-red-500" />
-        Floating Dock
+        Sidebar Position
       </h3>
       <p className="text-zinc-400 text-xs mb-4">
-        The bar at the bottom of the screen with quick-action buttons.
+        Choose which edge of the app the navigation sidebar docks to.
       </p>
-      <div className="space-y-3">
-        <label className="flex items-center justify-between gap-3 cursor-pointer">
-          <div className="min-w-0">
-            <p className="text-white text-sm font-semibold">Show floating dock</p>
-            <p className="text-zinc-500 text-xs">Always visible at the bottom of every page.</p>
-          </div>
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => { setEnabled(e.target.checked); persist('spidr_dock_enabled', e.target.checked); }}
-            className="w-5 h-5 accent-red-600 cursor-pointer flex-shrink-0"
-          />
-        </label>
-        <label className={`flex items-center justify-between gap-3 ${enabled ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}>
-          <div className="min-w-0">
-            <p className="text-white text-sm font-semibold">Start collapsed</p>
-            <p className="text-zinc-500 text-xs">Shows only a handle until you expand it. You can also use the chevron above the dock to toggle anytime.</p>
-          </div>
-          <input
-            type="checkbox"
-            checked={collapsed}
-            disabled={!enabled}
-            onChange={(e) => { setCollapsed(e.target.checked); persist('spidr_dock_collapsed', e.target.checked); }}
-            className="w-5 h-5 accent-red-600 cursor-pointer flex-shrink-0"
-          />
-        </label>
+      <div className="grid grid-cols-2 gap-3">
+        {options.map((opt) => {
+          const active = side === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => choose(opt.value)}
+              className={`relative rounded-xl border p-3 transition-all ${
+                active
+                  ? 'border-red-500 bg-red-600/15 shadow-[0_0_15px_rgba(220,38,38,0.25)]'
+                  : 'border-white/10 bg-zinc-900/40 hover:border-white/20'
+              }`}
+            >
+              {/* Mini layout preview */}
+              <div className="flex h-10 w-full gap-1 mb-2">
+                <div className={`h-full w-1/4 rounded bg-red-500/60 ${opt.value === 'right' ? 'order-2' : 'order-1'}`} />
+                <div className={`h-full flex-1 rounded bg-white/10 ${opt.value === 'right' ? 'order-1' : 'order-2'}`} />
+              </div>
+              <span className={`text-sm font-semibold ${active ? 'text-white' : 'text-zinc-400'}`}>{opt.label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
