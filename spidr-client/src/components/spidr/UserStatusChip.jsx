@@ -30,12 +30,11 @@ const STATUS_OPTIONS = [
   { id: 'invisible', color: '#6b7280', label: 'Invisible' },
 ];
 
-export default function UserStatusChip() {
+export default function UserStatusChip({ hidden: collapsedHidden = false, onToggleHidden }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { currentUser, activeCall, setActiveCall, setIsCallMinimized } = useAppShell();
   const [expanded, setExpanded] = useState(false);
-  const [collapsedHidden, setCollapsedHidden] = useState(false); // toggled by the spider "threat"
   const [muted, setMuted] = useState(false);
   const [deafened, setDeafened] = useState(false);
   const cardRef = useRef(null);
@@ -121,9 +120,9 @@ export default function UserStatusChip() {
 
   return (
     <div className="relative" ref={cardRef}>
-      {/* Spider "threat" toggle above the icon — collapses/expands the chip */}
+      {/* Spider "threat" toggle above the icon — collapses/expands the chip + biomass */}
       <button
-        onClick={() => setCollapsedHidden((v) => !v)}
+        onClick={onToggleHidden}
         className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 w-6 h-6 flex items-center justify-center rounded-full bg-black/70 border border-red-900/40 hover:border-red-500 transition-colors"
         title={collapsedHidden ? 'Show profile' : 'Hide profile'}
       >
