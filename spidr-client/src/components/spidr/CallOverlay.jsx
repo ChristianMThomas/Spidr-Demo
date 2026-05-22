@@ -23,6 +23,7 @@ export default function CallOverlay({ participants = [], onEndCall, onToggleMic,
 
   const isApexUser = currentProfile?.apex_tier === 'apex';
   const threadSkin = currentProfile?.apex_features?.thread_skin || 'default';
+  const myEntryProtocol = currentProfile?.apex_features?.entry_protocol || 'none';
 
   const handleStartStream = async (sourceId) => {
     setShowStreamSelector(false);
@@ -49,7 +50,14 @@ export default function CallOverlay({ participants = [], onEndCall, onToggleMic,
       {/* 2. THE HANGING VIDEO FEEDS */}
       <div className="flex justify-center items-start h-full pt-0 gap-6 px-10">
         {participants.map((user, index) => (
-          <HangingFeed key={user.user_id} user={user} index={index} minimized={minimized} threadSkin={threadSkin} squadOverclock={squadOverclock} />
+          <HangingFeed
+            key={user.user_id}
+            user={user.user_id === currentUser?.id ? { ...user, entry_protocol: user.entry_protocol || user.apex_features?.entry_protocol || myEntryProtocol } : user}
+            index={index}
+            minimized={minimized}
+            threadSkin={threadSkin}
+            squadOverclock={squadOverclock}
+          />
         ))}
       </div>
 
@@ -156,9 +164,29 @@ const HangingFeed = ({ user, index, minimized, threadSkin = 'default', squadOver
     ? 'bg-[#FF3333] shadow-[0_0_10px_#FF3333]' 
     : threadStyles[threadSkin] || threadStyles.default; 
 
+  // Entry Protocol — the APEX "entrance animation when joining voice". Read
+  // from the participant's own apex_features (falls back to none). Each
+  // protocol defines how the video capsule animates in.
+  const entryProtocol = user.entry_protocol || user.apex_features?.entry_protocol || 'none';
+  const entryAnim = {
+    none:    { initial: { y: -100, opacity: 0 },              animate: { y: 0, opacity: 1 },                       transition: { delay: index * 0.1, type: 'spring' } },
+    thunder: { initial: { y: -180, opacity: 0, scale: 1.15 }, animate: { y: 0, opacity: 1, scale: 1 },              transition: { delay: index * 0.1, type: 'spring', stiffness: 320, damping: 12 } },
+    ripple:  { initial: { scale: 0, opacity: 0 },             animate: { scale: [0, 1.12, 1], opacity: 1 },         transition: { delay: index * 0.1, duration: 0.7, ease: 'easeOut' } },
+    glitch:  { initial: { x: -24, opacity: 0 },               animate: { x: [-24, 18, -10, 6, 0], opacity: [0, 1, 0.6, 1, 1] }, transition: { delay: index * 0.1, duration: 0.5, ease: 'linear' } },
+  };
+  const capsuleEntry = entryAnim[entryProtocol] || entryAnim.none;
+
   return (
     <div className="relative flex flex-col items-center">
-      
+      {/* Thunder Strike flash overlay on entrance */}
+      {entryProtocol === 'thunder' && (
+        <motion.div
+          className="absolute inset-0 z-30 pointer-events-none bg-yellow-200"
+          initial={{ opacity: 0.85 }}
+          animate={{ opacity: 0 }}
+          transition={{ delay: index * 0.1, duration: 0.45 }}
+        />
+      )}
       {/* THE SILK THREAD */}
       <motion.div 
         className={`w-[2px] origin-top transition-colors duration-300 ${threadClass}`}
@@ -173,9 +201,9 @@ const HangingFeed = ({ user, index, minimized, threadSkin = 'default', squadOver
       {/* THE VIDEO CAPSULE */}
       <motion.div
         className="relative group"
-        initial={{ y: -100, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: index * 0.1, type: "spring" }}
+        initial={capsuleEntry.initial}
+        animate={capsuleEntry.animate}
+        transition={capsuleEntry.transition}
       >
         {/* Swaying Animation Container */}
         <motion.div

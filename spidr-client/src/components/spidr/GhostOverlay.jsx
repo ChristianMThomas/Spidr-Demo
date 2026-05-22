@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, GripVertical } from 'lucide-react';
+import { X, GripVertical, Pin } from 'lucide-react';
 import { getSpidrProtocolSettings } from './SpidrProtocolSettings';
 
 const BORDER_COLORS = {
@@ -54,7 +54,7 @@ const GhostMessage = ({ msg, settings }) => {
   );
 };
 
-export default function GhostOverlay({ messages, active, onClose, conversationName }) {
+export default function GhostOverlay({ messages, active, onClose, conversationName, pinned, onTogglePin }) {
   const [settings, setSettings] = useState(getSpidrProtocolSettings);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -139,6 +139,15 @@ export default function GhostOverlay({ messages, active, onClose, conversationNa
           <div className={`w-2 h-2 ${colors.dot} rounded-full animate-pulse`} />
           Spidr Protocol
         </div>
+        {onTogglePin && (
+          <button
+            onClick={onTogglePin}
+            className={`w-8 h-8 bg-black/80 backdrop-blur-md border-2 ${colors.accent} rounded-lg flex items-center justify-center transition-all pointer-events-auto ${pinned ? 'bg-red-600/40' : 'hover:bg-red-600/20'}`}
+            title={pinned ? 'Unpin (let it close on navigation)' : 'Pin (keep visible across the app)'}
+          >
+            <Pin className={`w-4 h-4 ${pinned ? 'text-red-300 fill-red-300' : colors.text}`} />
+          </button>
+        )}
         <button 
           onClick={onClose}
           className={`w-8 h-8 bg-black/80 backdrop-blur-md border-2 ${colors.accent} rounded-lg flex items-center justify-center hover:bg-red-600 transition-all pointer-events-auto`}

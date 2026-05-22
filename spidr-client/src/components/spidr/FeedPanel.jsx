@@ -22,6 +22,7 @@ import DataDisc from '../feed/DataDisc';
 import ScrollingAudioBanner from '../feed/ScrollingAudioBanner';
 import FrequencyArchive from '../feed/FrequencyArchive';
 import SoundsBrowser from '../feed/SoundsBrowser';
+import WebUserResults from '../feed/WebUserResults';
 
 // ── Debounce hook ─────────────────────────────────────────────────────────────
 function useDebounce(value, delay) {
@@ -138,9 +139,6 @@ export default function FeedPanel({ currentUser }) {
               >
                 <Icon className="w-3.5 h-3.5" />
                 {label}
-                {val === 'main' && feedData?.clipIds?.length > 0 && (
-                  <span className="ml-0.5 px-1 py-0.5 rounded bg-red-600/20 text-red-400 text-[8px] font-black border border-red-500/20">FYP</span>
-                )}
               </button>
             ))}
           </div>
@@ -153,6 +151,14 @@ export default function FeedPanel({ currentUser }) {
             />
           )}
         </div>
+
+        {/* User search results — overlay above the feed when searching THE
+            WEB or LINKED NODES. Lets users find + link (follow) operatives. */}
+        {(activeTab === 'main' || activeTab === 'friends-feed') && debouncedQ.trim() && (
+          <div className="absolute top-12 left-0 right-0 z-20 max-h-[55%] overflow-y-auto bg-gradient-to-b from-black/95 to-black/80 backdrop-blur-md border-b border-red-900/30 pb-4">
+            <WebUserResults query={debouncedQ} currentUser={currentUser} />
+          </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 flex items-center justify-center overflow-hidden">

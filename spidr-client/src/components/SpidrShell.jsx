@@ -5,13 +5,13 @@ import { Toaster, toast } from 'sonner';
 import { useAppShell } from '@/context/AppShellContext';
 import { useGlobalMenuActions } from '@/hooks/useGlobalMenuActions';
 import Sidebar from '@/components/spidr/Sidebar';
-import FloatingDock from '@/components/spidr/FloatingDock';
 import { MenuProvider } from '@/components/MenuContext';
 import SpidrMenu from '@/components/ui/SpidrMenu';
 import HolographicProfile from '@/components/spidr/HolographicProfile';
 import GlobalGhostOverlay from '@/components/spidr/GlobalGhostOverlay';
 import MobileBottomBar from '@/components/spidr/MobileBottomBar';
 import BiomassBalancePill from '@/components/spidr/BiomassBalancePill';
+import UserStatusChip from '@/components/spidr/UserStatusChip';
 
 /**
  * SpidrShell — the persistent app frame that surrounds every routed page.
@@ -60,6 +60,23 @@ export default function SpidrShell() {
   const navigate = useNavigate();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Which edge the primary navigation sidebar docks to. Configurable from
+  // Settings → Appearance. Persisted in localStorage and updated live via the
+  // `spidr-sidebar-side` event so the toggle takes effect without a reload.
+  const [sidebarSide, setSidebarSide] = useState(() => {
+    try { return localStorage.getItem('spidr_sidebar_side') === 'right' ? 'right' : 'left'; }
+    catch { return 'left'; }
+  });
+  useEffect(() => {
+    const handler = (e) => {
+      const side = e.detail?.side === 'right' ? 'right' : 'left';
+      setSidebarSide(side);
+    };
+    window.addEventListener('spidr-sidebar-side', handler);
+    return () => window.removeEventListener('spidr-sidebar-side', handler);
+  }, []);
+  const sidebarRight = sidebarSide === 'right';
 
   // Close the mobile drawer whenever the route changes.
   useEffect(() => {
@@ -158,9 +175,14 @@ export default function SpidrShell() {
         })()}
 
         {/* Persistent Sidebar — visible at md+ as a fixed column, slides in
-            as a drawer on mobile when the user taps Menu in the bottom bar. */}
-        <div className={`fixed md:relative inset-y-0 left-0 z-40 md:z-30 flex-shrink-0 transform transition-transform duration-200 md:transition-none ${
-          mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+            as a drawer on mobile when the user taps Menu in the bottom bar.
+            Docks to the left by default; users can move it to the right edge
+            from Settings → Appearance (md+ uses flex order; the mobile drawer
+            flips its anchor + slide direction to match). */}
+        <div className={`fixed md:relative inset-y-0 z-40 md:z-30 flex-shrink-0 transform transition-transform duration-200 md:transition-none ${
+          sidebarRight
+            ? `right-0 md:order-2 ${mobileSidebarOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`
+            : `left-0 md:order-1 ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`
         }`}>
           <Sidebar
             activeTab={activeTab}
@@ -178,7 +200,7 @@ export default function SpidrShell() {
 
         {/* Per-page content. Reserve room at the bottom on mobile so the
             bottom nav doesn't cover content. */}
-        <main className="flex-1 min-w-0 min-h-0 flex flex-col relative z-20 pb-16 md:pb-0">
+        <main className={`flex-1 min-w-0 min-h-0 flex flex-col relative z-20 pb-16 md:pb-0 ${sidebarRight ? 'md:order-1' : 'md:order-2'}`}>
           <React.Suspense fallback={
             <div className="flex-1 flex items-center justify-center">
               <div className="w-8 h-8 border-4 border-zinc-700 border-t-red-500 rounded-full animate-spin" />
@@ -188,43 +210,14 @@ export default function SpidrShell() {
           </React.Suspense>
         </main>
 
-        {/* Top-right cluster — biomass balance + profile chip. The chip
-            retracts to a smaller form on hover. */}
+        {/* Top-right cluster — biomass balance + redesigned profile chip
+            (Discord-style status card matching the reference mockups). */}
         {currentUser && (
-          <div className="fixed top-3 right-4 z-40 flex items-center gap-2">
+          <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
             <BiomassBalancePill />
-            <div className="group">
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                onClick={() => navigate('/settings')}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-full bg-black/60 backdrop-blur-sm border border-white/10 hover:border-red-500/40 transition-all"
-              >
-                {currentUser.avatar_url ? (
-                  <img
-                    src={currentUser.avatar_url}
-                    alt={currentUser.display_name || 'You'}
-                    className="w-7 h-7 rounded-full object-cover transition-all group-hover:w-5 group-hover:h-5"
-                  />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-red-600 to-red-900 flex items-center justify-center text-white text-xs font-bold transition-all group-hover:w-5 group-hover:h-5">
-                    {(currentUser.display_name || currentUser.full_name || currentUser.username || '?').charAt(0).toUpperCase()}
-                  </div>
-                )}
-                {/* Name retracts on hover so the chip shrinks to a small dot */}
-                <span className="text-xs text-white font-semibold max-w-[120px] overflow-hidden whitespace-nowrap pr-1 transition-all group-hover:max-w-0 group-hover:opacity-0 group-hover:pr-0">
-                  {currentUser.display_name || currentUser.full_name || currentUser.username}
-                </span>
-              </motion.button>
-            </div>
+            <UserStatusChip />
           </div>
         )}
-
-        {/* Persistent floating dock — shows quick-actions, never unmounts */}
-        {/* Persistent floating dock — desktop only. On mobile the bottom
-            navigation bar below takes over the same job. */}
-        <div className="hidden md:block">
-          <FloatingDock activeTab={activeTab} setActiveTab={setActiveTab} />
-        </div>
 
         {/* Mobile bottom nav — visible at <md only */}
         <MobileBottomBar

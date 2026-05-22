@@ -236,6 +236,7 @@ export const algorithm = {
 export const biomass = {
   wallet:    ()                  => api.get('/biomass/wallet'),
   claimDaily:()                  => api.post('/biomass/daily', {}),
+  catchFly:  ()                  => api.post('/biomass/fly', {}),
   spend:     (amount, reason)    => api.post('/biomass/spend', { amount, reason }),
   shop:      ()                  => api.get('/biomass/shop'),
   buy:       (itemId)            => api.post('/biomass/shop/buy', { itemId }),

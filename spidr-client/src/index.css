@@ -124,3 +124,35 @@
 .spidr-speaking {
   animation: spidr-speaking-ring 1s ease-out infinite;
 }
+
+/* Profile chip — rotating audio ring around the avatar while in a voice call. */
+@keyframes spidr-ring-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── Custom Spidr scrollbar ────────────────────────────────────────────────
+ * App-wide thin red-accented scrollbar so scrolling feels on-brand and
+ * consistent regardless of OS. Applied globally; opt out with .native-scroll. */
+*:not(.native-scroll)::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*:not(.native-scroll)::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+*:not(.native-scroll)::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #7f1d1d, #dc2626);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*:not(.native-scroll)::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #991b1b, #ef4444);
+  background-clip: padding-box;
+}
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #dc2626 rgba(0,0,0,0.2);
+}

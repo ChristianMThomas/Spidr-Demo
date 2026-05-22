@@ -95,6 +95,46 @@ export function AppShellProvider({ children }) {
     return () => socket.off('friend:incoming', handleFriendIncoming);
   }, [currentUser, navigate, queryClient]);
 
+  // ── Re-fetch the current user + profile and merge ──────────────────────────
+  // Called whenever a profile field (avatar, banner, display name, etc.)
+  // changes anywhere in the app. Any surface that edits the profile should
+  // dispatch a `spidr-profile-updated` window event (or call this directly
+  // via context) so the shell's currentUser — and therefore the top-right
+  // chip, every avatar bound to currentUser, etc. — re-syncs immediately.
+  const refreshCurrentUser = useCallback(async () => {
+    try {
+      const user = await auth.me();
+      const profiles = await entities.UserProfile.filter({ user_id: user.id });
+      const merged = profiles[0] ? { ...user, ...profiles[0], id: user.id } : user;
+      setCurrentUser(merged);
+      if (profiles[0]?.app_theme) {
+        setAppThemeState(profiles[0].app_theme);
+        try { localStorage.setItem('spidr_theme', JSON.stringify(profiles[0].app_theme)); } catch {}
+      }
+      queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+      queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['profiles'] });
+      return merged;
+    } catch {
+      return null;
+    }
+  }, [queryClient]);
+
+  // Listen for global profile-update broadcasts. The detail may carry the
+  // already-updated profile object so we can merge optimistically without a
+  // round-trip; otherwise we re-fetch.
+  useEffect(() => {
+    const onProfileUpdated = (e) => {
+      const patch = e.detail?.profile;
+      if (patch && typeof patch === 'object') {
+        setCurrentUser((prev) => prev ? { ...prev, ...patch, id: prev.id } : prev);
+      }
+      refreshCurrentUser();
+    };
+    window.addEventListener('spidr-profile-updated', onProfileUpdated);
+    return () => window.removeEventListener('spidr-profile-updated', onProfileUpdated);
+  }, [refreshCurrentUser]);
+
   // ── Theme setter that persists ──────────────────────────────────────────────
   const setAppTheme = useCallback((next) => {
     setAppThemeState(next);
@@ -128,6 +168,7 @@ export function AppShellProvider({ children }) {
     setPendingDM,
     navigateToDM,
     openServer,
+    refreshCurrentUser,
   };
 
   return <AppShellContext.Provider value={value}>{children}</AppShellContext.Provider>;

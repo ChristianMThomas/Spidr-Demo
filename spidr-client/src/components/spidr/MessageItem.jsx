@@ -149,7 +149,17 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                   </span>
                 )}
                 <span className="text-[9px] text-zinc-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-                  {new Date(msg.created_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {(() => {
+                    const d = new Date(msg.created_date);
+                    const now = new Date();
+                    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const sameDay = d.toDateString() === now.toDateString();
+                    const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+                    const isYesterday = d.toDateString() === yesterday.toDateString();
+                    if (sameDay) return `Today ${time}`;
+                    if (isYesterday) return `Yesterday ${time}`;
+                    return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+                  })()}
                 </span>
               </div>
             )}
@@ -190,9 +200,29 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
             {/* Regular attachments */}
             {!msg.is_clip_share && msg.attachments?.length > 0 && (
               <div className="flex gap-2 flex-wrap mt-2">
-                {msg.attachments.map((url, i) => (
-                  <ContextableImage key={i} src={url} alt="attachment" className="max-w-[200px] max-h-[180px] rounded-lg border border-white/10 hover:border-[#FF3333]/30 transition-colors cursor-pointer object-cover" />
-                ))}
+                {msg.attachments.map((url, i) => {
+                  // Voice messages / audio: render an inline player instead of
+                  // trying to show it as an image. Detect by extension or the
+                  // voice-message filename convention.
+                  const isAudio = /voice-message-/i.test(url) || /\.(mp3|wav|ogg|m4a|aac)(\?|$)/i.test(url);
+                  if (isAudio) {
+                    return (
+                      <div key={i} className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-xl px-3 py-2 max-w-[260px]">
+                        <span className="text-[#FF3333] text-xs font-bold uppercase tracking-wider shrink-0">Voice</span>
+                        <audio src={url} controls className="h-8 max-w-[180px]" />
+                      </div>
+                    );
+                  }
+                  const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url);
+                  if (isVideo) {
+                    return (
+                      <video key={i} src={url} controls className="max-w-[220px] max-h-[200px] rounded-lg border border-white/10" />
+                    );
+                  }
+                  return (
+                    <ContextableImage key={i} src={url} alt="attachment" className="max-w-[200px] max-h-[180px] rounded-lg border border-white/10 hover:border-[#FF3333]/30 transition-colors cursor-pointer object-cover" />
+                  );
+                })}
               </div>
             )}
           </div>

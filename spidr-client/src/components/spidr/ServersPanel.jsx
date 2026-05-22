@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations, getSocket } from '@/api/apiClient';
+import { entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
 import { resolveServerUsername } from '@/lib/usernameStyle';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
@@ -50,12 +50,24 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
     staleTime: 30000,
   });
 
+  // If a server is requested by id (e.g. deep-linked from the home dashboard)
+  // but it isn't in the most-recent-50 list, fetch it directly. Without this,
+  // selectedServer is undefined and the panel shows a misleading
+  // "server not available" state — the source of the homepage 404 reports.
+  const { data: directServer } = useQuery({
+    queryKey: ['server', selectedServerId],
+    queryFn: () => entities.Server.get(selectedServerId),
+    enabled: !!selectedServerId && !servers.some(s => s.id === selectedServerId),
+    staleTime: 30000,
+    retry: false,
+  });
+
   const filteredServers = servers.filter(s =>
     s.name?.toLowerCase().includes(searchQuery.toLowerCase()) &&
     (s.owner_id === currentUser?.id || (s.members || []).some(m => m.user_id === currentUser?.id))
   );
 
-  const selectedServer = servers.find(s => s.id === selectedServerId);
+  const selectedServer = servers.find(s => s.id === selectedServerId) || directServer;
 
   return (
     <div className="flex-1 flex bg-zinc-900 min-w-0 overflow-hidden">
@@ -187,6 +199,16 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const [ghostMode, setGhostMode] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
   const [showStickyWeb, setShowStickyWeb] = useState(false);
+  // Member list (community panel) collapse — persists per-session in
+  // localStorage so it stays the way the user left it.
+  const [showMembers, setShowMembers] = useState(() => {
+    try { return localStorage.getItem('spidr_show_members') !== 'false'; } catch { return true; }
+  });
+  const toggleMembers = () => setShowMembers(v => {
+    const next = !v;
+    try { localStorage.setItem('spidr_show_members', String(next)); } catch {}
+    return next;
+  });
   const [isTyping, setIsTyping] = useState(false);
   const [botProcessing, setBotProcessing] = useState(false);
 
@@ -967,8 +989,19 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     <div className="flex-1 flex relative min-w-0">
       {/* Fly Hunt */}
       <FlyHunt 
-        onCatch={(userName) => {
+        onCatch={async (userName) => {
           if (!currentUser?.id) return;
+          let granted = 10;
+          try {
+            const res = await biomassApi.catchFly();
+            granted = res?.amount ?? 10;
+            queryClient.invalidateQueries({ queryKey: ['biomass-wallet'] });
+          } catch (err) {
+            if (err?.response?.data?.capped) {
+              toast.info('Caught it! (daily biomass cap reached)');
+              return;
+            }
+          }
           const spidrId = 'spidr-ai';
           const ids = [String(currentUser.id), spidrId].sort();
           const convId = `dm_${ids[0]}_${ids[1]}`;
@@ -978,9 +1011,9 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             sender_name: 'Spidr System',
             sender_avatar: SPIDR_AI_AVATAR,
             recipient_id: String(currentUser.id),
-            content: `ðŸ•·ï¸ ${userName} caught the fly! +10 Biomass`
+            content: `${userName} caught the fly! +${granted} Biomass`
           }).catch(() => {});
-          toast.success('ðŸ•·ï¸ You caught the fly! +10 Biomass');
+          toast.success(`You caught the fly! +${granted} Biomass`);
         }}
         userName={currentUser?.full_name || 'You'}
       />
@@ -1174,6 +1207,15 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               title="Spidr Protocol - Gaming Overlay"
             >
               <Ghost className="w-5 h-5" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={toggleMembers}
+              className={`hidden md:inline-flex ${showMembers ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-400'} hover:text-[#FF3333]`}
+              title={showMembers ? 'Hide member list' : 'Show member list'}
+            >
+              <Users className="w-5 h-5" />
             </Button>
           </div>
         </div>
@@ -1369,9 +1411,22 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                   </div>
                   {msg.attachments?.length > 0 && (
                     <div className="flex gap-2 flex-wrap mt-2">
-                      {msg.attachments.map((url, i) => (
-                        <ContextableImage key={i} src={url} alt="attachment" className="max-w-[200px] rounded-lg" />
-                      ))}
+                      {msg.attachments.map((url, i) => {
+                        const isAudio = /voice-message-/i.test(url) || /\.(mp3|wav|ogg|m4a|aac)(\?|$)/i.test(url);
+                        if (isAudio) {
+                          return (
+                            <div key={i} className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-xl px-3 py-2 max-w-[260px]">
+                              <span className="text-[#FF3333] text-xs font-bold uppercase tracking-wider shrink-0">Voice</span>
+                              <audio src={url} controls className="h-8 max-w-[180px]" />
+                            </div>
+                          );
+                        }
+                        const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url);
+                        if (isVideo) {
+                          return <video key={i} src={url} controls className="max-w-[220px] max-h-[200px] rounded-lg border border-white/10" />;
+                        }
+                        return <ContextableImage key={i} src={url} alt="attachment" className="max-w-[200px] rounded-lg" />;
+                      })}
                     </div>
                   )}
                   <ReactionBar 
@@ -1514,8 +1569,21 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       </div>
       )}
 
-      {/* Community Panel */}
-      <CommunityPanel server={server} currentUser={currentUser} onSelectUser={(id) => setSelectedUserId(id)} />
+      {/* Community Panel (member list) — collapsible. Hidden on mobile by
+          default since space is tight; toggle in the channel header. */}
+      <AnimatePresence initial={false}>
+        {showMembers && (
+          <motion.div
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 'auto', opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="hidden md:block overflow-hidden shrink-0"
+          >
+            <CommunityPanel server={server} currentUser={currentUser} onSelectUser={(id) => setSelectedUserId(id)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Server Settings Modal */}
       <ServerSettingsModal
