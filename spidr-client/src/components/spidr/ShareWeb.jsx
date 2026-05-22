@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { toast } from 'sonner';
 import { playSound } from './SoundEngine';
+import { dmConversationId } from '@/lib/utils';
 
 export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -21,7 +22,7 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
 
   const sendClipMutation = useMutation({
     mutationFn: async ({ friendId, friendName }) => {
-      const conversationId = [currentUser.id, friendId].sort().join('_');
+      const conversationId = dmConversationId(currentUser.id, friendId);
       return entities.DirectMessage.create({
         conversation_id: conversationId,
         sender_id: currentUser.id,
@@ -40,9 +41,12 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
       });
     },
     onSuccess: (_, { friendName }) => {
-      queryClient.invalidateQueries({ queryKey: ['directMessages'] });
+      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
+      queryClient.invalidateQueries({ queryKey: ['all-dms'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-dms'] });
       playSound('send');
       toast.success(`Slung to ${friendName}!`);
+      onClose?.();
     }
   });
 

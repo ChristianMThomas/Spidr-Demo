@@ -23,21 +23,40 @@ export default function GlobalGhostOverlay() {
   const [active, setActive] = useState(false);
   const [conversationName, setConversationName] = useState('');
   const [messages, setMessages] = useState([]);
+  // When pinned, the overlay stays active across navigation and ignores
+  // deactivate events. Persisted so a pin survives a full page reload.
+  const [pinned, setPinned] = useState(() => {
+    try { return localStorage.getItem('spidr_ghost_pinned') === 'true'; } catch { return false; }
+  });
+
+  // If the overlay was pinned in a previous session, show it on mount.
+  useEffect(() => {
+    if (pinned) setActive(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onActivate = (e) => {
       setActive(true);
       if (e.detail?.conversationName) setConversationName(e.detail.conversationName);
     };
-    const onDeactivate = () => setActive(false);
+    // Honor deactivate only when NOT pinned — pinning keeps the overlay alive
+    // even as the user navigates away from the chat that opened it.
+    const onDeactivate = () => { if (!pinned) setActive(false); };
     const onMessage = (e) => {
       const msg = e.detail;
       if (!msg?.id) return;
       setMessages((prev) => {
-        // De-dupe by id, then append, then cap at MAX_MESSAGES
         const next = prev.filter(m => m.id !== msg.id);
         next.push(msg);
         if (next.length > MAX_MESSAGES) next.shift();
+        return next;
+      });
+    };
+    const onTogglePin = () => {
+      setPinned((p) => {
+        const next = !p;
+        try { localStorage.setItem('spidr_ghost_pinned', String(next)); } catch {}
+        if (next) setActive(true);
         return next;
       });
     };
@@ -45,12 +64,14 @@ export default function GlobalGhostOverlay() {
     window.addEventListener('spidr-ghost-activate', onActivate);
     window.addEventListener('spidr-ghost-deactivate', onDeactivate);
     window.addEventListener('spidr-ghost-message', onMessage);
+    window.addEventListener('spidr-ghost-toggle-pin', onTogglePin);
     return () => {
       window.removeEventListener('spidr-ghost-activate', onActivate);
       window.removeEventListener('spidr-ghost-deactivate', onDeactivate);
       window.removeEventListener('spidr-ghost-message', onMessage);
+      window.removeEventListener('spidr-ghost-toggle-pin', onTogglePin);
     };
-  }, []);
+  }, [pinned]);
 
   if (!active) return null;
 
@@ -58,8 +79,10 @@ export default function GlobalGhostOverlay() {
     <GhostOverlay
       messages={messages}
       active={active}
+      pinned={pinned}
       conversationName={conversationName}
-      onClose={() => setActive(false)}
+      onTogglePin={() => window.dispatchEvent(new Event('spidr-ghost-toggle-pin'))}
+      onClose={() => { setActive(false); }}
     />
   );
 }

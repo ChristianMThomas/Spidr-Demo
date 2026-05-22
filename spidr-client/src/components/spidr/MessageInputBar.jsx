@@ -5,6 +5,7 @@ import { entities, auth, integrations } from '@/api/apiClient';
 import { toast } from 'sonner';
 import EmojiPicker from './EmojiPicker';
 import MentionPopup from './MentionPopup';
+import VoiceRecorder from './VoiceRecorder';
 import { scanContent } from './ContentScanner';
 import ContentBlockedModal from './ContentBlockedModal';
 
@@ -252,6 +253,12 @@ export default function MessageInputBar({
             <Zap size={16} />
           </button>
         )}
+
+        {/* Voice message recorder — sends an audio attachment directly. */}
+        <VoiceRecorder
+          disabled={disabled || uploading}
+          onRecorded={(audioAttachment) => onSend([audioAttachment])}
+        />
 
         {/* Send */}
         <button
