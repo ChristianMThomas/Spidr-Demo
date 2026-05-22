@@ -19,6 +19,12 @@ import CallAVControls from './CallAVControls';
 import { useWebRTC } from './useWebRTC';
 import { useSpeakingDetector } from '@/hooks/useSpeakingDetector';
 
+// Toggleable voice diagnostics (same flag as useWebRTC). Enable with
+// localStorage.setItem('spidr_voice_debug','1') in the console, then rejoin.
+function vlog(...args) {
+  try { if (localStorage.getItem('spidr_voice_debug') === '1') console.log('[voice]', ...args); } catch {}
+}
+
 export default function VoiceChannel({ server, channel, currentUser, onLeave }) {
   const [showAIPanel, setShowAIPanel]         = useState(false);
   const [aiPrompt, setAIPrompt]               = useState('');
@@ -30,6 +36,20 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
   const [showCinema, setShowCinema]           = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
+  // Per-user playback volume (0..1), keyed by user_id so it persists across a
+  // reconnect (socket ids change, user ids don't). Lets each member set how
+  // loud every other member is, independent of everyone else.
+  const [remoteVolumes, setRemoteVolumes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('spidr_user_volumes') || '{}') || {}; }
+    catch { return {}; }
+  });
+  const setUserVolume = React.useCallback((userId, vol) => {
+    setRemoteVolumes(prev => {
+      const next = { ...prev, [userId]: vol };
+      try { localStorage.setItem('spidr_user_volumes', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
   const localVideoRef   = useRef(null);
   const remoteAudioRefs = useRef({});
   const queryClient     = useQueryClient();
@@ -50,6 +70,27 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
       localVideoRef.current.srcObject = rtc.localStream;
     }
   }, [rtc.localStream]);
+
+  // Map each connected peer's socket id → user id (carried in the signaling
+  // handshake) so we can apply a member's chosen volume to the right stream.
+  const socketIdToUserId = React.useMemo(() => {
+    const m = {};
+    Object.entries(rtc.peers || {}).forEach(([sid, info]) => {
+      if (info?.userId) m[sid] = info.userId;
+    });
+    return m;
+  }, [rtc.peers]);
+
+  // Re-apply per-user volume whenever it changes or a new stream connects.
+  useEffect(() => {
+    Object.entries(remoteAudioRefs.current).forEach(([sid, el]) => {
+      if (!el) return;
+      const uid = socketIdToUserId[sid];
+      const v = uid != null && remoteVolumes[uid] != null ? remoteVolumes[uid] : 1;
+      el.volume = Math.max(0, Math.min(1, v));
+      vlog('apply volume', Math.round(el.volume * 100) + '%', 'socket:', sid, uid ? 'user:' + uid : '(user unmapped — using default)');
+    });
+  }, [remoteVolumes, socketIdToUserId, rtc.remoteStreams]);
 
   // ── DB-backed presence (so others see you in the channel list) ────────────
   const { data: currentProfile } = useQuery({
@@ -265,7 +306,10 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
                 if (!el) { delete remoteAudioRefs.current[socketId]; return; }
                 remoteAudioRefs.current[socketId] = el;
                 el.srcObject = stream;
-                el.volume = 1;
+                const uid = socketIdToUserId[socketId];
+                el.volume = uid != null && remoteVolumes[uid] != null
+                  ? Math.max(0, Math.min(1, remoteVolumes[uid]))
+                  : 1;
                 el.play().catch(() => setAudioBlocked(true));
               }}
               style={{ display: 'none' }} />
@@ -352,6 +396,9 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave }) 
                       isAdmin={isAdmin}
                       isMutedLocally={isSelf ? rtc.isMuted : !!session.is_muted}
                       stream={peerStream}
+                      volume={remoteVolumes[session.user_id] ?? 1}
+                      canAdjustVolume={!isSelf && !session.is_spidr_ai}
+                      onVolumeChange={(v) => setUserVolume(session.user_id, v)}
                       onAdminMuteToggle={() => updateMutation.mutate({ id: session.id, data: { is_muted: !session.is_muted } })}
                       onAdminKick={() => leaveMutation.mutate(session.id)}
                       onSpidrAIClick={() => setShowSpidrProfile(true)}
@@ -474,6 +521,9 @@ function VoiceTile({
   isAdmin,
   isMutedLocally,
   stream,
+  volume = 1,
+  canAdjustVolume = false,
+  onVolumeChange,
   onAdminMuteToggle,
   onAdminKick,
   onSpidrAIClick,
@@ -515,6 +565,29 @@ function VoiceTile({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Per-user volume — hover-revealed. Lets you set how loud this member
+          is for you only. Click the icon to mute/unmute them locally. */}
+      {canAdjustVolume && (
+        <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/70 rounded-lg px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => onVolumeChange?.(volume > 0 ? 0 : 1)}
+            className="text-zinc-300 hover:text-white transition-colors flex-shrink-0"
+            title={volume > 0 ? 'Mute for me' : 'Unmute for me'}
+          >
+            {volume > 0 ? <Volume2 size={12} /> : <VolumeX size={12} className="text-red-400" />}
+          </button>
+          <input
+            type="range"
+            min={0} max={1} step={0.05}
+            value={volume}
+            onChange={(e) => onVolumeChange?.(parseFloat(e.target.value))}
+            className="w-16 h-1 accent-[#FF3333] cursor-pointer"
+            title={`Volume: ${Math.round(volume * 100)}%`}
+          />
         </div>
       )}
 

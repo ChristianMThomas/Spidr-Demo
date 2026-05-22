@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Sparkles, Server, User, Bot, Send, MessageCircle,
-  Plus, Loader2, Wand2, Palette, Check, RotateCcw, X, Settings as SettingsIcon
+  Plus, Loader2, Wand2, Palette, Check, RotateCcw, X, Settings as SettingsIcon, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import SpiderLogo from './SpiderLogo';
@@ -18,7 +18,6 @@ import ContentBlockedModal from './ContentBlockedModal';
 const TABS = [
   { id: 'server',   Icon: Server,        label: 'Server'   },
   { id: 'profile',  Icon: User,          label: 'Profile'  },
-  { id: 'bot',      Icon: Bot,           label: 'Bot'      },
   { id: 'chat',     Icon: MessageCircle, label: 'Chat'     },
   { id: 'settings', Icon: SettingsIcon,  label: 'Settings' },
 ];
@@ -86,7 +85,6 @@ export default function AIPanel({ currentUser }) {
             >
               {activeTab === 'server'   && <ServerTab     currentUser={currentUser} queryClient={queryClient} />}
               {activeTab === 'profile'  && <ProfileTab    currentUser={currentUser} queryClient={queryClient} />}
-              {activeTab === 'bot'      && <BotTab        currentUser={currentUser} queryClient={queryClient} />}
               {activeTab === 'chat'     && <ChatTab       currentUser={currentUser} />}
               {activeTab === 'settings' && <AISettingsTab currentUser={currentUser} />}
             </motion.div>
@@ -240,13 +238,16 @@ function ProfileTab({ currentUser, queryClient }) {
       if (profiles[0]) return entities.UserProfile.update(profiles[0].id, data);
       return entities.UserProfile.create({ ...data, user_id: currentUser?.id });
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       // Invalidate every cache that holds a profile copy so the new look
       // shows up immediately everywhere — chat, profile modal, settings.
       queryClient.invalidateQueries({ queryKey: ['userProfile'] });
       queryClient.invalidateQueries({ queryKey: ['userProfile', currentUser?.id] });
       queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
       queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
+      window.dispatchEvent(new CustomEvent('spidr-profile-updated', {
+        detail: { profile: saved || null },
+      }));
       toast.success('Profile updated!');
       setSuggestions(null);
       setPrompt('');
@@ -513,12 +514,38 @@ function ChatTab({ currentUser }) {
 
   const saveLog = useMutation({
     mutationFn: (d) => entities.AIChatLog.create(d),
-    onSuccess:  () => queryClient.invalidateQueries({ queryKey: ['ai-chat-logs'] }),
+    // Don't invalidate the chat-logs query here. Messages are managed in local
+    // state during an active session; invalidating triggers a refetch that can
+    // momentarily clobber the optimistic message list and makes sends feel
+    // laggy. The logs are only read when (re)selecting a conversation.
   });
 
   const updateConv = useMutation({
     mutationFn: ({ id, data }) => entities.AIConversation.update(id, data),
     onSuccess:  () => queryClient.invalidateQueries({ queryKey: ['ai-conversations'] }),
+  });
+
+  // Delete a conversation and its chat logs. Picks a neighbouring conversation
+  // afterwards so the view never lands on a dangling id.
+  const deleteConvMut = useMutation({
+    mutationFn: async (convId) => {
+      // Best-effort: remove the logs first, then the conversation.
+      try {
+        const logs = await entities.AIChatLog.filter({ conversation_id: convId });
+        await Promise.all((logs || []).map(l => entities.AIChatLog.delete(l.id).catch(() => {})));
+      } catch { /* non-fatal */ }
+      return entities.AIConversation.delete(convId);
+    },
+    onSuccess: (_data, convId) => {
+      queryClient.invalidateQueries({ queryKey: ['ai-conversations'] });
+      if (selectedConvId === convId) {
+        const remaining = conversations.filter(c => c.id !== convId);
+        setSelectedConvId(remaining[0]?.id || null);
+        setMessages(remaining[0] ? [] : [{ role: 'assistant', content: "Hey there! 🕷️ I'm Spidr AI. Ask me anything!" }]);
+      }
+      toast.success('Chat deleted');
+    },
+    onError: () => toast.error('Could not delete chat'),
   });
 
   const handleSend = async () => {
@@ -608,18 +635,35 @@ function ChatTab({ currentUser }) {
 
         <div className="flex md:flex-col flex-1 overflow-x-auto md:overflow-y-auto p-2 gap-1 md:gap-0 md:space-y-0.5">
           {conversations.map(conv => (
-            <button
+            <div
               key={conv.id}
-              onClick={() => setSelectedConvId(conv.id)}
-              className={`shrink-0 md:w-full text-left px-3 py-2.5 rounded-lg transition-colors max-w-[180px] md:max-w-none ${
-                selectedConvId === conv.id ? 'bg-red-600 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+              className={`group/conv relative shrink-0 md:w-full rounded-lg transition-colors max-w-[180px] md:max-w-none ${
+                selectedConvId === conv.id ? 'bg-red-600' : 'hover:bg-zinc-800'
               }`}
             >
-              <p className="text-xs font-medium truncate">{conv.title}</p>
-              {conv.last_message && (
-                <p className="text-[10px] opacity-60 truncate mt-0.5 hidden md:block">{conv.last_message}</p>
-              )}
-            </button>
+              <button
+                onClick={() => setSelectedConvId(conv.id)}
+                className={`w-full text-left px-3 py-2.5 pr-8 ${
+                  selectedConvId === conv.id ? 'text-white' : 'text-zinc-400 group-hover/conv:text-zinc-200'
+                }`}
+              >
+                <p className="text-xs font-medium truncate">{conv.title}</p>
+                {conv.last_message && (
+                  <p className="text-[10px] opacity-60 truncate mt-0.5 hidden md:block">{conv.last_message}</p>
+                )}
+              </button>
+              {/* Delete — appears on hover. Confirms before deleting. */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (window.confirm('Delete this chat?')) deleteConvMut.mutate(conv.id);
+                }}
+                className="absolute top-1/2 -translate-y-1/2 right-1.5 w-6 h-6 rounded-md flex items-center justify-center text-zinc-500 hover:text-red-300 hover:bg-black/30 opacity-0 group-hover/conv:opacity-100 transition-all"
+                title="Delete chat"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           ))}
           {conversations.length === 0 && (
             <p className="text-center text-zinc-600 text-xs py-6 md:w-full">No chats yet</p>
@@ -657,10 +701,10 @@ function ChatTab({ currentUser }) {
                       <SpiderLogo size={16} />
                     </div>
                   )}
-                  <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                  <div className={`max-w-[78%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words ${
                     msg.role === 'user'
                       ? 'bg-red-600 text-white rounded-br-sm'
-                      : 'bg-zinc-800 text-zinc-100 rounded-bl-sm'
+                      : 'bg-zinc-800 text-zinc-100 rounded-bl-sm border border-white/5'
                   }`}>
                     {msg.content}
                   </div>
