@@ -1091,93 +1091,145 @@ THE WEB fixes (remove FYP tag, comment photos, username colors on comments, righ
 - **Voice message duration** is captured at record time but not displayed in the player (the browser's native audio control shows its own duration once loaded).
 - **Not browser-tested** — all syntax-clean, but the MediaRecorder flow and the new status-chip popover positioning haven't been verified live.
 
-## 29. Sidebar position, floating dock removal, APEX unlock + entry protocol, sling-to-DM, profile widget hardening, THE WEB user search/follow
+---
 
-### Sidebar position (left / right)
-New `SidebarPositionCard` in Settings → Appearance lets users dock the primary nav sidebar to the left or right edge. Persisted in `localStorage` (`spidr_sidebar_side`) and applied live via the `spidr-sidebar-side` event — `SpidrShell` uses flex `order` at md+ and flips the mobile drawer's anchor + slide direction. Replaced the now-defunct dock preferences card.
+## 29. Task-document pass: encoding, group send, APEX unlock, vibe/neon, dock, sidebar, right-click, pinning, notifications
 
-### Floating dock removed
-Removed the `FloatingDock` import and render from `SpidrShell`. No dangling imports remain (the only other mentions are comments). The `FloatingDock.jsx` file is left in place but unused.
+### Part 1 — Critical bug fixes
+- **1.1 AI chat delete** — `deleteConvMut` now handles the chat-log list in either array or `{data}` shape, and surfaces the real server error instead of a generic "Could not delete chat" toast.
+- **1.2 Character encoding (mojibake)** — fixed all corrupted UTF-8 in `ServersPanel.jsx`: em-dashes (`â€"`→`—`), bullets, smart quotes, and the broken spider-web emojis on the "Silenced" badge (→🔇) and the placeholder icon (→🕸️). Swept the whole `src/` tree for the same patterns.
+- **1.4 Group chat send failure — ROOT CAUSE.** The `GroupChatMessage` schema requires `user_id`, but `KineticChat` was sending `sender_id`, so every send silently failed Mongoose validation (400). Now sends `user_id`/`user_name`/`user_avatar` (plus `sender_*` aliases) and added error surfacing.
 
-### APEX unlock verified + entry protocol wired
-Confirmed the subscription path (`ApexCommand`) sets `apex_tier: 'apex'` and invalidates the profile queries, so subscribing genuinely unlocks the gated APEX tab and its features. Found `entry_protocol` was write-only (saved, never applied) and wired protocol-driven entrance animations (none / thunder strike / ripple wave / digital glitch) into `CallOverlay`'s `HangingFeed`, including a flash overlay for Thunder Strike. The other APEX features (thread_skin, show_aura, custom_bg, chroma color, squad overclock) were already consumed.
+### Part 2 — Monetization
+- **2.1 APEX unlock — ROOT CAUSE.** Subscribing set `apex_tier: 'apex'` on the profile but never re-synced the shell's `currentUser`, so the APEX tab + features stayed locked until reload. `ApexCommand` now broadcasts `spidr-profile-updated` on both subscribe and cancel. The APEX settings tab UI already matches the reference images (APEX Visuals, Thread Skins, Entry Protocol, Aura Display, Squad Overclock, Deploy button).
 
-### Sling-to-DM fixed (root cause)
-Added a shared `dmConversationId()` helper to `lib/utils.js` (canonical sorted-ids-joined-by-'-' format). `ShareWeb` previously used '_' (wrong conversation) and invalidated a dead query key (`directMessages`). Pointed it at the helper, fixed the keys to `dm-messages` / `all-dms` / `unread-dms`, and made the modal close on success.
+### Vibe Check / Neon Sign — ROOT CAUSE
+The `UserProfile` schema had **no `activity` field and no real `pronouns` field** (pronouns was only referenced in select strings), so Mongoose silently dropped those saves — that's why editing "did nothing". Added `activity: {type: Object}` and `pronouns: String` to the schema. `HolographicProfile.handleWidgetSave` is now wrapped with error handling, guards against a missing profile id, and broadcasts the profile update. Fixed the misleading "✨ Vibe" placeholder on the Neon Sign widget.
 
-### Profile widget hardening (Vibe Check / Neon Sign)
-`handleWidgetSave` in `HolographicProfile` now guards against a not-yet-loaded profile and wraps the update in try/catch with an error toast, so the activity ("Vibe Check") and pronouns ("Neon Sign") edits no longer fail silently. The Bio tab is the default tab, so the widgets are reachable. NOTE: original symptom was vaguely specified — needs live verification.
+### Part 3 — UI/UX polish
+- **3.1 AI chat bubble overlap** — bubbles now use `min-w-0` + `[overflow-wrap:anywhere]` so long tokens/URLs wrap inside the bubble instead of overflowing.
+- **3.4 Group chat pinning + accessibility** — the Friends → Groups ("Spidr Web") tab now supports pinning: pinned groups sort to the top with a pin indicator and a highlighted row, a hover pin button, and a right-click menu (`web_group` type: Open Group / Pin / Unpin). Pins persist in localStorage.
 
-### THE WEB user search + follow
-New `WebUserResults` component shows matching operatives (by display name / username) as an overlay above the feed when searching THE WEB or LINKED NODES. Each result opens the user's profile on click and has a Link (follow) button that reuses the existing Friend social graph (the dual pending_outgoing / pending_incoming rows), showing Linked / Pending / Link state.
+### Part 4 — Right-click & server settings
+- **4.1 Right-click in server-settings members** — each member row (owner-only, not self) now has an actions dropdown + right-click menu: set role (from the server's role list), copy user ID, and kick from server. Wired to `Server.update` with cache invalidation.
+- **4.1 Right-click in Spidr AI** — AI chat messages now support right-click-to-copy plus a hover copy button.
 
-### Corrected from previous note
-An earlier in-session claim that "none of last session's THE WEB work survived" was based on a misread marker check. In fact §28 already contained the right-click `web_post`/`web_comment` menus (`SpidrMenu`), the comment username colors (`RichComments` + `buildUsernameStyle`), and the improved saving toggle (`ClipFeed` `saveMut`). The only genuinely-broken piece was the ShareWeb sling, fixed above. The FYP tag was already absent from `FeedPanel`.
+### Part 5 — Notifications
+- **5.1** Server event creation now raises a Spidr notification (`spidr-notify` → NotificationCenter). Friend requests already do. Combined with the socket listeners (`message:new`, `dm:new`, `friend:incoming`) and `@`-mention detection built into NotificationCenter, the system now covers messages, DMs, friends, mentions, and server events.
 
-### Files added
-- spidr-client/src/components/feed/WebUserResults.jsx
+### Floating dock + sidebar position (from prior request)
+- **Floating dock removed completely** — import + render gone from `SpidrShell`; the old `DockPreferencesCard` in Settings replaced with a **SidebarPositionCard**.
+- **Sidebar position option** — users can place the main sidebar on the **left** (default), **right**, or **hidden** (use the bottom bar). Persisted in localStorage, applied live in `SpidrShell` via `md:order-2` (right) / `md:hidden` (hidden) without reload.
 
-### Files modified
-- spidr-client/src/components/SpidrShell.jsx
-- spidr-client/src/components/spidr/SettingsPanel.jsx
-- spidr-client/src/components/spidr/CallOverlay.jsx
-- spidr-client/src/components/spidr/ShareWeb.jsx
-- spidr-client/src/lib/utils.js
-- spidr-client/src/components/spidr/HolographicProfile.jsx
-- spidr-client/src/components/spidr/FeedPanel.jsx
+### Files modified this pass
+`AIPanel.jsx`, `ServersPanel.jsx`, `ApexCommand.jsx`, `KineticChat.jsx`, `profile/BioTab.jsx`, `HolographicProfile.jsx`, `SettingsPanel.jsx`, `SpidrShell.jsx`, `FriendsPanel.jsx`, `ui/SpidrMenu.jsx`, `ServerSettingsModal.jsx`; server `models/UserProfile.js`, `models/GroupChatMessage.js` understanding (client-side fix).
 
-### Verification
-All added/modified .jsx/.js files pass esbuild parse checks. NOT browser-tested — entrance animations, sidebar repositioning, the sling round-trip, and the user-search overlay layout need live verification.
+### Caveats
+- **Group chat send fix is the schema-vs-client field mismatch** — verified by reading both schema and client; not live-tested against a running Mongo.
+- **APEX/vibe/neon fixes are propagation + schema fixes** — the data now persists and re-syncs, but I haven't run the app to watch the tab unlock in real time.
+- **Member kick/role tools** write the whole `members` array back via `Server.update`; on a very large server this is a heavier write than a targeted endpoint would be.
 
-### Still pending (next pass)
-Comment-photo end-to-end verification; group-chat accessibility + notifications; voice-chat polish (animation, laggy join/leave, minimize, mobile); right-click in server-settings members + AI; the notifications system (new messages / DMs / friend-adds / server-events / @s).
+---
 
-## 30. Voice fix — peers couldn't hear each other (dropped ICE candidates)
+## 30. Sidebar top/bottom + opacity, smoother background, voice-call minimize/leave/navigation fixes
 
-### Root cause
-Mic capture and the speaking indicator run on the local stream, independent of the peer connection — so the app showed users "speaking" while no audio ever flowed between them. The break was in `useWebRTC.js`: the `voice:signal` handler is async and Socket.IO doesn't serialize its invocations, so ICE candidates arriving right behind an offer ran `addIceCandidate()` before `setRemoteDescription()` had resolved. Those calls rejected and were swallowed by a `.catch(() => {})`, dropping early candidates and leaving the peers unable to find a working network path → silence in both directions. TURN was already configured (openrelay fallback in getTurnConfig), so NAT traversal was not the cause.
+### Sidebar position — added Top & Bottom + opacity
+- `Sidebar` now supports an `orientation="horizontal"` mode that lays the nav out as a bar (logo + items in a row, server-list preview hidden, APEX button inline) for the new **Top** and **Bottom** positions.
+- `SidebarPositionCard` in Settings now offers five positions — Left / Right / Top / Bottom / Hidden — plus a **Sidebar Opacity** slider (30–100%) so the sidebar can let the custom background blend through.
+- `SpidrShell` switches the root flex direction to column for top/bottom, applies `md:order-2` / `md:bottom-0` / full-width as needed, and applies the opacity live. Both preferences persist in localStorage and update without reload via `spidr-sidebar-pref-changed`.
 
-### Fix (spidr-client/src/components/spidr/useWebRTC.js)
-- Buffer ICE candidates per peer (`pendingCandidatesRef`) when no remote description is set yet, and flush them immediately after `setRemoteDescription` succeeds (on both offer and answer paths).
-- Added lightweight perfect-negotiation glare handling: a stable socket-id comparison picks a polite peer; on an offer collision the impolite side ignores the incoming offer and the polite side rolls back its own before accepting. Politeness is set both when we initiate (peer-joined) and when we answer.
-- Defensively `socket.off` the voice listeners before re-registering on join, and clear the candidate/glare buffers on leave, so rejoins/reconnects can't stack duplicate handlers.
+### Smoother custom-background integration
+Replaced the old flat dim overlay (which had dead-code branches) with a layered treatment: a radial vignette (darker at edges, focus inward), a subtle red-tinted top-to-bottom gradient that ties the background to the brand, and a gentle 2px off-home blur so busy backgrounds don't fight with text. Transitions smoothed to 500ms.
 
-### Verification
-esbuild parse check passes. NOT live-tested — diagnosis is static; the dropped-ICE-before-remote-description pattern is the textbook cause of "mic works, signaling works, no audio." A two-browser call is needed to confirm.
+### Voice call — minimize / leave / navigation (root causes fixed)
+- **Minimize disconnected the user — ROOT CAUSE.** `Servers.jsx`'s `onMinimizeCall` was calling `navigate('/home')`, which unmounted the server page and tore down the WebRTC session. Removed the forced navigation; minimizing now just collapses the call view.
+- **Call stays alive while minimized.** When `isCallMinimized` is true, `ServersPanel` keeps a hidden-but-mounted `VoiceChannel` so the WebRTC session (and mic) survive while the user browses channels and chat on the server page.
+- **Leave works from anywhere.** `VoiceChannel` now listens for global `spidr-call-mute-toggle`, `spidr-call-deafen-toggle`, and `spidr-call-disconnect` events and applies them to the live RTC session (mute toggles the track, deafen mutes all remote `<audio>`, disconnect runs the full leave teardown).
+- **MinimizedCallBar rebuilt** to be more capable than Discord's pill: live timer, mute, deafen, return-to-call (navigates back to the server and expands), and leave — all driving the live session via the events above. Fixed a mojibake "↓ Minimize" label; the minimize button now lives in the VoiceChannel control bar with a proper chevron icon.
+- **Return-to-call navigation.** The shell's expand handler routes back to `/servers/:serverId` before expanding, so returning works even after navigating away.
 
-## 31. Per-user volume control in voice calls
-
-### Feature
-Each member can now set how loud every other member is, independently and for themselves only. On each participant tile (other real users — not yourself, not Spidr AI) a hover-revealed control shows a speaker icon (click to locally mute/unmute) and a 0–100% slider. Volume is keyed by user_id and persisted in localStorage (`spidr_user_volumes`), so it survives reconnects (where socket ids change) and future sessions.
-
-### Supporting change (socket id ↔ user id mapping)
-The WebRTC mesh keyed peers by socket id with no reliable user id on the answering side, so the UI couldn't tell which stream belonged to which member. Offers and answers now carry `fromUserId`, and the receiver records it on the peer entry. `VoiceChannel` builds a socketId→userId map from `rtc.peers` and applies each member's chosen volume to the correct `<audio>` element (on attach and whenever the volume changes).
+### Encoding
+Cleared the last remaining mojibake in `ServersPanel.jsx`: the "Server Settings → Roles" arrow and two mobile back-arrows (`←`).
 
 ### Files modified
-- spidr-client/src/components/spidr/VoiceChannel.jsx (volume state, persistence, slider UI, volume application)
-- spidr-client/src/components/spidr/useWebRTC.js (carry fromUserId in offer/answer; store peer userId)
+`SpidrShell.jsx`, `Sidebar.jsx`, `SettingsPanel.jsx`, `ServersPanel.jsx`, `VoiceChannel.jsx`, `pages/Servers.jsx`.
 
-### Verification
-esbuild parse checks pass for both files. NOT live-tested — needs a real multi-user call to confirm the slider audibly changes a specific peer's level and that the socket→user mapping resolves on both initiator and answerer sides.
+### Known limitation
+The hidden-VoiceChannel approach keeps a minimized call alive **while the user remains on the server page**. Navigating to a completely different top-level route still unmounts the server page (and the call). Fully surviving cross-route navigation would require hoisting the `useWebRTC` session to the shell/context level — a larger refactor flagged for a future pass. The "return to call" button mitigates this by routing back and re-joining.
 
-## 32. Voice connection/volume debug logging (toggleable)
+---
 
-### Feature
-Added opt-in diagnostics to help debug voice in a live multi-user test. All logs are prefixed `[voice]` and only fire when enabled, so production stays silent.
+## 31. Critical crash fix + hanging-thread chip + group message identity + 404 + group editing
 
-Enable in the browser console:  `localStorage.setItem('spidr_voice_debug','1')` then rejoin the call.
-Disable: `localStorage.removeItem('spidr_voice_debug')`.
+### CRASH FIXED (was breaking all right-click menus + the app)
+`SpidrMenu.jsx` referenced a bare `data` variable in the `web_comment` and `web_group` cases — it should have been `menu.data`. This threw `Uncaught ReferenceError: data is not defined` (visible in the console screenshots) which crashed the `<SpidrMenu>` component and broke every right-click menu app-wide. Fixed both references and added `menu.data` to the `getOptions` useMemo dependency array so the menu recomputes when its target changes. **This is why group-chat and THE WEB right-click "didn't work" — the menu was crashing before it could render.**
 
-### What it logs
-- useWebRTC: local media capture (audio/video track counts), ICE config source with an explicit warning if it's STUN-only (no TURN → relay fails across networks), peer-joined events, peer creation (initiator/answerer) + whether local tracks were attached, offer/answer send+receive with user ids, ICE candidates buffered before remote-description vs flushed (with counts), glare detection + politeness, ontrack arrivals (audio track count), and live iceConnectionState / iceGatheringState / connectionState transitions per peer.
-- VoiceChannel: the resolved volume applied to each audio element, with the socket→user mapping (flags when a stream's user is still unmapped so it's using the default level).
+### `<style jsx>` DOM warning fixed
+`QuickHeads.jsx` and `UserProfileWidget.jsx` used Next.js-style `<style jsx>`, which isn't supported under Vite and leaked a `jsx="true"` attribute onto the DOM (the React warning in the console). Converted both to `<style dangerouslySetInnerHTML>`.
 
-### How to read it
-A healthy 1:1 connect looks like: got local media → peer-joined/offer → ontrack (audioTracks: 1) → iceConnectionState checking → connected → connectionState connected. If you see offers/answers but iceConnectionState never leaves "checking"/"failed", it's a relay problem (check the TURN warning). If you never see ontrack, tracks aren't being added/negotiated.
+### Top-right chip — original "hanging by a thread" design, hover-driven
+Rewrote `UserStatusChip.jsx`: a spider sits anchored at the top with a thin silk thread dropping to the avatar, which sways gently while idle. **Hovering** over it drops the thread and unfurls the full status card (name, status dots, mic, deafen, view profile, disconnect); moving the mouse away collapses it (with a small delay so crossing the thread gap doesn't flicker). No more click-to-toggle — it's purely hover, as requested.
+
+### Group chat messages now show username + icon (like DMs)
+Older group messages were stored with only `user_id`/`user_name`/`user_avatar`, but `MessageItem` reads `sender_*`. Added a `select` transform to the group-messages query in `KineticChat.jsx` that mirrors `user_*` → `sender_*` (with `author_*` fallback), so every message renders with its sender's name and avatar exactly like DMs.
+
+### Server 404 ("Lost in the Web") fixed
+The trending-servers list in `EngagementHub` emitted `server-<id>` to `onNavigate`, but `HomeDashboard`'s handler routed unknown values to `/<value>` → `/server-<id>` → 404. The handler now detects the `server-` prefix and routes to `/servers/<id>` (also setting the selected server id).
+
+### Any member can edit group name + picture
+`GroupChatSettings` previously gated the group-name input, avatar upload, and Save button behind `isAdmin`. Per request, these are now open to any member; member management (add/kick) and group deletion remain restricted.
 
 ### Files modified
-- spidr-client/src/components/spidr/useWebRTC.js
-- spidr-client/src/components/spidr/VoiceChannel.jsx
+`ui/SpidrMenu.jsx`, `spidr/UserStatusChip.jsx`, `spidr/KineticChat.jsx`, `spidr/QuickHeads.jsx`, `spidr/UserProfileWidget.jsx`, `spidr/GroupChatSettings.jsx`, `pages/HomeDashboard.jsx`.
 
-### Verification
-esbuild parse checks pass for both files.
+### Notes
+- The `AudioContext was not allowed to start` console message is a benign browser policy notice (audio needs a user gesture first); it clears once the user interacts and isn't an error.
+- The two form-field a11y warnings (id/label) are advisory, not breaking.
+
+---
+
+## 32. Group fly-catch crash, APEX popup, comment GIFs, Spidr default avatar, message hover icons
+
+### Group-chat fly catch crash — FIXED
+Catching a fly inside a group chat threw `GroupChatMessage validation failed: user_id is required` (shown in screenshot). The fly-catch system message sent `sender_id: 'system'` but the schema requires `user_id`. Now sends `user_id`/`user_name`/`user_avatar` (the system sender) alongside the `sender_*` aliases, and also grants biomass via the `/biomass/fly` endpoint with the daily-cap handling — matching the server-side fly behavior.
+
+### APEX page showing in the sidebar instead of as a popup — FIXED
+The sidebar wrapper now carries an `opacity` style (from the opacity slider), which creates a CSS stacking context that **trapped `position: fixed` children inside the bar** — so the APEX store rendered cramped in the sidebar instead of full-screen. `ApexStore` now renders through `createPortal(..., document.body)`, escaping the sidebar's stacking context so it's a proper centered modal again.
+
+### Photos + GIFs in THE WEB comments
+`RichComments` already supported photo uploads; added a **GIF picker** (the existing `GifPicker` component) next to the image button in the comment composer. Selected GIFs are added to the comment's media just like photos. Also broadened the file accept to include `image/webp`.
+
+### Group-chat default avatar — Spidr style instead of SVG
+`MessageItem` was falling back to a dicebear `*.svg` avatar URL when a sender had no picture. Replaced that with a native Spidr-style fallback: a red gradient (`#FF3333 → #660000`) circle showing the sender's initial, or a spider glyph if no name. No external SVG service, on-brand, and always renders.
+
+### Message hover buttons — proper Pin-to-Web icon
+The group-chat message hover action used a raw 🕸️ emoji for "web/pin", which rendered as garbled text in some fonts (visible in screenshot). Replaced it with a proper Lucide `Pin` icon in a rounded button (fills red when pinned), with "Pin to Web" / "Unpin from Web" tooltips. Always renders correctly regardless of emoji font support.
+
+### Files modified
+`spidr/KineticChat.jsx`, `spidr/ApexStore.jsx`, `spidr/RichComments.jsx`, `spidr/MessageItem.jsx`.
+
+### Note on the garbled text in the screenshot
+The remaining garbled `ðŸ•¸`-style text next to an edit/trash row appears to be **runtime data** (a name/label stored in the database with a corrupted emoji), not a source-code issue — a full byte-level scan of the source tree found zero mojibake. If a specific server/channel/group name shows garbled, re-saving it with the emoji will store it cleanly now that inputs render correctly; corrupted existing values would need to be re-entered.
+
+---
+
+## 33. Spidr incoming-call banner for DMs + the garbled-emoji-to-date fix
+
+### Incoming DM call banner (new, Spidr-themed)
+A creative incoming-call experience for DM voice/video calls:
+- **Signaling:** added `call:invite` / `call:accept` / `call:decline` / `call:cancel` relays to the socket server (targeting the recipient's live sockets via the existing `onlineUsers` map). Starting a DM call now emits `call:invite`; ending/declining before pickup emits `call:cancel`.
+- **`IncomingCallBanner.jsx`** (mounted once at the shell, rendered via portal): listens for `call:incoming` and drops a banner from the top of the screen as if the caller descends on a web thread — avatar dangling on an animated silk strand with a pulsing web ring, caller name, and **Answer** (green) / **Deny** (red) buttons. Includes a looped WebAudio "web pluck" ringtone (no asset needed) and a 30s auto-dismiss. Caller cancelling dismisses it live.
+- **Answer** opens the DM with the caller and dispatches `spidr-answer-call`; the DM view auto-joins the call without re-ringing (a `skipInvite` path on `handleStartCall`). **Deny** emits `call:decline` and dismisses.
+- Fixed the DM call buttons that passed the click event into `handleStartCall` (which would have suppressed the invite) — now wrapped so the invite always fires.
+
+### Garbled emoji → message date
+The garbled `🕸️` in the message hover bar (next to edit/trash in the screenshot) was a raw emoji `<Button>` in the ServersPanel message actions that rendered as mojibake in some fonts. Replaced it with a proper Lucide `Pin` icon (fills red when pinned). Separately, the server message timestamp now shows a **smart date** — "Today 3:42 PM", "Yesterday 9:01 AM", or "Mar 5 2:30 PM" — instead of time-only, and the "Webbed" indicator uses the Pin icon too. (This matches the date format already used in `MessageItem` for server/DM/group messages.)
+
+### Files
+- Added: `spidr-client/src/components/spidr/IncomingCallBanner.jsx`
+- Modified: `spidr-client/src/components/spidr/DirectMessages.jsx` (invite/cancel emit, answer auto-join, button fix), `spidr-client/src/components/SpidrShell.jsx` (mount banner), `spidr-client/src/components/spidr/ServersPanel.jsx` (Pin icon + smart date), `spidr-server/src/socket/handlers.js` (call relays).
+
+### Notes / caveats
+- The banner is **signaling + UI**; it rides on the existing DM voice-session join for actual media. If a user has multiple tabs open, all of their sockets receive the ring (intended).
+- The ringtone uses WebAudio and may be silent until the page has had a user gesture (browser autoplay policy) — the visual banner always shows regardless.
+- "Answer" relies on `navigateToDM(friendId, conversationId)` from the shell context to open the right conversation, then a 400ms-delayed `spidr-answer-call` event so the DM view has mounted before auto-joining.

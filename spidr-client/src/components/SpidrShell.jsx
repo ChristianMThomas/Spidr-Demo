@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Mic, MicOff, Volume2, VolumeX, PhoneOff, ChevronUp } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { useAppShell } from '@/context/AppShellContext';
 import { useGlobalMenuActions } from '@/hooks/useGlobalMenuActions';
@@ -12,6 +13,8 @@ import GlobalGhostOverlay from '@/components/spidr/GlobalGhostOverlay';
 import MobileBottomBar from '@/components/spidr/MobileBottomBar';
 import BiomassBalancePill from '@/components/spidr/BiomassBalancePill';
 import UserStatusChip from '@/components/spidr/UserStatusChip';
+import { NotificationProvider } from '@/components/spidr/NotificationCenter';
+import IncomingCallBanner from '@/components/spidr/IncomingCallBanner';
 
 /**
  * SpidrShell — the persistent app frame that surrounds every routed page.
@@ -60,23 +63,25 @@ export default function SpidrShell() {
   const navigate = useNavigate();
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-
-  // Which edge the primary navigation sidebar docks to. Configurable from
-  // Settings → Appearance. Persisted in localStorage and updated live via the
-  // `spidr-sidebar-side` event so the toggle takes effect without a reload.
-  const [sidebarSide, setSidebarSide] = useState(() => {
-    try { return localStorage.getItem('spidr_sidebar_side') === 'right' ? 'right' : 'left'; }
-    catch { return 'left'; }
+  // User-chosen sidebar position: 'left' | 'right' | 'hidden'. Persisted in
+  // localStorage and updated live via the Appearance settings card.
+  const [sidebarPosition, setSidebarPosition] = useState(() => {
+    try { return localStorage.getItem('spidr_sidebar_position') || 'left'; } catch { return 'left'; }
   });
+  const [sidebarOpacity, setSidebarOpacity] = useState(() => {
+    try { return Number(localStorage.getItem('spidr_sidebar_opacity') ?? '100'); } catch { return 100; }
+  });
+
   useEffect(() => {
-    const handler = (e) => {
-      const side = e.detail?.side === 'right' ? 'right' : 'left';
-      setSidebarSide(side);
+    const onPref = (e) => {
+      const pos = e.detail?.position;
+      const op = e.detail?.opacity;
+      if (pos) setSidebarPosition(pos);
+      if (typeof op === 'number') setSidebarOpacity(op);
     };
-    window.addEventListener('spidr-sidebar-side', handler);
-    return () => window.removeEventListener('spidr-sidebar-side', handler);
+    window.addEventListener('spidr-sidebar-pref-changed', onPref);
+    return () => window.removeEventListener('spidr-sidebar-pref-changed', onPref);
   }, []);
-  const sidebarRight = sidebarSide === 'right';
 
   // Close the mobile drawer whenever the route changes.
   useEffect(() => {
@@ -141,53 +146,63 @@ export default function SpidrShell() {
 
   return (
     <MenuProvider>
+      <NotificationProvider currentUser={currentUser}>
       <div
-        className="w-full h-screen flex relative overflow-hidden text-white"
+        className={`w-full h-screen flex relative overflow-hidden text-white ${
+          (sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'md:flex-col' : 'flex-row'
+        }`}
         style={getBackgroundStyle()}
       >
-        {/* App background blur/opacity overlay.
-            On /home the user's full background image is intentionally
-            visible. On every other route we add a dim overlay so chat,
-            settings, etc. stay readable. The overlay is additive to any
-            user-configured blur — if they've already set blur > 0 we
-            honor that, otherwise we drop in a default 50% dim on non-home
-            pages and skip it on /home. */}
+        {/* App background integration layer.
+            The user's custom background sits behind everything. This layer
+            blends it into the app with: (1) any user-configured blur, (2) a
+            dim that's lighter on /home (where the background is the feature)
+            and stronger elsewhere for readability, and (3) a subtle radial
+            vignette + top-to-bottom gradient so the background feels woven
+            into the UI rather than slapped behind it. */}
         {(() => {
           const isHome = location.pathname === '/home' || location.pathname === '/' || location.pathname.toLowerCase() === '/home';
           const userBlur = appTheme.blur || 0;
           const userDim = (100 - (appTheme.opacity ?? 100)) / 100;
-          // Pick the effective dim: if user configured blur/opacity, respect it.
-          // Otherwise apply 0% on home, 55% on other routes.
-          const effectiveBlur = userBlur > 0 ? userBlur : (isHome ? 0 : 0);
-          const effectiveDim = userBlur > 0 || (appTheme.opacity !== undefined && appTheme.opacity < 100)
-            ? userDim
-            : (isHome ? 0 : 0.55);
-          if (effectiveBlur === 0 && effectiveDim === 0) return null;
+          // Effective blur: honor the user's setting; otherwise a gentle 2px
+          // off-home blur to soften busy backgrounds behind text.
+          const effectiveBlur = userBlur > 0 ? userBlur : (isHome ? 0 : 2);
+          // Effective dim: respect explicit user opacity, else 0 on home and
+          // ~45% elsewhere.
+          const hasUserOpacity = appTheme.opacity !== undefined && appTheme.opacity < 100;
+          const effectiveDim = (userBlur > 0 || hasUserOpacity) ? userDim : (isHome ? 0 : 0.45);
           return (
             <div
-              className="absolute inset-0 pointer-events-none transition-[background-color,backdrop-filter] duration-300"
+              className="absolute inset-0 pointer-events-none transition-[background,backdrop-filter] duration-500"
               style={{
                 backdropFilter: effectiveBlur > 0 ? `blur(${effectiveBlur}px)` : undefined,
-                backgroundColor: effectiveDim > 0 ? `rgba(0,0,0,${effectiveDim})` : undefined,
+                WebkitBackdropFilter: effectiveBlur > 0 ? `blur(${effectiveBlur}px)` : undefined,
+                background: [
+                  // Radial vignette — darker at the edges, draws focus inward.
+                  'radial-gradient(120% 120% at 50% 0%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.35) 100%)',
+                  // Subtle red-tinted top-down gradient ties it to the brand.
+                  `linear-gradient(180deg, rgba(10,0,0,${effectiveDim * 0.6}) 0%, rgba(0,0,0,${effectiveDim}) 100%)`,
+                ].join(', '),
               }}
             />
           );
         })()}
 
-        {/* Persistent Sidebar — visible at md+ as a fixed column, slides in
-            as a drawer on mobile when the user taps Menu in the bottom bar.
-            Docks to the left by default; users can move it to the right edge
-            from Settings → Appearance (md+ uses flex order; the mobile drawer
-            flips its anchor + slide direction to match). */}
-        <div className={`fixed md:relative inset-y-0 z-40 md:z-30 flex-shrink-0 transform transition-transform duration-200 md:transition-none ${
-          sidebarRight
-            ? `right-0 md:order-2 ${mobileSidebarOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`
-            : `left-0 md:order-1 ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`
-        }`}>
+        {/* Persistent Sidebar — position controlled by user preference
+            (left / right / top / bottom / hidden). On mobile it always slides
+            in as a left drawer regardless of the desktop position. */}
+        <div className={`fixed md:relative inset-y-0 left-0 z-40 md:z-30 flex-shrink-0 transform transition-transform duration-200 md:transition-none
+          ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          ${sidebarPosition === 'hidden' ? 'md:hidden' : ''}
+          ${sidebarPosition === 'right' ? 'md:order-2' : ''}
+          ${sidebarPosition === 'bottom' ? 'md:order-2 md:inset-y-auto md:bottom-0' : ''}
+          ${(sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'md:w-full md:h-auto md:inset-x-0' : ''}
+        `} style={{ opacity: sidebarOpacity / 100 }}>
           <Sidebar
             activeTab={activeTab}
             setActiveTab={(tab) => { setActiveTab(tab); setMobileSidebarOpen(false); }}
             onCreateServer={() => { setShowCreateServer(true); setMobileSidebarOpen(false); }}
+            orientation={(sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'horizontal' : 'vertical'}
           />
         </div>
         {/* Mobile scrim — taps anywhere outside the drawer close it */}
@@ -200,7 +215,7 @@ export default function SpidrShell() {
 
         {/* Per-page content. Reserve room at the bottom on mobile so the
             bottom nav doesn't cover content. */}
-        <main className={`flex-1 min-w-0 min-h-0 flex flex-col relative z-20 pb-16 md:pb-0 ${sidebarRight ? 'md:order-1' : 'md:order-2'}`}>
+        <main className="flex-1 min-w-0 min-h-0 flex flex-col relative z-20 pb-16 md:pb-0">
           <React.Suspense fallback={
             <div className="flex-1 flex items-center justify-center">
               <div className="w-8 h-8 border-4 border-zinc-700 border-t-red-500 rounded-full animate-spin" />
@@ -211,11 +226,16 @@ export default function SpidrShell() {
         </main>
 
         {/* Top-right cluster — biomass balance + redesigned profile chip
-            (Discord-style status card matching the reference mockups).
-            The spider toggle on UserStatusChip hides/shows both elements. */}
+            (Discord-style status card matching the reference mockups). */}
         {currentUser && (
-          <TopRightCluster />
+          <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
+            <BiomassBalancePill />
+            <UserStatusChip />
+          </div>
         )}
+
+        {/* Floating dock removed — the left sidebar + mobile bottom bar
+            now cover all navigation. */}
 
         {/* Mobile bottom nav — visible at <md only */}
         <MobileBottomBar
@@ -232,8 +252,18 @@ export default function SpidrShell() {
           {activeCall && isCallMinimized && (
             <MinimizedCallBar
               call={activeCall}
-              onExpand={() => setIsCallMinimized(false)}
+              onExpand={() => {
+                // Return to the call. If we navigated away from the server
+                // page, route back to it first so the VoiceChannel re-mounts.
+                if (activeCall?.serverId) {
+                  navigate(`/servers/${activeCall.serverId}`);
+                }
+                setIsCallMinimized(false);
+              }}
               onEnd={() => {
+                // Tear down the live RTC session (VoiceChannel listens), then
+                // clear the shell call state.
+                window.dispatchEvent(new Event('spidr-call-disconnect'));
                 setActiveCall(null);
                 setIsCallMinimized(false);
                 toast.info('Left voice channel');
@@ -244,6 +274,9 @@ export default function SpidrShell() {
 
         {/* Global right-click menu portal */}
         <SpidrMenu />
+
+        {/* Incoming DM call banner — Spidr-themed, drops from the top. */}
+        <IncomingCallBanner />
 
         {/* Spidr Protocol overlay — survives route changes so the gaming
             overlay keeps showing messages even when navigating between
@@ -280,53 +313,26 @@ export default function SpidrShell() {
           }}
         />
       </div>
+      </NotificationProvider>
     </MenuProvider>
   );
 }
 
 /**
- * TopRightCluster — wraps BiomassBalancePill + UserStatusChip so the spider
- * toggle on the chip hides/reveals both elements together.
- */
-function TopRightCluster() {
-  const [hidden, setHidden] = React.useState(false);
-  return (
-    <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
-      <AnimatePresence>
-        {!hidden && (
-          <motion.div
-            key="biomass"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-          >
-            <BiomassBalancePill />
-          </motion.div>
-        )}
-      </AnimatePresence>
-      <UserStatusChip hidden={hidden} onToggleHidden={() => setHidden(v => !v)} />
-    </div>
-  );
-}
-
-/**
- * MinimizedCallBar — the floating pill that stays visible while a voice call
- * is minimized. Lives at the shell level so it survives every route change.
- *
- * Polish improvements over the original simple pill:
- *   • Tracks call duration (mm:ss) and shows it inline
- *   • Mute toggle visible — users don't have to expand to mute themselves
- *   • Responsive position: above the mobile bottom bar on small screens,
- *     bottom-right on desktop
- *   • The mute state is purely cosmetic here — real mute is owned by
- *     VoiceChannel's useWebRTC instance, which is currently unmounted while
- *     minimized. We dispatch a `spidr-call-mute-toggle` event for whichever
- *     RTC hook is alive to consume; if the call expands again, the real
- *     mute state is read from the live RTC hook.
+ * MinimizedCallBar — the floating call controller that stays visible while a
+ * voice call is minimized. Lives at the shell level so it survives route
+ * changes. Designed to be more capable than Discord's minimized pill:
+ *   • Live call timer (mm:ss)
+ *   • Mute toggle (drives the live RTC session via `spidr-call-mute-toggle`)
+ *   • Deafen toggle (`spidr-call-deafen-toggle`)
+ *   • Return-to-call button that navigates back to the channel and expands it
+ *   • Leave button that cleanly disconnects from anywhere
+ *   • Animated speaking pulse so you can tell the call is live at a glance
  */
 function MinimizedCallBar({ call, onExpand, onEnd }) {
   const [elapsed, setElapsed] = React.useState(0);
   const [muted, setMuted] = React.useState(false);
+  const [deafened, setDeafened] = React.useState(false);
   const startRef = React.useRef(Date.now());
 
   React.useEffect(() => {
@@ -338,49 +344,76 @@ function MinimizedCallBar({ call, onExpand, onEnd }) {
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
   const ss = String(elapsed % 60).padStart(2, '0');
 
+  const toggleMute = (e) => {
+    e.stopPropagation();
+    const next = !muted;
+    setMuted(next);
+    window.dispatchEvent(new CustomEvent('spidr-call-mute-toggle', { detail: { muted: next } }));
+  };
+  const toggleDeafen = (e) => {
+    e.stopPropagation();
+    const next = !deafened;
+    setDeafened(next);
+    if (next && !muted) { setMuted(true); window.dispatchEvent(new CustomEvent('spidr-call-mute-toggle', { detail: { muted: true } })); }
+    window.dispatchEvent(new CustomEvent('spidr-call-deafen-toggle', { detail: { deafened: next } }));
+  };
+
   return (
     <motion.div
       initial={{ y: 100, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       exit={{ y: 100, opacity: 0 }}
       transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-      // Lift above the mobile bottom bar (~64px) on small screens.
-      className="fixed right-3 z-50 bg-zinc-900/95 backdrop-blur-xl border border-red-900/40 rounded-2xl shadow-2xl shadow-red-900/30 p-2.5 flex items-center gap-2 cursor-pointer hover:border-red-500/60 transition-colors bottom-20 md:bottom-4"
-      style={{ maxWidth: 320 }}
-      onClick={onExpand}
+      className="fixed right-3 z-50 bg-zinc-900/95 backdrop-blur-xl border border-red-900/40 rounded-2xl shadow-2xl shadow-red-900/30 p-3 flex flex-col gap-2.5 bottom-20 md:bottom-4 w-[280px]"
     >
-      <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" />
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-bold text-white truncate">
-          {call.serverName || call.groupName || 'In call'}
-        </p>
-        <p className="text-[10px] text-zinc-400 truncate flex items-center gap-1.5">
-          <span className="truncate">{call.channelName || 'Tap to return'}</span>
-          <span className="text-zinc-600 font-mono shrink-0">{mm}:{ss}</span>
-        </p>
+      {/* Header — live indicator + name + timer */}
+      <div className="flex items-center gap-2.5">
+        <div className="relative shrink-0">
+          <span className="absolute inset-0 rounded-full bg-green-500/40 animate-ping" />
+          <span className="relative block w-2.5 h-2.5 rounded-full bg-green-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold text-white truncate">{call.serverName || call.groupName || 'Voice Connected'}</p>
+          <p className="text-[10px] text-zinc-400 truncate">#{call.channelName || 'voice'}</p>
+        </div>
+        <span className="text-[11px] text-green-400 font-mono shrink-0">{mm}:{ss}</span>
       </div>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          setMuted(m => !m);
-          window.dispatchEvent(new CustomEvent('spidr-call-mute-toggle', { detail: { muted: !muted } }));
-        }}
-        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors shrink-0 ${
-          muted ? 'bg-red-700 text-white' : 'bg-zinc-700 hover:bg-zinc-600 text-zinc-300'
-        }`}
-        title={muted ? 'Unmute' : 'Mute'}
-        aria-label={muted ? 'Unmute' : 'Mute'}
-      >
-        {muted ? '🔇' : '🎙'}
-      </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); onEnd(); }}
-        className="w-7 h-7 rounded-full bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center justify-center shrink-0"
-        title="End call"
-        aria-label="End call"
-      >
-        ×
-      </button>
+
+      {/* Controls row */}
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={toggleMute}
+          className={`flex-1 h-9 rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-colors ${
+            muted ? 'bg-red-700 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+          }`}
+          title={muted ? 'Unmute' : 'Mute'}
+        >
+          {muted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+        </button>
+        <button
+          onClick={toggleDeafen}
+          className={`flex-1 h-9 rounded-xl flex items-center justify-center transition-colors ${
+            deafened ? 'bg-red-700 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+          }`}
+          title={deafened ? 'Undeafen' : 'Deafen'}
+        >
+          {deafened ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onExpand(); }}
+          className="flex-1 h-9 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center justify-center transition-colors"
+          title="Return to call"
+        >
+          <ChevronUp className="w-4 h-4" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onEnd(); }}
+          className="flex-1 h-9 rounded-xl bg-red-600 hover:bg-red-500 text-white flex items-center justify-center transition-colors"
+          title="Leave call"
+        >
+          <PhoneOff className="w-4 h-4" />
+        </button>
+      </div>
     </motion.div>
   );
 }

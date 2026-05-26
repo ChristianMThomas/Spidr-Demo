@@ -60,6 +60,31 @@ export default function SpidrMenu() {
           { icon: Trash2, label: 'Delete Message', color: 'text-[#FF3333]', action: 'delete' },
         ];
 
+      // ─── THE WEB: right-click a comment ─────────────────────────────────
+      case 'web_comment':
+        return [
+          { icon: Reply, label: 'Reply', color: 'text-white', action: 'reply' },
+          { icon: Copy, label: 'Copy Text', color: 'text-white', action: 'copy' },
+          { icon: User, label: 'View Profile', color: 'text-white', action: 'profile' },
+          { separator: true },
+          { icon: Flag, label: 'Report Comment', color: 'text-yellow-400', action: 'report' },
+          ...(menu.data?.is_own ? [
+            { separator: true },
+            { icon: Trash2, label: 'Delete Comment', color: 'text-[#FF3333]', action: 'delete-comment' },
+          ] : []),
+        ];
+
+      // ─── THE WEB: right-click a post / clip ─────────────────────────────
+      case 'web_post':
+        return [
+          { icon: Copy, label: 'Copy Link', color: 'text-white', action: 'copy-link' },
+          { icon: Share2, label: 'Sling to DMs', color: 'text-white', action: 'sling' },
+          { icon: Bookmark, label: 'Save', color: 'text-white', action: 'save' },
+          { separator: true },
+          { icon: User, label: 'View Creator', color: 'text-white', action: 'profile' },
+          { icon: Flag, label: 'Report Post', color: 'text-yellow-400', action: 'report' },
+        ];
+
       // ─── Profile (avatar in friend list, home dashboard, etc.) ──────────
       case 'profile':
         return [
@@ -87,6 +112,13 @@ export default function SpidrMenu() {
           { icon: Ban, label: 'Block User', color: 'text-[#FF3333]', action: 'block-user' },
           { separator: true },
           { icon: Copy, label: 'Copy User ID', color: 'text-zinc-400', action: 'copy-user-id' },
+        ];
+
+      // ─── Group chat (row in the Friends → Groups / "Spidr Web" tab) ──────
+      case 'web_group':
+        return [
+          { icon: MessageSquare, label: 'Open Group', color: 'text-white', action: 'open-group' },
+          { icon: Pin, label: menu.data?.is_pinned ? 'Unpin from Web' : 'Pin to Web', color: 'text-white', action: 'pin-group' },
         ];
 
       // ─── Media (right-click on an image/GIF/video thumbnail) ────────────
@@ -160,26 +192,6 @@ export default function SpidrMenu() {
           { icon: LogOut, label: 'Disconnect All Users', color: 'text-[#FF3333]', action: 'disconnect-all' },
           { icon: Trash2, label: 'Delete Channel', color: 'text-[#FF3333]', action: 'delete-channel' },
         ];
-      case 'web_post':
-        return [
-          { icon: Link, label: 'Copy Link', color: 'text-white', action: 'copy-link' },
-          { icon: Share2, label: 'Sling to DMs', color: 'text-white', action: 'sling' },
-          { icon: Bookmark, label: 'Save Clip', color: 'text-white', action: 'save' },
-          { separator: true },
-          { icon: User, label: 'View Profile', color: 'text-white', action: 'profile' },
-          { separator: true },
-          { icon: Flag, label: 'Report Post', color: 'text-yellow-400', action: 'report' },
-        ];
-      case 'web_comment':
-        return [
-          { icon: Reply, label: 'Reply', color: 'text-white', action: 'reply' },
-          { icon: Copy, label: 'Copy Text', color: 'text-white', action: 'copy' },
-          { separator: true },
-          { icon: User, label: 'View Profile', color: 'text-white', action: 'profile' },
-          { separator: true },
-          { icon: Flag, label: 'Report Comment', color: 'text-yellow-400', action: 'report' },
-          ...(menu.data?.is_owner ? [{ icon: Trash2, label: 'Delete Comment', color: 'text-[#FF3333]', action: 'delete' }] : []),
-        ];
       case 'server_sidebar':
         return [
           { icon: CheckCircle, label: 'Mark as Read', color: 'text-white', action: 'mark-read' },
@@ -194,7 +206,7 @@ export default function SpidrMenu() {
       default:
         return [];
     }
-  }, [menu.type]);
+  }, [menu.type, menu.data]);
 
   const QUICK_REACTIONS = ['🔥', '❤️', '😂', '👍', '💀', '😱'];
 

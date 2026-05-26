@@ -70,9 +70,9 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                   <div className="absolute -inset-0.5 bg-gradient-to-tr from-[#FF3333] to-purple-600 rounded-lg blur-[2px] opacity-50 animate-pulse" />
                 )}
                 <Avatar className="relative w-full h-full rounded-lg">
-                  <AvatarImage src={msg.sender_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.sender_id}`} className="rounded-lg" />
-                  <AvatarFallback className="bg-zinc-800 text-white text-[10px] rounded-lg">
-                    {msg.sender_name?.charAt(0)?.toUpperCase() || '?'}
+                  {msg.sender_avatar && <AvatarImage src={msg.sender_avatar} className="rounded-lg" />}
+                  <AvatarFallback className="bg-gradient-to-br from-[#FF3333] to-[#660000] text-white text-[10px] font-bold rounded-lg">
+                    {msg.sender_name?.charAt(0)?.toUpperCase() || '🕷'}
                   </AvatarFallback>
                 </Avatar>
               </div>
@@ -248,9 +248,9 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
         <button onClick={() => onProfileClick?.(msg.sender_id)} className="flex-shrink-0 mt-0.5 mr-3">
           <div className="relative w-8 h-8">
             <Avatar className="relative w-full h-full rounded-lg">
-              <AvatarImage src={msg.sender_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.sender_id}`} className="rounded-lg" />
-              <AvatarFallback className="bg-[#FF3333]/20 text-white text-[10px] rounded-lg">
-                {msg.sender_name?.charAt(0)?.toUpperCase() || '?'}
+              {msg.sender_avatar && <AvatarImage src={msg.sender_avatar} className="rounded-lg" />}
+              <AvatarFallback className="bg-gradient-to-br from-[#FF3333] to-[#660000] text-white text-[10px] font-bold rounded-lg">
+                {msg.sender_name?.charAt(0)?.toUpperCase() || '🕷'}
               </AvatarFallback>
             </Avatar>
           </div>

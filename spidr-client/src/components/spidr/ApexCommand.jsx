@@ -79,6 +79,11 @@ export default function ApexCommand({ isOpen, onClose, currentTier = 'free', cur
         queryClient.invalidateQueries({ queryKey: ['userProfile'] });
         queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
         queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
+        // Re-sync the shell's currentUser so the APEX tab + badge unlock
+        // immediately without a page reload.
+        window.dispatchEvent(new CustomEvent('spidr-profile-updated', {
+          detail: { profile: { apex_tier: 'apex' } },
+        }));
       }
 
       toast.success('🕷️ APEX ACTIVATED — Welcome to the network.');
@@ -100,6 +105,9 @@ export default function ApexCommand({ isOpen, onClose, currentTier = 'free', cur
         queryClient.invalidateQueries({ queryKey: ['userProfile', profile.user_id] });
         queryClient.invalidateQueries({ queryKey: ['userProfile', currentUser?.id] });
         queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
+        window.dispatchEvent(new CustomEvent('spidr-profile-updated', {
+          detail: { profile: { apex_tier: 'free' } },
+        }));
       }
       toast('Subscription cancelled. Access until next billing cycle.');
       setShowCancelDialog(false);

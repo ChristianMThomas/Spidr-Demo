@@ -81,6 +81,19 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     };
   }, [activeConversationId, queryClient]);
 
+  // When the incoming-call banner is answered, it dispatches
+  // `spidr-answer-call`. If it targets this conversation, auto-join the call.
+  const answerHandlerRef = useRef(null);
+  useEffect(() => {
+    const onAnswer = (e) => {
+      const cid = e.detail?.conversationId;
+      if (cid && activeConversationId && cid !== activeConversationId) return;
+      if (!inCall && answerHandlerRef.current) answerHandlerRef.current();
+    };
+    window.addEventListener('spidr-answer-call', onAnswer);
+    return () => window.removeEventListener('spidr-answer-call', onAnswer);
+  }, [activeConversationId, inCall]);
+
   const { data: messages = [] } = useQuery({
     queryKey: ['dm-messages', activeConversationId],
     queryFn: () => entities.DirectMessage.filter({ conversation_id: activeConversationId }),
@@ -250,7 +263,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     }
   });
 
-  const handleStartCall = () => {
+  const handleStartCall = (skipInvite = false) => {
     playSound('join');
     setInCall(true);
     createSessionMutation.mutate({
@@ -263,10 +276,30 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       is_video_on: isVideoOn,
       is_speaking: false
     });
+    // Ring the other person — unless we're answering their call (skipInvite).
+    if (!skipInvite) {
+      try {
+        const socket = getSocket();
+        socket.emit('call:invite', {
+          recipientId: activeRecipientId,
+          conversationId: activeConversationId,
+          caller: {
+            id: currentUser?.id,
+            name: currentUser?.full_name || currentUser?.username,
+            avatar: currentUser?.avatar_url || '',
+          },
+        });
+      } catch { /* non-fatal */ }
+    }
     if (onVoiceJoin) {
       onVoiceJoin(activeRecipientId, displayName, activeConversationId);
     }
   };
+
+  // Expose a no-invite join to the answer-call listener above.
+  useEffect(() => {
+    answerHandlerRef.current = () => handleStartCall(true);
+  });
 
   const handleEndCall = () => {
     playSound('leave');
@@ -274,6 +307,10 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     if (mySession) {
       deleteSessionMutation.mutate(mySession.id);
     }
+    // Stop ringing the other side if they haven't picked up yet.
+    try {
+      getSocket().emit('call:cancel', { recipientId: activeRecipientId, conversationId: activeConversationId });
+    } catch { /* non-fatal */ }
     setInCall(false);
     if (onVoiceLeave) {
       onVoiceLeave();
@@ -606,10 +643,10 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         </div>
 
         <div className="flex items-center gap-0.5">
-          <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : handleStartCall} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Call'}>
+          <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Call'}>
             <Phone size={17} />
           </button>
-          <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : handleStartCall} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Video'}>
+          <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Video'}>
             <Video size={17} />
           </button>
           {inCall && (

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { entities, auth } from '@/api/apiClient';
 import { motion } from 'framer-motion';
@@ -12,7 +13,11 @@ export default function ApexStore({ isOpen, onClose, currentTier = 'free', curre
   
   if (!isOpen) return null;
 
-  return (
+  // Render via a portal to document.body so the modal escapes the Sidebar's
+  // stacking context (the sidebar wrapper now has an opacity style, which
+  // would otherwise trap position:fixed inside the bar — that's why APEX was
+  // showing cramped in the sidebar instead of as a full-screen popup).
+  return createPortal((
     <div className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
       <motion.div 
         initial={{ scale: 0.9, opacity: 0 }}
@@ -129,7 +134,7 @@ export default function ApexStore({ isOpen, onClose, currentTier = 'free', curre
         currentTier={currentTier}
       />
     </div>
-  );
+  ), document.body);
 }
 
 // Sub-components

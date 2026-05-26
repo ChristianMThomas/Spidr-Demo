@@ -3,9 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Send, X, Copy } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
+import { dmConversationId } from '@/lib/utils';
 import { toast } from 'sonner';
 import { playSound } from './SoundEngine';
-import { dmConversationId } from '@/lib/utils';
 
 export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,11 +42,10 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
     },
     onSuccess: (_, { friendName }) => {
       queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
-      queryClient.invalidateQueries({ queryKey: ['all-dms'] });
-      queryClient.invalidateQueries({ queryKey: ['unread-dms'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-dms-friends'] });
       playSound('send');
       toast.success(`Slung to ${friendName}!`);
-      onClose?.();
+      if (onClose) onClose();
     }
   });
 

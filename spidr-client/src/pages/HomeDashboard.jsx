@@ -152,6 +152,13 @@ export default function HomeDashboard() {
           <EngagementHub
             currentUser={currentUser}
             onNavigate={(tab) => {
+              // A server card sends `server-<id>` — route to the server page.
+              if (typeof tab === 'string' && tab.startsWith('server-')) {
+                const id = tab.slice('server-'.length);
+                setSelectedServerId?.(id);
+                navigate(`/servers/${id}`);
+                return;
+              }
               // Translate the legacy tab name into a route
               const routes = {
                 friends: '/friends',

@@ -152,11 +152,11 @@ export default function UserProfileWidget({ currentUser, onOpenSettings }) {
         </button>
       </div>
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes spin {
           to { transform: rotate(360deg); }
         }
-      `}</style>
+      ` }} />
 
       {/* Holographic Profile Modal */}
       <HolographicProfile

@@ -248,6 +248,15 @@ export const feedComments = {
   react: (commentId, emoji) => api.post(`/feed-comments/${commentId}/react`, { emoji }),
 };
 
+// ─── Follows (THE WEB) ───────────────────────────────────────────────────────
+export const follows = {
+  following:  (userId)        => api.get('/follows', { params: { follower_id: userId } }),
+  followers:  (userId)        => api.get('/follows', { params: { following_id: userId } }),
+  status:     (userId)        => api.get(`/follows/status/${userId}`),
+  follow:     (payload)       => api.post('/follows', payload),
+  unfollow:   (userId)        => api.delete(`/follows/${userId}`),
+};
+
 // ─── Named export matching old base44 import shape ───────────────────────────
 export const base44 = { entities, auth, integrations };
 

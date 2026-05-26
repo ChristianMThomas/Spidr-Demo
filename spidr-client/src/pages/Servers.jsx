@@ -48,8 +48,11 @@ export default function ServersPage() {
         setIsCallMinimized(false);
       }}
       onMinimizeCall={() => {
+        // Minimize WITHOUT navigating away. Forcing a route change here used
+        // to unmount the server page (and the WebRTC session with it), which
+        // is what disconnected users on minimize. Staying put keeps the call
+        // alive; the MinimizedCallBar lets them roam freely from here.
         setIsCallMinimized(true);
-        navigate('/home');
       }}
     />
   );

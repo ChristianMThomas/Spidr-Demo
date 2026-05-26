@@ -89,6 +89,9 @@ export function AppShellProvider({ children }) {
       toast.info(`${senderName} sent you a friend request!`, {
         action: { label: 'View', onClick: () => navigate('/friends') },
       });
+      window.dispatchEvent(new CustomEvent('spidr-notify', {
+        detail: { type: 'friend', title: 'New friend request', body: `${senderName || 'Someone'} wants to link with you`, link: '/friends' },
+      }));
       queryClient.invalidateQueries({ queryKey: ['friends'] });
     };
     socket.on('friend:incoming', handleFriendIncoming);
