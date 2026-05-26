@@ -88,7 +88,7 @@ export default function BioTab({ userProfile, isOwnProfile, onWidgetSave }) {
             </div>
           ) : (
             <div className="flex items-center justify-between mt-0.5">
-              <span className="text-xs font-bold text-pink-500" style={{ textShadow: '0 0 8px rgba(236,72,153,0.6)' }}>{userProfile?.pronouns || '✨ Vibe'}</span>
+              <span className="text-xs font-bold text-pink-500" style={{ textShadow: '0 0 8px rgba(236,72,153,0.6)' }}>{userProfile?.pronouns || '✨ Set sign'}</span>
               {isOwnProfile && <Edit2 className="w-3 h-3 text-pink-800 cursor-pointer hover:text-pink-400 flex-shrink-0" onClick={() => { setEditingPronouns(true); setPronounsVal(userProfile?.pronouns || ''); }} />}
             </div>
           )}

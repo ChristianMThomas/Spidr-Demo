@@ -307,7 +307,7 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
         </div>
       )}
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         .scrollbar-hide::-webkit-scrollbar {
           display: none;
         }
@@ -315,7 +315,7 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
           -ms-overflow-style: none;
           scrollbar-width: none;
         }
-      `}</style>
+      ` }} />
     </div>
   );
 }

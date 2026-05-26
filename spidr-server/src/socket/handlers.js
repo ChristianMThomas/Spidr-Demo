@@ -352,6 +352,35 @@ module.exports = function registerHandlers(io) {
       }
     });
 
+    // ── DM call signaling ─────────────────────────────────────────────────────
+    // Relays a ringing invite (and its lifecycle) to the recipient's sockets so
+    // the incoming-call banner can show. Pure signaling; the actual media is
+    // handled by the existing voice session join once the callee accepts.
+    socket.on('call:invite', ({ recipientId, conversationId, caller }) => {
+      const recvSockets = onlineUsers.get(recipientId);
+      if (recvSockets) {
+        for (const sid of recvSockets) {
+          io.to(sid).emit('call:incoming', {
+            conversationId,
+            caller: caller || { id: userId },
+            callerId: userId,
+          });
+        }
+      }
+    });
+    socket.on('call:accept', ({ callerId, conversationId }) => {
+      const sockets = onlineUsers.get(callerId);
+      if (sockets) for (const sid of sockets) io.to(sid).emit('call:accepted', { conversationId, byUserId: userId });
+    });
+    socket.on('call:decline', ({ callerId, conversationId }) => {
+      const sockets = onlineUsers.get(callerId);
+      if (sockets) for (const sid of sockets) io.to(sid).emit('call:declined', { conversationId, byUserId: userId });
+    });
+    socket.on('call:cancel', ({ recipientId, conversationId }) => {
+      const sockets = onlineUsers.get(recipientId);
+      if (sockets) for (const sid of sockets) io.to(sid).emit('call:cancelled', { conversationId, byUserId: userId });
+    });
+
     // ── Disconnecting: notify voice rooms while rooms are still populated ────
     socket.on('disconnecting', () => {
       for (const room of socket.rooms) {

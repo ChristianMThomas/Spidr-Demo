@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { toast } from 'sonner';
-import { Hash, Volume2, Plus, Trash2, Shield, Users, Settings, Image, X, FileText, Globe, Lock, Flag, ShieldCheck, BookOpen, ListChecks, GripVertical } from 'lucide-react';
+import { Hash, Volume2, Plus, Trash2, Shield, Users, Settings, Image, X, FileText, Globe, Lock, Flag, ShieldCheck, BookOpen, ListChecks, GripVertical, MoreVertical } from 'lucide-react';
 import SanctuaryProtocols from './SanctuaryProtocols';
 import ServerAuditLog from './ServerAuditLog';
 import ServerReportsPanel from './ServerReportsPanel';
@@ -62,6 +62,40 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
   const [blockedCategory, setBlockedCategory] = useState(null);
 
   const queryClient = useQueryClient();
+
+  // Which member row's actions dropdown is open (by index), and a small set of
+  // member-management actions usable from the Members tab. These mirror the
+  // right-click admin tools available elsewhere.
+  const [memberMenuIdx, setMemberMenuIdx] = useState(null);
+
+  const kickMember = async (userId) => {
+    if (!window.confirm('Remove this member from the server?')) return;
+    try {
+      const updated = (server.members || []).filter(m => m.user_id !== userId);
+      await entities.Server.update(server.id, { members: updated });
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      queryClient.invalidateQueries({ queryKey: ['server', server.id] });
+      toast.success('Member removed');
+    } catch (err) {
+      toast.error(err?.data?.error || 'Could not remove member');
+    }
+    setMemberMenuIdx(null);
+  };
+
+  const changeMemberRole = async (userId, newRole) => {
+    try {
+      const updated = (server.members || []).map(m =>
+        m.user_id === userId ? { ...m, role: newRole } : m
+      );
+      await entities.Server.update(server.id, { members: updated });
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      queryClient.invalidateQueries({ queryKey: ['server', server.id] });
+      toast.success(`Role set to ${newRole}`);
+    } catch (err) {
+      toast.error(err?.data?.error || 'Could not change role');
+    }
+    setMemberMenuIdx(null);
+  };
 
   // Resolve member display info from UserProfile so the members tab shows
   // @username#discriminator (the user's actual identity) instead of raw
@@ -931,7 +965,15 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                     ? `@${profile.username}${profile.discriminator ? '#' + profile.discriminator : ''}`
                     : null;
                   return (
-                  <div key={idx} className="flex items-center justify-between bg-zinc-800 rounded-lg px-3 py-2">
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between bg-zinc-800 rounded-lg px-3 py-2 relative"
+                    onContextMenu={(e) => {
+                      if (!isOwner || member.user_id === currentUser?.id) return;
+                      e.preventDefault();
+                      setMemberMenuIdx(memberMenuIdx === idx ? null : idx);
+                    }}
+                  >
                     <div className="flex items-center gap-3">
                       {profile?.avatar_url ? (
                         <img src={profile.avatar_url} alt={displayName} className="w-8 h-8 rounded-full object-cover" />
@@ -945,9 +987,53 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                         {handle && <p className="text-zinc-500 text-[10px] font-mono leading-tight truncate">{handle}</p>}
                       </div>
                     </div>
-                    <span className="text-xs px-2 py-1 rounded bg-zinc-700 text-zinc-300">
-                      {member.role || 'member'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs px-2 py-1 rounded bg-zinc-700 text-zinc-300">
+                        {member.role || 'member'}
+                      </span>
+                      {/* Admin actions — owner only, not on self */}
+                      {isOwner && member.user_id !== currentUser?.id && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setMemberMenuIdx(memberMenuIdx === idx ? null : idx); }}
+                          className="text-zinc-500 hover:text-white p-1 rounded hover:bg-zinc-700"
+                          title="Member actions"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                    {/* Actions dropdown */}
+                    {memberMenuIdx === idx && isOwner && member.user_id !== currentUser?.id && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setMemberMenuIdx(null)} />
+                        <div className="absolute right-2 top-full mt-1 z-50 w-44 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl py-1">
+                          <p className="px-3 py-1 text-[10px] uppercase tracking-wider text-zinc-600 font-bold">Set role</p>
+                          {(roles || []).map(r => (
+                            <button
+                              key={r.id}
+                              onClick={() => changeMemberRole(member.user_id, r.name)}
+                              className="w-full text-left px-3 py-1.5 text-sm text-white hover:bg-zinc-800 flex items-center gap-2"
+                            >
+                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: r.color || '#888' }} />
+                              {r.name}
+                            </button>
+                          ))}
+                          <div className="h-px bg-white/5 my-1" />
+                          <button
+                            onClick={() => { navigator.clipboard?.writeText(member.user_id).catch(() => {}); toast.success('User ID copied'); setMemberMenuIdx(null); }}
+                            className="w-full text-left px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
+                          >
+                            Copy User ID
+                          </button>
+                          <button
+                            onClick={() => kickMember(member.user_id)}
+                            className="w-full text-left px-3 py-1.5 text-sm text-red-400 hover:bg-red-950/40"
+                          >
+                            Kick from server
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                   );
                 })}

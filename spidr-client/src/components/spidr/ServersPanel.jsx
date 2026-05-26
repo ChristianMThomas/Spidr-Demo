@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
 import { resolveServerUsername } from '@/lib/usernameStyle';
+import { useAppShell } from '@/context/AppShellContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -71,7 +72,7 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
 
   return (
     <div className="flex-1 flex bg-zinc-900 min-w-0 overflow-hidden">
-      {/* Server List â€” desktop: always visible as a 240px column.
+      {/* Server List — desktop: always visible as a 240px column.
           Mobile: visible only when no server is selected; once a server is
           chosen, the list hides and the chat takes the full width. A back
           button inside ServerContent brings the user back to the list. */}
@@ -171,6 +172,7 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
 function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall, onBackToServerList }) {
   const queryClient = useQueryClient();
   const { triggerMenu } = useMenu();
+  const { isCallMinimized } = useAppShell();
   const [searchParams, setSearchParams] = useSearchParams();
   // Initial channel honors ?channel= param (used by activity-feed deep links)
   // so clicking a mention notification jumps straight to the right channel.
@@ -215,7 +217,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   // â”€â”€ Mirror ghost mode into the global overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // The local GhostOverlay (rendered at the bottom of this file) only shows
   // while the user is on this server route. The global overlay survives
-  // route changes â€” we dispatch activate/deactivate events here so the
+  // route changes — we dispatch activate/deactivate events here so the
   // gaming overlay keeps streaming messages even when the user navigates
   // away to settings, feed, etc.
   useEffect(() => {
@@ -245,7 +247,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     };
   }, [server?.id, selectedChannel, queryClient]);
 
-  // Clear any in-progress reply when the user switches channels â€” a reply
+  // Clear any in-progress reply when the user switches channels — a reply
   // anchored to a message in #general shouldn't follow them into #random.
   useEffect(() => {
     setReplyingTo(null);
@@ -298,7 +300,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     return () => clearTimeout(t);
   }, [searchParams, messages, setSearchParams]);
 
-  // Author profiles â€” needed to apply each user's custom font/color/effect to
+  // Author profiles — needed to apply each user's custom font/color/effect to
   // their messages in chat. Cached globally so we don't refetch per channel.
   const { data: allProfiles = [] } = useQuery({
     queryKey: ['profiles-for-chat'],
@@ -338,9 +340,18 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       server_id: server.id,
       created_by: currentUser?.id
     }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['events', server.id] });
       toast.success('Event created!');
+      // Raise a Spidr notification so members see the new server event.
+      window.dispatchEvent(new CustomEvent('spidr-notify', {
+        detail: {
+          type: 'event',
+          title: `New event in ${server.name}`,
+          body: created?.title || created?.name || 'A new event was scheduled',
+          link: `/servers/${server.id}`,
+        },
+      }));
     }
   });
 
@@ -642,7 +653,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         } else if (action === 'report') {
           setReportTarget({ type: 'message', id: data?.id, name: data?.content?.slice(0, 30) || 'Message', content: data?.content });
         } else if (action === 'reply') {
-          // Set up a structured reply â€” the input bar will show a preview chip,
+          // Set up a structured reply — the input bar will show a preview chip,
           // and on send we attach reply_to: <original message id>.
           setReplyingTo({
             id: data?.id,
@@ -742,7 +753,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             toast.success('Friend request sent!');
           } catch { toast.error('Could not send request'); }
         } else if (action === 'nickname') {
-          // Server-only nickname â€” overrides display_name when this user
+          // Server-only nickname — overrides display_name when this user
           // is rendered in this server (chat, member list, etc).
           const member = (server.members || []).find(m => m.user_id === targetUserId);
           const currentNick = member?.nickname || '';
@@ -778,7 +789,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           // ships today.
           const availableRoles = server.roles || [];
           if (availableRoles.length === 0) {
-            toast.error('No roles defined for this server. Add roles in Server Settings â†’ Roles first.');
+            toast.error('No roles defined for this server. Add roles in Server Settings → Roles first.');
             return;
           }
           const member = (server.members || []).find(m => m.user_id === targetUserId);
@@ -816,7 +827,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             toast.error('Could not assign role: ' + (err?.message || 'unknown'));
           }
         } else if (action === 'volume') {
-          toast.info('Volume control â€” use your device volume for now');
+          toast.info('Volume control — use your device volume for now');
         } else if (action === 'mute' && isAdmin) {
           const newMuted = new Set(server.muted_members || []);
           if (newMuted.has(targetUserId)) newMuted.delete(targetUserId); else newMuted.add(targetUserId);
@@ -866,7 +877,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           toast.success('Server marked as read');
         } else if (action === 'leave') {
           if (server.owner_id === currentUser?.id) {
-            toast.error('Owner cannot leave â€” transfer ownership first');
+            toast.error('Owner cannot leave — transfer ownership first');
           } else if (window.confirm('Leave this server?')) {
             const newMembers = (server.members || []).filter(m => m.user_id !== currentUser?.id);
             await entities.Server.update(server.id, { members: newMembers });
@@ -894,7 +905,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         } else if (action === 'pin-channel') {
           toast.success('Channel pinned to top');
         } else if (action === 'lockdown' && isAdmin) {
-          toast.success('Channel locked down â€” only admins can post');
+          toast.success('Channel locked down — only admins can post');
         } else if (action === 'purge' && isAdmin) {
           if (window.confirm('Delete ALL messages in this channel? This cannot be undone.')) {
             const msgs = await entities.Message.filter({ server_id: server.id, channel_id: data?.id || selectedChannel });
@@ -937,7 +948,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     };
     window.addEventListener('spidr-menu-action', handler);
 
-    // Global open-via-event handlers â€” fired by useGlobalMenuActions when the
+    // Global open-via-event handlers — fired by useGlobalMenuActions when the
     // right-click menu offers "Invite" or "Server Settings" outside a chat
     // panel (e.g. from the server-sidebar context).
     const handleOpenInvite = (e) => {
@@ -959,7 +970,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const seenMemberIds = new Set();
   const serverMembers = (server.members || [])
     .filter(m => {
-      // Drop dupes and members missing identifiers â€” they'd crash MentionPopup
+      // Drop dupes and members missing identifiers — they'd crash MentionPopup
       if (!m?.user_id || !m?.user_name) return false;
       if (seenMemberIds.has(m.user_id)) return false;
       seenMemberIds.add(m.user_id);
@@ -1029,14 +1040,14 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           onContextMenu={(e) => triggerMenu(e, 'server', { id: server.id, name: server.name })}
           onClick={() => {/* could toggle server dropdown */}}
         >
-          {/* Mobile back arrow â€” return to server list */}
+          {/* Mobile back arrow — return to server list */}
           {onBackToServerList && (
             <button
               onClick={(e) => { e.stopPropagation(); onBackToServerList(); }}
               className="md:hidden mr-2 text-zinc-400 hover:text-white"
               aria-label="Back to servers"
             >
-              â†
+              ←
             </button>
           )}
           <span className="font-semibold text-white truncate flex-1">{server.name}</span>
@@ -1075,7 +1086,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                 </div>
                 <div className="font-bold text-white text-sm mt-1">{events[0].title}</div>
                 <div className="text-[10px] text-gray-500">
-                  {new Date(events[0].event_date).toLocaleString()} â€¢ {events[0].location}
+                  {new Date(events[0].event_date).toLocaleString()} • {events[0].location}
                 </div>
               </div>
             </div>
@@ -1134,7 +1145,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       </div>
 
       {/* Voice Channel or Chat Area */}
-      {activeVoiceChannel ? (
+      {activeVoiceChannel && !isCallMinimized ? (
         <div className="flex-1 flex flex-col relative min-w-0">
           <VoiceChannel
             server={server}
@@ -1144,16 +1155,8 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               setActiveVoiceChannel(null);
               if (onVoiceLeave) onVoiceLeave();
             }}
+            onMinimize={() => { if (onMinimizeCall) onMinimizeCall(); }}
           />
-          <button
-            onClick={() => {
-              if (onMinimizeCall) onMinimizeCall();
-            }}
-            className="absolute top-3 left-3 z-50 px-4 py-2 bg-zinc-800/90 hover:bg-zinc-700 rounded-lg border border-white/10 text-white text-sm font-medium transition-all flex items-center gap-2"
-            title="Minimize call (stay connected)"
-          >
-            â†“ Minimize
-          </button>
         </div>
       ) : (
       <div className={`${
@@ -1163,19 +1166,19 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         {isAirlocked && (
           <div className="px-4 py-2 bg-yellow-500/10 border-b border-yellow-500/20 flex items-center gap-2">
             <Shield className="w-4 h-4 text-yellow-500 shrink-0" />
-            <p className="text-xs text-yellow-400">You are in the Airlock â€” waiting for a moderator to verify your access.</p>
+            <p className="text-xs text-yellow-400">You are in the Airlock — waiting for a moderator to verify your access.</p>
           </div>
         )}
 
         {/* Channel Header */}
         <div className="h-12 px-4 flex items-center gap-2 border-b border-red-900/20" onContextMenu={(e) => triggerMenu(e, 'server', { id: server.id, name: server.name })}>
-          {/* Mobile back arrow â€” return to channels rail */}
+          {/* Mobile back arrow — return to channels rail */}
           <button
             onClick={() => setMobileView('channels')}
             className="md:hidden text-zinc-400 hover:text-white pr-1"
             aria-label="Back to channels"
           >
-            â†
+            ←
           </button>
           <Hash className="w-5 h-5 text-zinc-500" />
           <span className="font-semibold text-white truncate">{currentChannelObj?.name || selectedChannel}</span>
@@ -1239,7 +1242,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         {/* Messages */}
         <ScrollArea className="flex-1 p-4">
           <div className="space-y-4 min-w-0">
-            {/* Channel beginning banner â€” Discord style */}
+            {/* Channel beginning banner — Discord style */}
             <div className="flex flex-col items-center pt-6 pb-2 gap-2 text-center">
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center text-2xl font-black text-white shadow-lg shadow-red-900/30">#</div>
               <div>
@@ -1299,7 +1302,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  {/* Reply preview card â€” themed in spidr red, mirrors the SPIDR_AI card shape */}
+                  {/* Reply preview card — themed in spidr red, mirrors the SPIDR_AI card shape */}
                   {msg.reply_to && (() => {
                     const original = messagesById[msg.reply_to];
                     return (
@@ -1316,7 +1319,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                         }}
                         className="relative w-full max-w-2xl mb-2 text-left bg-[#0a0a0a] border border-[#FF3333]/30 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(255,51,51,0.04)] hover:border-[#FF3333]/50 transition-colors group/reply"
                       >
-                        {/* Top accent strip â€” solid spidr red */}
+                        {/* Top accent strip — solid spidr red */}
                         <div className="h-1 w-full bg-gradient-to-r from-[#FF3333] via-[#FF3333] to-[#990000]" />
 
                         <div className="p-3 flex gap-3">
@@ -1340,7 +1343,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                             </div>
                             <p className="text-xs text-zinc-300 font-mono leading-relaxed line-clamp-2 break-words">
                               {original
-                                ? (original.content || (original.attachments?.length ? `[${original.attachments.length} attachment${original.attachments.length === 1 ? '' : 's'}]` : 'â€”'))
+                                ? (original.content || (original.attachments?.length ? `[${original.attachments.length} attachment${original.attachments.length === 1 ? '' : 's'}]` : '—'))
                                 : 'Original message no longer available'}
                             </p>
                           </div>
@@ -1391,14 +1394,24 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                       );
                     })()}
                     <span className="text-xs text-zinc-500">
-                      {new Date(msg.created_date).toLocaleTimeString()}
+                      {(() => {
+                        const d = new Date(msg.created_date);
+                        const now = new Date();
+                        const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        const sameDay = d.toDateString() === now.toDateString();
+                        const yest = new Date(now); yest.setDate(now.getDate() - 1);
+                        const isYest = d.toDateString() === yest.toDateString();
+                        if (sameDay) return `Today ${time}`;
+                        if (isYest) return `Yesterday ${time}`;
+                        return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+                      })()}
                       {msg.edited_at && <span className="ml-1 text-zinc-600">(edited)</span>}
-                      {msg.is_webbed && <span className="ml-1 text-red-500">ðŸ•¸ï¸ Webbed</span>}
+                      {msg.is_webbed && <span className="ml-1 text-red-500 inline-flex items-center gap-0.5"><Pin className="w-3 h-3 fill-red-500" /> Webbed</span>}
                       {(server.muted_members || []).includes(msg.author_id || msg.user_id) && (
-                        <span className="ml-2 text-[10px] bg-red-900/40 text-red-400 border border-red-700 px-1 rounded uppercase font-bold inline-flex items-center gap-1">ðŸ”‡ Silenced</span>
+                        <span className="ml-2 text-[10px] bg-red-900/40 text-red-400 border border-red-700 px-1 rounded uppercase font-bold inline-flex items-center gap-1">🔇 Silenced</span>
                       )}
                       {(server.timeouts || []).some(t => (t.user_id === (msg.author_id || msg.user_id)) && new Date(t.until).getTime() > Date.now()) && (
-                        <span className="ml-2 text-[10px] bg-amber-900/40 text-amber-400 border border-amber-700 px-1 rounded uppercase font-bold inline-flex items-center gap-1">â³ Timeout</span>
+                        <span className="ml-2 text-[10px] bg-amber-900/40 text-amber-400 border border-amber-700 px-1 rounded uppercase font-bold inline-flex items-center gap-1">â³ Timeout</span>
                       )}
                     </span>
                   </div>
@@ -1458,7 +1471,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     }}
                     title={msg.is_webbed ? 'Unpin from web' : 'Pin to web'}
                   >
-                    ðŸ•¸ï¸
+                    <Pin className={`w-3.5 h-3.5 ${msg.is_webbed ? 'fill-red-500' : ''}`} />
                   </Button>
                   {(msg.author_id === currentUser?.id || msg.user_id === currentUser?.id) && (
                     <>
@@ -1486,7 +1499,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             })}
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-                <div className="w-16 h-16 rounded-2xl bg-zinc-800/60 border border-white/5 flex items-center justify-center text-2xl">ðŸ‘‹</div>
+                <div className="w-16 h-16 rounded-2xl bg-zinc-800/60 border border-white/5 flex items-center justify-center text-2xl">🕸️</div>
                 <div>
                   <p className="text-white font-bold">Welcome to #{currentChannelObj?.name || 'general'}!</p>
                   <p className="text-zinc-500 text-sm mt-1">This is the beginning of this channel. Say hello!</p>
@@ -1518,7 +1531,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
 
         {/* Message Input */}
         <div className="p-4 border-t border-red-900/20 w-full max-w-full overflow-hidden box-border">
-          {/* Reply preview â€” shown above the input when the user has set up a reply */}
+          {/* Reply preview — shown above the input when the user has set up a reply */}
           {replyingTo && (
             <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-[#FF3333]/8 border border-[#FF3333]/30 rounded-lg shadow-[0_0_15px_rgba(255,51,51,0.05)]">
               <CornerUpLeft size={14} className="text-[#FF3333] flex-shrink-0" />
@@ -1556,7 +1569,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                 else if (replyingTo) setReplyingTo(null);
               }
             }}
-            placeholder={isUserMuted || isUserTimedOut ? 'You cannot send messages right now' : botProcessing ? 'Spidr AI is thinking...' : replyingTo ? `Reply to ${replyingTo.user_name}â€¦` : `Message #${selectedChannel} â€” type /help for bot commands`}
+            placeholder={isUserMuted || isUserTimedOut ? 'You cannot send messages right now' : botProcessing ? 'Spidr AI is thinking...' : replyingTo ? `Reply to ${replyingTo.user_name}"¦` : `Message #${selectedChannel} — type /help for bot commands`}
             currentUser={currentUser}
             disabled={isUserMuted || isUserTimedOut || sendMessageMutation.isPending || updateMessageMutation.isPending || botProcessing}
             showEditingIndicator={!!editingMessage}
@@ -1651,7 +1664,27 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         onClose={() => setGhostMode(false)}
         conversationName={`#${selectedChannel}`}
       />
+
+      {/* Minimized voice — keep the VoiceChannel (and its WebRTC session)
+          mounted but hidden so minimizing never disconnects the user. The
+          MinimizedCallBar at the shell level drives mute/deafen/leave via
+          window events that this hidden instance listens for. */}
+      {activeVoiceChannel && isCallMinimized && (
+        <div className="hidden" aria-hidden="true">
+          <VoiceChannel
+            server={server}
+            channel={activeVoiceChannel}
+            currentUser={currentUser}
+            onLeave={() => {
+              setActiveVoiceChannel(null);
+              if (onVoiceLeave) onVoiceLeave();
+            }}
+            onMinimize={() => { if (onMinimizeCall) onMinimizeCall(); }}
+          />
+        </div>
+      )}
     </div>
+    )}
 
     {/* Mini Chat Overlay */}
     {miniChatPinned && (

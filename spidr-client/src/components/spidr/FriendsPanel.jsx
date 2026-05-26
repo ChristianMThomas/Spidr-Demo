@@ -4,7 +4,7 @@ import { entities, auth, integrations, searchUsers, getSocket } from '@/api/apiC
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, UserPlus, MessageCircle, MoreVertical, Check, X, Ban, Edit, UserMinus, Users, ShieldAlert } from 'lucide-react';
+import { Search, UserPlus, MessageCircle, MoreVertical, Check, X, Ban, Edit, UserMinus, Users, ShieldAlert, Pin } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
@@ -36,6 +36,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
   // (it requests 'add'); falls back to 'all' for normal usage.
   const [tab, setTab] = useState(initialTab || 'all');
   const queryClient = useQueryClient();
+  const { triggerMenu: triggerGroupMenu } = useMenu();
 
   // When the parent passes a fresh initialTab, snap to it and consume it
   React.useEffect(() => {
@@ -82,6 +83,39 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
       return members.some(m => (typeof m === 'string' ? m : m?.user_id) === currentUser.id);
     });
   }, [allGroups, currentUser?.id]);
+
+  // Pinned group chats — IDs persisted in localStorage. Pinned groups sort to
+  // the top of the Groups list for instant access ("Spidr Web" pinning).
+  const [pinnedGroups, setPinnedGroups] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('spidr_pinned_groups') || '[]'); } catch { return []; }
+  });
+  const togglePinGroup = (groupId) => {
+    setPinnedGroups((prev) => {
+      const next = prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId];
+      try { localStorage.setItem('spidr_pinned_groups', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  const sortedGroups = React.useMemo(() => {
+    const pinnedSet = new Set(pinnedGroups);
+    return [...myGroups].sort((a, b) => {
+      const ap = pinnedSet.has(a.id) ? 0 : 1;
+      const bp = pinnedSet.has(b.id) ? 0 : 1;
+      return ap - bp;
+    });
+  }, [myGroups, pinnedGroups]);
+
+  // Handle right-click menu actions for group chats.
+  useEffect(() => {
+    const handler = (e) => {
+      const { action, data, type } = e.detail || {};
+      if (type !== 'web_group' || !data?.id) return;
+      if (action === 'pin-group') togglePinGroup(data.id);
+      else if (action === 'open-group') handleOpenGroup(data.id);
+    };
+    window.addEventListener('spidr-menu-action', handler);
+    return () => window.removeEventListener('spidr-menu-action', handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -343,15 +377,22 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                 No group chats yet. Start one by clicking above.
               </div>
             ) : (
-              myGroups.map((group) => {
+              sortedGroups.map((group) => {
                 const memberCount = (group.members || []).length;
+                const isPinned = pinnedGroups.includes(group.id);
                 return (
-                  <motion.button
+                  <motion.div
                     key={group.id}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      triggerGroupMenu(e, 'web_group', { id: group.id, name: group.name, is_pinned: isPinned });
+                    }}
+                    className={`group/grp w-full flex items-center gap-3 p-3 rounded-xl transition-colors text-left cursor-pointer ${
+                      isPinned ? 'bg-red-950/30 border border-red-900/30' : 'bg-zinc-800/50 hover:bg-zinc-800'
+                    }`}
                     onClick={() => handleOpenGroup(group.id)}
-                    className="w-full flex items-center gap-3 p-3 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 transition-colors text-left"
                   >
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center text-white font-bold text-sm shrink-0">
                       {group.icon_url ? (
@@ -361,10 +402,23 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-white text-sm font-semibold truncate">{group.name || 'Untitled group'}</p>
+                      <p className="text-white text-sm font-semibold truncate flex items-center gap-1.5">
+                        {isPinned && <Pin className="w-3 h-3 text-red-400 fill-red-400 shrink-0" />}
+                        {group.name || 'Untitled group'}
+                      </p>
                       <p className="text-zinc-500 text-xs truncate">{memberCount} member{memberCount === 1 ? '' : 's'}</p>
                     </div>
-                  </motion.button>
+                    {/* Pin toggle — appears on hover */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePinGroup(group.id); }}
+                      className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
+                        isPinned ? 'text-red-400' : 'text-zinc-600 hover:text-zinc-300 opacity-0 group-hover/grp:opacity-100'
+                      }`}
+                      title={isPinned ? 'Unpin' : 'Pin to top'}
+                    >
+                      <Pin className={`w-4 h-4 ${isPinned ? 'fill-red-400' : ''}`} />
+                    </button>
+                  </motion.div>
                 );
               })
             )}
