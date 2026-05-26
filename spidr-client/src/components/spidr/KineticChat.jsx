@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Send, ArrowLeft, Users, Settings, Ghost, Pin, Phone, Video, Archive, CornerUpLeft, X } from 'lucide-react';
 import StickyWeb from './StickyWeb';
 import { toast } from 'sonner';
+import { useTension } from '@/hooks/useTension';
 import GhostOverlay from './GhostOverlay';
 import MessageItem from './MessageItem';
+import CatchMeUpBar from './CatchMeUpBar';
 import HolographicProfile from './HolographicProfile';
 import GroupChatMembers from './GroupChatMembers';
 import GroupChatSettings from './GroupChatSettings';
@@ -20,6 +22,7 @@ import MessageInputBar from './MessageInputBar';
 import FlyHunt from './FlyHunt';
 import ReportModal from './ReportModal';
 import CallDeck from '../voice/CallDeck';
+import VoiceChannel from './VoiceChannel';
 import SpidrAIChat from './SpidrAIChat';
 import SpiderLogo from './SpiderLogo';
 import SignalTracker from './SignalTracker';
@@ -41,6 +44,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const [replyingTo, setReplyingTo] = useState(null);
   const bottomRef = useRef(null);
   const queryClient = useQueryClient();
+  const { report: reportXp } = useTension();
   // ── Socket.io: instant group message delivery ────────────────────────────
   useEffect(() => {
     if (!groupId) return;
@@ -102,6 +106,33 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     () => (group?.members || []).map(m => m.user_id).filter(Boolean),
     [group?.members]
   );
+
+  // ── Spidr Protocol (gaming overlay): drive the GLOBAL overlay via events ──
+  // Activate/deactivate on ghost-mode toggle; stream each message so the global
+  // overlay (which survives navigation + supports pinning) stays updated.
+  useEffect(() => {
+    if (ghostMode) {
+      window.dispatchEvent(new CustomEvent('spidr-ghost-activate', {
+        detail: { conversationName: group?.name || 'Group Chat' },
+      }));
+    } else {
+      window.dispatchEvent(new Event('spidr-ghost-deactivate'));
+    }
+  }, [ghostMode, group?.name]);
+
+  useEffect(() => {
+    if (!ghostMode || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (!last?.id) return;
+    window.dispatchEvent(new CustomEvent('spidr-ghost-message', {
+      detail: {
+        id: last.id,
+        sender_name: last.sender_name || last.user_name,
+        sender_avatar: last.sender_avatar || last.user_avatar,
+        content: last.content,
+      },
+    }));
+  }, [ghostMode, messages]);
   const { data: memberProfiles = [] } = useQuery({
     queryKey: ['group-member-profiles', groupId, memberUserIds.join(',')],
     queryFn: async () => {
@@ -263,6 +294,9 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     staleTime: 1000,
   });
 
+  // APEX thread-skin color for the message connector silk (defaults to crimson).
+  const threadColor = currentProfile?.apex_features?.thread_skin_color || '#FF3333';
+
   useEffect(() => {
     if (messages.length > 0 && currentProfile?.status === 'online') {
       const latestMessage = messages[messages.length - 1];
@@ -420,6 +454,8 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
               return;
             }
           }
+          // Award XP too (server-capped). Fires the level-up toast if crossed.
+          reportXp('fly', 'Caught a fly');
           // The GroupChatMessage schema requires user_id — send it (the system
           // sender) alongside the sender_* aliases so the message validates.
           sendMessageMutation.mutate({
@@ -438,30 +474,19 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
       
       <div className="flex-1 flex flex-col relative z-10 min-h-0">
       
-      {/* Call Deck - Full Featured */}
+      {/* Call Deck — SAME VoiceChannel deck as servers (consistent UI). The
+          group maps to a unified voice room via a synthetic server/channel
+          (channel_id = groupId). Minimized state is the shell MinimizedWebNode. */}
       {inCall && showCallDeck && (
         <div className="absolute inset-0 z-50">
-          <CallDeck
-            channelName={`Group — ${group?.name || 'Chat'}`}
-            participants={voiceSessions}
-            onDisconnect={handleEndCall}
-            onToggleMute={handleToggleMic}
-            isMuted={isMuted}
+          <VoiceChannel
+            server={{ id: 'group', name: `Group — ${group?.name || 'Chat'}`, channels: [], members: group?.members || [], owner_id: group?.owner_id }}
+            channel={{ id: groupId, name: group?.name || 'Group Chat', type: 'voice' }}
+            currentUser={currentUser}
+            onLeave={handleEndCall}
+            onMinimize={() => { setShowCallDeck(false); onMinimizeCall?.(); }}
           />
         </div>
-      )}
-
-      {/* Call Overlay - Hanging Cocoons (minimized) */}
-      {inCall && !showCallDeck && (
-        <CallOverlay 
-          participants={voiceSessions}
-          onEndCall={handleEndCall}
-          onToggleMic={handleToggleMic}
-          onToggleVideo={handleToggleVideo}
-          isMuted={isMuted}
-          isVideoOn={isVideoOn}
-          currentUser={currentUser}
-        />
       )}
       
       <style>{`
@@ -619,6 +644,9 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
         </div>
       </div>
 
+      {/* Catch Me Up — AI summary of recent group messages */}
+      <CatchMeUpBar messages={messages} contextLabel={`the group "${group?.name || 'Group Chat'}"`} limit={30} />
+
       {/* Chat Stream */}
       <div 
         className="flex-1 kinetic-scroll"
@@ -656,6 +684,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
                   repliedTo={msg.reply_to ? messages.find(m => m.id === msg.reply_to) : null}
                   senderProfile={profilesByUserId[msg.sender_id || msg.user_id]}
                   onProfileClick={(userId) => setSelectedProfileUserId(userId)}
+                  mentionUsers={group?.members || []}
                   currentUser={currentUser}
                   onReactionToggle={async (msgId, emoji) => {
                     const m = messages.find(x => x.id === msgId);
@@ -678,7 +707,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
                   <Pin className={`w-3.5 h-3.5 ${msg.is_webbed ? 'fill-red-500' : ''}`} />
                 </button>
                 {nextMsg && nextMsg.type !== 'combo' && nextMsg.sender_id === msg.sender_id && !isOwnMessage && (
-                  <div className="thread-line active" style={{ left: '20px', top: '40px' }} />
+                  <div className="thread-line active" style={{ left: '20px', top: '40px', background: threadColor, boxShadow: `0 0 10px ${threadColor}80` }} />
                 )}
               </div>
             );
@@ -767,17 +796,8 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
         />
       </div>
 
-      <GhostOverlay
-        messages={messages.map(msg => ({
-          id: msg.id,
-          sender_name: msg.sender_name,
-          sender_avatar: msg.sender_avatar,
-          content: msg.content
-        }))}
-        active={ghostMode}
-        onClose={() => setGhostMode(false)}
-        conversationName={group?.name || 'Group Chat'}
-      />
+      {/* Spidr Protocol overlay renders globally (GlobalGhostOverlay at the
+          shell); we dispatch activate/message/deactivate events to it below. */}
 
       <HolographicProfile
         open={!!selectedProfileUserId}

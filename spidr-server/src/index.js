@@ -127,8 +127,10 @@ app.use('/ai',                 require('./routes/ai'));
 app.use('/algorithm',          require('./routes/algorithm'));
 app.use('/audio',              require('./routes/audio'));
 app.use('/biomass',            require('./routes/biomass'));
+app.use('/tension',            require('./routes/tension'));
 app.use('/follows',            require('./routes/follows'));
 app.use('/feed-comments',      require('./routes/feedComments'));
+app.use('/system',             require('./routes/system'));
 app.use('/uploads',            require('express').static(path.join(__dirname, '../uploads')));
 
 // WebRTC ICE config (STUN+TURN) for voice channels
@@ -212,6 +214,9 @@ mongoose
     const { seedDefaultBots }    = require('./utils/seedDefaultBots');
     seedDefaultModules();
     seedDefaultBots();
+    // Auto-expire past server events (3.3) — runs on boot + every 6h.
+    const { scheduleEventExpiry } = require('./utils/expireEvents');
+    scheduleEventExpiry();
     const PORT = process.env.PORT || 4000;
     server.listen(PORT, () => console.log(`✓ Spidr server running on port ${PORT}`));
   })

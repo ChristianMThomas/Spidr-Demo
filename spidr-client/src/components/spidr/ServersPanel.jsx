@@ -25,6 +25,7 @@ import { playSound } from './SoundEngine';
 import { useMenu } from '@/components/MenuContext';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import MessageInputBar from './MessageInputBar';
+import CatchMeUpBar from './CatchMeUpBar';
 import FlyHunt from './FlyHunt';
 import MentionParser from './MentionParser';
 import EventModal from './EventModal';
@@ -39,6 +40,98 @@ import ReactionBar from './ReactionBar';
 import ReportModal from './ReportModal';
 import SignalTracker from './SignalTracker';
 import ErrorBoundary from './ErrorBoundary';
+
+// Is the current user a member of (or the owner of) this server?
+function isServerMember(server, currentUser) {
+  if (!server || !currentUser) return false;
+  if (server.owner_id === currentUser.id) return true;
+  return Array.isArray(server.members) &&
+    server.members.some(m => (m?.user_id || m?.id || m) === currentUser.id);
+}
+
+/**
+ * ServerPreview — shown when a user opens a server they're not a member of
+ * (e.g. from Trending Servers). Public servers get a "Join Server" button;
+ * private/invite-only servers get "Request Invite". Fixes the homepage 404 by
+ * giving non-members a real landing surface instead of a dead end.
+ */
+function ServerPreview({ server, currentUser, onJoined, onBack }) {
+  const [busy, setBusy] = React.useState(false);
+  const isPrivate = server.is_public === false;
+
+  const join = async () => {
+    setBusy(true);
+    try {
+      // Public servers can be joined directly via the invite-less join path;
+      // we pass the server's own invite_code when present.
+      await entities.Server.update(server.id, {
+        members: [
+          ...(Array.isArray(server.members) ? server.members : []),
+          { user_id: currentUser.id, user_name: currentUser.full_name || currentUser.username, role: 'Member', joined_at: new Date().toISOString() },
+        ],
+      });
+      toast.success(`Joined ${server.name}!`);
+      onJoined?.();
+    } catch {
+      toast.error('Could not join this server.');
+    }
+    setBusy(false);
+  };
+
+  const requestInvite = async () => {
+    setBusy(true);
+    try {
+      // Best-effort: notify the owner. Falls back to a friendly toast.
+      window.dispatchEvent(new CustomEvent('spidr-notify', {
+        detail: { type: 'invite-request', title: 'Invite requested', body: `You requested access to ${server.name}.` },
+      }));
+      toast.success('Invite request sent to the server admins.');
+    } catch {
+      toast.error('Could not send the request.');
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center p-6 text-center relative">
+      {server.banner_url && (
+        <div className="absolute top-0 left-0 right-0 h-40 overflow-hidden opacity-40">
+          <img src={server.banner_url} alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent to-zinc-900" />
+        </div>
+      )}
+      <div className="relative z-10 max-w-sm">
+        <div className="w-20 h-20 rounded-3xl mx-auto mb-4 bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center overflow-hidden shadow-lg shadow-red-900/30">
+          {server.icon_url
+            ? <img src={server.icon_url} alt="" className="w-full h-full object-cover" />
+            : <span className="text-3xl font-black text-white">{server.name?.charAt(0)}</span>}
+        </div>
+        <h2 className="text-2xl font-black text-white">{server.name}</h2>
+        {server.description && <p className="text-zinc-400 text-sm mt-2">{server.description}</p>}
+        <p className="text-zinc-500 text-xs mt-3">
+          {(server.members?.length || 0)} members · {isPrivate ? 'Invite only' : 'Public server'}
+        </p>
+
+        <div className="mt-6 flex flex-col gap-2">
+          {isPrivate ? (
+            <button onClick={requestInvite} disabled={busy}
+              className="px-6 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold transition-colors disabled:opacity-50">
+              {busy ? 'Sending…' : 'Request Invite'}
+            </button>
+          ) : (
+            <button onClick={join} disabled={busy}
+              className="px-6 py-2.5 rounded-xl bg-[#FF3333] hover:bg-red-600 text-white font-black transition-colors disabled:opacity-50">
+              {busy ? 'Joining…' : 'Join Server'}
+            </button>
+          )}
+          <button onClick={onBack} className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors">
+            Back
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ServersPanel({ currentUser, selectedServerId, onSelectServer, onVoiceJoin, onVoiceLeave, onMinimizeCall }) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -135,16 +228,25 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
 
       {/* Server Content */}
       {selectedServer ? (
-        <ErrorBoundary key={selectedServer.id}>
-          <ServerContent 
-            server={selectedServer} 
-            currentUser={currentUser} 
-            onVoiceJoin={onVoiceJoin}
-            onVoiceLeave={onVoiceLeave}
-            onMinimizeCall={onMinimizeCall}
-            onBackToServerList={() => onSelectServer && onSelectServer(null)}
+        isServerMember(selectedServer, currentUser) ? (
+          <ErrorBoundary key={selectedServer.id}>
+            <ServerContent 
+              server={selectedServer} 
+              currentUser={currentUser} 
+              onVoiceJoin={onVoiceJoin}
+              onVoiceLeave={onVoiceLeave}
+              onMinimizeCall={onMinimizeCall}
+              onBackToServerList={() => onSelectServer && onSelectServer(null)}
+            />
+          </ErrorBoundary>
+        ) : (
+          <ServerPreview
+            server={selectedServer}
+            currentUser={currentUser}
+            onJoined={() => { queryClient.invalidateQueries({ queryKey: ['servers'] }); queryClient.invalidateQueries({ queryKey: ['server', selectedServer.id] }); }}
+            onBack={() => onSelectServer && onSelectServer(null)}
           />
-        </ErrorBoundary>
+        )
       ) : selectedServerId && serversLoading ? (
         <div className="hidden md:flex flex-1 items-center justify-center">
           <div className="w-8 h-8 border-4 border-zinc-700 border-t-red-500 rounded-full animate-spin" />
@@ -182,6 +284,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     return server.channels?.[0]?.id || 'general';
   });
   const [message, setMessage] = useState('');
+  const [unreadChannels, setUnreadChannels] = useState({}); // channelId -> true (3.5)
   const [showSettings, setShowSettings] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   // Mobile two-pane: 'channels' shows the channels rail, 'chat' shows the
@@ -214,7 +317,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const [isTyping, setIsTyping] = useState(false);
   const [botProcessing, setBotProcessing] = useState(false);
 
-  // â”€â”€ Mirror ghost mode into the global overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Mirror ghost mode into the global overlay ───────────────────────────
   // The local GhostOverlay (rendered at the bottom of this file) only shows
   // while the user is on this server route. The global overlay survives
   // route changes — we dispatch activate/deactivate events here so the
@@ -223,13 +326,13 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   useEffect(() => {
     if (ghostMode) {
       window.dispatchEvent(new CustomEvent('spidr-ghost-activate', {
-        detail: { conversationName: `#${selectedChannel ? (server.channels?.find(c => c.id === selectedChannel)?.name || 'channel') : 'server'} Â· ${server.name}` },
+        detail: { conversationName: `#${selectedChannel ? (server.channels?.find(c => c.id === selectedChannel)?.name || 'channel') : 'server'} · ${server.name}` },
       }));
     } else {
       window.dispatchEvent(new Event('spidr-ghost-deactivate'));
     }
   }, [ghostMode, server.id, server.name, selectedChannel]);
-  // â”€â”€ Socket.io: instant message delivery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Socket.io: instant message delivery ─────────────────────────────────────
   useEffect(() => {
     if (!server?.id || !selectedChannel) return;
     const socket = getSocket();
@@ -237,13 +340,31 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     const onNew = () => {
       queryClient.invalidateQueries({ queryKey: ['messages', server.id, selectedChannel] });
     };
+    // 3.5 — mark a channel unread when a message arrives there and it isn't the
+    // currently-open channel; cleared when the user opens it.
+    const onNewForBadge = (msg) => {
+      const chId = msg?.channel_id;
+      if (!chId || chId === selectedChannel) return;
+      if (msg?.server_id && msg.server_id !== server.id) return;
+      setUnreadChannels(prev => (prev[chId] ? prev : { ...prev, [chId]: true }));
+    };
     socket.on('message:new', onNew);
+    socket.on('message:new', onNewForBadge);
     socket.on('message:updated', onNew);
     socket.on('message:deleted', onNew);
+    // 3.3 — when someone joins this server, refresh the member list live.
+    const onMemberJoined = (data) => {
+      if (data?.server_id && data.server_id !== server.id) return;
+      queryClient.invalidateQueries({ queryKey: ['server', server.id] });
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+    };
+    socket.on('server:member-joined', onMemberJoined);
     return () => {
       socket.off('message:new', onNew);
+      socket.off('message:new', onNewForBadge);
       socket.off('message:updated', onNew);
       socket.off('message:deleted', onNew);
+      socket.off('server:member-joined', onMemberJoined);
     };
   }, [server?.id, selectedChannel, queryClient]);
 
@@ -353,6 +474,15 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         },
       }));
     }
+  });
+
+  const deleteEventMutation = useMutation({
+    mutationFn: (id) => entities.Event.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['events', server.id] });
+      toast.success('Event removed');
+    },
+    onError: () => toast.error('Could not remove event'),
   });
 
   const sendMessageMutation = useMutation({
@@ -509,7 +639,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     }
   }, [messages.length, currentProfile?.status, currentUser?.id]);
 
-  // â”€â”€ Forward each new message to the global ghost overlay when active â”€â”€â”€â”€
+  // ── Forward each new message to the global ghost overlay when active ────
   // We re-broadcast the latest message when ghostMode is on. The overlay
   // de-dupes by id so re-renders (e.g. when reactions change) don't spam.
   useEffect(() => {
@@ -1079,7 +1209,16 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           {/* Events Section */}
           {events.length > 0 && (
             <div className="mb-3 px-2">
-              <div className="bg-[#1a1a1a] border border-[#FF3333]/30 rounded-lg p-3 mb-2 cursor-pointer hover:bg-[#222]">
+              <div
+                className="bg-[#1a1a1a] border border-[#FF3333]/30 rounded-lg p-3 mb-2 cursor-pointer hover:bg-[#222] relative group"
+                onContextMenu={(e) => {
+                  if (!isAdmin) return;
+                  e.preventDefault();
+                  if (window.confirm(`Remove event "${events[0].title}"?`)) {
+                    deleteEventMutation.mutate(events[0].id);
+                  }
+                }}
+              >
                 <div className="text-[10px] text-[#FF3333] font-bold uppercase flex justify-between">
                   <span>Upcoming Sync</span>
                   <span>{events.length} Active</span>
@@ -1088,6 +1227,15 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                 <div className="text-[10px] text-gray-500">
                   {new Date(events[0].event_date).toLocaleString()} • {events[0].location}
                 </div>
+                {isAdmin && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); if (window.confirm(`Remove event "${events[0].title}"?`)) deleteEventMutation.mutate(events[0].id); }}
+                    title="Remove event"
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 w-6 h-6 rounded-md bg-black/60 text-red-400 hover:bg-red-600 hover:text-white flex items-center justify-center transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1108,7 +1256,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             {channels.filter(c => c.type === 'text').map((channel) => (
               <button
                 key={channel.id}
-                onClick={() => { setSelectedChannel(channel.id); setMobileView('chat'); }}
+                onClick={() => { setSelectedChannel(channel.id); setMobileView('chat'); setUnreadChannels(prev => { if (!prev[channel.id]) return prev; const n = { ...prev }; delete n[channel.id]; return n; }); }}
                 onContextMenu={(e) => triggerMenu(e, 'channel_text', { id: channel.id, name: channel.name, server_id: server.id })}
                 onMouseEnter={() => playSound('hover')}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${
@@ -1118,7 +1266,11 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                 }`}
               >
                 <Hash className="w-4 h-4 text-zinc-500" />
-                <span className="truncate flex-1 text-left">{channel.name}</span>
+                <span className={`truncate flex-1 text-left ${unreadChannels[channel.id] && selectedChannel !== channel.id ? 'font-bold text-white' : ''}`}>{channel.name}</span>
+                {/* 3.5 — unread indicator dot */}
+                {unreadChannels[channel.id] && selectedChannel !== channel.id && (
+                  <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)] shrink-0" />
+                )}
               </button>
             ))}
           </div>
@@ -1188,9 +1340,17 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               messages={messages}
               users={serverMembers}
               channels={channels}
+              serverId={server?.id}
+              channelId={selectedChannel}
               onResultClick={(r) => {
                 if (r.type === 'channel') setSelectedChannel(r.id);
                 else if (r.type === 'user') setSelectedUserId(r.id);
+                else if (r.type === 'message') {
+                  // Jump to the channel the message lives in (server-wide search
+                  // can return messages from other channels).
+                  const chId = r.raw?.channel_id;
+                  if (chId && chId !== selectedChannel) setSelectedChannel(chId);
+                }
               }}
             />
             <Button 
@@ -1238,6 +1398,9 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             100% { background-color: transparent; box-shadow: none; }
           }
         `}</style>
+
+        {/* Catch Me Up — AI summary of recent channel messages */}
+        <CatchMeUpBar messages={messages} contextLabel={`#${currentChannelObj?.name || 'channel'}`} limit={30} />
 
         {/* Messages */}
         <ScrollArea className="flex-1 p-4">
@@ -1379,15 +1542,20 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                             {resolved.name}
                           </span>
                           {resolved.roleName && resolved.roleColor && server.show_role_labels !== false && (
-                            <span
-                              className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
-                              style={{
-                                backgroundColor: resolved.roleColor + '20',
-                                color: resolved.roleColor,
-                                border: `1px solid ${resolved.roleColor}40`,
-                              }}
-                            >
-                              {resolved.roleName}
+                            <span className="inline-flex items-center gap-1">
+                              {resolved.roleIcon && (
+                                <img src={resolved.roleIcon} alt="" className="w-3.5 h-3.5 rounded object-cover" />
+                              )}
+                              <span
+                                className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
+                                style={{
+                                  backgroundColor: resolved.roleColor + '20',
+                                  color: resolved.roleColor,
+                                  border: `1px solid ${resolved.roleColor}40`,
+                                }}
+                              >
+                                {resolved.roleTag || resolved.roleName}
+                              </span>
                             </span>
                           )}
                         </>
@@ -1419,13 +1587,13 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     {msg.text_effect && msg.text_effect !== 'normal' ? (
                       <KineticText text={msg.content} effect={msg.text_effect} />
                     ) : (
-                      <MentionParser text={msg.content} />
+                      <MentionParser text={msg.content} users={serverMembers} onMentionClick={(uid) => setSelectedUserId(uid)} />
                     )}
                   </div>
                   {msg.attachments?.length > 0 && (
                     <div className="flex gap-2 flex-wrap mt-2">
                       {msg.attachments.map((url, i) => {
-                        const isAudio = /voice-message-/i.test(url) || /\.(mp3|wav|ogg|m4a|aac)(\?|$)/i.test(url);
+                        const isAudio = /voice-message-/i.test(url) || /\.(mp3|wav|ogg|m4a|aac|webm|weba|opus)(\?|$)/i.test(url);
                         if (isAudio) {
                           return (
                             <div key={i} className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-xl px-3 py-2 max-w-[260px]">
@@ -1434,7 +1602,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                             </div>
                           );
                         }
-                        const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url);
+                        const isVideo = /\.(mp4|mov|m4v)(\?|$)/i.test(url);
                         if (isVideo) {
                           return <video key={i} src={url} controls className="max-w-[220px] max-h-[200px] rounded-lg border border-white/10" />;
                         }
@@ -1543,7 +1711,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                   {replyingTo.user_name || 'User'}
                 </span>
                 <span className="text-xs text-zinc-500 truncate font-mono">
-                  Â· {(replyingTo.content || '').slice(0, 80) || '(attachment)'}
+                  · {(replyingTo.content || '').slice(0, 80) || '(attachment)'}
                 </span>
               </div>
               <button
@@ -1652,18 +1820,9 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         currentUser={currentUser}
       />
 
-      {/* Ghost Protocol Overlay */}
-      <GhostOverlay
-        messages={messages.map(msg => ({
-          id: msg.id,
-          sender_name: msg.author_name || msg.user_name,
-          sender_avatar: msg.author_avatar || msg.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.author_id || msg.user_id}`,
-          content: msg.content
-        }))}
-        active={ghostMode}
-        onClose={() => setGhostMode(false)}
-        conversationName={`#${selectedChannel}`}
-      />
+      {/* Spidr Protocol overlay is rendered globally (GlobalGhostOverlay at the
+          shell). This panel only dispatches activate/message/deactivate events
+          to it — rendering a second local overlay here caused the "double". */}
 
       {/* Minimized voice — keep the VoiceChannel (and its WebRTC session)
           mounted but hidden so minimizing never disconnects the user. The

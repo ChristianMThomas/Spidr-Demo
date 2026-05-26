@@ -178,10 +178,14 @@ export function resolveServerUsername({ profile, server, userId, fallbackName })
   // 2. Find the member's role and its color (if any)
   let roleName = null;
   let roleColor = null;
+  let roleIcon = null;
+  let roleTag = null;
   if (member?.role && server?.roles?.length) {
     const role = server.roles.find(r => r.name === member.role || r.id === member.role);
     if (role) {
       roleName = role.name;
+      roleIcon = role.icon_url || null;
+      roleTag = role.tag || null;
       // Skip grey "default" role colors — they shouldn't override anything
       if (role.color && role.color !== '#6b7280' && role.color !== '#666' && role.color.toLowerCase() !== '#808080') {
         roleColor = role.color;
@@ -200,6 +204,8 @@ export function resolveServerUsername({ profile, server, userId, fallbackName })
     style,
     roleName,
     roleColor,
+    roleIcon,
+    roleTag,
     hasNickname: !!(member?.nickname && member.nickname.trim()),
   };
 }

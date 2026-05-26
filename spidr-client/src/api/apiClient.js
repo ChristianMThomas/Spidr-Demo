@@ -222,6 +222,15 @@ export const integrations = {
 export const searchUsers = (q) =>
   api.get('/users/search', { params: { q } }).catch(() => []);
 
+// Full-text server message search (backed by the $text index on the server).
+// Returns an array of messages (id-normalized) or [] on error/empty.
+export const searchMessages = ({ serverId, channelId, q, limit = 40 }) => {
+  if (!serverId || !q?.trim()) return Promise.resolve([]);
+  const params = { server_id: serverId, q, _limit: limit };
+  if (channelId) params.channel_id = channelId;
+  return api.get('/messages/search', { params }).catch(() => []);
+};
+
 export const algorithm = {
   trackEngagement: (data) =>
     api.post('/algorithm/track', data).catch(() => null),
@@ -240,6 +249,15 @@ export const biomass = {
   spend:     (amount, reason)    => api.post('/biomass/spend', { amount, reason }),
   shop:      ()                  => api.get('/biomass/shop'),
   buy:       (itemId)            => api.post('/biomass/shop/buy', { itemId }),
+};
+
+// ─── Tension (XP / leveling) ─────────────────────────────────────────────────
+// `action` reports an activity source; the server grants the (capped) XP and
+// returns level-up info so the UI can celebrate. Amounts are never sent by the
+// client.
+export const tension = {
+  me:     ()                       => api.get('/tension/me'),
+  action: (source, reason, ref_id) => api.post('/tension/action', { source, reason, ref_id }),
 };
 
 // ─── Feed comments — extra endpoint beyond CRUD ──────────────────────────────

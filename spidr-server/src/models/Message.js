@@ -20,6 +20,10 @@ const s = new Schema({
   created_date: { type: Date, default: Date.now },
 }, { timestamps: true });
 
+// Text index on content for fast full-text search (used by GET /search).
+// Replaces expensive regex scans with MongoDB's $text operator.
+s.index({ content: 'text' });
+
 // Virtual aliases so both field names work
 s.virtual('effectiveUserId').get(function() { return this.user_id || this.author_id; });
 s.virtual('effectiveName').get(function() { return this.user_name || this.author_name; });

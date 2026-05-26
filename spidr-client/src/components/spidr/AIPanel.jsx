@@ -10,6 +10,7 @@ import {
   Plus, Loader2, Wand2, Palette, Check, RotateCcw, X, Settings as SettingsIcon, Trash2, Copy
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { AI_PERSONALITIES, getPersonality } from '@/lib/roguePersonalities';
 import SpiderLogo from './SpiderLogo';
 import { scanPrompt } from './ContentScanner';
 import ContentBlockedModal from './ContentBlockedModal';
@@ -466,6 +467,7 @@ function BotTab({ currentUser, queryClient }) {
 function ChatTab({ currentUser }) {
   const [messages,       setMessages]       = useState([]);
   const [input,          setInput]          = useState('');
+  const [aiMode,         setAiMode]         = useState(() => { try { return localStorage.getItem('spidr_ai_personality') || 'standard'; } catch { return 'standard'; } });
   const [loading,        setLoading]        = useState(false);
   const [selectedConvId, setSelectedConvId] = useState(null);
   const [blockedCat,     setBlockedCat]     = useState(null);
@@ -599,7 +601,11 @@ function ChatTab({ currentUser }) {
     const personaLine = prefs.persona?.trim()
       ? `Persona instruction from the user: ${prefs.persona.trim()}\n\n`
       : '';
-    const systemPreamble = `You are Spidr AI — a helpful assistant in a gaming/Discord-like app called Spidr.\n${personaLine}${verbosityHint} ${toneHint} You may occasionally use spider/web metaphors.`;
+    const activePersonality = getPersonality(prefs.personality);
+    const personalityLine = activePersonality.id !== 'standard'
+      ? `Active personality mode — ${activePersonality.name}: ${activePersonality.prompt}\n\n`
+      : '';
+    const systemPreamble = `You are Spidr AI — a helpful assistant in a gaming/Discord-like app called Spidr.\n${personalityLine}${personaLine}${verbosityHint} ${toneHint} You may occasionally use spider/web metaphors.`;
 
     try {
       const reply = await integrations.Core.InvokeLLM({
@@ -618,7 +624,47 @@ function ChatTab({ currentUser }) {
     setLoading(false);
   };
 
-  // ── Layout: conversation list + chat area side-by-side on desktop;
+  // ── Catch Me Up — summarize the user's recent missed activity. Pulls the
+  //    latest DMs + group messages, hands them to the LLM, and posts a concise
+  //    bulleted recap into the current chat. Self-contained and read-only.
+  const catchMeUp = async () => {
+    if (loading || !selectedConvId) return;
+    setLoading(true);
+    setMessages(prev => [...prev, { role: 'user', content: '⚡ Catch me up on what I missed.' }]);
+    try {
+      // Gather recent activity (best-effort; any source can be empty).
+      let dms = [], groupMsgs = [];
+      try { dms = await entities.DirectMessage.list('-created_date', 30); } catch { /* ignore */ }
+      try { groupMsgs = await entities.GroupChatMessage.list('-created_date', 30); } catch { /* ignore */ }
+
+      const lines = [];
+      for (const m of dms) {
+        if (m.content) lines.push(`DM from ${m.sender_name || m.user_name || 'someone'}: ${String(m.content).slice(0, 140)}`);
+      }
+      for (const m of groupMsgs) {
+        if (m.content) lines.push(`Group (${m.group_id?.slice(0, 6) || '—'}) ${m.user_name || m.sender_name || 'someone'}: ${String(m.content).slice(0, 140)}`);
+      }
+
+      if (lines.length === 0) {
+        setMessages(prev => [...prev, { role: 'assistant', content: "You're all caught up — no recent activity to summarize. 🕸️" }]);
+        setLoading(false);
+        return;
+      }
+
+      const activePersonality = getPersonality(aiMode);
+      const personalityLine = activePersonality.id !== 'standard'
+        ? `Respond in your ${activePersonality.name} personality: ${activePersonality.prompt}\n`
+        : '';
+      const prompt = `You are Spidr AI. ${personalityLine}Summarize the following recent activity for the user as a short, scannable recap. Group by conversation where possible, highlight anything that seems to need a reply, and keep it under 150 words. Use short bullet points.\n\nRecent activity (newest first):\n${lines.slice(0, 40).join('\n')}`;
+
+      const reply = await integrations.Core.InvokeLLM({ prompt });
+      const replyText = typeof reply === 'string' ? reply : JSON.stringify(reply);
+      setMessages(prev => [...prev, { role: 'assistant', content: replyText }]);
+    } catch {
+      toast.error('Could not generate a recap right now.');
+    }
+    setLoading(false);
+  };
   //     conversation list collapses to a thin selector on mobile so the
   //     chat itself doesn't get crushed. ─────────────────────────────────
   return (
@@ -763,6 +809,34 @@ function ChatTab({ currentUser }) {
                 </div>
               </div>
             )}
+
+            {/* Personality mode strip */}
+            <div className="px-3 pt-2 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+              <button
+                onClick={catchMeUp}
+                disabled={loading}
+                title="Summarize what you missed"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap border bg-gradient-to-r from-[#FF3333]/30 to-purple-500/20 border-[#FF3333]/50 text-white hover:from-[#FF3333]/40 transition-colors disabled:opacity-50 shrink-0"
+              >
+                ⚡ Catch Me Up
+              </button>
+              <div className="w-px h-4 bg-white/10 shrink-0" />
+              {AI_PERSONALITIES.map((p) => {
+                const active = aiMode === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => { setAiMode(p.id); try { localStorage.setItem('spidr_ai_personality', p.id); } catch {} }}
+                    title={p.tagline}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap border transition-colors ${
+                      active ? 'bg-[#FF3333]/20 border-[#FF3333]/60 text-white' : 'bg-zinc-800/60 border-white/5 text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <span>{p.emoji}</span>{p.name}
+                  </button>
+                );
+              })}
+            </div>
 
             {/* Input bar */}
             <div className="p-3 border-t border-white/5">
@@ -943,12 +1017,13 @@ export function getAIPreferences() {
   try {
     return {
       persona:      localStorage.getItem('spidr_ai_persona') || '',
+      personality:  localStorage.getItem('spidr_ai_personality') || 'standard',
       verbosity:    localStorage.getItem('spidr_ai_verbosity') || 'normal',
       tone:         localStorage.getItem('spidr_ai_tone') || 'neutral',
       rememberChat: localStorage.getItem('spidr_ai_remember_chat') !== 'false',
       safeMode:     localStorage.getItem('spidr_ai_safe_mode') !== 'false',
     };
   } catch {
-    return { persona: '', verbosity: 'normal', tone: 'neutral', rememberChat: true, safeMode: true };
+    return { persona: '', personality: 'standard', verbosity: 'normal', tone: 'neutral', rememberChat: true, safeMode: true };
   }
 }

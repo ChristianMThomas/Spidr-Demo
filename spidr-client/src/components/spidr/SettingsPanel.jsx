@@ -64,8 +64,38 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
   const [cropperConfig, setCropperConfig] = useState({ open: false, src: null, type: null });
   const [showApexStore, setShowApexStore] = useState(false);
 
+  // 3.4 — notification preferences. Controlled, persisted to localStorage
+  // (instant local context) AND the user profile (notification_prefs) so the
+  // toggles actually save and apply. Defaults match the previous defaultChecked.
+  const NOTIF_DEFAULTS = {
+    enabled: true, dm: true, server_mentions: false, friend_requests: true,
+    voice_calls: true, dnd_suppress: true, urgent_dms: false,
+  };
+  const [notifPrefs, setNotifPrefs] = useState(() => {
+    try {
+      const raw = localStorage.getItem('spidr_notification_prefs');
+      return raw ? { ...NOTIF_DEFAULTS, ...JSON.parse(raw) } : NOTIF_DEFAULTS;
+    } catch { return NOTIF_DEFAULTS; }
+  });
+
+  const setNotif = (key, value) => {
+    setNotifPrefs(prev => {
+      const next = { ...prev, [key]: value };
+      try { localStorage.setItem('spidr_notification_prefs', JSON.stringify(next)); } catch {}
+      // Broadcast so other surfaces (badges, etc.) pick up the change live.
+      window.dispatchEvent(new CustomEvent('spidr-notification-prefs', { detail: next }));
+      // Persist to the profile (best-effort; localStorage is the source of truth
+      // for instant UI).
+      if (profile?.id) { entities.UserProfile.update(profile.id, { notification_prefs: next }).catch(() => {}); }
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (profile) {
+      if (profile.notification_prefs && typeof profile.notification_prefs === 'object') {
+        setNotifPrefs(prev => ({ ...prev, ...profile.notification_prefs }));
+      }
       setFormData({
         display_name: profile.display_name || currentUser?.full_name || '',
         bio: profile.bio || '',
@@ -723,7 +753,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                       <p className="text-white font-medium">Enable Notifications</p>
                       <p className="text-zinc-500 text-sm">Get desktop notifications</p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch checked={notifPrefs.enabled} onCheckedChange={(v) => setNotif('enabled', v)} />
                   </div>
 
                   <div className="border-t border-zinc-700 pt-4 space-y-3">
@@ -732,7 +762,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                         <p className="text-white text-sm">Direct Messages</p>
                         <p className="text-zinc-500 text-xs">Notify for all DMs</p>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch checked={notifPrefs.dm} onCheckedChange={(v) => setNotif('dm', v)} />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -740,7 +770,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                         <p className="text-white text-sm">Server Messages</p>
                         <p className="text-zinc-500 text-xs">Notify for @mentions only</p>
                       </div>
-                      <Switch />
+                      <Switch checked={notifPrefs.server_mentions} onCheckedChange={(v) => setNotif('server_mentions', v)} />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -748,7 +778,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                         <p className="text-white text-sm">Friend Requests</p>
                         <p className="text-zinc-500 text-xs">New friend request notifications</p>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch checked={notifPrefs.friend_requests} onCheckedChange={(v) => setNotif('friend_requests', v)} />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -756,7 +786,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                         <p className="text-white text-sm">Voice Calls</p>
                         <p className="text-zinc-500 text-xs">Incoming call notifications</p>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch checked={notifPrefs.voice_calls} onCheckedChange={(v) => setNotif('voice_calls', v)} />
                     </div>
                   </div>
                 </div>
@@ -774,7 +804,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                       <p className="text-white font-medium">Suppress All Notifications</p>
                       <p className="text-zinc-500 text-sm">When status is DND</p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch checked={notifPrefs.dnd_suppress} onCheckedChange={(v) => setNotif('dnd_suppress', v)} />
                   </div>
 
                   <div className="flex items-center justify-between">
@@ -782,7 +812,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                       <p className="text-white text-sm">Allow Urgent DMs</p>
                       <p className="text-zinc-500 text-xs">Show notifications from close friends</p>
                     </div>
-                    <Switch />
+                    <Switch checked={notifPrefs.urgent_dms} onCheckedChange={(v) => setNotif('urgent_dms', v)} />
                   </div>
                 </div>
               </div>

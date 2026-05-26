@@ -6,8 +6,9 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search } from 'lucide-react';
+import { Search, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getPins } from '@/lib/spidrWebPins';
 
 const statusColors = {
   online: 'bg-green-500',
@@ -22,6 +23,13 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
   const [isHoveringButton, setIsHoveringButton] = useState(false);
   const [spiderClicks, setSpiderClicks] = useState(0);
   const [showGlitch, setShowGlitch] = useState(false);
+  // "Spidr Web" pinned conversations — priority section at the top.
+  const [pins, setPins] = useState(() => getPins());
+  React.useEffect(() => {
+    const onChange = (e) => setPins(e.detail || getPins());
+    window.addEventListener('spidr-web-pins-changed', onChange);
+    return () => window.removeEventListener('spidr-web-pins-changed', onChange);
+  }, []);
 
   // Get all accepted friends
   const { data: friends = [] } = useQuery({
@@ -122,7 +130,36 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
               No conversations found
             </div>
           ) : (
-            filteredConversations.map((conv) => (
+            <>
+            {/* Spidr Web — pinned priority section */}
+            {pins.length > 0 && !search && (
+              <div className="mb-2">
+                <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-[#FF3333]">
+                  <Pin size={11} /> Spidr Web
+                </div>
+                {pins.map((p) => {
+                  const conv = filteredConversations.find(c => c.conversationId === p.id || c.friendId === p.id);
+                  return (
+                    <motion.button
+                      key={`pin-${p.id}`}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => conv ? onSelectConversation(conv) : onSelectConversation({ conversationId: p.id, friendName: p.name, friendAvatar: p.avatar })}
+                      className="w-full p-2.5 rounded-lg flex items-center gap-3 transition-colors relative bg-[#FF3333]/5 hover:bg-[#FF3333]/10 border border-[#FF3333]/20 mb-1"
+                    >
+                      <Avatar className="w-9 h-9">
+                        <AvatarImage src={p.avatar} />
+                        <AvatarFallback className="bg-zinc-700 text-white text-xs">{(p.name || '?').charAt(0).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <span className="flex-1 text-left text-sm font-medium text-white truncate">{p.name}</span>
+                      <Pin size={12} className="text-[#FF3333] fill-[#FF3333]" />
+                    </motion.button>
+                  );
+                })}
+                <div className="border-b border-white/5 my-2" />
+              </div>
+            )}
+            {filteredConversations.map((conv) => (
               <motion.button
                 key={conv.conversationId}
                 whileHover={{ scale: 1.02 }}
@@ -149,6 +186,12 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
                     )}
                   </Avatar>
                   <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-zinc-900 ${statusColors[conv.friendStatus]}`} />
+                  {/* 3.5 — unread dot on the avatar itself */}
+                  {conv.unreadCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 border-2 border-zinc-900 flex items-center justify-center text-[9px] font-black text-white shadow-[0_0_8px_rgba(220,38,38,0.7)]">
+                      {conv.unreadCount > 9 ? '9+' : conv.unreadCount}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex-1 min-w-0 text-left">
@@ -166,7 +209,8 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
                   </p>
                 </div>
               </motion.button>
-            ))
+            ))}
+            </>
           )}
         </div>
       </ScrollArea>

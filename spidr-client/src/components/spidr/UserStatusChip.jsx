@@ -5,7 +5,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { entities } from '@/api/apiClient';
 import { useAppShell } from '@/context/AppShellContext';
 import { Mic, MicOff, Headphones, Settings as SettingsIcon, LogOut, User as UserIcon } from 'lucide-react';
-import SpiderLogo from './SpiderLogo';
 
 /**
  * UserStatusChip — the top-right profile control, designed to look like the
@@ -83,9 +82,12 @@ export default function UserStatusChip() {
     setOpen(false);
   };
 
-  const Avatar = ({ size = 44 }) => (
+  const Avatar = ({ size = 44, ring = false }) => (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
-      {inCall && (
+      {/* In-call gets the animated red conic ring; otherwise a status-colored
+          glow ring (matching the reference: a thin colored halo around the
+          circular avatar). */}
+      {inCall ? (
         <span
           className="absolute inset-[-4px] rounded-full"
           style={{
@@ -93,6 +95,15 @@ export default function UserStatusChip() {
             animation: 'spidr-ring-spin 3s linear infinite',
             filter: 'blur(1px)',
             opacity: 0.9,
+          }}
+        />
+      ) : ring && (
+        <span
+          className="absolute inset-[-3px] rounded-full"
+          style={{
+            background: statusColor,
+            opacity: 0.9,
+            boxShadow: `0 0 12px ${statusColor}aa`,
           }}
         />
       )}
@@ -118,41 +129,35 @@ export default function UserStatusChip() {
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
     >
-      {/* Spider anchored at the very top */}
-      <div className="relative z-10 w-7 h-7 flex items-center justify-center rounded-full bg-black/70 border border-red-900/50">
-        <SpiderLogo size={16} />
-      </div>
+      {/* Collapsed: a clean circular avatar with a status-colored ring (matches
+          the reference). On hover it does a quick "breathing" pop then the
+          full card unfurls below. The avatar stays put as the card anchor. */}
+      <motion.button
+        onClick={() => setOpen((o) => !o)}
+        className="relative z-10 origin-center"
+        animate={open
+          ? { scale: 1.08, y: 0 }
+          : { scale: [1, 1.04, 1] }}
+        transition={open
+          ? { type: 'spring', stiffness: 400, damping: 18 }
+          : { duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
+        whileHover={{ scale: 1.12 }}
+        whileTap={{ scale: 0.94 }}
+        title={displayName}
+      >
+        <Avatar size={40} ring />
+      </motion.button>
 
-      {/* Silk thread — lengthens when the card is open so the avatar "drops". */}
-      <motion.div
-        className="w-px bg-gradient-to-b from-red-500/70 to-zinc-600/40"
-        animate={{ height: open ? 14 : 8 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-      />
-
-      {/* Hanging avatar — sways gently when collapsed */}
-      {!open && (
-        <motion.button
-          onClick={() => setOpen(true)}
-          className="origin-top"
-          animate={{ rotate: [0, 2.5, -2.5, 0] }}
-          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-          title={displayName}
-        >
-          <Avatar size={40} />
-        </motion.button>
-      )}
-
-      {/* Expanded card unfurls from the thread on hover */}
+      {/* Expanded card unfurls beneath the avatar on hover */}
       <AnimatePresence>
         {open && (
           <motion.div
             initial={{ opacity: 0, y: -10, scaleY: 0.85 }}
-            animate={{ opacity: 1, y: 0, scaleY: 1 }}
+            animate={{ opacity: 1, y: 8, scaleY: 1 }}
             exit={{ opacity: 0, y: -10, scaleY: 0.85 }}
             transition={{ type: 'spring', stiffness: 320, damping: 26 }}
             style={{ transformOrigin: 'top center' }}
-            className="w-64 rounded-2xl bg-[#0d0d0f]/95 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50 overflow-hidden"
+            className="absolute top-full right-0 w-64 rounded-2xl bg-[#0d0d0f]/95 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50 overflow-hidden"
           >
             {/* Header */}
             <div className="p-4 flex items-center gap-3">

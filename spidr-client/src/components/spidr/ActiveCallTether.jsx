@@ -3,11 +3,25 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, PhoneOff, Maximize2, Volume2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket } from '@/api/apiClient';
+import VoiceEqualizer from './VoiceEqualizer';
 
 export default function ActiveCallTether({ callInfo, onExpand, onDisconnect, onToggleMute, isMuted }) {
   const [isHovered, setIsHovered] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const queryClient = useQueryClient();
+
+  // 1.1 — current user's equipped APEX thread color for the hanging thread.
+  const { data: meProfile } = useQuery({
+    queryKey: ['tether-me-profile'],
+    queryFn: async () => {
+      const me = await auth.me().catch(() => null);
+      if (!me?.id) return null;
+      const profiles = await entities.UserProfile.filter({ user_id: me.id });
+      return profiles[0] || null;
+    },
+    staleTime: 60000,
+  });
+  const threadColor = meProfile?.apex_features?.thread_skin_color || '#3f3f46';
   
   useEffect(() => {
     if (!callInfo) return;
@@ -155,9 +169,17 @@ export default function ActiveCallTether({ callInfo, onExpand, onDisconnect, onT
               </>
             )}
 
-            {/* Speaking Indicator */}
+            {/* Speaking Indicator + mini visualizer (1.2). Uses VoiceEqualizer
+                in idle-shimmer mode (no stream → no duplicate AudioContext, per
+                the perf note) gated on the shared isSpeaking state. */}
             {!isMuted && isSpeaking && !isHovered && (
-               <div className="absolute inset-0 rounded-2xl border border-[#FF3333] opacity-50 animate-ping pointer-events-none" />
+              <>
+                <div className="absolute inset-0 rounded-2xl border opacity-50 animate-ping pointer-events-none"
+                  style={{ borderColor: threadColor === '#3f3f46' ? '#FF3333' : threadColor }} />
+                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 scale-[0.6] origin-bottom pointer-events-none">
+                  <VoiceEqualizer active bars={5} />
+                </div>
+              </>
             )}
           </div>
 
@@ -170,8 +192,9 @@ export default function ActiveCallTether({ callInfo, onExpand, onDisconnect, onT
                 exit={{ opacity: 0, height: 0 }}
                 className="relative flex flex-col items-center gap-1 pt-1 overflow-hidden"
               >
-                {/* Connecting thread */}
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1px] h-full bg-gradient-to-b from-white/20 to-transparent -z-10" />
+                {/* Connecting thread — 1.1 APEX color (falls back to zinc). */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1px] h-full -z-10"
+                  style={{ background: `linear-gradient(to bottom, ${threadColor}, transparent)` }} />
 
                 {voiceSessions.map((session, i) => (
                   <TetheredParticipant key={session.id} session={session} index={i} />

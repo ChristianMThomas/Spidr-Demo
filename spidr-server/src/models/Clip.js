@@ -13,7 +13,18 @@ const s = new Schema({
   audio_id:      String,
   duration:      { type: Number, default: 0 },
   aspect_ratio:  { type: String, default: '9:16' },
+  // Crop region from the Spidr Studio cropper (Part 6): { x, y, width, height }
+  // in the source video's natural pixels. Used to render the correct framing
+  // in the feed (and could drive an FFmpeg crop=w:h:x:y filter if a transcode
+  // pipeline is added later).
+  crop_data:     { type: Schema.Types.Mixed, default: null },
   style:         { type: Schema.Types.Mixed, default: {} },
+
+  // optional server promotion — when set, the clip shows a "Join Server" CTA
+  // in the feed so creators can funnel viewers into their community.
+  server_id:     { type: String, index: true },
+  server_name:   String,
+  server_icon:   String,
 
   // engagement
   likes:          [String],          // array of user_ids

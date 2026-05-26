@@ -84,10 +84,21 @@ export default function VoiceRecorder({ onRecorded, disabled }) {
     if (!blobRef.current) return;
     setState('uploading');
     try {
-      const ext = (blobRef.current.type.includes('webm')) ? 'webm' : 'audio';
-      const file = new File([blobRef.current], `voice-message-${Date.now()}.${ext}`, { type: blobRef.current.type });
+      // Derive a sensible file extension from the blob's mime type so the
+      // uploaded URL ends in a recognizable audio extension (the server
+      // renames to <uuid><ext>, so the extension is the only surviving signal
+      // that this is audio). webm/ogg/mp4/wav all map cleanly; default to webm.
+      const mime = blobRef.current.type || 'audio/webm';
+      const ext =
+        mime.includes('webm') ? 'webm' :
+        mime.includes('ogg')  ? 'ogg'  :
+        mime.includes('mp4')  ? 'm4a'  :
+        mime.includes('mpeg') ? 'mp3'  :
+        mime.includes('wav')  ? 'wav'  : 'webm';
+      const file = new File([blobRef.current], `voice-message-${Date.now()}.${ext}`, { type: mime });
       const { url } = await integrations.Core.UploadFile({ file });
-      onRecorded({ name: 'Voice message', url, type: blobRef.current.type || 'audio/webm', duration: seconds });
+      if (!url) throw new Error('no url');
+      onRecorded({ name: 'Voice message', url, type: mime, duration: seconds, isVoice: true });
       discard();
     } catch (err) {
       toast.error('Could not send voice message');

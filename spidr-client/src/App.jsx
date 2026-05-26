@@ -60,6 +60,7 @@ const GifsEmojis    = lazy(() => import('@/pages/GifsEmojis'));
 const GlobalReports = lazy(() => import('@/pages/GlobalReports'));
 const RadarPage     = lazy(() => import('@/pages/Radar'));
 const BiomassPage   = lazy(() => import('@/pages/Biomass'));
+const PopoutCall    = lazy(() => import('@/pages/PopoutCall'));
 
 function AppRoutes() {
   const { isLoadingAuth, isAuthenticated } = useAuth();
@@ -106,6 +107,9 @@ function AppRoutes() {
 
       {/* Protected — the AppShell wraps everything below it */}
       {isAuthenticated ? (
+        <>
+        {/* Standalone pop-out call window (Electron child window). No shell. */}
+        <Route path="/popout/call" element={<PopoutCall />} />
         <Route element={<AppShellProvider><SpidrShell /></AppShellProvider>}>
           <Route path="/home"            element={<HomeDashboard />} />
           <Route path="/friends"         element={<FriendsPage />} />
@@ -126,6 +130,7 @@ function AppRoutes() {
           {/* Legacy uppercase /Home URL → redirect to lowercase */}
           <Route path="/Home" element={<Navigate to="/home" replace />} />
         </Route>
+        </>
       ) : (
         // Not authenticated — every protected path redirects to /login
         <Route path="*" element={<Navigate to="/login" replace />} />

@@ -1,11 +1,38 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, MessageSquare, Users, Hash, X } from 'lucide-react';
+import { Search, Filter, MessageSquare, Users, Hash, X, Loader2 } from 'lucide-react';
+import { searchMessages } from '@/api/apiClient';
 
-export default function SignalTracker({ placeholder = "Trace signals...", messages = [], users = [], channels = [], onResultClick }) {
+export default function SignalTracker({ placeholder = "Trace signals...", messages = [], users = [], channels = [], onResultClick, serverId, channelId }) {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
+  // Server-wide message results from the backend $text search (beyond the
+  // ~50 messages currently loaded in the channel). Debounced.
+  const [serverMsgs, setServerMsgs] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const q = query.trim();
+    if (!serverId || q.length < 2 || (activeFilter !== 'all' && activeFilter !== 'messages')) {
+      setServerMsgs([]); setSearching(false);
+      return;
+    }
+    setSearching(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const rows = await searchMessages({ serverId, q, limit: 40 });
+        setServerMsgs(Array.isArray(rows) ? rows : []);
+      } catch {
+        setServerMsgs([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query, serverId, activeFilter]);
 
   const results = useMemo(() => {
     if (!query || query.length < 2) return [];
@@ -13,8 +40,19 @@ export default function SignalTracker({ placeholder = "Trace signals...", messag
     const out = [];
 
     if (activeFilter === 'all' || activeFilter === 'messages') {
-      messages.filter(m => m.content?.toLowerCase().includes(q)).slice(0, 8).forEach(m => {
-        out.push({ id: m.id, type: 'message', author: m.author_name || m.sender_name || 'Unknown', text: m.content, time: m.created_date, raw: m });
+      // Merge locally-loaded messages with server-wide search results, keyed by
+      // id so the same message isn't listed twice. Local first (already on
+      // screen), then server results that weren't in the local set.
+      const seen = new Set();
+      const localMatches = messages.filter(m => m.content?.toLowerCase().includes(q));
+      localMatches.slice(0, 8).forEach(m => {
+        seen.add(m.id);
+        out.push({ id: m.id, type: 'message', author: m.author_name || m.sender_name || m.user_name || 'Unknown', text: m.content, time: m.created_date, raw: m });
+      });
+      serverMsgs.forEach(m => {
+        if (seen.has(m.id)) return;
+        seen.add(m.id);
+        out.push({ id: m.id, type: 'message', author: m.author_name || m.user_name || 'Unknown', text: m.content, time: m.created_date, raw: m });
       });
     }
     if (activeFilter === 'all' || activeFilter === 'users') {
@@ -27,8 +65,8 @@ export default function SignalTracker({ placeholder = "Trace signals...", messag
         out.push({ id: c.id, type: 'channel', name: c.name, channelType: c.type, raw: c });
       });
     }
-    return out.slice(0, 15);
-  }, [query, activeFilter, messages, users, channels]);
+    return out.slice(0, 25);
+  }, [query, activeFilter, messages, users, channels, serverMsgs]);
 
   const timeAgo = (d) => {
     if (!d) return '';
@@ -81,8 +119,13 @@ export default function SignalTracker({ placeholder = "Trace signals...", messag
             </div>
 
             <div className="max-h-80 overflow-y-auto p-2 space-y-1">
-              {results.length === 0 && (
-                <div className="p-4 text-center text-xs text-gray-500">No results for "{query}"</div>
+              {searching && results.length === 0 && (
+                <div className="p-4 flex items-center justify-center gap-2 text-xs text-gray-500">
+                  <Loader2 size={12} className="animate-spin" /> Searching the web…
+                </div>
+              )}
+              {!searching && results.length === 0 && (
+                <div className="p-4 text-center text-xs text-gray-500">No results found for "{query}"</div>
               )}
               {results.map((result) => (
                 <div key={`${result.type}-${result.id}`}
