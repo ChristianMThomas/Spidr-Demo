@@ -1,0 +1,35 @@
+name: Deploy — Production (spidrapp.com)
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: spidr-client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: spidr-client/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL_PROD }}
+          VITE_WS_URL: ${{ secrets.VITE_WS_URL_PROD }}
+          VITE_AUTH_URL: ${{ secrets.VITE_AUTH_URL_PROD }}
+          VITE_SPOTIFY_CLIENT_ID: ${{ secrets.VITE_SPOTIFY_CLIENT_ID }}
+      - name: Deploy to Hostinger (production)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.HOSTINGER_FTP_HOST_PROD }}
+          username: ${{ secrets.HOSTINGER_FTP_USER_PROD }}
+          password: ${{ secrets.HOSTINGER_FTP_PASSWORD_PROD }}
+          local-dir: spidr-client/dist/
+          server-dir: /public_html/
