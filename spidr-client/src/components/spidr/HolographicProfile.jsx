@@ -369,11 +369,30 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                     <input type="file" hidden accept="image/*" onChange={handleAvatarUpload} />
                   </label>
                 )}
+                {/* APEX custom frame overlay (4.1) — sits over the avatar. */}
+                {userProfile?.apex_features?.frame_url && (
+                  <img
+                    src={userProfile.apex_features.frame_url}
+                    alt=""
+                    className="absolute -inset-2 w-[calc(100%+16px)] h-[calc(100%+16px)] object-contain pointer-events-none"
+                    style={{ zIndex: 6 }}
+                  />
+                )}
               </div>
             </div>
 
             {/* LAYER 2: Identity — @username#tag */}
             <div style={{ zIndex: 5 }} className="relative px-10 mt-4">
+              {/* APEX nameplate background (4.1) — sits behind the name row. */}
+              {userProfile?.apex_features?.nameplate_url && (
+                <div
+                  className="absolute inset-x-8 -inset-y-1 rounded-xl overflow-hidden pointer-events-none opacity-80"
+                  style={{ zIndex: -1 }}
+                >
+                  <img src={userProfile.apex_features.nameplate_url} alt="" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a]/70 to-transparent" />
+                </div>
+              )}
               <div className="flex items-center gap-3">
                 <h2
                   className="text-3xl tracking-tight"

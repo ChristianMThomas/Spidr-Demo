@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Heart, MessageCircle, Share2, Volume2, VolumeX, Play,
-  Bookmark, Sparkles, Send,
+  Bookmark, Sparkles, Send, Users,
 } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { entities, algorithm } from '@/api/apiClient';
@@ -233,6 +234,7 @@ function ClipCard({
   const [freqAudio, setFreqAudio] = useState(null);
   const queryClient = useQueryClient();
   const menu = useMenu();
+  const navigate = useNavigate();
   const hasLiked = clip.likes?.includes(currentUser?.id);
 
   // Handle web_post right-click actions for this clip.
@@ -259,6 +261,25 @@ function ClipCard({
 
   const ratio = clip?.aspect_ratio || '9:16';
   const aspectCss = ratio === '16:9' ? '16/9' : ratio === '1:1' ? '1/1' : '9/16';
+  // When a clip carries crop_data (from the Spidr Studio cropper) and there's
+  // no server-side transcode, honor the crop on playback: scale + translate the
+  // video so the cropped region fills the frame. Needs the natural video size.
+  const [natSize, setNatSize] = useState(null);
+  const cropStyle = React.useMemo(() => {
+    const cd = clip?.crop_data;
+    if (!cd || !natSize?.width || !cd.width || !cd.height) return undefined;
+    // Scale so the crop region maps to the full frame, then shift to the crop
+    // origin. transform-origin top-left keeps the math simple.
+    const scaleX = natSize.width / cd.width;
+    const scaleY = natSize.height / cd.height;
+    const scale = Math.max(scaleX, scaleY);
+    const tx = -(cd.x / natSize.width) * 100;
+    const ty = -(cd.y / natSize.height) * 100;
+    return {
+      transformOrigin: 'top left',
+      transform: `translate(${tx}%, ${ty}%) scale(${scale})`,
+    };
+  }, [clip?.crop_data, natSize]);
 
   // ── Play/pause based on isActive ──────────────────────────────────────────
   // Inactive cards are preloaded but never play. Active card plays unless
@@ -478,12 +499,14 @@ function ClipCard({
         <video
           ref={videoRef}
           src={clip.video_url}
-          className="w-full h-full object-contain bg-black cursor-pointer"
+          className={`w-full h-full bg-black cursor-pointer ${clip.crop_data ? 'object-cover' : 'object-contain'}`}
+          style={cropStyle}
           loop
           muted={muted}
           playsInline
           preload={isActive ? 'auto' : 'metadata'}
           onClick={togglePlay}
+          onLoadedMetadata={(e) => { const v = e.target; if (v.videoWidth) setNatSize({ width: v.videoWidth, height: v.videoHeight }); }}
         />
 
         {/* Buffering spinner */}
@@ -546,6 +569,24 @@ function ClipCard({
               audioTrack={audioMap[clip.audio_id]}
               onClick={() => setFreqAudio(audioMap[clip.audio_id])}
             />
+          )}
+
+          {/* Join Server CTA — shown when the creator linked a server. */}
+          {clip.server_id && (
+            <motion.button
+              onClick={(e) => { e.stopPropagation(); navigate(`/servers/${clip.server_id}`); }}
+              whileTap={{ scale: 0.96 }}
+              className="mt-2 w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-[#FF3333]/90 to-[#990000]/90 hover:from-[#FF3333] hover:to-[#990000] border border-[#FF3333]/40 shadow-[0_0_18px_rgba(255,51,51,0.3)] transition-all"
+            >
+              {clip.server_icon
+                ? <img src={clip.server_icon} alt="" className="w-6 h-6 rounded-lg object-cover shrink-0 border border-white/20" />
+                : <span className="w-6 h-6 rounded-lg bg-black/30 flex items-center justify-center shrink-0"><Users className="w-3.5 h-3.5 text-white" /></span>}
+              <div className="min-w-0 flex-1 text-left">
+                <p className="text-[9px] uppercase tracking-widest text-white/70 leading-none">Join Server</p>
+                <p className="text-xs font-bold text-white truncate leading-tight">{clip.server_name || 'Spidr Server'}</p>
+              </div>
+              <span className="text-[10px] font-black text-white bg-black/30 rounded-full px-2 py-1 shrink-0">JOIN</span>
+            </motion.button>
           )}
         </div>
 

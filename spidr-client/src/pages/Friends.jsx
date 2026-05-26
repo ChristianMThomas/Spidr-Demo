@@ -37,8 +37,14 @@ export default function FriendsPage() {
         const target = tab === 'all' ? '/friends' : `/friends/${tab}`;
         if (location.pathname !== target) navigate(target, { replace: true });
       }}
-      onVoiceJoin={(groupId, groupName) => {
-        setActiveCall({ groupId, groupName, type: 'group' });
+      onVoiceJoin={(idOrGroupId, name, conversationId) => {
+        // DirectMessages calls (recipientId, displayName, conversationId);
+        // KineticChat calls (groupId, groupName). Distinguish by the 3rd arg.
+        if (conversationId) {
+          setActiveCall({ conversationId, groupName: name, recipientId: idOrGroupId, type: 'dm' });
+        } else {
+          setActiveCall({ groupId: idOrGroupId, groupName: name, type: 'group' });
+        }
         setIsCallMinimized(false);
       }}
       onVoiceLeave={() => {

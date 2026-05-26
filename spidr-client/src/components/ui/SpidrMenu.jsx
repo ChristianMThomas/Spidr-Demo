@@ -107,6 +107,7 @@ export default function SpidrMenu() {
           { icon: User, label: 'View Profile', color: 'text-white', action: 'view-profile' },
           { icon: AtSign, label: 'Mention', color: 'text-white', action: 'mention' },
           { separator: true },
+          { icon: Pin, label: menu.data?.is_pinned ? 'Unpin from Spidr Web' : 'Pin to Spidr Web', color: 'text-[#FF3333]', action: 'pin-web' },
           { icon: VolumeX, label: 'Mute', color: 'text-white', action: 'mute' },
           { icon: UserX, label: 'Remove Friend', color: 'text-orange-400', action: 'remove-friend' },
           { icon: Ban, label: 'Block User', color: 'text-[#FF3333]', action: 'block-user' },

@@ -22,6 +22,19 @@ export default function ApexVisuals({ formData, updateFormData }) {
     toast.success('Background uploaded!');
   };
 
+  // Generic APEX asset uploader (frame / nameplate). Image only, 2 MB cap.
+  const handleAssetUpload = async (e, key, label) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Please choose an image.'); return; }
+    if (file.size > 2 * 1024 * 1024) { toast.error(`${label} must be under 2 MB.`); return; }
+    try {
+      const { url } = await integrations.Core.UploadFile({ file });
+      if (url) { updateFormData({ apex_features: { ...apexFeatures, [key]: url } }); toast.success(`${label} set!`); }
+    } catch { toast.error(`${label} upload failed.`); }
+  };
+
   return (
     <div className="space-y-10">
       {/* HEADER */}
@@ -149,6 +162,131 @@ export default function ApexVisuals({ formData, updateFormData }) {
               style={{ backgroundColor: color }}
             />
           ))}
+        </div>
+      </div>
+
+      {/* 3. ENTRANCE ANIMATION */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-white font-bold uppercase tracking-widest text-sm">
+          <Sparkles size={16} className="text-purple-500" /> Voice Entrance Flash
+        </div>
+        <p className="text-xs text-gray-500 font-mono">
+          {'>'} Played for everyone when you drop into a voice channel.
+        </p>
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { id: 'ripple',  label: 'Web Ripple',  desc: 'Concentric silk rings.' },
+            { id: 'thunder', label: 'Thunder',     desc: 'Lightning + flash.' },
+            { id: 'glitch',  label: 'Glitch',      desc: 'RGB-split bands.' },
+          ].map(opt => {
+            const active = (apexFeatures.entrance_style || 'ripple') === opt.id;
+            return (
+              <button
+                key={opt.id}
+                onClick={() => updateFormData({ apex_features: { ...apexFeatures, entrance_style: opt.id } })}
+                className={`p-3 rounded-xl border text-left transition-colors ${active ? 'border-[#FF3333] bg-[#FF3333]/10' : 'border-white/10 bg-black/30 hover:border-white/30'}`}
+              >
+                <p className="text-sm font-bold text-white">{opt.label}</p>
+                <p className="text-[10px] text-gray-500 mt-1 leading-snug">{opt.desc}</p>
+              </button>
+            );
+          })}
+        </div>
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('spidr-apex-entrance', {
+            detail: { name: 'PREVIEW', style: apexFeatures.entrance_style || 'ripple', color: apexFeatures.entrance_color || accentColor },
+          }))}
+          className="text-xs px-3 py-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 font-bold uppercase tracking-widest transition-colors"
+        >
+          Preview Entrance
+        </button>
+      </div>
+
+      {/* 4. THREAD SKIN */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-white font-bold uppercase tracking-widest text-sm">
+          <Type size={16} className="text-purple-500" /> Thread Skin
+        </div>
+        <p className="text-xs text-gray-500 font-mono">
+          {'>'} Recolors your hanging silk thread + message connectors.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: 'default', color: '#FF3333', label: 'Crimson' },
+            { id: 'violet',  color: '#a855f7', label: 'Violet' },
+            { id: 'cyan',    color: '#06b6d4', label: 'Cyan' },
+            { id: 'gold',    color: '#eab308', label: 'Gold' },
+            { id: 'emerald', color: '#10b981', label: 'Emerald' },
+            { id: 'mono',    color: '#e5e5e5', label: 'Silk' },
+          ].map(skin => {
+            const active = (apexFeatures.thread_skin || 'default') === skin.id;
+            return (
+              <button
+                key={skin.id}
+                onClick={() => updateFormData({ apex_features: { ...apexFeatures, thread_skin: skin.id, thread_skin_color: skin.color } })}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-colors ${active ? 'border-white bg-white/5' : 'border-white/10 hover:border-white/30'}`}
+              >
+                <span className="w-4 h-4 rounded-full" style={{ backgroundColor: skin.color, boxShadow: `0 0 8px ${skin.color}99` }} />
+                <span className="text-xs font-bold text-white">{skin.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 5. AVATAR FRAME + NAMEPLATE (4.1) */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-white font-bold uppercase tracking-widest text-sm">
+          <Crown size={16} className="text-[#FF3333]" /> Frame & Nameplate
+        </div>
+        <p className="text-xs text-gray-500 font-mono">
+          {'>'} Equip a custom frame around your avatar and a nameplate behind your name.
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          {/* Frame */}
+          <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+            <p className="text-[11px] font-bold text-zinc-300 uppercase tracking-widest mb-2">Avatar Frame</p>
+            <div className="flex items-center gap-3">
+              <div className="relative w-14 h-14 shrink-0">
+                <div className="w-14 h-14 rounded-full bg-zinc-800 border border-white/10" />
+                {apexFeatures.frame_url && (
+                  <img src={apexFeatures.frame_url} alt="" className="absolute inset-0 w-14 h-14 object-contain pointer-events-none" />
+                )}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] font-bold text-white px-2 py-1 rounded-md bg-zinc-700 hover:bg-zinc-600 cursor-pointer transition-colors text-center">
+                  Upload
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => handleAssetUpload(e, 'frame_url', 'Frame')} />
+                </label>
+                {apexFeatures.frame_url && (
+                  <button onClick={() => updateFormData({ apex_features: { ...apexFeatures, frame_url: '' } })}
+                    className="text-[10px] text-red-400 hover:text-red-300">Remove</button>
+                )}
+              </div>
+            </div>
+            <p className="text-[9px] text-zinc-600 mt-2">PNG with transparency works best (sits over the avatar).</p>
+          </div>
+
+          {/* Nameplate */}
+          <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+            <p className="text-[11px] font-bold text-zinc-300 uppercase tracking-widest mb-2">Nameplate</p>
+            <div className="relative h-10 rounded-lg overflow-hidden border border-white/10 mb-2 flex items-center px-3">
+              {apexFeatures.nameplate_url && (
+                <img src={apexFeatures.nameplate_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+              )}
+              <span className="relative text-xs font-bold text-white drop-shadow">{formData.display_name || 'Your Name'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[11px] font-bold text-white px-2 py-1 rounded-md bg-zinc-700 hover:bg-zinc-600 cursor-pointer transition-colors">
+                Upload
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleAssetUpload(e, 'nameplate_url', 'Nameplate')} />
+              </label>
+              {apexFeatures.nameplate_url && (
+                <button onClick={() => updateFormData({ apex_features: { ...apexFeatures, nameplate_url: '' } })}
+                  className="text-[10px] text-red-400 hover:text-red-300">Remove</button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

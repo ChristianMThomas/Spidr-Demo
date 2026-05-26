@@ -261,6 +261,24 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
     setRoles(roles.map(r => r.id === roleId ? { ...r, permissions: newPermissions } : r));
   };
 
+  // Update an arbitrary field on a role (tag, icon_url, etc.) — 3.1.
+  const updateRoleField = (roleId, field, value) => {
+    setRoles(roles.map(r => r.id === roleId ? { ...r, [field]: value } : r));
+  };
+
+  // Upload a custom icon image for a role (3.1). 1 MB cap, image only.
+  const uploadRoleIcon = async (roleId, file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Please choose an image.'); return; }
+    if (file.size > 1024 * 1024) { toast.error('Icon must be under 1 MB.'); return; }
+    try {
+      const { url } = await integrations.Core.UploadFile({ file });
+      if (url) { updateRoleField(roleId, 'icon_url', url); toast.success('Role icon set.'); }
+    } catch {
+      toast.error('Icon upload failed.');
+    }
+  };
+
   const availablePermissions = [
     { id: 'send_messages', label: 'Send Messages' },
     { id: 'read_messages', label: 'Read Messages' },
@@ -673,7 +691,8 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                   const next = [...roles];
                   const [moved] = next.splice(result.source.index, 1);
                   next.splice(result.destination.index, 0, moved);
-                  setRoles(next);
+                  // Stamp position so the live member list sorts by hierarchy.
+                  setRoles(next.map((r, i) => ({ ...r, position: i })));
                 }}
               >
                 <Droppable droppableId="roles">
@@ -700,7 +719,17 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                                     </span>
                                   )}
                                   <Shield className="w-4 h-4 shrink-0" style={{ color: role.color }} />
-                                  <span className="text-white font-semibold truncate">{role.name}</span>
+                                  {isOwner && !['admin', 'member'].includes(role.id) ? (
+                                    <input
+                                      value={role.name}
+                                      onChange={(e) => updateRoleField(role.id, 'name', e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="bg-transparent text-white font-semibold truncate border-b border-transparent hover:border-white/20 focus:border-[#FF3333] focus:outline-none transition-colors min-w-0"
+                                      title="Click to rename this role"
+                                    />
+                                  ) : (
+                                    <span className="text-white font-semibold truncate">{role.name}</span>
+                                  )}
                                 </div>
                                 {isOwner && !['admin', 'member'].includes(role.id) && (
                                   <Button size="icon" variant="ghost" onClick={() => removeRole(role.id)} className="text-red-500 hover:text-red-400">
@@ -727,6 +756,40 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                                       {perm.label}
                                     </label>
                                   ))}
+                                </div>
+                              )}
+
+                              {/* Custom icon + tag (3.1) — render next to usernames */}
+                              {isOwner && (
+                                <div className="mt-3 pt-3 border-t border-white/5 flex flex-wrap items-center gap-3">
+                                  <div className="flex items-center gap-2">
+                                    {role.icon_url
+                                      ? <img src={role.icon_url} alt="" className="w-6 h-6 rounded object-cover border border-white/10" />
+                                      : <span className="w-6 h-6 rounded bg-zinc-700 flex items-center justify-center"><Shield className="w-3 h-3 text-zinc-500" /></span>}
+                                    <label className="text-[11px] font-bold text-zinc-300 px-2 py-1 rounded-md bg-zinc-700 hover:bg-zinc-600 cursor-pointer transition-colors">
+                                      Icon
+                                      <input type="file" accept="image/*" className="hidden"
+                                        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; uploadRoleIcon(role.id, f); }} />
+                                    </label>
+                                    {role.icon_url && (
+                                      <button onClick={() => updateRoleField(role.id, 'icon_url', '')}
+                                        className="text-[10px] text-red-400 hover:text-red-300">Clear</button>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] text-zinc-500 uppercase tracking-widest">Tag</span>
+                                    <Input
+                                      value={role.tag || ''}
+                                      onChange={(e) => updateRoleField(role.id, 'tag', e.target.value.slice(0, 12))}
+                                      placeholder="e.g. MOD"
+                                      className="bg-zinc-900 border-zinc-700 text-white h-7 w-24 text-xs"
+                                    />
+                                    {role.tag && (
+                                      <span className="text-[10px] font-black px-1.5 py-0.5 rounded" style={{ backgroundColor: `${role.color}33`, color: role.color, border: `1px solid ${role.color}66` }}>
+                                        {role.tag}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               )}
                             </div>

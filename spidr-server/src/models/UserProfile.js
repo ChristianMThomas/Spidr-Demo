@@ -68,6 +68,11 @@ const s = new Schema({
   // PC widget
   pc_specs:       { type: Schema.Types.Mixed, default: {} },
   neural_links:   { type: Schema.Types.Mixed, default: {} },
+  // Notification preferences (3.4 of Patch 1.2) — persisted toggle state.
+  notification_prefs: { type: Schema.Types.Mixed, default: null },
+  // "Spidr Web" pinned conversations (Patch 1.4 §3.1) — array of refs like
+  // { kind: 'dm'|'group', id, name, avatar } locked to a priority section.
+  pinned_conversations: { type: [Schema.Types.Mixed], default: [] },
 
   created_date:   { type: Date, default: Date.now },
 }, { timestamps: true });

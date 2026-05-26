@@ -4,7 +4,7 @@ import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Shield, Crown, User, ChevronDown, Pencil, Check, X, UserX, Ban, Volume2, VolumeX, PhoneOff, ArrowRight } from 'lucide-react';
+import { Shield, Crown, User, ChevronDown, Pencil, Check, X, UserX, Ban, Volume2, VolumeX, PhoneOff, ArrowRight, Settings, GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,7 @@ const statusColors = {
 
 export default function CommunityPanel({ server, currentUser, onSelectUser }) {
   const [expandedTiers, setExpandedTiers] = useState({ admin: true, moderator: true, member: true });
+  const [editMode, setEditMode] = useState(false); // role-hierarchy edit (admin)
   const [editingNickname, setEditingNickname] = useState(null);
   const [nicknameInput, setNicknameInput] = useState('');
   const queryClient = useQueryClient();
@@ -359,13 +360,49 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
   };
 
   const handleDragEnd = (result) => {
-    if (!result.destination || !isOwner) return;
-
+    if (!result.destination) return;
+    // Edit mode: reordering role HEADERS (droppableId === 'role-headers').
+    if (result.source?.droppableId === 'role-headers') {
+      handleRoleReorder(result);
+      return;
+    }
+    // Normal mode: moving a MEMBER between role tiers (owner only).
+    if (!isOwner) return;
     const { draggableId, destination } = result;
     const newRole = destination.droppableId;
     const memberId = draggableId;
-
     updateMemberRoleMutation.mutate({ memberId, newRole });
+  };
+
+  // Reorder role headers in edit mode → persist new positions (Patch 1.8).
+  const handleRoleReorder = async (result) => {
+    if (!isOwner || !result.destination) return;
+    const from = result.source.index;
+    const to = result.destination.index;
+    if (from === to) return;
+    // Only explicit server roles are reorderable (default tiers stay below).
+    const explicitKeys = orderedRoleKeys.filter(k => (server?.roles || []).some(r => (r.id ?? r.name) === k));
+    const reordered = [...explicitKeys];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+    // Build the new roles array with updated positions, snappy local update.
+    const order = reordered.map((roleId, position) => ({ roleId, position }));
+    const newRoles = (server.roles || []).map(r => {
+      const key = r.id ?? r.name;
+      const found = order.find(o => o.roleId === key);
+      return found ? { ...r, position: found.position } : r;
+    });
+    queryClient.setQueryData(['servers'], (old) =>
+      Array.isArray(old) ? old.map(s => s.id === server.id ? { ...s, roles: newRoles } : s) : old
+    );
+    // Persist via the standard update (the reorder endpoint exists too, but
+    // Server.update keeps the whole roles array consistent in one call).
+    try {
+      await entities.Server.update(server.id, { roles: newRoles });
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+    } catch {
+      toast.error('Could not save role order');
+    }
   };
 
   const toggleTier = (tier) => {
@@ -374,7 +411,8 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
 
   // Build role tiers dynamically from server roles + defaults
   const roleTiers = {};
-  (server?.roles || []).forEach(role => {
+  const rolePositions = {}; // roleKey -> position (for hierarchy sorting)
+  (server?.roles || []).forEach((role, idx) => {
     // Skip hidden roles
     if (!(server?.hidden_roles || []).includes(role.id)) {
       roleTiers[role.id] = {
@@ -382,34 +420,107 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
         icon: Shield,
         color: role.color || '#6b7280'
       };
+      // position falls back to array index if not set
+      rolePositions[role.id] = typeof role.position === 'number' ? role.position : idx;
     }
   });
-  Object.keys(defaultRoleTiers).forEach(key => {
+  Object.keys(defaultRoleTiers).forEach((key, i) => {
     if (!roleTiers[key] && !(server?.hidden_roles || []).includes(key)) {
       roleTiers[key] = defaultRoleTiers[key];
+      // default tiers sort after explicit roles
+      rolePositions[key] = 1000 + i;
     }
   });
 
+  // Ordered role keys, highest (lowest position int) first (1.3 sorting).
+  const orderedRoleKeys = Object.keys(roleTiers).sort(
+    (a, b) => (rolePositions[a] ?? 999) - (rolePositions[b] ?? 999)
+  );
+
+  // Place each member ONLY under their highest-ranking role to avoid dupes
+  // (Highest Role Display). A member's role string maps to a tier; if it maps
+  // to none, they fall into the lowest default tier ('member').
   const membersByRole = {};
-  Object.keys(roleTiers).forEach(roleKey => {
-    membersByRole[roleKey] = server?.members?.filter(m => (m.role || 'member') === roleKey) || [];
+  orderedRoleKeys.forEach(roleKey => { membersByRole[roleKey] = []; });
+  const seen = new Set();
+  // Walk roles highest→lowest; first match wins for each member.
+  orderedRoleKeys.forEach(roleKey => {
+    (server?.members || []).forEach(m => {
+      const uid = m.user_id;
+      if (seen.has(uid)) return;
+      const memberRole = m.role || 'member';
+      if (memberRole === roleKey) { membersByRole[roleKey].push(m); seen.add(uid); }
+    });
+  });
+  // Any member whose role didn't match a tier → drop into 'member' (or first tier).
+  const fallbackKey = orderedRoleKeys.includes('member') ? 'member' : orderedRoleKeys[orderedRoleKeys.length - 1];
+  (server?.members || []).forEach(m => {
+    if (!seen.has(m.user_id) && fallbackKey) { membersByRole[fallbackKey].push(m); seen.add(m.user_id); }
   });
 
   if (!server) return null;
 
   return (
-    <div className="w-72 shrink-0 bg-zinc-900/80 backdrop-blur-xl border-l border-red-900/20 flex flex-col">
-      <div className="p-4 border-b border-red-900/20">
+    <div className="w-72 shrink-0 bg-[#0a0a0a] border-l border-red-900/20 flex flex-col">
+      <div className="p-4 border-b border-red-900/20 flex items-center justify-between">
         <h3 className="font-bold text-white flex items-center gap-2">
           <Shield className="w-5 h-5 text-red-500" />
           Community ({server.members?.length || 0})
         </h3>
+        {isOwner && (
+          <button
+            onClick={() => setEditMode(e => !e)}
+            title={editMode ? 'Done editing hierarchy' : 'Edit Node Hierarchy'}
+            className={`p-1.5 rounded-lg transition-colors ${editMode ? 'bg-[#FF3333]/20 text-[#FF3333] shadow-[0_0_10px_rgba(255,51,51,0.4)]' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       <ScrollArea className="flex-1">
         <DragDropContext onDragEnd={handleDragEnd}>
+          {editMode ? (
+            /* Patch 1.8 — collapsed Edit Mode: only draggable role headers. */
+            <Droppable droppableId="role-headers">
+              {(dp) => (
+                <div ref={dp.innerRef} {...dp.droppableProps} className="p-3 space-y-1.5">
+                  <p className="text-[9px] uppercase tracking-[0.2em] text-[#FF3333]/70 px-1 pb-1">Drag to reorder hierarchy</p>
+                  {orderedRoleKeys
+                    .filter(k => (server?.roles || []).some(r => (r.id ?? r.name) === k))
+                    .map((roleKey, index) => {
+                      const tier = roleTiers[roleKey];
+                      if (!tier) return null;
+                      return (
+                        <Draggable key={roleKey} draggableId={`hdr-${roleKey}`} index={index}>
+                          {(p, snap) => (
+                            <div
+                              ref={p.innerRef}
+                              {...p.draggableProps}
+                              className={`flex items-center gap-2 px-2 py-2 rounded-lg border transition-colors ${snap.isDragging ? 'bg-white/[0.06] border-[#FF3333]/40' : 'bg-white/[0.02] border-white/5'}`}
+                              style={p.draggableProps.style}
+                            >
+                              <span {...p.dragHandleProps} className="cursor-grab text-zinc-600 hover:text-zinc-300">
+                                <GripVertical className="w-4 h-4" />
+                              </span>
+                              <span className="uppercase tracking-[0.2em] text-[10px] font-bold" style={{ color: `${tier.color}cc` }}>
+                                {tier.name}
+                              </span>
+                              <span className="ml-auto text-[10px] text-zinc-600">{(membersByRole[roleKey] || []).length}</span>
+                            </div>
+                          )}
+                        </Draggable>
+                      );
+                    })}
+                  {dp.placeholder}
+                </div>
+              )}
+            </Droppable>
+          ) : (
           <div className="p-3 space-y-3">
-            {Object.entries(roleTiers).filter(([_, tier]) => tier).map(([roleKey, tier]) => {
+            {orderedRoleKeys.map((roleKey) => {
+              const tier = roleTiers[roleKey];
+              if (!tier) return null;
               const Icon = tier.icon;
               const members = membersByRole[roleKey] || [];
               
@@ -417,14 +528,16 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
                 <div key={roleKey} className="space-y-2">
                   <button
                     onClick={() => toggleTier(roleKey)}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-zinc-800/50 backdrop-blur-sm hover:bg-zinc-800 transition-colors"
+                    className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      <Icon className="w-4 h-4" style={{ color: tier.color }} />
-                      <span className="font-semibold text-white text-sm">{tier.name}</span>
-                      <span className="text-xs text-zinc-500">({members.length})</span>
+                      {/* 1.3 — uppercase, heavily letter-spaced role header */}
+                      <span className="uppercase tracking-[0.2em] text-[10px] font-bold" style={{ color: `${tier.color}cc` }}>
+                        {tier.name}
+                      </span>
+                      <span className="text-[10px] text-zinc-600">{members.length}</span>
                     </div>
-                    <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform ${expandedTiers[roleKey] ? '' : '-rotate-90'}`} />
+                    <ChevronDown className={`w-3.5 h-3.5 text-zinc-600 transition-transform ${expandedTiers[roleKey] ? '' : '-rotate-90'}`} />
                   </button>
 
                   {expandedTiers[roleKey] && (
@@ -448,21 +561,22 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
                                 index={index}
                                 isDragDisabled={!isOwner}
                               >
-                                {(provided, snapshot) => (
+                                {(provided, snapshot) => {
+                                  const isOnline = status === 'online' || status === 'away' || status === 'dnd' || status === 'idle';
+                                  const apexColor = profile?.apex_features?.thread_skin_color
+                                    || profile?.accent_color
+                                    || '#dc2626';
+                                  return (
                                   <motion.div
                                     ref={provided.innerRef}
                                     {...provided.draggableProps}
                                     {...provided.dragHandleProps}
                                     onContextMenu={(e) => handleRightClick(e, member)}
-                                    className={`glass-light rounded-xl p-3 border border-white/10 transition-all cursor-pointer group hover:bg-white/[0.05] ${
-                                      snapshot.isDragging ? 'shadow-lg shadow-red-500/20 scale-105' : ''
+                                    className={`relative rounded-xl p-2.5 transition-colors cursor-pointer group overflow-hidden ${
+                                      snapshot.isDragging ? 'shadow-lg shadow-red-500/20 bg-white/[0.04]' : 'hover:bg-white/[0.03]'
                                     }`}
-                                    style={{
-                                      ...provided.draggableProps.style,
-                                      backdropFilter: 'blur(12px)',
-                                      WebkitBackdropFilter: 'blur(12px)'
-                                    }}
-                                    whileHover={{ scale: 1.02 }}
+                                    style={{ ...provided.draggableProps.style }}
+                                    whileHover={{ x: -6, transition: { type: 'spring', stiffness: 300, damping: 15 } }}
                                     layout
                                     onClick={(e) => {
                                       if (!snapshot.isDragging && onSelectUser) {
@@ -470,17 +584,23 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
                                       }
                                     }}
                                   >
+                                    {/* 1.2 — tension thread to the right edge, fades in on hover */}
+                                    <div
+                                      className="absolute top-1/2 right-0 h-px w-10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                                      style={{ background: `linear-gradient(to left, ${apexColor}, transparent)` }}
+                                    />
                                     <div className="flex items-center gap-3">
                                      <div className="relative">
-                                       <Avatar 
-                                         className="w-10 h-10 border-2" 
-                                         style={{ 
-                                           borderColor: profile?.apex_tier === 'apex' && profile?.apex_features?.show_aura 
-                                             ? profile?.accent_color || tier.color 
-                                             : tier.color,
-                                           boxShadow: profile?.apex_tier === 'apex' && profile?.apex_features?.show_aura 
-                                             ? `0 0 15px ${profile?.accent_color || tier.color}` 
-                                             : 'none'
+                                       {/* 1.1 — online: APEX-colored border + glow; offline: grayscale, no dot */}
+                                       <Avatar
+                                         className="w-10 h-10"
+                                         style={isOnline ? {
+                                           border: `2px solid ${apexColor}`,
+                                           filter: `drop-shadow(0 0 6px ${apexColor}99)`,
+                                         } : {
+                                           border: 'none',
+                                           filter: 'grayscale(50%)',
+                                           opacity: 0.6,
                                          }}
                                        >
                                          {profile?.avatar_url || member.user_avatar ? (
@@ -491,10 +611,6 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
                                            </AvatarFallback>
                                          )}
                                        </Avatar>
-                                       <div 
-                                         className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-zinc-900"
-                                         style={{ backgroundColor: statusColors[status] }}
-                                       />
                                        {profile?.apex_tier === 'apex' && (
                                          <div className="absolute -top-1 -left-1 w-4 h-4 bg-gradient-to-br from-yellow-500 to-red-500 rounded-full flex items-center justify-center shadow-[0_0_10px_rgba(234,179,8,0.8)]">
                                            <span className="text-[8px]">🕷️</span>
@@ -566,15 +682,17 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
                                           </div>
                                         )}
                                         <div className="flex items-center gap-1">
-                                          <Icon className="w-3 h-3" style={{ color: tier.color }} />
-                                          <p className="text-xs text-zinc-400 truncate">
+                                          {/* 1.3 — data-transmission style status line */}
+                                          <p className="text-xs text-white/50 truncate font-mono">
+                                            <span className="text-zinc-600">— </span>
                                             {profile?.custom_status || status}
                                           </p>
                                         </div>
                                       </div>
                                     </div>
                                   </motion.div>
-                                )}
+                                  );
+                                }}
                               </Draggable>
                             );
                           })}
@@ -590,6 +708,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
               );
             })}
           </div>
+          )}
         </DragDropContext>
       </ScrollArea>
 

@@ -1233,3 +1233,909 @@ The garbled `🕸️` in the message hover bar (next to edit/trash in the screen
 - The banner is **signaling + UI**; it rides on the existing DM voice-session join for actual media. If a user has multiple tabs open, all of their sockets receive the ring (intended).
 - The ringtone uses WebAudio and may be silent until the page has had a user gesture (browser autoplay policy) — the visual banner always shows regardless.
 - "Answer" relies on `navigateToDM(friendId, conversationId)` from the shell context to open the right conversation, then a 400ms-delayed `spidr-answer-call` event so the DM view has mounted before auto-joining.
+
+---
+
+## 34. Top-right user chip restyled to match reference + hover collapse/expand
+
+Reworked `UserStatusChip.jsx` so the collapsed state matches the supplied reference image: a clean circular avatar wrapped in a thin **status-colored glow ring** (green/yellow/red/grey by presence) with a status dot in the corner — no spider/thread anchor above it anymore.
+
+Hover behavior:
+- Idle: the avatar "breathes" with a subtle 3.5s scale pulse.
+- Hover: it pops (`scale 1.12`) and the full status card unfurls smoothly beneath it (spring animation, `top-full right-0` so it never runs off the screen edge); moving the mouse away collapses it.
+- In a call, the ring switches to the animated red conic "spidr-ring-spin" halo so it's obvious at a glance.
+
+The expanded card keeps all controls (status dots, mic, deafen, view profile, disconnect) and is now absolutely positioned so opening it doesn't shift the top bar layout. Removed the now-unused `SpiderLogo` import.
+
+### Files
+`spidr-client/src/components/spidr/UserStatusChip.jsx`
+
+---
+
+## 35. Tension / XP system (gamified activity scoring + level-ups)
+
+A server-authoritative XP system, themed as "Web Tension" — vibrating the web
+(messaging, catching flies, etc.) builds tension until it "snaps" you up a level.
+
+### Server
+- **`models/TensionProfile.js`** — one XP ledger per user: lifetime `xp`, cached
+  `level`, per-source daily throttle counters, and a rolling 50-event log.
+  Mirrors the BiomassWallet structure.
+- **`utils/tension.js`** — the level curve and grant logic.
+  - Curve: cumulative XP to reach level L = `round(100 * (L-1)^1.5)` → L2 at 100,
+    L3 at 283, L4 at 520, L5 at 800… gentle early, steeper later.
+  - `grantXp(userId, source, …)` awards a fixed per-source amount, enforces
+    per-source daily caps (so XP can't be farmed), updates the cached level, and
+    reports whether a level-up occurred. Grant failures never break the action.
+  - Sources + caps: message 5xp (×40/day), fly 10xp (×20), voice_join 15xp (×8),
+    clip_post 20xp (×5), daily_login 25xp (×1), reaction 2xp (×30).
+- **`routes/tension.js`** — `GET /tension/me` (profile + progress breakdown) and
+  `POST /tension/action` (report a source; server grants capped XP). On level-up
+  it auto-grants a biomass reward of `level × 50`, logged in the wallet.
+  Registered in `index.js` next to `/biomass`. The client only names the
+  activity *source* — never the XP amount.
+
+### Client
+- **`hooks/useTension.js`** — central hook: loads `/tension/me`, exposes
+  `report(source)` to award XP, and fires a global `spidr-tension-levelup`
+  window event (with the new level + biomass reward) on level-up. A small module
+  cache keeps multiple consumers in sync without a full context provider.
+- **`components/spidr/TensionBar.jsx`** — the level badge + animated "web
+  tension" progress bar (shimmer fill, XP-to-next-level), added to the Home
+  dashboard under the quick stats. Has a `compact` variant for tight spots.
+- **`components/spidr/LevelUpToast.jsx`** — celebratory overlay (portal, mounted
+  at the shell): radiating web-snap shards, the old→new level, the biomass
+  reward, and a short WebAudio "snap". Auto-dismisses.
+- **`api/apiClient.js`** — added `tension.me()` and `tension.action(source, …)`.
+- Wired XP reporting into two activities to start: **fly catch** (KineticChat)
+  and **DM message send** (DirectMessages). More sources can be added by calling
+  `report('<source>')` anywhere.
+
+### Notes
+- XP amounts/caps are entirely server-side; the client cannot grant arbitrary XP.
+- The level-up biomass reward reuses the existing wallet, so it shows in biomass
+  history as "Reached level N".
+- Curve verified in isolation (L1–L7 boundaries + fractional progress correct).
+- More earn hooks (server messages, voice join, clip post, daily login) are
+  intentionally left for a follow-up so this lands as a verified, working slice.
+
+---
+
+## 36. Soundboard + Web Audio voice filters
+
+A self-contained Web Audio soundboard, accessible from the in-call control bar.
+No schema changes, no audio files, and — importantly — it does NOT touch the
+live WebRTC voice track, so it can't destabilize calls.
+
+### Engine — `lib/soundboardEngine.js`
+- **Synthesized sound FX** (oscillator/noise based, like the existing
+  SoundEngine): Web Pluck, Zap, Blip, Airhorn, Womp, Snare, Alien, Coin.
+  `playEffect(id)` fires one instantly.
+- **Offline voice filters** via `OfflineAudioContext`: takes a recorded
+  AudioBuffer and renders a filtered copy, returning a WAV Blob.
+  - Chipmunk / Deep / Alien: playbackRate pitch-shift (1.5× / 0.72× / 1.25×).
+  - Robot / Alien: ring modulation (carrier oscillator into a gain's gain).
+  - Cavern: convolver reverb with a synthetic impulse response, wet/dry mix.
+- `blobToAudioBuffer()` decodes a MediaRecorder blob; `audioBufferToWavBlob()`
+  encodes the render to 16-bit PCM WAV (byte math verified in isolation —
+  correct RIFF/WAVE header, PCM fmt, data-chunk size).
+
+### UI — `components/spidr/Soundboard.jsx`
+- A 4-column SFX grid (tap to fire, with a quick pop animation).
+- A "Voice Filter Lab": Record (mic, auto-stops at 8s) → pick a filter →
+  Play Filtered (renders offline and plays the result in an `<audio>` element).
+  Mic permission is only requested when the user presses Record. Cleans up the
+  stream and revokes blob URLs on unmount.
+
+### Wiring
+- Added a Soundboard button (Music icon) to the `VoiceChannel` control bar; it
+  toggles the soundboard as a popover above the controls.
+
+### Notes / scope
+- Voice filters are a personal/offline "lab" (record → filter → playback).
+  Routing filtered audio *into* the live call would mean swapping the outgoing
+  WebRTC track mid-call, which risks the voice stability fixed in earlier
+  passes — deliberately left out to keep this a verified, safe slice. Broadcast-
+  to-call could be a future pass once it can be done without touching the
+  existing track plumbing.
+- The soundboard is currently surfaced in-call; a standalone launcher (home/
+  settings) can be added trivially later by rendering `<Soundboard />` anywhere.
+
+### Files
+Added: `spidr-client/src/lib/soundboardEngine.js`,
+`spidr-client/src/components/spidr/Soundboard.jsx`.
+Modified: `spidr-client/src/components/spidr/VoiceChannel.jsx`.
+
+---
+
+## 37. Soundboard — custom sound uploads
+
+Users can now upload their own sound clips to the soundboard alongside the
+synthesized FX.
+
+- **`lib/soundboardEngine.js`** — added `playUrl(url)`: fetches, decodes, and
+  plays an arbitrary audio URL through the shared AudioContext, caching the
+  decoded buffer by URL so repeated taps don't re-fetch. Best-effort/guarded.
+- **`components/spidr/Soundboard.jsx`** — new "My Sounds" section: an Add Sound
+  button uploads via `integrations.Core.UploadFile` (audio-only, 2 MB cap),
+  then the clip appears as a tappable pad. Each pad has a hover delete. Saved
+  per-user in localStorage (`spidr_custom_sounds`), capped at 24 entries. The
+  uploaded file lives on the server; only the URL + label are stored locally.
+
+## 38. APEX — entrance animations + thread skins
+
+Extends the existing APEX premium system.
+
+- **`components/spidr/ApexEntrance.jsx`** (new, mounted at shell) — full-screen
+  entrance flash fired via the `spidr-apex-entrance` window event. Three styles:
+  **thunder** (lightning + screen flash), **ripple** (expanding web rings), and
+  **glitch** (RGB-split bands), each with the user's accent color and a name
+  banner. Auto-dismisses (~1.9s).
+- **`VoiceChannel.jsx`** — when an APEX user connects to a voice channel, their
+  entrance plays once (style/color read from `apex_features`; resets on the
+  next join so it re-fires).
+- **`ApexVisuals.jsx`** — added an Entrance Flash picker (ripple/thunder/glitch)
+  with a live Preview button, and a Thread Skin picker (Crimson/Violet/Cyan/
+  Gold/Emerald/Silk). Both persist into `apex_features` (a Mixed field — no
+  schema change needed).
+- **`KineticChat.jsx`** — the message connector "silk" thread now uses the APEX
+  user's chosen thread-skin color (defaults to crimson).
+
+## 39. Rogue AI — switchable personalities + Catch Me Up
+
+Extends the existing Spidr AI panel.
+
+- **`lib/roguePersonalities.js`** (new) — six personality modes, each with a
+  system-prompt fragment: **Spidr** (balanced), **Rogue** (witty/sarcastic but
+  still helpful), **Ghost** (terse cyber-operative), **Hype** (max energy),
+  **Sage** (calm mentor), **Noir** (hardboiled detective). All stay genuinely
+  helpful — the personality is in tone, not harmful content.
+- **`AIPanel.jsx`**:
+  - A personality strip above the chat input toggles modes; the choice persists
+    (`spidr_ai_personality`) and is injected into the AI system preamble
+    (layered on top of the user's existing free-form persona + tone/verbosity).
+  - **Catch Me Up** button — pulls the user's recent DMs + group messages and
+    asks the LLM for a short, scannable recap (grouped by conversation,
+    flagging anything needing a reply). Read-only; respects the active
+    personality. Shows an "all caught up" message when there's nothing recent.
+  - `getAIPreferences()` now includes `personality`.
+
+### Verification
+All 9 touched files pass esbuild together; full source tree scanned mojibake-
+free; new module exports and shell mounts confirmed present.
+
+---
+
+## 40. Voice message send fix, Spidr Protocol double/pin fix, clip-feed Join-Server CTAs (#7)
+
+### Voice messages — couldn't be sent / rendered wrong (root cause)
+The recorder derived a file extension with `type.includes('webm') ? 'webm' : 'audio'`
+— so any non-webm mime (e.g. Safari's `audio/mp4`) produced an invalid
+`.audio` extension. The upload server renames files to `<uuid><ext>`, so the
+extension is the ONLY surviving "this is audio" signal — but `.webm` wasn't in
+the receiver's audio-detection list, so voice clips fell through to the *video*
+branch.
+- **`VoiceRecorder.jsx`** — derive a real extension from the mime
+  (webm/ogg→ogg/mp4→m4a/mpeg→mp3/wav), guard the upload result, and tag the
+  attachment with `isVoice`.
+- **`MessageItem.jsx` + `ServersPanel.jsx`** — audio detection now includes
+  `webm/weba/opus/ogg`; video detection narrowed to `mp4/mov/m4v` so voice
+  clips render as an inline `<audio>` player everywhere (DMs, servers, groups).
+
+### Spidr Protocol overlay — showed double, didn't pin or update (root cause)
+The shell renders a `GlobalGhostOverlay` (survives navigation, supports
+pinning), but `ServersPanel`, `KineticChat`, and `DirectMessages` ALSO each
+rendered their own local `GhostOverlay` → two overlays at once (the "double"),
+and the local copies had no pin/cross-route support ("doesn't pin").
+- Removed all three local overlays; the global one is now the single source.
+- `KineticChat` and `DirectMessages` now dispatch `spidr-ghost-activate` /
+  `spidr-ghost-message` / `spidr-ghost-deactivate` to the global overlay
+  (ServersPanel already did), so it streams live messages and pins correctly.
+
+### #7 — Clip-feed "Join Server" CTAs
+- **`models/Clip.js`** — added optional `server_id` / `server_name` /
+  `server_icon` (no migration; absent on existing clips = no CTA).
+- **`VideoStudio.jsx`** — a "Promote a Server" picker (loads servers the user
+  owns/belongs to) when posting/editing a clip; the selection is included in the
+  publish payload. Existing `onPublish` handlers pass it straight to
+  `Clip.create`/`update`.
+- **`ClipFeed.jsx`** — clips with a linked server show a one-tap **Join Server**
+  CTA in the caption overlay (server icon + name + JOIN), navigating to
+  `/servers/<id>`.
+
+### Housekeeping
+Fixed pre-existing mojibake in `ServersPanel.jsx` comments/strings (box-drawing
+dashes and a middle dot). Whole source tree verified mojibake-free; all touched
+files pass esbuild / node --check.
+
+---
+
+## 41. Voice Deck UI overhaul — kill the black void + real-time speaker visualizer
+
+Addressed the "massive empty black void" voice layout. The full-screen server
+voice grid (`VoiceChannel.jsx`) is reworked into a space-conscious, themed deck.
+
+### Layout
+- **Glassmorphic floating container** — the video grid now sits in a
+  `bg-[#0a0a0a]/40 backdrop-blur-md border border-white/10 rounded-2xl p-4
+  shadow-2xl` panel instead of filling the screen with black.
+- **Dynamic auto-fit grid** — `grid-template-columns: repeat(auto-fit,
+  minmax(280px, 1fr))` so 1–2 participants size up cleanly with no dead space.
+- **Focus / Spider view toggle** in the header — Focus is center-stage;
+  Spider collapses the deck into a compact, right-docked module
+  (`minmax(150px,1fr)`, `max-w-md ml-auto`) so the workspace stays visible.
+  Choice persists per-user.
+
+### Thematic "Spidr Node" cards
+- Card background is now a subtle radial gradient (`#121212 → #050505`) instead
+  of flat black.
+- Active speakers get a **pulsing crimson shadow** + a **glowing identity ring**
+  that gently scales to their voice, plus a sharp **neon-green tracking border**
+  on the card edge (replacing the old static red box).
+
+### Real-time equalizer — `VoiceEqualizer.jsx` (new)
+A live audio visualizer matching the Spidr-AI "voice" look: connects the
+speaker's MediaStream to an `AudioContext` + `AnalyserNode`, reads
+`getByteFrequencyData` each frame, and maps it to vertical bars with a
+purple→crimson gradient, beside a `~ VOICE` label. Renders under the avatar
+while the user is speaking; falls back to an idle shimmer if no analyser is
+available. The analyser source is never connected to `destination`, so there's
+no echo.
+
+### Control dock
+The control toolbar already lives tethered to the panel's bottom edge (not the
+absolute screen bottom); restyled it glassmorphic (`bg-[#0a0a0a]/70
+backdrop-blur-md`) to match the deck.
+
+### "Minimize" text fix
+The broken `ât™ Minimize` glyph from the screenshot was already resolved in an
+earlier pass — the current Minimize control uses a clean Lucide chevron icon.
+Verified no mojibake remains in the voice components.
+
+### Files
+Added: `spidr-client/src/components/spidr/VoiceEqualizer.jsx`.
+Modified: `spidr-client/src/components/spidr/VoiceChannel.jsx`.
+
+### Note
+The DM/group call surface (`CallOverlay.jsx`) was already a constrained,
+spider-themed "hanging feeds" panel (not a full-screen void), so it didn't need
+the same treatment. The redesign targets the server voice grid, which is where
+the void appeared.
+
+---
+
+## 42. Patch 1.2 — 5.1 Server message search (was returning blank)
+
+The in-channel search bar (SignalTracker) only filtered the ~50 messages
+currently loaded in the channel, so searching for anything older returned a
+blank/empty result. Implemented real server-wide full-text search.
+
+### Backend
+- **`models/Message.js`** — added a text index on the content field
+  (`schema.index({ content: 'text' })`) for fast, index-backed search.
+- **`routes/messages.js`** — new `GET /messages/search?server_id&q[&channel_id]
+  [&_limit]` route (placed before the crud catch-all so it isn't shadowed by
+  `/:id`). Uses MongoDB's `$text`/`$search` with relevance sorting; falls back
+  to an escaped, case-insensitive regex for short/partial queries that `$text`
+  (whole-word only) misses. Same membership guard as the list route. Regex
+  metacharacters are escaped (verified) so queries like `c++` are safe.
+
+### Frontend
+- **`api/apiClient.js`** — added `searchMessages({ serverId, channelId, q })`.
+- **`components/spidr/SignalTracker.jsx`** — the message search now debounces
+  (300ms) and calls the backend, merging server-wide results with the
+  locally-loaded matches (deduped by id). Added a loading spinner ("Searching
+  the web…") and a graceful "No results found" empty state.
+- **`components/spidr/ServersPanel.jsx`** — passes `serverId`/`channelId` to
+  SignalTracker; clicking a message result now jumps to the channel that
+  message lives in (since results can span channels).
+
+### Files
+Modified: `spidr-server/src/models/Message.js`,
+`spidr-server/src/routes/messages.js`, `spidr-client/src/api/apiClient.js`,
+`spidr-client/src/components/spidr/SignalTracker.jsx`,
+`spidr-client/src/components/spidr/ServersPanel.jsx`.
+
+### Note
+The text index builds automatically on first server start after deploy
+(Mongoose `createIndex`). On a large existing collection the initial build can
+take a moment but doesn't block reads.
+
+---
+
+## 43. Patch 1.2 — Part 1: WebRTC fixes (1.1–1.7)
+
+**Important architecture note:** The task targets `services/mediasoupManager.js`
+and a Mediasoup SFU (producers/consumers/transports). **This app does not use
+Mediasoup** — there is no `mediasoupManager.js`. Voice/video is a plain
+peer-to-peer `RTCPeerConnection` mesh (`useWebRTC.js`) with the Spidr server as
+a stateless signal relay (`socket/handlers.js`). The two "mediasoup" mentions in
+`voiceSignaling.js` are comments explicitly noting it's *not* used. So these
+bugs were fixed in the real P2P architecture rather than against a non-existent
+SFU. The relay passes any offer/answer/ice through, so renegotiation needed no
+server changes.
+
+### 1.1 Video not showing to others — FIXED (root cause)
+`toggleVideo()` added the camera track to existing peers via `pc.addTrack` but
+**never renegotiated**, so the new track changed the local SDP and peers never
+learned about it. Implemented the standard **perfect-negotiation** pattern in
+`useWebRTC.js`:
+- `onnegotiationneeded` on every peer now emits a fresh offer whenever tracks
+  change (camera on, screen share).
+- The signal handler implements polite/impolite glare resolution (initiator =
+  impolite, answerer = polite — deterministic per pair) so simultaneous offers
+  during renegotiation don't deadlock. Verified the role assignment is
+  symmetric.
+
+### 1.2 Screen/game share join — FIXED
+`useScreenShare` produced a local preview stream but never pushed it into the
+peer connections, so others couldn't see/join a share. Added
+`addOutgoingTrack` / `removeOutgoingTrack` to `useWebRTC`; `VoiceChannel` now
+pushes the screen-share track to all peers on start (renegotiation handled
+automatically) and removes it on stop / native "Stop sharing".
+
+### 1.3 Mute/deafen sync — FIXED
+Mute already updated the VoiceSession, and the server already emits
+`voice:session-changed` on update (other clients refresh and show the muted
+icon) — so mute sync was actually functional. The gap was **deafen**, which only
+muted local audio elements; it now also persists `is_deafened` to the session so
+other members see the deafened indicator.
+
+### 1.4 "Enable Audio" button stuck — FIXED
+The button optimistically cleared `audioBlocked` before `play()` resolved, and
+the audio-element ref re-raised the flag on later transient failures. Now it
+awaits `Promise.allSettled` of all `play()` calls and only clears the banner if
+playback actually started; a one-way `audioUnlockedRef` prevents a later
+rejection from re-showing the banner once the user has unlocked audio.
+
+### 1.5 Spidr AI voice not heard by others — NOT FIXED (architectural; documented)
+The Spidr AI "voice" uses `window.speechSynthesis` (browser TTS), which plays
+only through the local user's speakers and produces **no MediaStream** — so
+there's no audio track to add to peer connections. Making it audible to others
+needs either capturing TTS as a MediaStream (not supported by the Web Speech
+API) or server-generated TTS audio streamed as a real track. That's a
+significant, risky rework; left for a dedicated pass rather than faked here.
+
+### 1.6 Voice note delivery — ALREADY FIXED (§40)
+"Could not send voice message" was fixed earlier (invalid `.audio` extension →
+proper mime-derived extension + broadened audio detection). Verified intact.
+(The task's FFmpeg/Azure async-worker path doesn't match this app's direct
+upload flow.)
+
+### 1.7 Voice tile right-click menus — IMPLEMENTED
+Right-clicking a voice tile now opens a context menu with **View Profile**,
+**Direct Message**, and a **local volume slider** that adjusts that peer's audio
+element volume (per-listener, doesn't affect others). Added a HolographicProfile
+modal to VoiceChannel for the profile action.
+
+### Files
+Modified: `spidr-client/src/components/spidr/useWebRTC.js`,
+`spidr-client/src/components/spidr/VoiceChannel.jsx`.
+
+### Known limitation
+`useWebRTC` keys remote streams by socketId, not user_id, so in 3+ person calls
+the per-tile stream/volume mapping is approximate (correct for 1:1). Keying by
+user_id is a tracked follow-up.
+
+---
+
+## 44. Patch 1.2 — Part 2 (Electron pop-out) + Part 3 (roles & admin)
+
+### Part 2 — 2.1 Video call pop-out
+**Architecture note:** a live `MediaStream` cannot be serialized across Electron
+IPC, so the task's literal "pass the MediaStream via IPC" isn't possible. Used
+the standard working pattern instead — a child window that re-joins the same
+call over the existing socket signaling.
+- **`electron/main.js`** — `popout:open` IPC spawns a frameless, always-on-top
+  child `BrowserWindow` that loads the app at a dedicated `/popout/call` hash
+  route with the call's identifiers (server/channel/group) as query params.
+  `popout:close` closes it; on close the main window is notified
+  (`popout:closed`) so it can restore its inline grid. Reuses the same
+  index.html resolution as the main window for packaged builds.
+- **`electron/preload.js`** — exposes `openPopout` / `closePopout` /
+  `onPopoutClosed` on `window.electronAPI` (contextBridge, no node integration).
+- **`pages/PopoutCall.jsx`** (new) — the pop-out window's page. Re-joins the
+  same call via `useWebRTC` (same authenticated user + channel) and renders its
+  own video grid with mic/camera/leave controls. Frameless drag region via
+  `-webkit-app-region`. Outside Electron the route still renders (controls
+  no-op) for testing.
+- **`App.jsx`** — registered `/popout/call` as a standalone protected route
+  (outside the SpidrShell, since it's its own window). HashRouter is already
+  used in Electron, so the hash URLs work.
+- **`VoiceChannel.jsx`** — a "Pop Out" button in the call header, shown only
+  when `window.electronAPI.openPopout` exists (Electron).
+
+> Caveat: verified by syntax/build only — the live pop-out re-join should be
+> smoke-tested in a real Electron build.
+
+### Part 3 — Server administration & roles
+- **3.1 Custom role icons & tags** — `ServerSettingsModal.jsx`: each role now
+  has an icon upload (image, 1 MB cap, via `integrations.Core.UploadFile`) and
+  a short tag field (≤12 chars). `lib/usernameStyle.js` resolves `roleIcon` /
+  `roleTag` from the matched role; `ServersPanel.jsx` renders the icon + tag (or
+  role name) next to usernames in chat. Roles are a `Mixed` array, so no schema
+  migration was needed.
+- **3.2 Role hierarchy drag-and-drop** — already implemented in
+  `ServerSettingsModal` (DragDropContext/Droppable/Draggable with a grip
+  handle). Verified working; no change needed.
+- **3.3 Server event management** — `ServersPanel.jsx`: the event banner now has
+  an admin-only right-click "remove event" action and a hover delete button
+  (with confirm), backed by a new delete mutation. **Auto-expire:** new
+  `spidr-server/src/utils/expireEvents.js` deletes events whose date has passed
+  (checks `event_date`/`ends_at`/`starts_at`, handles both Date- and ISO-string-
+  stored values), run on boot and every 6 hours from `index.js`.
+
+### Files
+Added: `spidr-client/src/pages/PopoutCall.jsx`,
+`spidr-server/src/utils/expireEvents.js`.
+Modified: `spidr-client/electron/main.js`, `spidr-client/electron/preload.js`,
+`spidr-client/src/App.jsx`, `spidr-client/src/components/spidr/VoiceChannel.jsx`,
+`spidr-client/src/components/spidr/ServerSettingsModal.jsx`,
+`spidr-client/src/components/spidr/ServersPanel.jsx`,
+`spidr-client/src/lib/usernameStyle.js`, `spidr-server/src/index.js`.
+
+All touched files pass esbuild / node --check; tree scanned mojibake-free.
+
+---
+
+## 45. Patch 1.2 — Part 4: UI/UX, APEX, and mobile (4.1–4.5)
+
+### 4.1 APEX frames & nameplates
+- **`ApexVisuals.jsx`** — added a "Frame & Nameplate" section: upload a custom
+  avatar frame (PNG-with-transparency, sits over the avatar) and a nameplate
+  image (sits behind the name), both image-only with a 2 MB cap, stored in
+  `apex_features` (`frame_url` / `nameplate_url`). No schema migration (Mixed).
+- **`HolographicProfile.jsx`** — renders the frame as an overlay around the
+  profile avatar and the nameplate as a background behind the name row.
+
+### 4.2 @mention profile pop-out
+- **`MentionParser.jsx`** previously rendered mentions with hover styling but no
+  click handler — clicking did nothing. Added optional `users` + `onMentionClick`
+  props: a mention now resolves to the matching member (by username / display
+  name / first name) and fires the handler with that user_id.
+- Wired in **`ServersPanel.jsx`** (opens the server profile via
+  `setSelectedUserId`) and in **`MessageItem.jsx`** (new `mentionUsers` prop)
+  for group chats via **`KineticChat.jsx`** (`group.members`), opening the
+  HolographicProfile pop-out.
+
+### 4.3 Status persistence bug — FIXED (root cause)
+On every socket connect the server did `$set: { status: 'online' }`,
+**clobbering** a manually-set Away/DND/Invisible status on every reconnect or
+heartbeat-driven re-init. **`socket/handlers.js`** now only promotes to 'online'
+when the user was actually offline (`status in [null, 'offline']`); a manual
+status is preserved while `last_seen` is still refreshed.
+
+### 4.4 Scrollable menus — FIXED
+The shadcn **`dropdown-menu.jsx`** content used `overflow-hidden` with no max
+height, so menus taller than the viewport were clipped and unscrollable. Now
+bounded to `--radix-dropdown-menu-content-available-height` with `overflow-y-auto`
+(both Content and SubContent). (The right-click SpidrMenu already had
+`max-h-[70vh] overflow-y-auto`.)
+
+### 4.5 Mobile bottom bar — verified (already correct)
+`MobileBottomBar` is already fixed-positioned, safe-area-aware
+(`env(safe-area-inset-bottom)`), shows all six destinations (Home/Friends/
+Servers/Feed/Settings + Menu), and the main content already reserves space with
+`pb-16 md:pb-0` so the bar doesn't cover content. Verified anchoring and icons;
+no change needed (these were addressed in the earlier responsive overhaul).
+
+### Files
+Modified: `spidr-client/src/components/spidr/ApexVisuals.jsx`,
+`spidr-client/src/components/spidr/HolographicProfile.jsx`,
+`spidr-client/src/components/spidr/MentionParser.jsx`,
+`spidr-client/src/components/spidr/MessageItem.jsx`,
+`spidr-client/src/components/spidr/ServersPanel.jsx`,
+`spidr-client/src/components/spidr/KineticChat.jsx`,
+`spidr-client/src/components/ui/dropdown-menu.jsx`,
+`spidr-server/src/socket/handlers.js`.
+
+All touched files pass esbuild / node --check; scanned mojibake-free. This
+completes Patch 1.2 (Parts 1–5).
+
+---
+
+## 46. Patch 1.2 — Part 6: Spidr Studio cropper overhaul
+
+**Architecture notes (what's real vs. the task's framing):**
+- The task targets `SpidrUploadStudio.jsx` — that file doesn't exist; the real
+  editor is `VideoStudio.jsx`. Worked there.
+- `react-easy-crop` couldn't be installed (the sandbox blocked the npm
+  registry — repeated TLS failures). Rather than ship a broken import, I
+  **vendored `SpidrCropper.jsx`** with the *same interface* react-easy-crop
+  exposes (`crop`/`zoom`/`aspect`/`onCropComplete` → `croppedAreaPixels
+  {x,y,width,height}`), using transform-based geometry — explicitly NOT raw-
+  canvas mouse math (the buggy approach the task warns against). It can be
+  swapped for the real package later by changing one import.
+- The task's 6.2 backend (fluent-ffmpeg `-vf crop` → HLS chunks) describes a
+  pipeline that **doesn't exist** here: clips are uploaded as direct video files
+  and played via `<video>` (no HLS, `fluent-ffmpeg` not installed, and the lone
+  `ffmpegWorker.js` only extracts audio). Building a transcode pipeline would be
+  a large, risky addition that wouldn't match how clips play. So instead the
+  crop is captured precisely and **honored client-side on playback**, and the
+  coordinate object is stored so a server FFmpeg crop can be wired in later
+  verbatim.
+
+### 6.1 + 6.3 Frontend cropper — `SpidrCropper.jsx` (new)
+- Pan (drag) + zoom (wheel/slider, 1–3×) inside an aspect-locked frame.
+- Aspect toggles with the task's labels: **9:16 Phone/Web** (FYP default),
+  **16:9 Desktop/Landscape**, **1:1 Square/Profile**.
+- Dimmed surround (`bg-black/80`) outside the crop box; neon-blue crop frame +
+  rule-of-thirds grid (6.3).
+- `onCropComplete` emits `croppedAreaPixels {x,y,width,height}` in the source's
+  natural pixels. Math verified in isolation (1920×1080 → 9:16 yields
+  608×1080 @ x=656, exact 9:16 ratio).
+
+### VideoStudio integration
+- A **Crop** tool button toggles crop mode; the cropper overlays the preview,
+  with the aspect suite + zoom slider shown beneath the toolbar.
+- The extracted `crop_data` is included in the publish payload.
+
+### 6.2 Persistence + playback
+- **`models/Clip.js`** — added `crop_data` (Mixed: `{x,y,width,height}`).
+- **`ClipFeed.jsx`** — when a clip has `crop_data`, the feed honors it on
+  playback via a CSS transform (scale to map the crop region to the frame +
+  translate to the origin), using the video's natural size from
+  `onLoadedMetadata`. Clips without crop_data render unchanged.
+
+### Files
+Added: `spidr-client/src/components/spidr/SpidrCropper.jsx`.
+Modified: `spidr-client/src/components/spidr/VideoStudio.jsx`,
+`spidr-client/src/components/feed/ClipFeed.jsx`,
+`spidr-server/src/models/Clip.js`.
+
+### Follow-ups
+- Install `react-easy-crop` in a network-enabled environment and swap the import
+  in VideoStudio (interface is identical) if the team prefers the library.
+- If/when an FFmpeg transcode pipeline is added, feed `crop_data` straight into
+  `crop=${width}:${height}:${x}:${y}` — the stored object matches that signature.
+
+---
+
+## 47. WebRTC/UI batch — context menu, device routing, socket desync, screen-share consumer
+
+**Architecture note (again):** the task references Mediasoup (`mediasoupManager.js`,
+`consumer.resume()`, `transport.produce()`, codec arrays) and files that don't
+exist (`socketManager.js`, `VoiceDeckContextMenu.jsx`, `SpidrVoiceDeck.jsx`).
+This app is a plain P2P `RTCPeerConnection` mesh. All bugs were fixed in the real
+architecture; no Mediasoup layer was invented.
+
+### Part 1 — Voice tile context menu (`VoiceDeckContextMenu.jsx`, new)
+Dark glassmorphic menu (`bg-[#050505]/90 backdrop-blur-md`, `border-red-600/30`)
+with ink-shift hover backgrounds + a neon-red left accent, and a custom volume
+slider whose track glows purple→red. Actions: View Profile, Mute User (local),
+Deafen User (local), Mute Soundboard (local), and admin-gated Server Mute,
+Server Deafen, Move To (channel picker), Disconnect. Wired into VoiceTile
+(replaces the earlier inline menu); opens at the cursor.
+
+### Part 2 — device routing
+- **2.1 Mac camera light** — `toggleVideo` now `.stop()`s the camera track and
+  removes its sender from every peer when turning off (releasing the hardware so
+  the green light goes off), instead of only pausing `enabled`.
+- **2.2 mic defaulting** — `join` now runs `enumerateDevices()` and prefers a
+  non-Continuity/AirPods/iPhone audio input, passing the chosen `deviceId`.
+- **2.3 mute/unmute** — confirmed the existing `track.enabled` toggle is the P2P
+  equivalent of pause/resume and does NOT tear down the sender; hardened +
+  documented so it never renegotiates (which is what would break audio).
+
+### Part 3 — socket state/desync
+- **3.1 fake screen-share state** — stopping a share now broadcasts
+  `voice:screen-meta {active:false}` so peers drop the screen view, and the
+  sharer's session `is_screen_sharing` is cleared (existing).
+- **3.2 admin disconnect** — server `voice:admin-disconnect` → targeted
+  `voice:force-disconnect` to the user's sockets; client tears down its peer
+  connections and leaves. Wired into the tile kick action.
+- **3.3 missing new members** — `/servers/join` now emits `server:member-joined`;
+  ServersPanel listens and refetches the member list live.
+- **3.4 notification settings save** — the notification toggles were uncontrolled
+  (`defaultChecked`, saved nowhere). Now controlled, persisted to localStorage +
+  the user profile (`notification_prefs`), reloaded on mount, and broadcast via
+  a `spidr-notification-prefs` event.
+- **3.5 unread badges** — DM sidebar now shows an unread count dot on the avatar
+  itself; server text channels show an unread dot + bold name when a message
+  arrives in a non-open channel (tracked via `message:new`, cleared on open).
+
+### Deep-dive — screen/game share consumer failure
+In the P2P mesh, a peer's screen track arrived via `ontrack` and could overwrite
+their webcam (blank/loading). Fix: track every inbound stream per peer; the
+sharer broadcasts `voice:screen-meta {streamId}` so receivers classify the extra
+stream as a screen and render it in a **dedicated** `<video autoPlay playsInline
+muted object-contain>` tile, never overwriting the webcam. Handles meta-before-
+track ordering, and end-of-share cleanup. (`addOutgoingTrack(track, stream,
+'screen')` tags + broadcasts; relayed by the server.)
+
+### Files
+Added: `spidr-client/src/components/spidr/VoiceDeckContextMenu.jsx`.
+Modified: `spidr-client/src/components/spidr/useWebRTC.js`,
+`spidr-client/src/components/spidr/VoiceChannel.jsx`,
+`spidr-client/src/components/spidr/SettingsPanel.jsx`,
+`spidr-client/src/components/spidr/DMsSidebar.jsx`,
+`spidr-client/src/components/spidr/ServersPanel.jsx`,
+`spidr-server/src/socket/handlers.js`, `spidr-server/src/routes/servers.js`.
+
+All touched files pass esbuild / node --check; scanned mojibake-free.
+
+### Known limitation
+`useWebRTC` keys remote streams by socketId not user_id, so in 3+ person calls
+the screen-share→tile and per-user volume mapping is approximate (correct 1:1).
+Verified by build + isolated logic; live WebRTC behavior wants a runtime check.
+
+---
+
+## 48. Voice messages — TRUE root cause fixed (server mime allowlist)
+
+Voice messages still failed after §40's extension fix because the real blocker
+was server-side, not client-side. `routes/upload.js` multer `fileFilter` only
+allowed `audio/mpeg | audio/wav | audio/ogg | audio/mp4` — but browsers record
+voice notes as **`audio/webm;codecs=opus`**, which was not in the allowlist, so
+multer rejected every recording with "File type not allowed: audio/webm" before
+it was ever stored. That rejection surfaced as the client's "Could not send
+voice message" toast. No client-side extension fix could have helped — the file
+never reached storage.
+
+Fix:
+- Added `audio/webm`, `audio/aac`, `audio/x-m4a`, `audio/opus`, `audio/mp3`,
+  `audio/x-wav`, `video/quicktime` to the allowlist.
+- Added `isAllowed()` which strips the codecs suffix (`audio/webm;codecs=opus`
+  → `audio/webm`) before checking, and permits generic `audio/*` for exotic
+  recorder mimes — while keeping image/video strict. Verified in isolation
+  (webm/opus passes, pdf rejected, images/video unchanged).
+
+This unblocks voice messages in **all three surfaces at once** — DMs
+(`DirectMessages`), group chats (`KineticChat`), and servers (`ServersPanel`) —
+since all three already route the recorder through `MessageInputBar` and accept
+attachment-only sends. Playback was already handled (§40 audio detection +
+inline `<audio>` player).
+
+### Files
+Modified: `spidr-server/src/routes/upload.js`.
+
+---
+
+## 49. Patch 1.4 — APEX threads, auto-minimize, Spidr Web pinning
+
+**Filename reconciliation (task vs reality):** `CornerVoicePreview.jsx` →
+`ActiveCallTether.jsx`; `FriendsTab.jsx` → `FriendsPanel.jsx`. No Mediasoup
+(`activeSpeaker` boolean is read from the existing VoiceSession state, not an
+SFU).
+
+### Part 1 — APEX hanging threads & mini-visualizer (`ActiveCallTether.jsx`)
+- **1.1** the corner preview now fetches the current user's
+  `apex_features.thread_skin_color` (fallback `#3f3f46`) and applies it to the
+  hanging "thread" gradient and the speaking ring.
+- **1.2** renders a miniaturized `VoiceEqualizer` (the purple→red bars) in the
+  corner node when speaking. Per the perf note, it uses the equalizer's
+  idle-shimmer mode (no stream passed → **no duplicate AudioContext**), gated on
+  the shared `isSpeaking` state derived from VoiceSession records.
+
+### Part 2 — auto-minimize + Electron PiP
+- **2.1** `SpidrShell` watches the route; if the user is in an active,
+  non-minimized call and navigates off the call's surface (different channel /
+  Friends), it auto-sets `isCallMinimized`, collapsing the deck into the corner
+  tether. Expanding routes back (existing MinimizedCallBar behavior).
+- **2.2** `electron/main.js` now emits `window:blur` / `window:focus` over IPC;
+  `preload.js` exposes `onWindowBlur` / `onWindowFocus`. `SpidrShell` listens and,
+  when the window loses focus during a call AND the user opted in
+  (`localStorage spidr_call_pip === 'true'`), opens the pop-out window as a
+  mini-overlay PiP. Opt-in so it's never intrusive. (True OS-native PiP for
+  arbitrary DOM isn't available in Electron; the always-on-top pop-out is the
+  working equivalent.)
+
+### Part 3 — Spidr Web pinning
+- **3.1** `models/UserProfile.js` gains `pinned_conversations: [Mixed]` (and
+  `notification_prefs`, formalizing §47's 3.4 store). New
+  `lib/spidrWebPins.js` (getPins/togglePin/isPinned/hydratePins) caches pins in
+  localStorage for instant UI, syncs to the profile, and fires
+  `spidr-web-pins-changed`. `ui/SpidrMenu.jsx` adds **"Pin to Spidr Web"** to the
+  friend menu (the group menu already had a pin action); `FriendsPanel.jsx`
+  handles `pin-web`/`pin-group`. `DMsSidebar.jsx` renders a dedicated
+  **"Spidr Web"** priority section locked to the top of the list.
+- **3.2** reuses the existing SpidrMenu glassmorphic/neon "Symbiote" aesthetic.
+
+### Files
+Added: `spidr-client/src/lib/spidrWebPins.js`.
+Modified: `spidr-client/src/components/spidr/ActiveCallTether.jsx`,
+`spidr-client/src/components/SpidrShell.jsx`,
+`spidr-client/src/components/spidr/DMsSidebar.jsx`,
+`spidr-client/src/components/spidr/FriendsPanel.jsx`,
+`spidr-client/src/components/ui/SpidrMenu.jsx`,
+`spidr-client/electron/main.js`, `spidr-client/electron/preload.js`,
+`spidr-server/src/models/UserProfile.js`.
+
+All touched files pass esbuild / node --check; scanned mojibake-free.
+
+### Notes / limitations
+- 1.2's mini-visualizer animates on speaking state (idle-shimmer), not live
+  amplitude — the tether reads VoiceSession DB records, not WebRTC streams, so
+  piping real amplitude would require threading stream data through context
+  (deferred to avoid a duplicate AudioContext, exactly as the task cautions).
+- 2.2 PiP verified by build only; the live Electron blur→pop-out flow wants a
+  runtime smoke-test.
+- Pins resolve against currently-loaded conversations; a pin to a conversation
+  not yet in the list opens a minimal stub (name/avatar from the pin record).
+
+---
+
+## 50. In-chat "Catch Me Up" — Spidr AI conversation summaries
+
+New reusable `CatchMeUpBar.jsx`: a red-tinted in-chat banner ("Catch Me Up — AI
+summary of last N messages") that sends the conversation's recent messages to
+`integrations.Core.InvokeLLM` and shows a concise bulleted recap inline
+(dismissible, glassmorphic). Wired into all three chat surfaces:
+- **Server channels** (`ServersPanel.jsx`) — labeled `#channel`.
+- **DMs** (`DirectMessages.jsx`) — labeled with the friend's name.
+- **Group chats** (`KineticChat.jsx`) — labeled with the group name.
+
+Reuses the existing AIPanel summarization approach; read-only (never posts to
+the chat). Added: `spidr-client/src/components/spidr/CatchMeUpBar.jsx`.
+
+---
+
+## 51. Parts 4–6: Suspended Web Node minimized call + universal calling audit
+
+### Part 4 — "Suspended Web Node" (`MinimizedWebNode.jsx`, new)
+Replaced the square minimized pill with a radial, physics-based node:
+- **4.1** circular dark-glass node (`bg-[#050505]/90 backdrop-blur-md rounded-full`),
+  up to 3 overlapping avatars with the speaker floating to the top of the
+  z-stack, and an APEX-colored thread hanging from the top of the screen.
+- **4.2** framer-motion drag with spring `dragTransition` (bounce) + viewport
+  constraints; the thread stretches with drag distance. On hover, a radial
+  "symbiote" menu (Mute / Deafen / Maximize / Disconnect) springs outward.
+- **4.3** a jagged radial SVG waveform wraps the node when the active speaker
+  talks, bound to amplitude (`scale`/`opacity`) and glowing via
+  `drop-shadow` in the APEX color.
+Swapped into `SpidrShell` in place of `MinimizedCallBar` (which remains defined
+but unused). DM/group/server minimized calls all use it (shell-level), satisfying
+5.2's "same minimized state" requirement.
+
+### Part 6 — click-to-maximize fix (built into the node)
+- The outer wrapper's `onClick` calls **only** `onExpand` (restore deck) — never
+  disconnect.
+- Every radial button calls `e.stopPropagation()` so clicks can't bubble to the
+  wrapper; Disconnect is its own isolated button.
+- WebRTC transport persistence: the live session lives in
+  `VoiceChannel`/`useWebRTC` at the shell level. Mounting/unmounting the node
+  never closes producers/transports — mute/deafen/leave are dispatched as
+  window events the live session listens for. Minimizing/maximizing only shifts
+  UI; media is uninterrupted.
+
+### Part 5 — universal DM/Group calling (AUDIT: already implemented)
+The task is written for Mediasoup (`mediasoupManager.js`, `socketManager.js`,
+dynamic router rooms) — none of which exist; this is a P2P mesh. The actual
+objective ("same voice deck/logic in Servers, DMs, and Groups") is **already
+built** in this architecture and verified present:
+- Start Call buttons in both the DM (`DirectMessages.jsx`) and group
+  (`KineticChat.jsx`) headers.
+- Ringing: client emits `call:invite`; server relays `call:incoming` and
+  `call:accept`/`call:decline` (`handlers.js`); `IncomingCallBanner.jsx` shows
+  Accept/Decline.
+- `useWebRTC` already rooms by serverId+channelId / groupId / conversationId
+  (the P2P equivalent of 5.1's roomId mapping), so the same `VoiceChannel` deck,
+  APEX threads, and the new Web Node serve all three contexts.
+No rewrite was invented; the existing universal flow was confirmed rather than
+duplicated.
+
+### Files
+Added: `spidr-client/src/components/spidr/MinimizedWebNode.jsx`.
+Modified: `spidr-client/src/components/SpidrShell.jsx`.
+
+All touched files pass esbuild; scanned mojibake-free.
+
+### Caveats
+- The Web Node's drag physics, radial menu, and waveform are verified by build;
+  the live drag/snap and amplitude binding want a runtime check.
+- Real active-speaker amplitude isn't yet piped to the node (passed `speaking=false`
+  at the shell since live stream amplitude isn't available there); the radial EQ
+  is wired and ready for an amplitude source.
+
+---
+
+## 52. Review pass — bug fixes + "Spidr System" terminal
+
+### Bug fixes (from testing)
+- **Trending server 404 → fixed.** Opening a server you're not in no longer dead-
+  ends. `ServersPanel` now checks membership (`isServerMember`) and renders a new
+  `ServerPreview` for non-members: **Join Server** for public servers,
+  **Request Invite** for private (`is_public === false`) ones. Members still get
+  the full `ServerContent`.
+- **Unified voice UI across Servers / DMs / Groups.** DMs (`DirectMessages`) and
+  group chats (`KineticChat`) previously used a separate `CallDeck` + `CallOverlay`.
+  Both now render the SAME `VoiceChannel` deck as servers (via a synthetic
+  server/channel that maps the DM→`conversationId` / group→`groupId` voice room),
+  so they get the identical voice design, the `VoiceDeckContextMenu` right-click,
+  and screen share. Minimizing routes to the shell-level `MinimizedWebNode`
+  ("Suspended Web Node"), per the design.
+- **DM/group call state mapping.** `Friends.jsx onVoiceJoin` now distinguishes a
+  DM (3-arg: recipient, name, conversationId → `type:'dm'`) from a group (2-arg →
+  `type:'group'`), so auto-minimize and the web node label correctly.
+- **Pin-to-Spidr-Web conflation fixed.** The group right-click was firing both the
+  legacy in-tab group pin AND the Spidr Web pin. Now the right-click "Pin to Spidr
+  Web" on friends and groups maps solely to `togglePin` (the Web priority section);
+  the in-tab pin keeps its dedicated button.
+
+### New feature — "Spidr System" news/patch terminal
+- `SpidrSystem.jsx` (new): fixed bottom-right (`fixed bottom-4 right-4 z-50`).
+  Collapsed = a monospaced ticker (`> SPIDR_SYS: …`); click expands upward
+  (framer-motion spring) into a `w-80 h-96` scrollable terminal with neon-red
+  dividers, a typewriter intro on the newest note, and type badges
+  (UPDATE/ALERT/FIX). A "Spider-Sense" glowing SVG badge marks unread notes
+  (tracked by newest id in localStorage). Mounted on `HomeDashboard`.
+- Backend `routes/system.js` → `GET /system/news` (registered in `index.js`);
+  the component ships mock data and refreshes from the route (graceful fallback).
+
+### Files
+Added: `spidr-client/src/components/spidr/SpidrSystem.jsx`,
+`spidr-server/src/routes/system.js`.
+Modified: `spidr-client/src/components/spidr/ServersPanel.jsx`,
+`spidr-client/src/components/spidr/DirectMessages.jsx`,
+`spidr-client/src/components/spidr/KineticChat.jsx`,
+`spidr-client/src/components/spidr/FriendsPanel.jsx`,
+`spidr-client/src/pages/HomeDashboard.jsx`, `spidr-client/src/pages/Friends.jsx`,
+`spidr-server/src/index.js`.
+
+All touched files pass esbuild / node --check; scanned mojibake-free.
+
+### Honest caveats / needs runtime check
+- DM/group calls reuse `VoiceChannel` with a synthetic `server` where the local
+  user is treated as owner; in a 1:1 DM this means admin-style buttons can appear
+  on the other tile. Harmless (server-mute is a no-op in a DM) and intentional to
+  satisfy "do not build a separate DM UI", but worth a visual pass.
+- The unified DM/group voice deck, the Web Node drag/snap, and the trending
+  join/invite flow are verified by build + logic only — they want a live
+  multi-user smoke test.
+- `Request Invite` raises a local notification; it does not yet create a
+  server-side invite request record (no such model exists yet).
+
+---
+
+## 53. Web Roster member list + role hierarchy (Patch 1.8)
+
+**Filename reconciliation:** the member list lives in `CommunityPanel.jsx`
+(not `GroupMemberList`/`ServerMemberList`); role drag uses the already-installed
+`@hello-pangea/dnd` (not `@dnd-kit`, which can't install in this sandbox).
+
+### Web Roster redesign (`CommunityPanel.jsx`)
+- **1.1 Avatars/status (no dots):** removed status dots. Online avatars get a
+  2px border + drop-shadow in the user's APEX thread color (default `#dc2626`);
+  offline avatars lose the border and get `grayscale(50%) opacity-0.6`.
+- **1.2 Layout/hover:** container is now `bg-[#0a0a0a]`; rows are `motion.div`
+  with a spring `whileHover={{ x: -6 }}` tension pull and a fading APEX-colored
+  thread line to the right edge revealed on hover.
+- **1.3 Typography:** role headers are uppercase `tracking-[0.2em] text-[10px]`
+  in the role color; custom status renders as a mono "— transmission" line in
+  `text-white/50`.
+
+### Role hierarchy & renaming
+- **Backend** (`routes/servers.js`): new `PUT /servers/:id/roles/reorder`
+  (batch position update) and `PATCH /servers/:id/roles/:roleId` (rename), both
+  admin/owner-gated and registered before the CRUD catch-all.
+- **Schema:** roles carry a `position` integer (falls back to array index).
+- **Settings UI** (`ServerSettingsModal.jsx`): role names are now inline-editable
+  (rename); the existing drag-reorder now stamps `position` on each role.
+- **Live sidebar sort:** `CommunityPanel` sorts role tiers by `position`
+  (lowest = highest rank) and places each member ONLY under their highest role
+  (dedupe), so nobody appears twice.
+
+### Patch 1.8 — live Edit Mode
+- Admin-only "Edit Node Hierarchy" toggle (glowing gear) in the roster header.
+- When on, user rows collapse and only role headers show, each with a 6-dot grip,
+  drag-sortable via `@hello-pangea/dnd`. On drop, local state updates immediately
+  (snappy) and the new order persists (`Server.update` with stamped positions);
+  the `/roles/reorder` endpoint is also available for direct use.
+
+### Part 2 — tension hover physics
+Implemented as part of 1.2 above (spring `x:-6`, APEX thread reveal, `text-white/50`
+status). 
+
+### Files
+Modified: `spidr-client/src/components/spidr/CommunityPanel.jsx`,
+`spidr-client/src/components/spidr/ServerSettingsModal.jsx`,
+`spidr-server/src/routes/servers.js`.
+
+All touched files pass esbuild / node --check; mojibake-free.
+
+### Caveats
+- The reorder/rename REST endpoints exist and are gated, but the client persists
+  role order via the existing `Server.update` (whole-array, consistent) rather
+  than the granular endpoints; both paths write the same shape.
+- Verified by build + logic; the DnD feel and the online/offline avatar states
+  want a quick runtime look.

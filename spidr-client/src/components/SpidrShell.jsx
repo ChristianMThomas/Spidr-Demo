@@ -11,10 +11,13 @@ import SpidrMenu from '@/components/ui/SpidrMenu';
 import HolographicProfile from '@/components/spidr/HolographicProfile';
 import GlobalGhostOverlay from '@/components/spidr/GlobalGhostOverlay';
 import MobileBottomBar from '@/components/spidr/MobileBottomBar';
+import MinimizedWebNode from '@/components/spidr/MinimizedWebNode';
 import BiomassBalancePill from '@/components/spidr/BiomassBalancePill';
 import UserStatusChip from '@/components/spidr/UserStatusChip';
 import { NotificationProvider } from '@/components/spidr/NotificationCenter';
 import IncomingCallBanner from '@/components/spidr/IncomingCallBanner';
+import LevelUpToast from '@/components/spidr/LevelUpToast';
+import ApexEntrance from '@/components/spidr/ApexEntrance';
 
 /**
  * SpidrShell — the persistent app frame that surrounds every routed page.
@@ -61,6 +64,37 @@ export default function SpidrShell() {
   const { currentUser, userLoaded, appTheme, activeCall, isCallMinimized, setActiveCall, setIsCallMinimized } = useAppShell();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // 2.1 — Auto-minimize: if the user is in an active (non-minimized) voice call
+  // and navigates away from that call's surface (e.g. a different channel, the
+  // Friends tab), collapse the full VoiceDeck into the corner tether so the call
+  // state is preserved seamlessly. Expanding (MinimizedCallBar) routes back.
+  useEffect(() => {
+    if (!activeCall || isCallMinimized) return;
+    const onCallSurface = activeCall.serverId
+      ? location.pathname.startsWith(`/servers/${activeCall.serverId}`)
+      : (activeCall.conversationId || activeCall.groupId)
+        ? location.pathname.startsWith('/friends')
+        : false;
+    if (!onCallSurface) setIsCallMinimized(true);
+  }, [location.pathname, activeCall, isCallMinimized, setIsCallMinimized]);
+
+  // 2.2 — Electron: when the window loses focus during an active call, optional
+  // PiP via the pop-out window (opt-in, off by default). Reuses the existing
+  // pop-out child window as the mini-overlay.
+  useEffect(() => {
+    if (!window.electronAPI?.onWindowBlur) return;
+    const pipEnabled = () => { try { return localStorage.getItem('spidr_call_pip') === 'true'; } catch { return false; } };
+    const off = window.electronAPI.onWindowBlur(() => {
+      if (!activeCall || !pipEnabled()) return;
+      window.electronAPI.openPopout?.({
+        serverId: activeCall.serverId || '',
+        channelId: activeCall.channelId || '',
+        groupId: activeCall.groupId || '',
+      });
+    });
+    return off;
+  }, [activeCall]);
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   // User-chosen sidebar position: 'left' | 'right' | 'hidden'. Persisted in
@@ -250,11 +284,14 @@ export default function SpidrShell() {
             timer so users can manage the call without re-entering. */}
         <AnimatePresence>
           {activeCall && isCallMinimized && (
-            <MinimizedCallBar
+            <MinimizedWebNode
               call={activeCall}
+              apexColor={activeCall?.apexThreadColor || '#3f3f46'}
+              speaking={false}
               onExpand={() => {
-                // Return to the call. If we navigated away from the server
-                // page, route back to it first so the VoiceChannel re-mounts.
+                // Part 6: returning to the call ONLY restores the view. If we
+                // navigated away from the server page, route back so the
+                // VoiceChannel re-mounts; never disconnect here.
                 if (activeCall?.serverId) {
                   navigate(`/servers/${activeCall.serverId}`);
                 }
@@ -277,6 +314,12 @@ export default function SpidrShell() {
 
         {/* Incoming DM call banner — Spidr-themed, drops from the top. */}
         <IncomingCallBanner />
+
+        {/* XP level-up celebration overlay */}
+        <LevelUpToast />
+
+        {/* APEX entrance flash (thunder / ripple / glitch) */}
+        <ApexEntrance />
 
         {/* Spidr Protocol overlay — survives route changes so the gaming
             overlay keeps showing messages even when navigating between

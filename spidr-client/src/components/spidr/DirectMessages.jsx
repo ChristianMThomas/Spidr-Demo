@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket } from '@/api/apiClient';
+import { useTension } from '@/hooks/useTension';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import CatchMeUpBar from './CatchMeUpBar';
 import { Send, Image as ImageIcon, Smile, MoreVertical, Phone, Video, Ghost, Pin, Archive, CornerUpLeft, X } from 'lucide-react';
 import StickyWeb from './StickyWeb';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,6 +22,7 @@ import MessageInputBar from './MessageInputBar';
 import FlyHunt from './FlyHunt';
 import ReportModal from './ReportModal';
 import CallDeck from '../voice/CallDeck';
+import VoiceChannel from './VoiceChannel';
 import SpidrAIChat from './SpidrAIChat';
 import SpiderLogo from './SpiderLogo';
 import SignalTracker from './SignalTracker';
@@ -47,6 +50,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   // Must be declared before the useEffect that references them
   const activeConversationId = conversationId || conversation?.conversationId;
   const activeRecipientId = recipientId || conversation?.friendId;
+  const { report: reportXp } = useTension();
 
   // A reply anchored to a message in one conversation shouldn't survive
   // a switch to a different DM — clear it whenever the active thread changes.
@@ -227,6 +231,33 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const displayName = conversation?.friendName || recipientProfile?.display_name || 'User';
   const displayAvatar = conversation?.friendAvatar || recipientProfile?.avatar_url;
 
+  // ── Spidr Protocol (gaming overlay): drive the GLOBAL overlay via events ──
+  // so it survives navigation and supports pinning (the old local overlay did
+  // neither, and rendering both caused the "double").
+  useEffect(() => {
+    if (ghostMode) {
+      window.dispatchEvent(new CustomEvent('spidr-ghost-activate', {
+        detail: { conversationName: displayName },
+      }));
+    } else {
+      window.dispatchEvent(new Event('spidr-ghost-deactivate'));
+    }
+  }, [ghostMode, displayName]);
+
+  useEffect(() => {
+    if (!ghostMode || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (!last?.id) return;
+    window.dispatchEvent(new CustomEvent('spidr-ghost-message', {
+      detail: {
+        id: last.id,
+        sender_name: last.sender_name || last.user_name,
+        sender_avatar: last.sender_avatar || last.user_avatar,
+        content: last.content,
+      },
+    }));
+  }, [ghostMode, messages]);
+
   useEffect(() => {
     if (!activeConversationId) return;
     const socket = getSocket();
@@ -349,6 +380,8 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         conversationId: vars.conversation_id,
         recipientId: vars.receiver_id,
       });
+      // Award activity XP (server-capped; fires level-up toast if crossed).
+      reportXp('message', 'Message sent');
     }
   });
 
@@ -496,30 +529,20 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       {/* Fly Hunt Overlay */}
       <FlyHunt onCatch={handleFlyCatch} userName={currentUser?.full_name || 'You'} />
 
-      {/* Call Deck - Full Featured */}
+      {/* Call Deck — uses the SAME VoiceChannel deck as servers (consistent UI,
+          APEX threads, context menus, screen share). A synthetic server/channel
+          maps the DM to a unified voice room (channel_id = conversationId). The
+          minimized state is the shell-level MinimizedWebNode. */}
       {inCall && showCallDeck && (
         <div className="absolute inset-0 z-50">
-          <CallDeck
-            channelName={`DM — ${displayName}`}
-            participants={voiceSessions}
-            onDisconnect={handleEndCall}
-            onToggleMute={handleToggleMic}
-            isMuted={isMuted}
+          <VoiceChannel
+            server={{ id: 'dm', name: `DM — ${displayName}`, channels: [], members: [] }}
+            channel={{ id: activeConversationId, name: displayName, type: 'voice' }}
+            currentUser={currentUser}
+            onLeave={handleEndCall}
+            onMinimize={() => { setShowCallDeck(false); onMinimizeCall?.(); }}
           />
         </div>
-      )}
-
-      {/* Call Overlay - Hanging Cocoons (minimized) */}
-      {inCall && !showCallDeck && (
-        <CallOverlay 
-          participants={voiceSessions}
-          onEndCall={handleEndCall}
-          onToggleMic={handleToggleMic}
-          onToggleVideo={handleToggleVideo}
-          isMuted={isMuted}
-          isVideoOn={isVideoOn}
-          currentUser={currentUser}
-        />
       )}
 
       {/* Call Web Display */}
@@ -670,6 +693,9 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           </button>
         </div>
       </div>
+
+      {/* Catch Me Up — AI summary of recent DM messages */}
+      <CatchMeUpBar messages={messages} contextLabel={`your DM with ${displayName}`} limit={30} />
 
       {/* Messages */}
       <div 
@@ -896,12 +922,8 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         currentUser={currentUser}
       />
 
-      <GhostOverlay
-        messages={messages}
-        active={ghostMode}
-        onClose={() => setGhostMode(false)}
-        conversationName={displayName}
-      />
+      {/* Spidr Protocol overlay renders globally (GlobalGhostOverlay at the
+          shell); this view dispatches activate/message/deactivate to it. */}
 
       <AnimatePresence>
         {inCall && !showCallDeck && <CallAVControls onClose={() => setInCall(false)} />}

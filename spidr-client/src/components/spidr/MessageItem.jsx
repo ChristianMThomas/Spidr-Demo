@@ -10,7 +10,7 @@ import { buildUsernameStyle } from '@/lib/usernameStyle';
 import ContextableImage from '@/components/ui/ContextableImage';
 import { useMenu } from '@/components/MenuContext';
 
-export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick, currentUser, apexUsers, onReactionToggle, repliedTo, senderProfile }) {
+export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick, currentUser, apexUsers, onReactionToggle, repliedTo, senderProfile, mentionUsers = [] }) {
   const { triggerMenu } = useMenu();
   const isMentioned = currentUser && msg.content?.includes(`@${currentUser.full_name?.split(' ')[0]}`);
   // Prefer senderProfile.apex_tier — it's the canonical signal. Fall back to
@@ -174,7 +174,7 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
               ) : msg.text_effect && msg.text_effect !== 'normal' ? (
                 <KineticText text={msg.content} effect={msg.text_effect} />
               ) : (
-                <MentionParser text={msg.content} />
+                <MentionParser text={msg.content} users={mentionUsers} onMentionClick={(uid) => onProfileClick?.(uid)} />
               )}
             </div>
 
@@ -202,9 +202,11 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
               <div className="flex gap-2 flex-wrap mt-2">
                 {msg.attachments.map((url, i) => {
                   // Voice messages / audio: render an inline player instead of
-                  // trying to show it as an image. Detect by extension or the
-                  // voice-message filename convention.
-                  const isAudio = /voice-message-/i.test(url) || /\.(mp3|wav|ogg|m4a|aac)(\?|$)/i.test(url);
+                  // trying to show it as an image. The server renames uploads to
+                  // <uuid><ext>, so we detect by extension. Note: .webm/.ogg are
+                  // used by voice messages here (audio), so they're treated as
+                  // audio; true video shares use .mp4/.mov.
+                  const isAudio = /voice-message-/i.test(url) || /\.(mp3|wav|ogg|m4a|aac|webm|weba|opus)(\?|$)/i.test(url);
                   if (isAudio) {
                     return (
                       <div key={i} className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-xl px-3 py-2 max-w-[260px]">
@@ -213,7 +215,7 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                       </div>
                     );
                   }
-                  const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url);
+                  const isVideo = /\.(mp4|mov|m4v)(\?|$)/i.test(url);
                   if (isVideo) {
                     return (
                       <video key={i} src={url} controls className="max-w-[220px] max-h-[200px] rounded-lg border border-white/10" />

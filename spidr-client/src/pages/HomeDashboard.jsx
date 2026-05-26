@@ -8,6 +8,8 @@ import SpiderLogo from '@/components/spidr/SpiderLogo';
 import DiscoverUsers from '@/components/spidr/DiscoverUsers';
 import EnhancedFeed from '@/components/spidr/EnhancedFeed';
 import EngagementHub from '@/components/spidr/EngagementHub';
+import SpidrSystem from '@/components/spidr/SpidrSystem';
+import TensionBar from '@/components/spidr/TensionBar';
 
 /**
  * /home — the landing dashboard.
@@ -88,6 +90,9 @@ export default function HomeDashboard() {
               <p className="text-zinc-500 text-xs">GIFs & Emojis</p>
             </motion.button>
           </div>
+
+          {/* Web Tension (XP / level) */}
+          <TensionBar />
 
           {/* Quick Actions */}
           <div className="grid grid-cols-2 gap-3">
@@ -173,6 +178,7 @@ export default function HomeDashboard() {
           />
         </div>
       </div>
+      <SpidrSystem />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useMenu } from '@/components/MenuContext';
+import { togglePin } from '@/lib/spidrWebPins';
 import HolographicProfile from './HolographicProfile';
 import DirectMessages from './DirectMessages';
 import KineticChat from './KineticChat';
@@ -105,13 +106,24 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     });
   }, [myGroups, pinnedGroups]);
 
-  // Handle right-click menu actions for group chats.
+  // Handle right-click menu actions for group chats + friend pins.
   useEffect(() => {
     const handler = (e) => {
       const { action, data, type } = e.detail || {};
-      if (type !== 'web_group' || !data?.id) return;
-      if (action === 'pin-group') togglePinGroup(data.id);
-      else if (action === 'open-group') handleOpenGroup(data.id);
+      if (!data?.id) return;
+      // "Pin to Spidr Web" — the right-click pin on both friend (DM) and group
+      // rows maps to the Spidr Web priority section (NOT the legacy in-tab group
+      // pin, which has its own dedicated button).
+      if (action === 'pin-web' || action === 'pin-group') {
+        togglePin({
+          kind: type === 'web_group' ? 'group' : 'dm',
+          id: data.id,
+          name: data.name || data.friend_name || data.username || 'Conversation',
+          avatar: data.avatar || data.friend_avatar || data.avatar_url || '',
+        });
+      } else if (type === 'web_group' && action === 'open-group') {
+        handleOpenGroup(data.id);
+      }
     };
     window.addEventListener('spidr-menu-action', handler);
     return () => window.removeEventListener('spidr-menu-action', handler);

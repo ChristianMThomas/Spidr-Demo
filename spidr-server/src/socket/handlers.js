@@ -119,9 +119,18 @@ module.exports = function registerHandlers(io) {
     if (wasOffline) {
       io.emit('user:online', { userId });
     }
+    // Only flip to 'online' if the user was actually offline. Otherwise we'd
+    // clobber a manually-set status (Away / DND / Invisible) on every reconnect
+    // or heartbeat-driven re-init — which was the "status resets to Online" bug
+    // (4.3). last_seen is always refreshed.
     UserProfile.findOneAndUpdate(
-      { user_id: userId },
+      { user_id: userId, status: { $in: [null, 'offline'] } },
       { $set: { status: 'online', last_seen: new Date() } }
+    ).catch(() => {});
+    // Always refresh last_seen even when we preserve the manual status.
+    UserProfile.findOneAndUpdate(
+      { user_id: userId, status: { $nin: [null, 'offline'] } },
+      { $set: { last_seen: new Date() } }
     ).catch(() => {});
 
     // Client heartbeat — sent every 25s. Refreshes lastSeen so the reaper
@@ -311,12 +320,13 @@ module.exports = function registerHandlers(io) {
       }
     });
 
-    // ── Voice signaling (WebRTC via Mediasoup) ───────────────────────────────
+    // ── Voice signaling (plain P2P WebRTC mesh; server is a signal relay) ────
     socket.on('voice:join', (data) => {
       const room = data.serverId
         ? `voice:server:${data.serverId}:${data.channelId}`
         : `voice:group:${data.groupId}`;
       socket.join(room);
+      socket._voiceRoom = room;
       socket.to(room).emit('voice:peer-joined', { userId, socketId: socket.id });
     });
 
@@ -331,6 +341,39 @@ module.exports = function registerHandlers(io) {
     socket.on('voice:signal', ({ to, signal }) => {
       if (!socketRateLimit(socket)) return;
       io.to(to).emit('voice:signal', { from: socket.id, signal });
+    });
+
+    // Relay screen-share classification metadata to the rest of the room so
+    // peers route the extra video stream to a dedicated screen player rather
+    // than overwriting the webcam (screen-share consumer fix).
+    socket.on('voice:screen-meta', (data) => {
+      if (!socketRateLimit(socket)) return;
+      const room = data.serverId
+        ? `voice:server:${data.serverId}:${data.channelId}`
+        : `voice:group:${data.groupId}`;
+      socket.to(room).emit('voice:screen-meta', {
+        socketId: socket.id,
+        streamId: data.streamId,
+        active: data.active,
+      });
+    });
+
+    // 3.2 — Admin force-disconnect: an admin asks the server to kick a user
+    // from a voice channel. We emit a targeted command to that user's sockets
+    // so their client tears down its RTCPeerConnections and leaves. (Membership/
+    // admin auth is enforced by the REST kick that precedes this; this is the
+    // realtime nudge that actually removes them from the live call.)
+    socket.on('voice:admin-disconnect', ({ targetUserId, serverId, channelId, groupId }) => {
+      if (!socketRateLimit(socket)) return;
+      if (!targetUserId) return;
+      const sockets = onlineUsers.get(targetUserId);
+      if (!sockets) return;
+      const room = serverId ? `voice:server:${serverId}:${channelId}` : `voice:group:${groupId}`;
+      sockets.forEach((sid) => {
+        io.to(sid).emit('voice:force-disconnect', { serverId, channelId, groupId });
+      });
+      // Also tell the room the peer left so tiles clear immediately.
+      io.to(room).emit('voice:peer-left', { userId: targetUserId });
     });
 
     // ── Friend request notification ──────────────────────────────────────────

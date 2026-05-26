@@ -3,13 +3,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, ArrowRight, Scissors, Zap, Play, Type,
   Volume2, VolumeX, Hash, Sparkles, Loader2, RotateCcw,
-  Camera, Image, Check, ArrowLeft, Music
+  Camera, Image, Check, ArrowLeft, Music, Users
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { entities, integrations } from '@/api/apiClient';
 import { Textarea } from '@/components/ui/textarea';
 import { scanContent } from './ContentScanner';
 import ContentBlockedModal from './ContentBlockedModal';
+import SpidrCropper from './SpidrCropper';
+import { Crop, Move } from 'lucide-react';
 import AudioDatabase from '../feed/AudioDatabase';
 
 // ── Visual filters ────────────────────────────────────────────────────────────
@@ -36,6 +38,12 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
   const [filter, setFilter] = useState('none');
   const [previewFilter, setPreviewFilter] = useState(null);
   const [ratio, setRatio] = useState('9:16');
+  // Pro cropper (Part 6): pan/zoom + aspect-locked crop. cropData holds the
+  // extracted croppedAreaPixels {x,y,width,height} in natural pixels.
+  const [cropMode, setCropMode] = useState(false);
+  const [cropXY, setCropXY] = useState({ x: 0, y: 0 });
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropData, setCropData] = useState(initialClip?.crop_data || null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
   const [duration, setDuration] = useState(0);
@@ -58,6 +66,9 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
   const [selectedThumb, setSelectedThumb] = useState(0);
   const [blockedCategory, setBlockedCategory] = useState(null);
   const [scrubTime, setScrubTime] = useState(0);
+  // Optional server to promote with this clip (Join Server CTA in the feed).
+  const [myServers, setMyServers] = useState([]);
+  const [selectedServerId, setSelectedServerId] = useState(initialClip?.server_id || '');
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const ratioRef = useRef('9:16');
@@ -88,6 +99,24 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
       if (initialClip.thumbnail_url) setThumbnails([{ time: 0, dataUrl: initialClip.thumbnail_url }]);
     }
   }, [open, videoFile, initialClip]);
+
+  // Load the servers the current user belongs to, for the optional
+  // "promote a server" picker. Best-effort; failures just hide the picker.
+  useEffect(() => {
+    if (!open || !currentUser?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const servers = await entities.Server.list('-created_date', 100);
+        const mine = (servers || []).filter(s =>
+          s.owner_id === currentUser.id ||
+          (Array.isArray(s.members) && s.members.some(m => (m.user_id || m) === currentUser.id))
+        );
+        if (!cancelled) setMyServers(mine);
+      } catch { if (!cancelled) setMyServers([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [open, currentUser?.id]);
 
   // Video time tracking
   useEffect(() => {
@@ -236,12 +265,21 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
         author_avatar: initialClip?.author_avatar || currentUser?.avatar_url || '',
         duration:      duration ? Math.round((trimEnd - trimStart) / 100 * duration) : initialClip?.duration || 0,
         aspect_ratio:  finalRatio,
+        crop_data:     cropData || null,
         style:         { ratio: finalRatio, filter },
         likes:         initialClip?.likes || [],
         comments_count: initialClip?.comments_count || 0,
         shares_count:  initialClip?.shares_count || 0,
         views:         initialClip?.views || 0,
         audio_id:      selectedAudio?.id || initialClip?.audio_id || '',
+        ...(selectedServerId ? (() => {
+          const srv = myServers.find(s => s.id === selectedServerId);
+          return {
+            server_id:   selectedServerId,
+            server_name: srv?.name || initialClip?.server_name || '',
+            server_icon: srv?.icon_url || srv?.icon || initialClip?.server_icon || '',
+          };
+        })() : { server_id: '', server_name: '', server_icon: '' }),
       });
       toast.success('🕷️ Strand deployed to The Web!');
       setPublishing(false); onClose();
@@ -283,6 +321,23 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
                 style={FILTERS.find(f => f.id === activeFilter)?.css || {}}
                 loop muted={isMuted} playsInline autoPlay onClick={togglePlay}
               />
+              {/* Pro cropper overlay (Part 6) — pan/zoom + aspect-locked crop
+                  with dimmed surround and neon grid. Sits over the video while
+                  in crop mode and reports croppedAreaPixels. */}
+              {cropMode && (
+                <div className="absolute inset-0 z-30">
+                  <SpidrCropper
+                    videoSrc={videoUrl}
+                    aspect={ratio === '16:9' ? 16/9 : ratio === '1:1' ? 1 : ratio === '4:5' ? 4/5 : 9/16}
+                    crop={cropXY}
+                    zoom={cropZoom}
+                    onCropChange={setCropXY}
+                    onZoomChange={setCropZoom}
+                    onCropComplete={(_area, px) => setCropData(px)}
+                    gridColor="#3b82f6"
+                  />
+                </div>
+              )}
               {/* Paused overlay */}
               <AnimatePresence>
                 {!isPlaying && (
@@ -348,6 +403,7 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
                 <div className="flex items-center gap-2 flex-1">
                   <ToolBtn icon={Type}     label="Text"   active={isTyping}              onClick={() => setIsTyping(true)} />
                   <ToolBtn icon={Scissors} label="Splice" active={activeTool === 'trim'} onClick={() => setActiveTool(activeTool === 'trim' ? null : 'trim')} />
+                  <ToolBtn icon={Crop}     label="Crop"   active={cropMode} onClick={() => { setCropMode(!cropMode); if (!cropMode) { setCropXY({ x: 0, y: 0 }); setCropZoom(1); } }} accent />
                   <ToolBtn icon={Zap}      label={currentRatio.label} active={false} onClick={cycleRatio} accent />
                   <ToolBtn icon={Music}    label={selectedAudio ? 'Audio ✓' : 'Audio'} active={showAudioDB} onClick={() => setShowAudioDB(!showAudioDB)} />
                   <ToolBtn icon={RotateCcw} label="Reset" active={false}
@@ -370,6 +426,37 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
                   ))}
                 </div>
               </div>
+
+              {/* Crop mode: aspect-ratio suite (Part 6) + zoom. The 9:16
+                  "Phone/Web" option is the FYP default. */}
+              {cropMode && (
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {[
+                    { id: '9:16', label: 'Phone/Web' },
+                    { id: '16:9', label: 'Desktop/Landscape' },
+                    { id: '1:1',  label: 'Square/Profile' },
+                  ].map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => { setRatio(opt.id); ratioRef.current = opt.id; setCropXY({ x: 0, y: 0 }); setCropZoom(1); }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                        ratio === opt.id ? 'bg-blue-500/20 border-blue-500/60 text-white' : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      {opt.id} · {opt.label}
+                    </button>
+                  ))}
+                  <div className="flex items-center gap-2 ml-auto">
+                    <Move size={13} className="text-zinc-500" />
+                    <span className="text-[10px] text-zinc-500 uppercase tracking-widest">Zoom</span>
+                    <input
+                      type="range" min="1" max="3" step="0.01" value={cropZoom}
+                      onChange={(e) => setCropZoom(parseFloat(e.target.value))}
+                      className="w-28 accent-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Audio badge */}
               {selectedAudio && !showAudioDB && (
@@ -471,6 +558,36 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
                   </div>
                 )}
               </div>
+
+              {/* Promote a Server — adds a Join Server CTA to the clip */}
+              {myServers.length > 0 && (
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 block flex items-center gap-1">
+                    <Users size={10} /> Promote a Server <span className="text-zinc-600 normal-case tracking-normal">(optional)</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setSelectedServerId('')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${!selectedServerId ? 'bg-zinc-700 border-white/30 text-white' : 'bg-zinc-900 border-white/10 text-zinc-500 hover:text-white'}`}
+                    >
+                      None
+                    </button>
+                    {myServers.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => setSelectedServerId(s.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${selectedServerId === s.id ? 'bg-[#FF3333]/20 border-[#FF3333]/60 text-white' : 'bg-zinc-900 border-white/10 text-zinc-400 hover:text-white'}`}
+                      >
+                        {(s.icon_url || s.icon)
+                          ? <img src={s.icon_url || s.icon} alt="" className="w-4 h-4 rounded object-cover" />
+                          : <Users size={11} />}
+                        <span className="truncate max-w-[120px]">{s.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-zinc-600 mt-1.5">Viewers see a one-tap “Join Server” button on your clip.</p>
+                </div>
+              )}
 
               {/* Thumbnail Picker */}
               <div>
