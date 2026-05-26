@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Sparkles, Server, User, Bot, Send, MessageCircle,
-  Plus, Loader2, Wand2, Palette, Check, RotateCcw, X, Settings as SettingsIcon, Trash2
+  Plus, Loader2, Wand2, Palette, Check, RotateCcw, X, Settings as SettingsIcon, Trash2, Copy
 } from 'lucide-react';
 import { toast } from 'sonner';
 import SpiderLogo from './SpiderLogo';
@@ -529,10 +529,13 @@ function ChatTab({ currentUser }) {
   // afterwards so the view never lands on a dangling id.
   const deleteConvMut = useMutation({
     mutationFn: async (convId) => {
-      // Best-effort: remove the logs first, then the conversation.
+      // Best-effort: remove the logs first, then the conversation. Both are
+      // wrapped so a partial failure (e.g. a log already gone) doesn't block
+      // the conversation delete itself.
       try {
         const logs = await entities.AIChatLog.filter({ conversation_id: convId });
-        await Promise.all((logs || []).map(l => entities.AIChatLog.delete(l.id).catch(() => {})));
+        const arr = Array.isArray(logs) ? logs : (logs?.data || []);
+        await Promise.all(arr.map(l => entities.AIChatLog.delete(l.id).catch(() => {})));
       } catch { /* non-fatal */ }
       return entities.AIConversation.delete(convId);
     },
@@ -545,7 +548,10 @@ function ChatTab({ currentUser }) {
       }
       toast.success('Chat deleted');
     },
-    onError: () => toast.error('Could not delete chat'),
+    onError: (err) => {
+      console.error('AI chat delete failed:', err);
+      toast.error(err?.data?.error || err?.message || 'Could not delete chat');
+    },
   });
 
   const handleSend = async () => {
@@ -701,12 +707,27 @@ function ChatTab({ currentUser }) {
                       <SpiderLogo size={16} />
                     </div>
                   )}
-                  <div className={`max-w-[78%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                  <div
+                    className={`max-w-[78%] min-w-0 rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere] group/msg relative ${
                     msg.role === 'user'
                       ? 'bg-red-600 text-white rounded-br-sm'
                       : 'bg-zinc-800 text-zinc-100 rounded-bl-sm border border-white/5'
-                  }`}>
+                  }`}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      navigator.clipboard?.writeText(msg.content || '').catch(() => {});
+                      toast.success('Copied to clipboard');
+                    }}
+                  >
                     {msg.content}
+                    {/* Hover copy button */}
+                    <button
+                      onClick={() => { navigator.clipboard?.writeText(msg.content || '').catch(() => {}); toast.success('Copied'); }}
+                      className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-zinc-900 border border-white/10 text-zinc-400 hover:text-white opacity-0 group-hover/msg:opacity-100 transition-opacity flex items-center justify-center"
+                      title="Copy message"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
                   </div>
                   {msg.role === 'user' && (
                     <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 mt-0.5">

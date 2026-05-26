@@ -10,11 +10,10 @@ export const isIframe = window.self !== window.top;
 
 /**
  * Canonical 1:1 DM conversation id. Both participants resolve to the SAME id
- * regardless of argument order, so a message sent from any surface (sling,
- * friends list, profile) lands in the conversation the DM view reads.
- * Canonical format is the sorted ids joined by '-' (matches AppShell,
- * FriendsPanel and HolographicProfile).
+ * regardless of order. Use this everywhere a DM conversation id is needed so
+ * messages don't land in mismatched conversations (the cause of the
+ * "sling to DMs doesn't work" bug — different call sites used '_' vs '-').
  */
 export function dmConversationId(a, b) {
-  return [a, b].filter(Boolean).sort().join('-');
+  return [String(a), String(b)].sort().join('-');
 }

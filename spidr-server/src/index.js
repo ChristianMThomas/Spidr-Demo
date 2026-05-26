@@ -127,6 +127,7 @@ app.use('/ai',                 require('./routes/ai'));
 app.use('/algorithm',          require('./routes/algorithm'));
 app.use('/audio',              require('./routes/audio'));
 app.use('/biomass',            require('./routes/biomass'));
+app.use('/follows',            require('./routes/follows'));
 app.use('/feed-comments',      require('./routes/feedComments'));
 app.use('/uploads',            require('express').static(path.join(__dirname, '../uploads')));
 

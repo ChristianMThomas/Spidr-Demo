@@ -179,37 +179,33 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
                       <Users className="w-16 h-16" />
                     </AvatarFallback>
                   </Avatar>
-                  {isAdmin && (
-                    <label className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 rounded-full cursor-pointer transition-opacity">
-                      <Upload className="w-8 h-8 text-white" />
-                      <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                    </label>
-                  )}
+                  {/* Any member can change the group avatar. */}
+                  <label className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 rounded-full cursor-pointer transition-opacity">
+                    <Upload className="w-8 h-8 text-white" />
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                  </label>
                 </div>
               </div>
 
-              {/* Group Name */}
+              {/* Group Name — editable by any member */}
               <div className="space-y-2">
                 <Label>Group Name</Label>
                 <Input
                   value={groupName}
                   onChange={(e) => setGroupName(e.target.value)}
-                  disabled={!isAdmin}
                   className="bg-zinc-800 border-red-900/30"
                   placeholder="Enter group name"
                 />
               </div>
 
-              {/* Save Button */}
-              {isAdmin && (
-                <Button
-                  onClick={handleSaveSettings}
-                  disabled={updateGroupMutation.isPending}
-                  className="w-full bg-red-600 hover:bg-red-700"
-                >
-                  {updateGroupMutation.isPending ? 'Saving...' : 'Save Changes'}
-                </Button>
-              )}
+              {/* Save Button — any member can save name/avatar changes */}
+              <Button
+                onClick={handleSaveSettings}
+                disabled={updateGroupMutation.isPending}
+                className="w-full bg-red-600 hover:bg-red-700"
+              >
+                {updateGroupMutation.isPending ? 'Saving...' : 'Save Changes'}
+              </Button>
 
               {/* Danger Zone */}
               <div className="pt-4 border-t border-red-900/30 space-y-3">
