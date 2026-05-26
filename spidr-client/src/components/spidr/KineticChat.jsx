@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations, getSocket } from '@/api/apiClient';
+import { entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -84,6 +84,16 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     queryFn: () => entities.GroupChatMessage.filter({ group_id: groupId }, '-created_date', 100),
     enabled: !!groupId,
     staleTime: 1000,
+    // Normalize each message so the renderer (MessageItem) always finds
+    // sender_id/sender_name/sender_avatar — older group messages were stored
+    // with only user_id/user_name/user_avatar, which is why their name + icon
+    // weren't showing. Mirror both shapes so it renders exactly like DMs.
+    select: (rows) => (rows || []).map((m) => ({
+      ...m,
+      sender_id:     m.sender_id     || m.user_id,
+      sender_name:   m.sender_name   || m.user_name   || m.author_name,
+      sender_avatar: m.sender_avatar || m.user_avatar || m.author_avatar,
+    })),
   });
 
   // Profiles for everyone in this group — used to render each sender's name
@@ -212,7 +222,11 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
       playSound('send');
       queryClient.invalidateQueries({ queryKey: ['group-messages'] });
       setInputText('');
-    }
+    },
+    onError: (err) => {
+      console.error('Group message send failed:', err);
+      toast.error(err?.data?.error || err?.message || 'Could not send message');
+    },
   });
 
   const handleSendWithAttachments = (attachments) => {
@@ -220,6 +234,12 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     
     sendMessageMutation.mutate({
       group_id: groupId,
+      // The GroupChatMessage schema requires user_id/user_name/user_avatar.
+      // We send those (the canonical fields) plus sender_* aliases so any
+      // renderer that reads either shape works.
+      user_id: currentUser?.id,
+      user_name: currentUser?.full_name || currentUser?.username,
+      user_avatar: currentUser?.avatar_url || '',
       sender_id: currentUser?.id,
       sender_name: currentUser?.full_name || currentUser?.username,
       sender_avatar: currentUser?.avatar_url || '',
@@ -387,13 +407,30 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     <div className="flex-1 flex bg-black relative overflow-hidden max-w-full">
       {/* Fly Hunt */}
       <FlyHunt 
-        onCatch={(userName) => {
+        onCatch={async (userName) => {
+          // Grant biomass server-side (authoritative) + record in history.
+          let granted = 10;
+          try {
+            const res = await biomassApi.catchFly();
+            granted = res?.amount ?? 10;
+            queryClient.invalidateQueries({ queryKey: ['biomass-wallet'] });
+          } catch (err) {
+            if (err?.response?.data?.capped) {
+              toast.info('Caught it! (daily biomass cap reached)');
+              return;
+            }
+          }
+          // The GroupChatMessage schema requires user_id — send it (the system
+          // sender) alongside the sender_* aliases so the message validates.
           sendMessageMutation.mutate({
             group_id: groupId,
+            user_id: 'system',
+            user_name: 'Spidr System',
+            user_avatar: '',
             sender_id: 'system',
             sender_name: 'Spidr System',
             sender_avatar: '',
-            content: `🕷️ ${userName} caught the fly! +10 Biomass`
+            content: `🕷️ ${userName} caught the fly! +${granted} Biomass`
           });
         }}
         userName={currentUser?.full_name || 'You'}
@@ -635,10 +672,10 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
                 />
                 <button
                   onClick={() => toggleWebbedMutation.mutate({ id: msg.id, isWebbed: msg.is_webbed })}
-                  className={`absolute top-2 ${isOwnMessage ? 'left-2' : 'right-2'} opacity-0 group-hover:opacity-100 transition-opacity ${msg.is_webbed ? 'text-red-500' : 'text-zinc-400'} hover:text-red-500 text-xs`}
-                  title={msg.is_webbed ? 'Unweb' : 'Web'}
+                  className={`absolute top-2 ${isOwnMessage ? 'left-2' : 'right-2'} opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg bg-black/60 backdrop-blur-sm border border-white/10 ${msg.is_webbed ? 'text-red-500 border-red-500/40' : 'text-zinc-400'} hover:text-red-500 hover:border-red-500/40`}
+                  title={msg.is_webbed ? 'Unpin from Web' : 'Pin to Web'}
                 >
-                  🕸️
+                  <Pin className={`w-3.5 h-3.5 ${msg.is_webbed ? 'fill-red-500' : ''}`} />
                 </button>
                 {nextMsg && nextMsg.type !== 'combo' && nextMsg.sender_id === msg.sender_id && !isOwnMessage && (
                   <div className="thread-line active" style={{ left: '20px', top: '40px' }} />

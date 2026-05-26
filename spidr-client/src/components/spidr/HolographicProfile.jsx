@@ -205,24 +205,28 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
   };
 
   const handleWidgetSave = async (key, value) => {
-    if (!userProfile?.id) {
-      toast.error("Profile still loading — try again in a second.");
-      return;
-    }
-    const updates = {};
-    if (key === 'pronouns') updates.pronouns = value;
-    else if (key === 'activity') updates.activity = { ...(userProfile?.activity || {}), name: value };
     try {
-      await entities.UserProfile.update(userProfile.id, updates);
+      const updates = {};
+      if (key === 'pronouns') updates.pronouns = value;
+      else if (key === 'activity') updates.activity = { ...(userProfile?.activity || {}), name: value };
+      const targetId = userProfile?.id;
+      if (!targetId) {
+        toast.error('Profile not loaded yet — try again in a moment');
+        return;
+      }
+      await entities.UserProfile.update(targetId, updates);
       // The query key is ['userProfile', userId] — invalidate that specifically,
       // then a broader prefix-match to catch every cached profile view.
       queryClient.invalidateQueries({ queryKey: ['userProfile', userId] });
       queryClient.invalidateQueries({ queryKey: ['userProfile'] });
       queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
+      // Broadcast so the shell currentUser also re-syncs.
+      window.dispatchEvent(new CustomEvent('spidr-profile-updated', { detail: { profile: updates } }));
       toast.success('Updated!');
     } catch (err) {
-      toast.error("Couldn't save that — please try again.");
+      console.error('Widget save failed:', err);
+      toast.error(err?.data?.error || err?.message || 'Could not save — try again');
     }
   };
 

@@ -232,8 +232,30 @@ function ClipCard({
   const [shareWeb, setShareWeb] = useState(false);
   const [freqAudio, setFreqAudio] = useState(null);
   const queryClient = useQueryClient();
-  const { triggerMenu } = useMenu();
+  const menu = useMenu();
   const hasLiked = clip.likes?.includes(currentUser?.id);
+
+  // Handle web_post right-click actions for this clip.
+  React.useEffect(() => {
+    const handler = (e) => {
+      const { action, data, type } = e.detail || {};
+      if (type !== 'web_post' || data?.id !== clip.id) return;
+      if (action === 'copy-link') {
+        navigator.clipboard?.writeText(`${window.location.origin}/feed?clip=${clip.id}`).catch(() => {});
+        toast.success('Link copied!');
+      } else if (action === 'sling') {
+        setShareWeb(true);
+      } else if (action === 'save') {
+        saveMut.mutate();
+      } else if (action === 'profile' && data.author_id) {
+        window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: data.author_id } }));
+      } else if (action === 'report') {
+        toast.success('Post reported to moderators');
+      }
+    };
+    window.addEventListener('spidr-menu-action', handler);
+    return () => window.removeEventListener('spidr-menu-action', handler);
+  }, [clip.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ratio = clip?.aspect_ratio || '9:16';
   const aspectCss = ratio === '16:9' ? '16/9' : ratio === '1:1' ? '1/1' : '9/16';
@@ -362,49 +384,24 @@ function ClipCard({
   const saveMut = useMutation({
     mutationFn: async () => {
       const cols = await entities.Collection.filter({ user_id: currentUser?.id });
-      let col = (Array.isArray(cols) ? cols : []).find(c => c.name === 'Saved');
+      let col = (cols || []).find(c => c.name === 'Saved');
       if (!col) {
         await entities.Collection.create({ user_id: currentUser?.id, name: 'Saved', clip_ids: [clip.id] });
         return 'added';
       }
-      const ids = Array.isArray(col.clip_ids) ? col.clip_ids : [];
-      const wasSaved = ids.includes(clip.id);
+      const ids = col.clip_ids || [];
+      const has = ids.includes(clip.id);
       await entities.Collection.update(col.id, {
-        clip_ids: wasSaved ? ids.filter(id => id !== clip.id) : [...ids, clip.id],
+        clip_ids: has ? ids.filter(id => id !== clip.id) : [...ids, clip.id],
       });
-      return wasSaved ? 'removed' : 'added';
+      return has ? 'removed' : 'added';
     },
-    onSuccess: (result) => {
-      toast.success(result === 'removed' ? 'Removed from Saved' : 'Saved!');
+    onSuccess: (action) => {
+      toast.success(action === 'removed' ? 'Removed from Saved' : 'Saved!');
       queryClient.invalidateQueries({ queryKey: ['collections'] });
     },
-    onError: () => {
-      toast.error("Couldn't update your saved clips. Try again.");
-    },
+    onError: () => toast.error('Could not save — try again'),
   });
-
-  // Right-click on a post → web_post menu. Actions are dispatched globally by
-  // SpidrMenu via `spidr-menu-action`; we handle the ones for this clip.
-  useEffect(() => {
-    const handler = (e) => {
-      const { action, data, type } = e.detail || {};
-      if (type !== 'web_post' || data?.id !== clip.id) return;
-      if (action === 'copy-link') {
-        navigator.clipboard?.writeText(`${window.location.origin}/clip/${clip.id}`).catch(() => {});
-        toast.success('Link copied!');
-      } else if (action === 'sling') {
-        setShareWeb(true);
-      } else if (action === 'save') {
-        saveMut.mutate();
-      } else if (action === 'profile' && (data.author_id || clip.author_id)) {
-        window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: data.author_id || clip.author_id } }));
-      } else if (action === 'report') {
-        toast.success('Post reported to moderators');
-      }
-    };
-    window.addEventListener('spidr-menu-action', handler);
-    return () => window.removeEventListener('spidr-menu-action', handler);
-  }, [clip.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reactMut = useMutation({
     mutationFn: async (ed) => {
@@ -468,7 +465,15 @@ function ClipCard({
       <div
         className="relative bg-zinc-900 rounded-2xl overflow-hidden border border-white/[0.08] shadow-2xl flex-shrink-0"
         style={{ aspectRatio: aspectCss, maxHeight: '82vh' }}
-        onContextMenu={(e) => triggerMenu(e, 'web_post', { id: clip.id, author_id: clip.author_id })}
+        onContextMenu={(e) => {
+          if (!menu?.triggerMenu) return;
+          e.preventDefault();
+          menu.triggerMenu(e, 'web_post', {
+            id: clip.id,
+            author_id: clip.author_id,
+            author_name: clip.author_name,
+          });
+        }}
       >
         <video
           ref={videoRef}

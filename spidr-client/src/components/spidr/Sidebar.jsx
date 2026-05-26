@@ -10,8 +10,9 @@ import ApexStore from './ApexStore';
 import { useMenu } from '@/components/MenuContext';
 import { ServerPulse } from '@/components/ui/PulseBadge';
 
-export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGlass = false }) {
+export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGlass = false, orientation = 'vertical' }) {
   const navigate = useNavigate();
+  const horizontal = orientation === 'horizontal';
   const [hovered, setHovered] = useState(null);
   const [showApex, setShowApex] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -100,10 +101,13 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
         {showApex && <ApexStore isOpen={showApex} onClose={() => setShowApex(false)} currentTier={profile?.apex_tier} />}
       </AnimatePresence>
 
-      <div className={`w-[72px] flex flex-col items-center py-6 border-r h-screen z-50 relative transition-all ${isGlass ? "bg-black/30 backdrop-blur-xl border-white/10" : "bg-[#050505] border-white/5"}`}>
+      <div className={`${horizontal
+          ? 'w-full h-[64px] flex flex-row items-center px-4 border-b'
+          : 'w-[72px] flex flex-col items-center py-6 border-r h-screen'
+        } z-50 relative transition-all ${isGlass ? "bg-black/30 backdrop-blur-xl border-white/10" : "bg-[#050505] border-white/5"}`}>
       {/* Logo */}
       <motion.div 
-        className="mb-8 w-12 h-12 bg-red-600/10 rounded-xl flex items-center justify-center border border-red-600/20 cursor-pointer hover:bg-red-600/20 transition-all"
+        className={`${horizontal ? 'mr-6' : 'mb-8'} w-12 h-12 bg-red-600/10 rounded-xl flex items-center justify-center border border-red-600/20 cursor-pointer hover:bg-red-600/20 transition-all flex-shrink-0`}
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setActiveTab('home')}
@@ -113,7 +117,7 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
       </motion.div>
       
       {/* Navigation */}
-      <div className="flex flex-col gap-4 flex-1 w-full px-2">
+      <div className={`${horizontal ? 'flex flex-row gap-2 flex-1 items-center overflow-x-auto' : 'flex flex-col gap-4 flex-1 w-full px-2'}`}>
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           const isHovered = hovered === item.id;
@@ -203,8 +207,8 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
         })}
       </div>
       
-      {/* Server list preview - only show when on servers tab */}
-      {activeTab === 'servers' && (
+      {/* Server list preview - only show when on servers tab (vertical only) */}
+      {activeTab === 'servers' && !horizontal && (
         <div className="flex flex-col gap-2 w-full px-2 mb-4">
           <div className="w-8 h-0.5 bg-red-900/50 rounded-full mx-auto mb-2" />
           
@@ -244,12 +248,12 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
       )}
 
       {/* APEX POWER-UP BUTTON */}
-      <div className="mb-4 px-2 w-full">
+      <div className={`${horizontal ? 'ml-4 w-12 flex-shrink-0' : 'mb-4 px-2 w-full'}`}>
         <motion.button
           onClick={() => setShowApex(true)}
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className="w-full aspect-square rounded-xl bg-gradient-to-br from-[#FF3333] to-[#990000] flex items-center justify-center text-white relative group overflow-hidden shadow-[0_0_20px_rgba(255,51,51,0.3)] hover:shadow-[0_0_30px_rgba(255,51,51,0.6)] transition-all"
+          className="w-12 h-12 aspect-square rounded-xl bg-gradient-to-br from-[#FF3333] to-[#990000] flex items-center justify-center text-white relative group overflow-hidden shadow-[0_0_20px_rgba(255,51,51,0.3)] hover:shadow-[0_0_30px_rgba(255,51,51,0.6)] transition-all"
         >
           {/* Shine Effect */}
           <div className="absolute inset-0 bg-white/20 translate-y-full skew-y-12 group-hover:-translate-y-full transition-transform duration-700 ease-in-out" />

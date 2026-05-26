@@ -16,6 +16,11 @@ const s = new Schema({
   discriminator:  { type: String },
   status:         { type: String, enum: ['online','idle','dnd','offline','streaming'], default: 'online' },
   custom_status:  String,
+  // "Vibe Check" widget — current activity (e.g. now-playing). Stored as an
+  // object so we can later attach type/url without a migration.
+  activity:       { type: Object, default: undefined },
+  // "Neon Sign" widget — free-form pronouns / short tagline.
+  pronouns:       String,
 
   // style
   accent_color:     { type: String, default: '#dc2626' },

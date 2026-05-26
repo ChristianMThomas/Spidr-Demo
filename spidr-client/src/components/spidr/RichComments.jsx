@@ -9,6 +9,7 @@ import { Heart, Reply, Image as ImageIcon, Loader2, X, User } from 'lucide-react
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import EmojiPicker from './EmojiPicker';
+import GifPicker from './GifPicker';
 import HolographicProfile from './HolographicProfile';
 import { buildUsernameStyle } from '@/lib/usernameStyle';
 import { useMenu } from '@/components/MenuContext';
@@ -48,10 +49,14 @@ const parseEmojis = (text, serverEmojis = []) => {
   return parts;
 };
 
-function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, level = 0, profilesById = {} }) {
+function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, profilesMap = {}, level = 0 }) {
   const queryClient = useQueryClient();
   const [showReplyForm, setShowReplyForm] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const menu = useMenu();
+  // Resolve the commenter's profile so we can apply their username color/effect.
+  const authorProfile = profilesMap[comment.author_id] || profilesMap[comment.user_id];
+  const usernameStyle = authorProfile ? buildUsernameStyle(authorProfile) : {};
 
   const likeMutation = useMutation({
     mutationFn: async () => {
@@ -65,52 +70,12 @@ function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, leve
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comments', clipId] })
   });
 
-  const { triggerMenu } = useMenu();
-  const isOwner = (comment.author_id || comment.user_id) === currentUser?.id;
-
-  const deleteMutation = useMutation({
-    mutationFn: () => entities.Comment.delete(comment.id),
-    onSuccess: () => {
-      toast.success('Comment deleted');
-      queryClient.invalidateQueries({ queryKey: ['comments', clipId] });
-    },
-    onError: () => toast.error("Couldn't delete comment"),
-  });
-
-  // Right-click on a comment → web_comment menu. Match on comment id so only
-  // the targeted comment reacts to the dispatched action.
-  React.useEffect(() => {
-    const handler = (e) => {
-      const { action, data, type } = e.detail || {};
-      if (type !== 'web_comment' || data?.id !== comment.id) return;
-      if (action === 'reply') {
-        setShowReplyForm(true);
-      } else if (action === 'copy') {
-        navigator.clipboard?.writeText(comment.content || '').catch(() => {});
-        toast.success('Comment copied');
-      } else if (action === 'profile') {
-        setShowProfile(true);
-      } else if (action === 'report') {
-        toast.success('Comment reported to moderators');
-      } else if (action === 'delete' && isOwner) {
-        deleteMutation.mutate();
-      }
-    };
-    window.addEventListener('spidr-menu-action', handler);
-    return () => window.removeEventListener('spidr-menu-action', handler);
-  }, [comment.id, isOwner]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const hasLiked = comment.likes?.includes(currentUser?.id);
   const parsedContent = parseEmojis(comment.content, serverEmojis);
-  const commenterProfile = profilesById[comment.author_id] || profilesById[comment.user_id];
-  const nameStyle = commenterProfile ? buildUsernameStyle(commenterProfile, { fallbackColor: '#ffffff' }) : undefined;
 
   return (
     <>
-      <div
-        className={`${level > 0 ? 'ml-8 mt-3' : 'mt-4'}`}
-        onContextMenu={(e) => triggerMenu(e, 'web_comment', { id: comment.id, author_id: comment.author_id || comment.user_id, is_owner: isOwner })}
-      >
+      <div className={`${level > 0 ? 'ml-8 mt-3' : 'mt-4'}`}>
         <div className="flex gap-3">
           <Avatar 
             className="w-8 h-8 flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-red-500 transition-all"
@@ -126,11 +91,28 @@ function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, leve
           </Avatar>
 
           <div className="flex-1 min-w-0">
-            <div className="bg-zinc-800/50 rounded-lg p-3">
+            <div
+              className="bg-zinc-800/50 rounded-lg p-3"
+              onContextMenu={(e) => {
+                if (!menu?.triggerMenu) return;
+                e.preventDefault();
+                e.stopPropagation();
+                // Right-click a comment → context menu. Owners get delete;
+                // everyone gets reply / copy / view-profile / report.
+                menu.triggerMenu(e, 'web_comment', {
+                  id: comment.id,
+                  clip_id: clipId,
+                  content: comment.content,
+                  author_id: comment.author_id || comment.user_id,
+                  author_name: comment.author_name || comment.user_name,
+                  is_own: (comment.author_id || comment.user_id) === currentUser?.id,
+                });
+              }}
+            >
               <div className="flex items-center gap-2 mb-1">
                 <span 
-                  className="font-semibold text-white text-sm hover:underline cursor-pointer"
-                  style={nameStyle}
+                  className="font-semibold text-sm hover:underline cursor-pointer"
+                  style={usernameStyle}
                   onClick={() => setShowProfile(true)}
                 >
                   {comment.author_name || comment.user_name}
@@ -303,11 +285,15 @@ function CommentForm({ clipId, currentUser, parentCommentId = null, onSuccess, s
         
         <div className="absolute bottom-2 right-2 flex items-center gap-1">
           <EmojiPicker onEmojiSelect={handleEmojiSelect} currentUser={currentUser} />
-          
+
+          {/* GIF picker — selected GIF is added to mediaFiles (rendered as an
+              image, same as uploaded photos). */}
+          <GifPicker onGifSelect={(url) => setMediaFiles((prev) => [...prev, url])} />
+
           <label className="cursor-pointer">
             <input
               type="file"
-              accept="image/jpeg,image/png,image/gif"
+              accept="image/jpeg,image/png,image/gif,image/webp"
               multiple
               className="hidden"
               onChange={handleImageUpload}
@@ -362,26 +348,52 @@ export default function RichComments({ clipId, currentUser }) {
     queryFn: () => entities.Comment.filter({ clip_id: clipId }),
   });
 
+  // Handle right-click menu actions targeting comments in this clip.
+  React.useEffect(() => {
+    const handler = async (e) => {
+      const { action, data, type } = e.detail || {};
+      if (type !== 'web_comment' || !data || data.clip_id !== clipId) return;
+      if (action === 'copy') {
+        navigator.clipboard?.writeText(data.content || '').catch(() => {});
+        toast.success('Comment copied');
+      } else if (action === 'profile' && data.author_id) {
+        window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: data.author_id } }));
+      } else if (action === 'report') {
+        toast.success('Comment reported to moderators');
+      } else if (action === 'delete-comment' && data.is_own) {
+        try {
+          await entities.Comment.delete(data.id);
+          queryClient.invalidateQueries({ queryKey: ['comments', clipId] });
+          toast.success('Comment deleted');
+        } catch { toast.error('Could not delete comment'); }
+      } else if (action === 'reply') {
+        window.dispatchEvent(new CustomEvent('spidr-comment-reply', { detail: { commentId: data.id, authorName: data.author_name } }));
+      }
+    };
+    window.addEventListener('spidr-menu-action', handler);
+    return () => window.removeEventListener('spidr-menu-action', handler);
+  }, [clipId, queryClient]);
+
   // Get server emojis for parsing
   const { data: servers = [] } = useQuery({
     queryKey: ['all-servers'],
     queryFn: () => entities.Server.list('-created_date', 100),
   });
 
-  const allServerEmojis = servers.flatMap(s => s.emojis || []);
-
-  // Load profiles so each commenter's name renders in their own
-  // color/effect/font (buildUsernameStyle). Keyed by user_id for O(1) lookup.
-  const { data: allProfiles = [] } = useQuery({
-    queryKey: ['all-profiles-for-comments'],
-    queryFn: () => entities.UserProfile.list(),
+  // All user profiles so we can colour/style commenter usernames the way
+  // they appear elsewhere in the app (username colors on comments).
+  const { data: profiles = [] } = useQuery({
+    queryKey: ['profiles'],
+    queryFn: () => entities.UserProfile.list('-created_date', 500),
     staleTime: 60000,
   });
-  const profilesById = React.useMemo(() => {
-    const map = {};
-    (Array.isArray(allProfiles) ? allProfiles : []).forEach(p => { if (p?.user_id) map[p.user_id] = p; });
-    return map;
-  }, [allProfiles]);
+  const profilesMap = React.useMemo(() => {
+    const m = {};
+    for (const p of profiles) if (p.user_id) m[p.user_id] = p;
+    return m;
+  }, [profiles]);
+
+  const allServerEmojis = servers.flatMap(s => s.emojis || []);
 
   // Organize comments into threads
   const rootComments = comments.filter(c => !c.parent_comment_id);
@@ -410,8 +422,8 @@ export default function RichComments({ clipId, currentUser }) {
                   clipId={clipId}
                   currentUser={currentUser}
                   serverEmojis={allServerEmojis}
+                  profilesMap={profilesMap}
                   level={0}
-                  profilesById={profilesById}
                 />
                 
                 {/* Nested Replies */}
@@ -422,8 +434,8 @@ export default function RichComments({ clipId, currentUser }) {
                       clipId={clipId}
                       currentUser={currentUser}
                       serverEmojis={allServerEmojis}
+                      profilesMap={profilesMap}
                       level={1}
-                  profilesById={profilesById}
                     />
                     
                     {/* Second level replies */}
@@ -434,8 +446,8 @@ export default function RichComments({ clipId, currentUser }) {
                         clipId={clipId}
                         currentUser={currentUser}
                         serverEmojis={allServerEmojis}
+                        profilesMap={profilesMap}
                         level={2}
-                  profilesById={profilesById}
                       />
                     ))}
                   </div>

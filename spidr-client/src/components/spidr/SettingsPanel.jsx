@@ -377,7 +377,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
           <TabsContent value="appearance" className="p-6 m-0">
             <h2 className="text-2xl font-bold text-white mb-6">Appearance</h2>
             <div className="space-y-6 max-w-lg">
-              {/* Sidebar position (left / right) */}
+              {/* Floating dock preferences */}
               <SidebarPositionCard />
 
               <div className="bg-zinc-800/50 backdrop-blur-xl rounded-2xl p-6 border border-red-900/20">
@@ -1098,26 +1098,38 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
 }
 
 /**
- * SidebarPositionCard — lets the user dock the primary navigation sidebar to
- * the left or right edge of the app. The choice is persisted in localStorage
- * and broadcast via the `spidr-sidebar-side` event so SpidrShell repositions
- * the sidebar live without a page reload.
+ * SidebarPositionCard — lets the user choose which side of the screen the
+ * main navigation sidebar lives on (left or right), or hide it entirely on
+ * desktop in favour of the mobile-style bottom bar. The chosen position is
+ * persisted in localStorage and broadcast via `spidr-sidebar-pref-changed`
+ * so the shell repositions without a reload.
  */
 function SidebarPositionCard() {
-  const [side, setSide] = React.useState(() => {
-    try { return localStorage.getItem('spidr_sidebar_side') === 'right' ? 'right' : 'left'; }
-    catch { return 'left'; }
+  const [position, setPosition] = React.useState(() => {
+    try { return localStorage.getItem('spidr_sidebar_position') || 'left'; } catch { return 'left'; }
+  });
+  const [opacity, setOpacity] = React.useState(() => {
+    try { return Number(localStorage.getItem('spidr_sidebar_opacity') ?? '100'); } catch { return 100; }
   });
 
-  const choose = (next) => {
-    setSide(next);
-    try { localStorage.setItem('spidr_sidebar_side', next); } catch {}
-    window.dispatchEvent(new CustomEvent('spidr-sidebar-side', { detail: { side: next } }));
+  const choose = (pos) => {
+    setPosition(pos);
+    try { localStorage.setItem('spidr_sidebar_position', pos); } catch {}
+    window.dispatchEvent(new CustomEvent('spidr-sidebar-pref-changed', { detail: { position: pos } }));
   };
 
-  const options = [
-    { value: 'left', label: 'Left' },
-    { value: 'right', label: 'Right' },
+  const changeOpacity = (val) => {
+    setOpacity(val);
+    try { localStorage.setItem('spidr_sidebar_opacity', String(val)); } catch {}
+    window.dispatchEvent(new CustomEvent('spidr-sidebar-pref-changed', { detail: { opacity: val } }));
+  };
+
+  const OPTIONS = [
+    { id: 'left',   label: 'Left',   desc: 'Left edge (default).' },
+    { id: 'right',  label: 'Right',  desc: 'Right edge.' },
+    { id: 'top',    label: 'Top',    desc: 'Horizontal bar on top.' },
+    { id: 'bottom', label: 'Bottom', desc: 'Horizontal bar at bottom.' },
+    { id: 'hidden', label: 'Hidden', desc: 'Use the bottom bar instead.' },
   ];
 
   return (
@@ -1127,31 +1139,41 @@ function SidebarPositionCard() {
         Sidebar Position
       </h3>
       <p className="text-zinc-400 text-xs mb-4">
-        Choose which edge of the app the navigation sidebar docks to.
+        Choose where the main navigation sidebar appears, and how much it lets
+        your custom background show through.
       </p>
-      <div className="grid grid-cols-2 gap-3">
-        {options.map((opt) => {
-          const active = side === opt.value;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => choose(opt.value)}
-              className={`relative rounded-xl border p-3 transition-all ${
-                active
-                  ? 'border-red-500 bg-red-600/15 shadow-[0_0_15px_rgba(220,38,38,0.25)]'
-                  : 'border-white/10 bg-zinc-900/40 hover:border-white/20'
-              }`}
-            >
-              {/* Mini layout preview */}
-              <div className="flex h-10 w-full gap-1 mb-2">
-                <div className={`h-full w-1/4 rounded bg-red-500/60 ${opt.value === 'right' ? 'order-2' : 'order-1'}`} />
-                <div className={`h-full flex-1 rounded bg-white/10 ${opt.value === 'right' ? 'order-1' : 'order-2'}`} />
-              </div>
-              <span className={`text-sm font-semibold ${active ? 'text-white' : 'text-zinc-400'}`}>{opt.label}</span>
-            </button>
-          );
-        })}
+      <div className="grid grid-cols-3 gap-2 mb-5">
+        {OPTIONS.map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => choose(opt.id)}
+            className={`p-3 rounded-xl border text-left transition-colors ${
+              position === opt.id
+                ? 'border-red-500 bg-red-500/10'
+                : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
+            }`}
+          >
+            <p className="text-white text-sm font-bold">{opt.label}</p>
+            <p className="text-zinc-500 text-[10px] mt-1 leading-snug">{opt.desc}</p>
+          </button>
+        ))}
+      </div>
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-white text-sm font-semibold">Sidebar Opacity</label>
+          <span className="text-zinc-400 text-xs font-mono">{opacity}%</span>
+        </div>
+        <p className="text-zinc-500 text-[11px] mb-2">
+          Lower opacity lets your custom background blend through the sidebar.
+        </p>
+        <input
+          type="range"
+          min="30"
+          max="100"
+          value={opacity}
+          onChange={(e) => changeOpacity(Number(e.target.value))}
+          className="w-full accent-red-600 cursor-pointer"
+        />
       </div>
     </div>
   );

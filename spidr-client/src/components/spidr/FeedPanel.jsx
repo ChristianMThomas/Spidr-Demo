@@ -8,7 +8,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import {
   Heart, MessageCircle, Share2, Play, Volume2, VolumeX,
   Plus, ChevronUp, ChevronDown, Bookmark, Send, Sparkles, Folder,
-  Globe, User, Users, Disc3, Zap
+  Globe, User, Users, Disc3, Zap, Search
 } from 'lucide-react';
 import PostCard3D from '../feed/PostCard3D';
 import WebProfile from '../feed/WebProfile';
@@ -16,13 +16,13 @@ import ClipFeed from '../feed/ClipFeed';
 import { toast } from 'sonner';
 import VideoStudio from './VideoStudio';
 import RichComments from './RichComments';
+import PeopleSearch from './PeopleSearch';
 import EmojiPicker from './EmojiPicker';
 import ShareWeb from './ShareWeb';
 import DataDisc from '../feed/DataDisc';
 import ScrollingAudioBanner from '../feed/ScrollingAudioBanner';
 import FrequencyArchive from '../feed/FrequencyArchive';
 import SoundsBrowser from '../feed/SoundsBrowser';
-import WebUserResults from '../feed/WebUserResults';
 
 // ── Debounce hook ─────────────────────────────────────────────────────────────
 function useDebounce(value, delay) {
@@ -118,6 +118,7 @@ export default function FeedPanel({ currentUser }) {
   const TABS = [
     { val: 'main',         Icon: Globe,  label: 'THE WEB' },
     { val: 'friends-feed', Icon: Users,  label: 'LINKED NODES' },
+    { val: 'people',       Icon: Search, label: 'FIND PEOPLE' },
     { val: 'profile',      Icon: User,   label: 'MY NODE' },
     { val: 'sounds',       Icon: Disc3,  label: 'SOUNDS' },
     { val: 'collections',  Icon: Folder, label: 'COCOONS' },
@@ -152,14 +153,6 @@ export default function FeedPanel({ currentUser }) {
           )}
         </div>
 
-        {/* User search results — overlay above the feed when searching THE
-            WEB or LINKED NODES. Lets users find + link (follow) operatives. */}
-        {(activeTab === 'main' || activeTab === 'friends-feed') && debouncedQ.trim() && (
-          <div className="absolute top-12 left-0 right-0 z-20 max-h-[55%] overflow-y-auto bg-gradient-to-b from-black/95 to-black/80 backdrop-blur-md border-b border-red-900/30 pb-4">
-            <WebUserResults query={debouncedQ} currentUser={currentUser} />
-          </div>
-        )}
-
         {/* Content */}
         <div className="flex-1 flex items-center justify-center overflow-hidden">
           {activeTab === 'main' && (
@@ -175,6 +168,7 @@ export default function FeedPanel({ currentUser }) {
               : <ClipFeed clips={friendClips} currentUser={currentUser} onEditClip={setEditingClip} audioMap={audioMap} />
           )}
           {activeTab === 'profile'     && <WebProfile currentUser={currentUser} onUploadClick={() => document.getElementById('vid-upload')?.click()} />}
+          {activeTab === 'people'      && <div className="w-full h-full self-stretch"><PeopleSearch currentUser={currentUser} /></div>}
           {activeTab === 'sounds'      && <SoundsBrowser currentUser={currentUser} />}
           {activeTab === 'collections' && <CollectionsView collections={collections} selectedCollection={selectedCollection} onSelectCollection={setSelectedCollection} currentUser={currentUser} queryClient={queryClient} allClips={clips} />}
         </div>

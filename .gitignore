@@ -40,9 +40,12 @@ out
 .claude/*
 CLAUDE.md
 
-# Spidr landing
-spidr-landing
-spidr-landing/*
+# Spidr landing (root-level empty placeholder only)
+/spidr-landing
+/spidr-landing/*
+
+# Large binary assets — host on CDN instead
+*.gif
 
 # Merge artifacts
 .merge-backup/
