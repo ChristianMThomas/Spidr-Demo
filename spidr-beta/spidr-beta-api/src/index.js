@@ -13,7 +13,11 @@ const PORT = process.env.PORT || 3001;
 app.use(express.json());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? ['https://spidrapp.com', 'https://www.spidrapp.com']
+    ? [
+        'https://spidrapp.com',
+        'https://www.spidrapp.com',
+        'https://spidrapp.infinitetechteam.com',
+      ]
     : '*',
 }));
 
@@ -30,10 +34,29 @@ const signupLimiter = rateLimit({
 // ── MongoDB ───────────────────────────────────────────────────────────────────
 
 const BetaSignup = mongoose.model('BetaSignup', new mongoose.Schema({
-  fullName: { type: String, required: true, trim: true },
-  email:    { type: String, required: true, lowercase: true, trim: true, unique: true },
-  ip:       { type: String },
-  createdAt:{ type: Date, default: Date.now },
+  // Core identity
+  firstName:      { type: String, required: true, trim: true },
+  lastName:       { type: String, required: true, trim: true },
+  email:          { type: String, required: true, lowercase: true, trim: true, unique: true },
+  username:       { type: String, required: true, trim: true, lowercase: true },
+
+  // Demographics
+  age:            { type: String, required: true },
+
+  // Beta preferences
+  platforms:      { type: [String], required: true },
+  betaType:       { type: String, enum: ['closed', 'open'], required: true },
+  why:            { type: String, trim: true, default: '' },
+
+  // Consents
+  agreedTerms:    { type: Boolean, required: true },
+  agreedPrivacy:  { type: Boolean, required: true },
+  confirmedAge:   { type: Boolean, required: true },
+  marketingOptIn: { type: Boolean, default: false },
+
+  // Meta
+  ip:             { type: String },
+  createdAt:      { type: Date, default: Date.now },
 }));
 
 if (process.env.MONGO_URI) {
@@ -49,31 +72,68 @@ if (process.env.MONGO_URI) {
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 app.post('/signup', signupLimiter, async (req, res) => {
-  const { fullName, email } = req.body;
+  const {
+    firstName, lastName, email, username, age,
+    platforms, betaType, why,
+    agreedTerms, agreedPrivacy, confirmedAge, marketingOptIn,
+  } = req.body;
 
-  if (!fullName?.trim()) return res.status(400).json({ error: 'Full name is required.' });
-  if (!email?.trim())    return res.status(400).json({ error: 'Email is required.' });
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  // ── Validate ──────────────────────────────────────────────────────────────
+  if (!firstName?.trim())
+    return res.status(400).json({ error: 'First name is required.' });
+  if (!lastName?.trim())
+    return res.status(400).json({ error: 'Last name is required.' });
+  if (!email?.trim())
+    return res.status(400).json({ error: 'Email is required.' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     return res.status(400).json({ error: 'Enter a valid email address.' });
-  }
+  if (!username?.trim() || username.trim().length < 3)
+    return res.status(400).json({ error: 'Username must be at least 3 characters.' });
+  if (!age)
+    return res.status(400).json({ error: 'Age selection is required.' });
+  if (age === 'under18')
+    return res.status(400).json({ error: 'You must be 18 or older to join the beta.' });
+  if (!Array.isArray(platforms) || platforms.length === 0)
+    return res.status(400).json({ error: 'Select at least one platform.' });
+  if (!['closed', 'open'].includes(betaType))
+    return res.status(400).json({ error: 'Please choose a beta track.' });
+  if (!agreedTerms)
+    return res.status(400).json({ error: 'You must agree to the Beta Testing Agreement.' });
+  if (!agreedPrivacy)
+    return res.status(400).json({ error: 'You must consent to data processing.' });
+  if (!confirmedAge)
+    return res.status(400).json({ error: 'You must confirm you are 18 or older.' });
 
+  // ── Persist ──────────────────────────────────────────────────────────────
   try {
     await BetaSignup.create({
-      fullName: fullName.trim(),
-      email: email.trim().toLowerCase(),
+      firstName:   firstName.trim(),
+      lastName:    lastName.trim(),
+      email:       email.trim().toLowerCase(),
+      username:    username.trim().toLowerCase(),
+      age,
+      platforms,
+      betaType,
+      why:         (why || '').trim(),
+      agreedTerms: true,
+      agreedPrivacy: true,
+      confirmedAge:  true,
+      marketingOptIn: !!marketingOptIn,
       ip: req.ip,
     });
   } catch (err) {
     if (err.code === 11000) {
-      // Duplicate email — treat as success so we don't leak existence
+      // Duplicate email — return success so we don't leak existence
       return res.json({ message: "You're already on the list!" });
     }
     console.error('DB error:', err.message);
     return res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 
+  // ── Email ─────────────────────────────────────────────────────────────────
   try {
-    await sendBetaConfirmEmail(email.trim(), fullName.trim());
+    const fullName = `${firstName.trim()} ${lastName.trim()}`;
+    await sendBetaConfirmEmail(email.trim(), fullName);
   } catch (err) {
     console.warn('Email send failed (signup still saved):', err.message);
   }
