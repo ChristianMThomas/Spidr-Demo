@@ -20,6 +20,8 @@ jobs:
           cache-dependency-path: spidr-beta/spidr-landing/package-lock.json
       - run: npm ci
       - run: npm run build
+        env:
+          VITE_BETA_API_URL: ${{ secrets.VITE_BETA_API_URL }}
       - name: Deploy spidr-landing to Hostinger (spidrapp.com)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
