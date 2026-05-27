@@ -1,6 +1,10 @@
-#env
+# Environment files — never commit secrets
 .env
 .env.*
+spidr-server/.env
+spidr-client/.env.development
+spidr-client/.env.production
+spidr-client/.env.local
 
 # Logs
 logs
@@ -35,3 +39,17 @@ out
 
 .claude/*
 CLAUDE.md
+
+# Spidr landing
+spidr-landing
+spidr-landing/*
+
+# Merge artifacts
+.merge-backup/
+Spidr-Demo-dev/
+
+# Internal docs — not for repo
+pr
+pr/*
+
+

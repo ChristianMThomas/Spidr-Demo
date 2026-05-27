@@ -1,0 +1,48 @@
+appId: com.spidrapp.nexus
+productName: Spidr
+copyright: "Copyright © 2026 Spidr"
+
+directories:
+  buildResources: public
+  output: dist_installer
+
+# With asar:false, ALL these files land in resources/app/ flat
+# app.getAppPath() returns resources/app so dist/index.html will be at
+# resources/app/dist/index.html  ← this is what main.js looks for
+files:
+  - "dist/**/*"
+  - "electron/main.js"
+  - "electron/preload.js"
+  - "package.json"
+
+asar: false
+
+win:
+  icon: public/favicon.ico
+  artifactName: "${productName}Setup-${version}.${ext}"
+  sign: null
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: public/favicon.ico
+  uninstallerIcon: public/favicon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Spidr
+  warningsAsErrors: false
+
+mac:
+  target: dmg
+  category: public.app-category.social-networking
+  identity: null
+
+linux:
+  target: AppImage
