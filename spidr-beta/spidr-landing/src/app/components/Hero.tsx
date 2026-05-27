@@ -221,7 +221,7 @@ export default function Hero() {
           >
             <div>
               <p className="font-mono text-[0.7rem] text-zinc-500 tracking-widest mb-2">
-                VOICE · AI TOOLS · BOT LAB · THE WEB FEED
+                VOICE · SPIDR AI · BOT LAB · THE WEB FEED
               </p>
               <div className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 bg-[#C41E3A] rounded-full animate-pulse" />
@@ -274,7 +274,7 @@ export default function Hero() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.25 }}
           >
-            Voice, AI tools, bots, and a social feed — built for every crew.
+            Voice, Spidr AI, bots, and a social feed — built for every crew.
           </motion.p>
 
           <motion.div

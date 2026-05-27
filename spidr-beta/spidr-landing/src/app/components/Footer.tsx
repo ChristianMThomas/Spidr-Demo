@@ -3,8 +3,8 @@ import { Twitter, Github, Youtube, Instagram } from "lucide-react";
 import logo from "../../assets/Spidr.png";
 
 const footerLinks = {
-  Company: ["About", "Jobs", "Branding", "Newsroom"],
-  Resources: ["Support", "Safety", "Blog", "Feedback"],
+  Company: ["About", "Branding", "Spidr System"],
+  Resources: ["Support", "Safety", "Feedback"],
   Policies: ["Terms", "Privacy", "Guidelines", "Licenses"],
 };
 
