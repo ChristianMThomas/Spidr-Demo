@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, master]
+
+jobs:
+  build-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: spidr-client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: spidr-client/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL_STAGING }}
+          VITE_WS_URL: ${{ secrets.VITE_WS_URL_STAGING }}
+          VITE_AUTH_URL: ${{ secrets.VITE_AUTH_URL_STAGING }}

@@ -1,0 +1,364 @@
+# FIXME.md — Spidr App Bug & Task List
+
+Last audited: 2026-05-14
+
+> Stack: React 18 + Vite + Electron (client) · Node/Express + MongoDB + Socket.io (server)
+
+---
+
+## ARCHITECTURE ROADMAP — 3-Service Backend Migration
+
+> Target completion: 2027. Monolith stays running until each service is production-ready and validated.
+
+### Service Overview
+
+```
+React + Electron (Frontend)
+        │
+        ├──► [ARCH-A] Spring Boot Auth Service     Port: 8080
+        │         └── MongoDB (users collection only)
+        │
+        ├──► [ARCH-B] Node.js Core API             Port: 4000 (current)
+        │         └── MongoDB (messages, servers, feeds, social graph, etc.)
+        │
+        └──► [ARCH-C] FastAPI AI Service           Port: 8000
+                  ├── Spidr Bot (fine-tuned gpt-4o-mini via OpenAI)
+                  └── FYP Recommendation Engine (reads EngagementEvent collection)
+```
+
+**JWT Strategy:** Spring Boot signs tokens with RS256 private key. Node.js and FastAPI verify using the distributed public key. No service can issue tokens — only Spring Boot can.
+
+---
+
+### [ARCH-A] Spring Boot Auth Service
+**Status: PLANNED — Phase 2**
+
+Replace `spidr-server/src/routes/auth.js` with a dedicated Spring Boot microservice.
+
+**Endpoints to migrate:**
+- `POST /auth/register` — create account, bcrypt hash, send OTP
+- `POST /auth/login` — verify password, send 2FA OTP
+- `POST /auth/verify-otp` — validate OTP, issue RS256 JWT
+- `POST /auth/resend-otp`
+- `GET /auth/me` — validate token, return user
+- `POST /auth/change-password`
+- `POST /auth/setup-totp` — generate TOTP secret + QR code
+- `POST /auth/verify-totp-setup`
+- `POST /auth/disable-totp`
+- `POST /auth/override-request` — password reset flow
+- `POST /auth/override-verify`
+- `POST /auth/override-confirm`
+
+**Tech:** Spring Boot 3 · Spring Security · Spring Data MongoDB · jjwt (RS256) · JavaMailSender (OTP email) · speakeasy equivalent (TOTP)
+
+**Migration order:** Build Spring Boot service → validate all auth flows → switch frontend `VITE_AUTH_URL` → remove auth routes from Node.js
+
+---
+
+### [ARCH-B] Node.js Core API
+**Status: CURRENT SERVER — stays, gets trimmed**
+
+Keeps all non-auth routes. Auth middleware updated to verify RS256 JWT using Spring Boot's public key instead of shared secret.
+
+**Changes needed when ARCH-A is ready:**
+- Replace `JWT_SECRET` symmetric verify → RS256 public key verify in `middleware/auth.js`
+- Remove `/auth` route registration from `index.js`
+- Add `POST /engagement` endpoint + `EngagementEvent` model (see ARCH-C)
+
+---
+
+### [ARCH-C] FastAPI AI Service
+**Status: PLANNED — Phase 1 (build this first)**
+
+Two responsibilities:
+
+#### 1. Spidr Bot (Global Assistant)
+- One global assistant, all users talk to the same bot
+- Fine-tune `gpt-4o-mini` on OpenAI for Spidr-specific personality and tone
+- RAG layer injects real-time context (server info, user data) per request
+- Endpoint: `POST /ai/chat` — receives message + context, returns response
+
+#### 2. FYP Recommendation Engine
+- TikTok-style For You Page algorithm
+- Cold start: serve content from user's selected initial categories
+- Behavioral phase: rank content by engagement score per user
+- Endpoint: `POST /fyp/feed` — receives user_id, returns ranked content_ids
+- Library path: start with `scikit-learn` cosine similarity → upgrade to `LightFM` → `PyTorch` custom model
+- **Requires engagement data** — see ARCH-D below
+
+---
+
+### [ARCH-D] Engagement Data Collection — START IMMEDIATELY
+**Status: URGENT — must begin before FYP algorithm is useful**
+
+The FYP recommendation model needs months of real user behavior data before it can personalize effectively. Every day without collection is lost training data.
+
+**Add to Node.js Core API now:**
+
+Model: `spidr-server/src/models/EngagementEvent.js`
+```
+user_id          String  (indexed)
+content_id       String  (indexed)
+content_type     String  — 'clip' | 'feed' | 'audio'
+event_type       String  — 'watch' | 'like' | 'skip' | 'share' | 'replay' | 'save'
+watch_duration   Number  — seconds watched
+watch_completion Number  — 0.0 to 1.0 (% of content watched)
+source           String  — 'fyp' | 'search' | 'profile' | 'hashtag'
+created_at       Date    (indexed)
+```
+
+Route: `POST /engagement` — fire and forget from frontend, no blocking response needed.
+
+Frontend fires silently on: video pause/end, like, share, skip (< 2s watch time), replay, save to collection.
+
+---
+
+## spidr-auth (Spring Boot) — Backlog
+
+### Bigger Features (2–4 hours each)
+
+| ID | Issue |
+|----|-------|
+| AUTH-F1 | **Refresh tokens** — JWT expires and users get hard-logged-out with no silent renewal |
+| AUTH-F2 | **Token revocation** — logout doesn't invalidate the JWT; deleted/banned users can still hit auth-protected routes until expiry |
+| AUTH-F3 | **TOTP 2FA** — Node.js server has it via speakeasy; Spring Boot backend is missing it entirely |
+| AUTH-F4 | **Admin promotion endpoint** — only way to make someone an admin is via MongoDB shell directly |
+
+---
+
+## PRIORITY 1 — CRITICAL
+
+### [LOCAL-DEV] Fix Local Development Environment — Atlas + CORS
+**Files:** `spidr-server/.env`, `spidr-auth/.env`
+
+`spidr-server/.env` has `NODE_ENV=production` which locks CORS to only `https://spidrapp.infinitetechteam.com` — blocking `localhost:5173`. `spidr-auth/.env` still points to `localhost:27017` (no real data). Both services also have mismatched `JWT_SECRET` values, which means Spring Boot-issued tokens are rejected by Node.js locally — breaking login end-to-end.
+
+**Steps (no code changes — env only):**
+
+1. `spidr-server/.env` → change `NODE_ENV=production` to `NODE_ENV=development`
+2. `spidr-auth/.env` → replace `MONGO_URI=mongodb://localhost:27017/spidr` with the Atlas URI from `spidr-server/.env`
+3. `spidr-auth/.env` → copy `JWT_SECRET` from `spidr-server/.env` (must be identical in both services)
+4. MongoDB Atlas UI → Network Access → Add IP Address → whitelist your local machine IP (or `0.0.0.0/0` for dev)
+5. MongoDB Compass → New Connection → paste the Atlas URI from `spidr-server/.env` → you now have a full GUI to the staging data
+
+**Verify:** `spidr-server` terminal shows `✓ MongoDB connected` with the Atlas host. Login succeeds end-to-end. `localhost:5173` loads with no CORS errors.
+
+---
+
+## PRIORITY 2 — HIGH (Feature Completely Non-Functional)
+
+### [P2-A] Settings: Sound & Notification toggles — not persisted
+**File:** `spidr-client/src/components/spidr/SettingsPanel.jsx:443-539`
+
+Toggles update local state only. Settings reset on every reload.
+
+**Fix:** On toggle change, call `PATCH /api/user-profiles/:id`.
+
+---
+
+### [P2-B] Background / Theme Customization — not persisted
+**File:** `spidr-client/src/pages/Home.jsx`
+
+**Fix:** On save, call `PATCH /api/user-profiles/:id` with `{ theme, background }`. Rehydrate on load.
+
+---
+
+### [P2-C] Discord Bot Import — hardcoded bots user can't import
+**File:** `spidr-client/src/components/nexus/ImportBotTab.jsx:10-18`
+
+**Fix:** Remove the official bot catalog. Keep only the "Import by Client ID" form.
+
+---
+
+### [P2-D] Group Chats — list doesn't refresh after creation
+**File:** `spidr-client/src/components/spidr/CreateGroupChatModal.jsx`
+
+**Fix:** After successful POST, invalidate/refetch the group chats query.
+
+---
+
+### [P2-E] SpidrAIChat — no error handling on AI failure
+**File:** `spidr-client/src/components/spidr/SpidrAIChat.jsx`
+
+**Fix:** Add `.catch(err => toast.error('AI unavailable: ' + err.message))`.
+
+---
+
+### [P2-F] Change password — no input validation
+**File:** `spidr-server/src/routes/auth.js:174-186`
+
+`currentPassword` and `newPassword` are not validated for null/undefined or minimum length before use; allows weak passwords and risks bcrypt errors.
+
+**Fix:** Guard at top of handler: check both fields exist and `newPassword.length >= 8`.
+
+---
+
+## PRIORITY 3 — MEDIUM
+
+### [P3-A] VideoStudio — thumbnail generates black frame
+**File:** `spidr-client/src/components/spidr/VideoStudio.jsx:144`
+
+**Fix:** Wait for `loadeddata` event + check `video.readyState >= 2` before `drawImage`.
+
+---
+
+### [P3-B] VideoStudio — stale object URL memory leak
+**File:** `spidr-client/src/components/spidr/VideoStudio.jsx:90-92`
+
+**Fix:** Call `URL.revokeObjectURL(prev)` in the cleanup of the effect that creates it.
+
+---
+
+### [P3-C] UserProfile query key inconsistency — stale data across views
+**Affected:** `HolographicProfile.jsx`, `PCSpecsFlex.jsx`, `UserProfilePod.jsx`
+
+Keys in use: `['userProfile', id]`, `['profile', id]`, `['user-profile', id]` — all different caches.
+
+**Fix:** Standardize to `['userProfile', userId]` everywhere.
+
+---
+
+### [P3-D] Mic / Deafen toggles — UI-only, no real audio effect
+**File:** `spidr-client/src/components/spidr/UserProfilePod.jsx:163-172`
+
+**Fix:** Wire to shared audio context or active `VoiceChannel` stream controls.
+
+---
+
+### [P3-E] 2FA TOTP — any OTP code accepted (secret not verified server-side)
+**File:** `spidr-client/src/components/spidr/SecurityMatrix.jsx`
+
+Backend `/auth/setup-totp` and `/auth/verify-totp-setup` routes exist. Frontend needs to call them correctly and store the secret before marking 2FA as enabled.
+
+**Fix:** Wire `SecurityMatrix` TOTP flow to `/auth/setup-totp` → `/auth/verify-totp-setup`.
+
+---
+
+### [P3-F] DynamicModuleWidget — silent JSON failures + fake weather
+**File:** `spidr-client/src/components/nexus/widgets/DynamicModuleWidget.jsx`
+
+**Fix:** Render error state on parse failure. Replace fake LLM weather with Open-Meteo (free, no key).
+
+---
+
+### [P3-G] Bot Laboratory — installs not persisted
+**File:** `spidr-client/src/components/spidr/BotLaboratory.jsx:88`
+
+**Fix:** `POST /api/installed-modules` on install. `GET /api/installed-modules` on load.
+
+---
+
+### [P3-H] VoiceChannel join/leave race condition — orphaned sessions
+**File:** `spidr-client/src/components/spidr/VoiceChannel.jsx:91-116`
+
+`hasJoinedRef` prevents re-join but doesn't block simultaneous join+leave calls; can leave orphaned voice sessions on the server.
+
+**Fix:** Use a Promise-based lock or add `isConnected` state check before join/leave calls.
+
+---
+
+### [P3-I] useWebRTC — silent offer creation failure
+**File:** `spidr-client/src/components/spidr/useWebRTC.js:81`
+
+`pc.createOffer().catch(console.error)` — user gets no feedback if WebRTC offer fails; call just silently drops.
+
+**Fix:** Set an error state and show `toast.error('Connection failed')` in the catch.
+
+---
+
+### [P3-J] DirectMessage model — duplicate conflicting field names
+**File:** `spidr-server/src/models/DirectMessage.js:3-22`
+
+Schema defines both `receiver_id` and `recipient_id` for the same concept; frontend/backend mismatch will silently store `undefined`.
+
+**Fix:** Remove one field, keep one canonical name (`recipient_id`), and search/replace all usages.
+
+---
+
+### [P3-K] crudRouter — no required-field validation on create
+**File:** `spidr-server/src/utils/crudRouter.js:70-79`
+
+Generic create endpoint passes body straight to Mongoose; validation errors return an unhelpful generic 400 with no field-level detail.
+
+**Fix:** Add a `validate` option to `crudRouter` so callers can pass a per-model check function.
+
+---
+
+## PRIORITY 4 — LOW
+
+### [P4-A] CinemaStage chat — hardcoded stub message
+Connect to a real Socket.io channel scoped to the active cinema room.
+
+### [P4-B] SpidrAIChat — hardcoded system prompt
+Make configurable via `UserProfile` field or server env. *(Will be replaced by ARCH-C Spidr Bot)*
+
+### [P4-C] PCSpecsFlex — wrong query key `['user-profile']`
+**Fix:** Change to `['userProfile', userId]` per P3-C.
+
+### [P4-D] SettingsPanel — no cache invalidation after profile save
+After `PATCH /api/user-profiles/:id`, invalidate `['userProfile', userId]`.
+
+### [P4-E] CreateServerModal — server banner has no file upload
+Icon supports upload, banner only accepts a URL. Both should use `POST /api/upload`.
+
+### [P4-F] AVLab — `console.log` left in production
+**File:** `spidr-client/src/components/spidr/AVLab.jsx:118`
+
+`console.log(...)` fires on every voice effect switch in production builds.
+
+**Fix:** Gate with `if (import.meta.env.DEV)` or remove.
+
+### [P4-G] VoiceChannel — silently swallows cleanup errors
+**File:** `spidr-client/src/components/spidr/VoiceChannel.jsx:96-109`
+
+`.catch(() => {})` on old-session delete; network failures are invisible.
+
+**Fix:** `.catch(err => console.error('Failed to clean old sessions:', err))`
+
+### [P4-H] algorithm route — no guard if `req.user` is undefined
+**File:** `spidr-server/src/routes/algorithm.js:33`
+
+Direct access to `req.user.id` with no null check; crashes if auth middleware fails to attach user.
+
+**Fix:** Add `if (!req.user) return res.status(401).json({ error: 'Auth required' });` at top of handler.
+
+---
+
+## Quick Reference
+
+| ID | File | Issue |
+|----|------|-------|
+| **LOCAL-DEV** | `spidr-server/.env`, `spidr-auth/.env` | **Fix local dev — Atlas URI + CORS + JWT_SECRET match** |
+| **ARCH-D** | `EngagementEvent.js` (new) | **Start collecting FYP training data — urgent** |
+| ARCH-A | `spidr-auth/` (new service) | Spring Boot auth microservice — Phase 2 |
+| ARCH-B | `spidr-server/` | Node.js core API — trim auth routes when ARCH-A ready |
+| ARCH-C | `spidr-ai/` (new service) | FastAPI AI service (Spidr Bot + FYP) — Phase 1 |
+| AUTH-F1 | `JwtService.java` | No refresh token mechanism |
+| AUTH-F2 | System-wide | No token revocation on logout/ban |
+| AUTH-F3 | System-wide | No TOTP 2FA in Spring Boot |
+| AUTH-F4 | `UserController.java` | No admin promotion endpoint |
+| P2-A | `SettingsPanel.jsx:443` | Sound/notification toggles not persisted |
+| P2-B | `Home.jsx` | Theme lost on refresh |
+| P2-C | `ImportBotTab.jsx:10` | Remove hardcoded Discord bot catalog |
+| P2-D | `CreateGroupChatModal.jsx` | Group chat list doesn't refresh |
+| P2-E | `SpidrAIChat.jsx` | No error handling on AI failure |
+| P2-F | `auth.js:174` | Change password — no input validation |
+| P3-A | `VideoStudio.jsx:144` | Thumbnail black frame |
+| P3-B | `VideoStudio.jsx:90` | Stale object URL leak |
+| P3-C | Multiple | Inconsistent UserProfile query keys |
+| P3-D | `UserProfilePod.jsx:163` | Mic/deafen UI-only |
+| P3-E | `SecurityMatrix.jsx` | TOTP not wired to backend |
+| P3-F | `DynamicModuleWidget.jsx` | Silent JSON failures + fake weather |
+| P3-G | `BotLaboratory.jsx:88` | Bot installs lost on refresh |
+| P3-H | `VoiceChannel.jsx:91` | Join/leave race condition |
+| P3-I | `useWebRTC.js:81` | Silent WebRTC offer failure |
+| P3-J | `DirectMessage.js` | Duplicate conflicting field names |
+| P3-K | `crudRouter.js:70` | No required-field validation on create |
+| P4-A | `CinemaStage.jsx` | Hardcoded stub chat message |
+| P4-B | `SpidrAIChat.jsx` | Hardcoded system prompt |
+| P4-C | `PCSpecsFlex.jsx` | Wrong query key `['user-profile']` |
+| P4-D | `SettingsPanel.jsx` | No cache invalidation after profile save |
+| P4-E | `CreateServerModal.jsx` | Banner missing file upload |
+| P4-F | `AVLab.jsx:118` | `console.log` in production |
+| P4-G | `VoiceChannel.jsx:96` | Silently swallows cleanup errors |
+| P4-H | `algorithm.js:33` | No `req.user` null guard |
