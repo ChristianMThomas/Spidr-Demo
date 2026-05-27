@@ -3,4 +3,6 @@
 /node_modules
 .env
 .env.local
-.env.production
+# .env.production is intentionally committed (contains non-secret build-time URLs)
+# .env.*.local files are still ignored
+.env.production.local
