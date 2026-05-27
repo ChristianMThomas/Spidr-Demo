@@ -172,7 +172,7 @@ export default function WhySpidr() {
         <HrDark />
         <p className="max-w-[50ch] text-[clamp(1rem,2.5vw,2rem)] font-normal leading-relaxed">
           Scroll through a curated feed of clips, projects, tutorials, and drops from the
-          communities you're part of. Think TikTok — but entirely for your people.
+          communities you're part of. Your world, your content — no algorithm deciding what you see.
         </p>
         <HrDark />
         <div className="flex flex-wrap gap-[3vw]">
