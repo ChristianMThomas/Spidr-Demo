@@ -2,7 +2,19 @@ import { useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { ArrowRight } from "lucide-react";
 
-export default function Hero() {
+interface BetaStatus {
+  count: number;
+  spotsLeft: number;
+  isFull: boolean;
+  cap: number;
+}
+
+interface HeroProps {
+  onOpenBeta?: () => void;
+  betaStatus?: BetaStatus | null;
+}
+
+export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const layersRef = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -211,7 +223,7 @@ export default function Hero() {
             ))}
           </motion.h1>
 
-          {/* Bottom row — tagline left, CTA right */}
+          {/* Bottom row — tagline + CTA left, explore right */}
           <motion.div
             className="flex justify-between items-end pointer-events-auto"
             style={{ gridColumn: "1 / -1" }}
@@ -220,15 +232,39 @@ export default function Hero() {
             transition={{ duration: 0.6, delay: 1.2 }}
           >
             <div>
-              <p className="font-mono text-[0.7rem] text-zinc-500 tracking-widest mb-2">
+              <p className="font-mono text-[0.7rem] text-zinc-500 tracking-widest mb-3">
                 VOICE · SPIDR AI · BOT LAB · THE WEB FEED
               </p>
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 bg-[#C41E3A] rounded-full animate-pulse" />
-                <span className="font-mono text-[0.6rem] text-zinc-600 tracking-wide">
-                  LAUNCHING SOON — JOIN THE WAITLIST
-                </span>
-              </div>
+
+              {/* Live spots counter */}
+              {betaStatus && !betaStatus.isFull && (
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-1.5 h-1.5 bg-[#C41E3A] rounded-full animate-pulse" />
+                  <span className="font-mono text-[0.6rem] text-[#C41E3A] tracking-wide font-semibold">
+                    {betaStatus.spotsLeft} SPOT{betaStatus.spotsLeft !== 1 ? "S" : ""} LEFT
+                  </span>
+                </div>
+              )}
+              {betaStatus?.isFull && (
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="w-1.5 h-1.5 bg-zinc-600 rounded-full" />
+                  <span className="font-mono text-[0.6rem] text-zinc-600 tracking-wide">
+                    BETA FULL — CLOSED
+                  </span>
+                </div>
+              )}
+
+              {/* CTA button */}
+              {!betaStatus?.isFull && (
+                <button
+                  onClick={onOpenBeta}
+                  className="inline-flex items-center gap-2 bg-[#C41E3A] hover:bg-[#a01830] text-white font-bold text-xs px-5 py-2.5 tracking-widest transition-colors cursor-pointer"
+                  style={{ fontFamily: "Inter, sans-serif", letterSpacing: "0.08em" }}
+                >
+                  CLAIM YOUR SPOT
+                  <ArrowRight size={12} />
+                </button>
+              )}
             </div>
 
             <div className="flex flex-col items-end gap-3">
@@ -283,11 +319,26 @@ export default function Hero() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.4 }}
           >
+            {/* Primary CTA */}
+            {!betaStatus?.isFull ? (
+              <button
+                onClick={onOpenBeta}
+                className="bg-[#C41E3A] hover:bg-[#a01830] text-white px-8 py-4 font-bold text-base flex items-center justify-center gap-2 min-h-[52px] cursor-pointer transition-colors"
+              >
+                Claim Your Spot
+                <ArrowRight size={16} />
+              </button>
+            ) : (
+              <div className="border border-zinc-700 text-zinc-500 px-8 py-4 font-bold text-base flex items-center justify-center min-h-[52px] text-sm tracking-wide">
+                Beta Full — Closed
+              </div>
+            )}
+
             <button
               onClick={() =>
                 document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })
               }
-              className="border border-zinc-700 text-white px-8 py-4 font-bold text-base flex items-center justify-center gap-2 min-h-[52px] cursor-pointer hover:border-[#8B0000] transition-colors"
+              className="border border-zinc-700 text-zinc-400 px-8 py-4 font-bold text-base flex items-center justify-center gap-2 min-h-[52px] cursor-pointer hover:border-zinc-500 transition-colors"
             >
               Explore Features
               <ArrowRight size={16} className="opacity-50" />
@@ -295,12 +346,17 @@ export default function Hero() {
           </motion.div>
 
           <motion.p
-            className="mt-8 text-zinc-600 text-xs font-mono"
+            className="mt-6 text-xs font-mono"
+            style={{ color: betaStatus && !betaStatus.isFull ? "#C41E3A" : "#52525b" }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.6 }}
           >
-            Free waitlist, no credit card required. We’ll notify you when the beta is live!
+            {betaStatus
+              ? betaStatus.isFull
+                ? "Beta is full — all spots claimed."
+                : `${betaStatus.spotsLeft} of ${betaStatus.cap} spots remaining`
+              : "Free beta · no credit card required"}
           </motion.p>
         </div>
 
