@@ -2,7 +2,6 @@ import { motion, useScroll, useTransform } from "framer-motion";
 import { useRef } from "react";
 import LandingNavbar from "@/components/landing/LandingNavbar";
 import LandingHero from "@/components/landing/LandingHero";
-import BetaSignupSection from "@/components/landing/BetaSignupSection";
 import LandingFeatures from "@/components/landing/LandingFeatures";
 import LandingCommunity from "@/components/landing/LandingCommunity";
 import LandingDownload from "@/components/landing/LandingDownload";
@@ -56,7 +55,6 @@ export default function LandingPage() {
       <div className="relative z-10">
         <LandingNavbar />
         <LandingHero />
-        <BetaSignupSection />
         <LandingFeatures />
         <LandingCommunity />
         <LandingDownload />

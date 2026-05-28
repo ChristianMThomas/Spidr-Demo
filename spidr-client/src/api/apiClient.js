@@ -275,12 +275,6 @@ export const follows = {
   unfollow:   (userId)        => api.delete(`/follows/${userId}`),
 };
 
-// ─── Beta signup ─────────────────────────────────────────────────────────────
-export const beta = {
-  status: () => api.get('/beta/status'),
-  signup: (email, name) => api.post('/beta/signup', { email, name }),
-};
-
 // ─── Named export matching old base44 import shape ───────────────────────────
 export const base44 = { entities, auth, integrations };
 
