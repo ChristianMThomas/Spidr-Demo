@@ -6,9 +6,17 @@ import logo from "../../assets/Spidr.png";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface BetaStatus {
+  count: number;
+  spotsLeft: number;
+  isFull: boolean;
+  cap: number;
+}
+
 interface BetaSignupModalProps {
   isOpen: boolean;
   onClose: () => void;
+  betaStatus?: BetaStatus | null;
 }
 
 type FormState = "idle" | "loading" | "success";
@@ -187,7 +195,7 @@ function LegalText() {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function BetaSignupModal({ isOpen, onClose }: BetaSignupModalProps) {
+export default function BetaSignupModal({ isOpen, onClose, betaStatus }: BetaSignupModalProps) {
   const [formState, setFormState] = useState<FormState>("idle");
 
   // Fields
@@ -529,10 +537,37 @@ export default function BetaSignupModal({ isOpen, onClose }: BetaSignupModalProp
                           >
                             JOIN THE WEB
                           </h1>
-                          <p className="text-sm leading-relaxed max-w-md mx-auto" style={{ color: "#8a8a93" }}>
+                          <p className="text-sm leading-relaxed max-w-md mx-auto mb-4" style={{ color: "#8a8a93" }}>
                             Get early access to Spidr before anyone else. Help us build something different and shape
                             the platform from the inside.
                           </p>
+
+                          {/* Live spots counter */}
+                          {betaStatus && (
+                            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full"
+                              style={{
+                                background: betaStatus.isFull ? "rgba(39,39,42,0.8)" : "rgba(196,30,58,0.12)",
+                                border: `1px solid ${betaStatus.isFull ? "#3f3f46" : "rgba(196,30,58,0.35)"}`,
+                              }}
+                            >
+                              <span
+                                className="w-1.5 h-1.5 rounded-full"
+                                style={{
+                                  background: betaStatus.isFull ? "#52525b" : "#C41E3A",
+                                  boxShadow: betaStatus.isFull ? "none" : "0 0 6px #C41E3A",
+                                  animation: betaStatus.isFull ? "none" : "pulse 2s infinite",
+                                }}
+                              />
+                              <span
+                                className="font-mono text-xs font-semibold tracking-widest"
+                                style={{ color: betaStatus.isFull ? "#71717a" : "#e05c6e" }}
+                              >
+                                {betaStatus.isFull
+                                  ? "BETA FULL — ALL SPOTS CLAIMED"
+                                  : `${betaStatus.spotsLeft} OF ${betaStatus.cap} SPOTS REMAINING`}
+                              </span>
+                            </div>
+                          )}
                         </motion.div>
 
                         {/* ── Form ── */}

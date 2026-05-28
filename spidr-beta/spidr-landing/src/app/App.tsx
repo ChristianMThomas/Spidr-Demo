@@ -1,5 +1,6 @@
 import { motion, useScroll, useTransform } from "motion/react";
 import { useRef, useState } from "react";
+import { useBetaStatus } from "./useBetaStatus";
 import Hero from "./components/Hero";
 import WhySpidr from "./components/WhySpidr";
 import Features from "./components/Features";
@@ -14,6 +15,7 @@ export default function App() {
   const [betaOpen, setBetaOpen] = useState(false);
   const openBeta = () => setBetaOpen(true);
   const closeBeta = () => setBetaOpen(false);
+  const betaStatus = useBetaStatus();
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -66,7 +68,7 @@ export default function App() {
       {/* Content */}
       <div className="relative z-10">
         <Navbar onOpenBeta={openBeta} />
-        <Hero />
+        <Hero onOpenBeta={openBeta} betaStatus={betaStatus} />
         <WhySpidr />
         <Features />
         <Community />
@@ -74,7 +76,7 @@ export default function App() {
         <Footer />
       </div>
 
-      <BetaSignupModal isOpen={betaOpen} onClose={closeBeta} />
+      <BetaSignupModal isOpen={betaOpen} onClose={closeBeta} betaStatus={betaStatus} />
     </div>
   );
 }

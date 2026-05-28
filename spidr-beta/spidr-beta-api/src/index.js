@@ -69,7 +69,23 @@ if (process.env.MONGO_URI) {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
+const BETA_CAP = 50;
+
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+app.get('/status', async (_req, res) => {
+  try {
+    const count = await BetaSignup.countDocuments();
+    res.json({
+      count,
+      spotsLeft: Math.max(0, BETA_CAP - count),
+      isFull: count >= BETA_CAP,
+      cap: BETA_CAP,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch beta status' });
+  }
+});
 
 app.post('/signup', signupLimiter, async (req, res) => {
   const {
@@ -103,6 +119,12 @@ app.post('/signup', signupLimiter, async (req, res) => {
     return res.status(400).json({ error: 'You must consent to data processing.' });
   if (!confirmedAge)
     return res.status(400).json({ error: 'You must confirm you are 18 or older.' });
+
+  // ── Cap check ─────────────────────────────────────────────────────────────
+  const currentCount = await BetaSignup.countDocuments();
+  if (currentCount >= BETA_CAP) {
+    return res.status(409).json({ error: 'Beta is full. No spots remaining.' });
+  }
 
   // ── Persist ──────────────────────────────────────────────────────────────
   try {
