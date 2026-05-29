@@ -1834,7 +1834,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           stays mounted and merely hidden while minimized, so the WebRTC session
           is never torn down. No second instance is needed here.) */}
     </div>
-    )}
 
     {/* Mini Chat Overlay */}
     {miniChatPinned && (

@@ -2277,3 +2277,71 @@ All touched files pass esbuild / node --check; mojibake-free.
   current wiring passes the stream (resolution/fps/viewers work; bitrate shows
   '—' until a pc is threaded through, a small follow-up).
 - All visuals verified by build + logic, not a live runtime session.
+
+---
+
+## 56. HOTFIX — ServersPanel JSX break (caused app-wide breakage + APEX freeze)
+
+A stray `)}` was left in `ServersPanel.jsx` from the §54 minimize-fix
+restructure (when the voice-deck/chat ternary was split into two `&&` blocks,
+the ternary's old closing `)}` wasn't removed). This left the component's JSX
+unbalanced, which crashed the main server view and made the app unresponsive —
+including the APEX "Initiate Upgrade" flow appearing to freeze (a downstream
+symptom of the broken render tree, not a loop in the upgrade modal itself).
+
+Fix: removed the single stray `)}` before the Mini Chat overlay. Verified by a
+full esbuild bundle of `src/main.jsx` (whole local import graph + every JSX
+file): **zero warnings, zero errors**. The new APEX UIs (Frame Vault,
+nameplates) live in the APEX settings tab, which only appears after activation —
+so once the upgrade flow works again, they become reachable.
+
+---
+
+## 57. Minimized call shows the new Web Node design (all call types)
+
+Root cause of "the new voice design isn't there": the minimized call UI that
+actually renders is `ActiveCallTether` (the old circular node + `00:04 · N`
+timer seen in the screenshot). My §51 work put the new `MinimizedWebNode` into
+`SpidrShell`, but `ActiveCallTether` was still the component appearing in the
+running build — so the new design never showed.
+
+Fix: `ActiveCallTether` now delegates its render to `MinimizedWebNode`, keeping
+its proven data wiring (server/group/DM call-type detection, live voice
+sessions, APEX thread color, duration) and mapping it onto the new node. So the
+new "Suspended Web Node" design now appears for **server, group, AND DM** calls
+regardless of which layout shell mounts the tether. The legacy tether markup is
+retained as dead `_Legacy*` helpers for reference only.
+
+Verified with a full esbuild bundle of `src/main.jsx` (entire local import graph
++ every JSX file): zero warnings, zero errors.
+
+### Note on testing
+If the old design still appears after this, it's almost certainly a stale built
+bundle / browser cache on the running instance — rebuild the client
+(`npm run build` / restart the dev server) and hard-refresh, since both shells
+now route to the same new node.
+
+---
+
+## 58. Spidr System — "Patch 1.3" news entry
+
+Added a "Patch 1.3 is now live" entry to the Spidr System news/patch terminal so
+all of today's work is announced in-app. It's added to BOTH the backend feed
+(`routes/system.js` GET /system/news) and the client mock fallback
+(`SpidrSystem.jsx` MOCK_NEWS), placed at the top with today's date so it shows
+as the latest headline (ticker + typewriter). Summarizes the APEX Symbiote suite
+(Profile Takeover, Stream HUD, Frame Vault, Nexus Grid sidebar, Nameplates &
+Badges) plus the fixes (new Web Node minimized-call design across servers/DMs/
+groups, minimize no longer disconnects, sidebar logo box removed, APEX
+activation/access fixed, trending-server 404 fixed).
+
+Verified: node --check on the route, esbuild on the component, full app bundle
+clean (zero warnings/errors), mojibake-free.
+
+---
+
+## 59. Spidr System — renamed today's entry "Patch 1.5" (1.4 already existed)
+
+Since "Patch 1.4" is already in the Spidr System feed, today's entry was renamed
+from 1.3 → "Patch 1.5 is now live" (id p13 → p15) in both `routes/system.js` and
+`SpidrSystem.jsx` so it reads as the newest patch above 1.4. Same date/description.

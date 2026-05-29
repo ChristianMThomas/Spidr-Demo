@@ -4,6 +4,7 @@ import { Mic, MicOff, PhoneOff, Maximize2, Volume2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import VoiceEqualizer from './VoiceEqualizer';
+import MinimizedWebNode from './MinimizedWebNode';
 
 export default function ActiveCallTether({ callInfo, onExpand, onDisconnect, onToggleMute, isMuted }) {
   const [isHovered, setIsHovered] = useState(false);
@@ -74,142 +75,43 @@ export default function ActiveCallTether({ callInfo, onExpand, onDisconnect, onT
 
   if (!callInfo) return null;
 
+  // Render the new "Suspended Web Node" design. ActiveCallTether keeps its
+  // proven data wiring (call-type detection, live sessions, APEX thread color,
+  // duration) and maps it onto MinimizedWebNode so the new design appears for
+  // server, group, AND DM calls regardless of which shell mounts this.
+  const participants = (voiceSessions || []).slice(0, 3).map(s => ({
+    name: s.user_name,
+    avatar: s.user_avatar,
+    apexColor: threadColor,
+    speaking: !s.is_muted,
+  }));
+
+  const callLabel =
+    callInfo.type === 'server' ? `${callInfo.serverName || ''} / ${callInfo.channelName || ''}` :
+    callInfo.type === 'group'  ? `Group: ${callInfo.groupName || ''}` :
+    callInfo.type === 'dm'     ? `Call: ${callInfo.recipientName || ''}` : 'Voice';
+
   return (
-    <AnimatePresence>
-      <div className="fixed top-0 left-1/2 -translate-x-1/2 z-[200] flex flex-col items-center pointer-events-none">
-        
-        {/* THE SILK THREAD */}
-        <motion.div 
-          initial={{ height: 0 }}
-          animate={{ height: isHovered ? 60 : 40 }}
-          exit={{ height: 0 }}
-          transition={{ type: "spring", stiffness: 200, damping: 20 }}
-          className={`w-[2px] shadow-[0_0_15px_currentColor] transition-colors duration-300 ${
-            isMuted 
-              ? 'bg-red-500 text-red-500' 
-              : isSpeaking 
-                ? 'bg-[#FF3333] text-[#FF3333] animate-pulse' 
-                : 'bg-green-500 text-green-500'
-          }`}
-        />
-
-        {/* THE CALL NODE */}
-        <motion.div
-          initial={{ y: -100, scale: 0 }}
-          animate={{ y: 0, scale: 1 }}
-          exit={{ y: -100, scale: 0 }}
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
-          className="pointer-events-auto flex flex-col items-center"
-        >
-          <div className={`
-            relative flex items-center gap-2 px-3 py-2 rounded-2xl border backdrop-blur-xl shadow-2xl transition-all duration-300
-            ${isHovered 
-               ? 'bg-[#0a0a0a] border-white/20 min-w-[240px] justify-between' 
-               : 'bg-black/80 border-white/10 w-auto justify-center'
-            }
-          `}>
-            
-            {/* COMPACT STATE */}
-            {!isHovered && (
-              <div className="flex items-center gap-2">
-                {isMuted ? (
-                  <MicOff size={14} className="text-red-500" />
-                ) : (
-                  <Mic size={14} className={isSpeaking ? "text-[#FF3333] animate-pulse" : "text-green-500"} />
-                )}
-                <Volume2 size={12} className="text-white" />
-                <span className="text-[10px] font-bold text-white tabular-nums">{formatDuration(callDuration)}</span>
-                {voiceSessions.length > 0 && (
-                  <span className="text-[10px] text-zinc-400">· {voiceSessions.length}</span>
-                )}
-              </div>
-            )}
-
-            {/* EXPANDED STATE */}
-            {isHovered && (
-              <>
-                {/* Info */}
-                <div className="flex flex-col mr-4">
-                  <span className="text-[10px] font-bold text-[#FF3333] uppercase tracking-wider flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#FF3333] animate-pulse" />
-                    LIVE FEED
-                  </span>
-                  <span className="text-[9px] text-gray-400 truncate max-w-[120px]">
-                    {callInfo.type === 'server' && `${callInfo.serverName} / ${callInfo.channelName}`}
-                    {callInfo.type === 'group' && `Group: ${callInfo.groupName}`}
-                    {callInfo.type === 'dm' && `Call: ${callInfo.recipientName}`}
-                  </span>
-                  <span className="text-[8px] text-gray-500">{voiceSessions.length} connected · {formatDuration(callDuration)}</span>
-                </div>
-
-                {/* Controls */}
-                <div className="flex items-center gap-1">
-                  <IconButton 
-                    icon={isMuted ? MicOff : Mic} 
-                    color={isMuted ? 'text-red-500' : 'text-green-500'}
-                    onClick={onToggleMute} 
-                    title={isMuted ? 'Unmute' : 'Mute'}
-                  />
-                  <div className="w-[1px] h-4 bg-white/10 mx-1" />
-                  <IconButton 
-                    icon={Maximize2} 
-                    onClick={onExpand} 
-                    title="Return to Call"
-                    color="text-white"
-                  />
-                  <IconButton 
-                    icon={PhoneOff} 
-                    onClick={onDisconnect} 
-                    bg="bg-red-500/20 hover:bg-red-500" 
-                    color="text-red-500 hover:text-white" 
-                    title="Disconnect"
-                  />
-                </div>
-              </>
-            )}
-
-            {/* Speaking Indicator + mini visualizer (1.2). Uses VoiceEqualizer
-                in idle-shimmer mode (no stream → no duplicate AudioContext, per
-                the perf note) gated on the shared isSpeaking state. */}
-            {!isMuted && isSpeaking && !isHovered && (
-              <>
-                <div className="absolute inset-0 rounded-2xl border opacity-50 animate-ping pointer-events-none"
-                  style={{ borderColor: threadColor === '#3f3f46' ? '#FF3333' : threadColor }} />
-                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 scale-[0.6] origin-bottom pointer-events-none">
-                  <VoiceEqualizer active bars={5} />
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* SQUAD DROPDOWN - Unravels on hover */}
-          <AnimatePresence>
-            {isHovered && voiceSessions.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="relative flex flex-col items-center gap-1 pt-1 overflow-hidden"
-              >
-                {/* Connecting thread — 1.1 APEX color (falls back to zinc). */}
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1px] h-full -z-10"
-                  style={{ background: `linear-gradient(to bottom, ${threadColor}, transparent)` }} />
-
-                {voiceSessions.map((session, i) => (
-                  <TetheredParticipant key={session.id} session={session} index={i} />
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-
-      </div>
-    </AnimatePresence>
+    <MinimizedWebNode
+      call={{
+        ...callInfo,
+        participants,
+        channelName: callLabel,
+        durationSeconds: callDuration,
+      }}
+      apexColor={threadColor}
+      speaking={isSpeaking && !isMuted}
+      amplitude={isSpeaking ? 0.6 : 0}
+      onExpand={onExpand}
+      onEnd={onDisconnect}
+      onMuteToggle={() => onToggleMute && onToggleMute()}
+    />
   );
 }
 
-function TetheredParticipant({ session, index }) {
+// ── Legacy tether sub-components kept for reference (no longer rendered) ──
+// eslint-disable-next-line no-unused-vars
+function _LegacyTetheredParticipant({ session, index }) {
   return (
     <motion.div
       initial={{ y: -15, opacity: 0, scale: 0.85 }}
@@ -218,10 +120,7 @@ function TetheredParticipant({ session, index }) {
       transition={{ delay: index * 0.05, type: "spring", stiffness: 300, damping: 20 }}
       className="relative flex items-center gap-2 w-48 bg-[#111]/90 backdrop-blur-md border border-white/5 rounded-xl p-2 pr-3 shadow-lg hover:bg-[#1a1a1a] transition-colors"
     >
-      {/* Thread line up */}
       <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-[1px] h-2 bg-white/10" />
-
-      {/* Avatar */}
       <div className="relative shrink-0">
         {session.user_avatar ? (
           <img src={session.user_avatar} className={`w-7 h-7 rounded-full border-2 object-cover ${!session.is_muted ? 'border-[#FF3333]' : 'border-transparent opacity-60'}`} />
@@ -236,8 +135,6 @@ function TetheredParticipant({ session, index }) {
           </div>
         )}
       </div>
-
-      {/* Name & status */}
       <div className="flex-1 min-w-0">
         <div className={`text-xs font-semibold truncate ${!session.is_muted ? 'text-[#FF3333]' : 'text-zinc-400'}`}>
           {session.user_name?.split('@')[0] || 'Unknown'}
@@ -246,20 +143,6 @@ function TetheredParticipant({ session, index }) {
           {session.is_muted ? 'Muted' : 'Active'}
         </div>
       </div>
-
-      {/* Speaking visualizer */}
-      {!session.is_muted && (
-        <div className="flex gap-[2px] items-end h-3 shrink-0">
-          {[0, 1, 2].map(i => (
-            <motion.div
-              key={i}
-              className="w-[2px] bg-[#FF3333] rounded-full"
-              animate={{ height: [3, 10, 3] }}
-              transition={{ repeat: Infinity, duration: 0.6, delay: i * 0.15 }}
-            />
-          ))}
-        </div>
-      )}
     </motion.div>
   );
 }
