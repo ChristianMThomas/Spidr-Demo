@@ -2139,3 +2139,141 @@ All touched files pass esbuild / node --check; mojibake-free.
   than the granular endpoints; both paths write the same shape.
 - Verified by build + logic; the DnD feel and the online/offline avatar states
   want a quick runtime look.
+
+---
+
+## 54. Fixes: sidebar logo, minimize-disconnect, APEX access
+
+### 1. Sidebar logo black square — fixed
+`Sidebar.jsx` wrapped the logo in a `bg-red-600/10 rounded-xl border ... boxShadow`
+box, which read as a dark square behind it. Removed the box entirely — now just
+the transparent logo (`SpiderLogo`, slightly larger). No other changes.
+
+### 2. Minimizing a call disconnected the user — fixed at the root
+The real bug: minimizing UNMOUNTED the `VoiceChannel` (tearing down its
+`useWebRTC` peer connections) and mounted a SECOND VoiceChannel that performed a
+fresh re-join — so audio dropped and remote streams/screens vanished.
+Fix: across `ServersPanel`, `DirectMessages`, and `KineticChat`, the
+`VoiceChannel` is now a SINGLE persistent instance that stays mounted for the
+whole call and is merely hidden via CSS (`hidden`) when minimized. The WebRTC
+session, audio elements, and remote streams are never interrupted. Removed the
+duplicate hidden instance in ServersPanel.
+- `MinimizedWebNode` now fetches the current user's `apex_features.thread_skin_color`
+  (or `accent_color`) so the spider-sense node/thread/waveform reflect the APEX
+  customization, with red fallback.
+
+### 3/4. APEX page invisible to subscribers + features not applying — fixed
+Root cause: `ApexStore` rendered `<ApexCommand>` WITHOUT passing `currentUser`
+or `profile`, so activation's `if (profile?.id)` guard silently no-opped while
+still showing a success toast — `apex_tier` was never set to `'apex'`, so the
+gated APEX settings tab never appeared and no features unlocked.
+Fixes:
+- `ApexStore` now passes `currentUser` + `profile` to `ApexCommand` (and prefers
+  passed props over its own fetch).
+- `ApexCommand` added `resolveProfile()` (fetches the profile if not passed) so
+  activation can't silently fail; it now fails LOUDLY with a real error toast if
+  no profile is found, broadened cache invalidation (incl. `currentUser`), and
+  only toasts success when the DB write actually happened.
+- `SettingsPanel` APEX tab gate now accepts `profile.apex_tier` OR
+  `currentUser.apex_tier === 'apex'` so the tab appears immediately after the
+  `spidr-profile-updated` event (which `AppShellContext` already merges into
+  `currentUser`).
+- Thread Skins picker now also stores a concrete `thread_skin_color` hex mapped
+  from the named skin (default→red, rgb→green, venom→purple, glitch→green,
+  invisible→transparent), so the minimized node / member-list borders / call
+  threads actually render the chosen skin (previously only a name was stored,
+  which consumers couldn't use).
+
+### Files
+Modified: `spidr-client/src/components/spidr/Sidebar.jsx`,
+`ServersPanel.jsx`, `DirectMessages.jsx`, `KineticChat.jsx`,
+`MinimizedWebNode.jsx`, `ApexStore.jsx`, `ApexCommand.jsx`, `SettingsPanel.jsx`.
+
+All touched files pass esbuild; mojibake-free.
+
+### Caveats (need runtime check)
+- Minimize-persistence is verified by build + the architecture (single mounted
+  instance, CSS-hidden); the live "still hear everyone after minimizing" needs a
+  multi-user smoke test.
+- APEX activation simulates payment (no real Stripe) — it sets the tier in the
+  DB, which is what unlocks the tab/features.
+
+---
+
+## 55. Patches 2.0–2.4 — APEX symbiote suite
+
+**Filename reconciliation (task → reality):** `GlobalLayout`→`SpidrShell`,
+`UserProfileModal`→`HolographicProfile`, `SpidrVoiceDeck`/Mediasoup→`VoiceChannel`
++ P2P `useWebRTC`, `ServerSidebar`/`ServerIconNode`/`AddServerNode`→`Sidebar`,
+`UserAvatarNode`/`UserModel`→`CommunityPanel`+`UserProfile.js`, `ApexSettings`→
+`ApexVisuals`. New files genuinely created where the task named new components.
+
+### Patch 2.0 — Symbiote Profile Takeover
+- New `SymbioteInfectionOverlay.jsx`: fullscreen z-[100] layer (chat z-10,
+  sidebar z-20, overlay z-100, modals z-200), `bg-[#050505]/30 backdrop-blur`,
+  with a morphing "goo" SVG mask creeping outward over an APEX-colored radial
+  gradient. pointer-events-none. Framer in/out (out is faster so it recedes
+  before the modal closes).
+- `AppShellContext` gains `activeApexProfile {isApex,color}` + setter.
+- `HolographicProfile` sets it on open when the viewed user is APEX (color from
+  `apex_features.thread_skin_color` → `accent_color` → red), resets on close.
+- Mounted in `SpidrShell` behind the modal layer.
+
+### Patch 2.1 — Symbiote HUD Stream Overlay
+- New `hooks/useStreamStats.js`: the task assumes Mediasoup `getStats()`; adapted
+  to P2P — resolution/fps from the MediaStreamTrack settings, bitrate from
+  `RTCPeerConnection.getStats()` byte-delta when a pc is available, viewers from
+  peer count. Polls every 2000ms.
+- New `SymbioteStreamHUD.jsx`: `absolute inset-0 pointer-events-none z-20` over
+  the screen-share `<video>`; renders the chosen frame + terminal telemetry
+  (`> SYS.RES: WxH // N FPS`, `> UPLINK: M Mbps // EYES: V`), data points in the
+  APEX color, inner glow pulse.
+- Wired into `VoiceChannel` for both the local screen share (current user APEX)
+  and remote shares (best-effort peer-profile resolve via voice session socket).
+
+### Patch 2.2 — Frame Vault
+- New `FrameRegistry.jsx`: 4 animated SVG frames (symbiote-tear, liquid-metal,
+  cyber-glitch, void-pulse) with breathing corner brackets in the APEX color.
+- Schema: `apexFrameStyle` (default 'symbiote-tear'); saved via existing
+  `UserProfile.update`.
+- `ApexVisuals` gains a Frame Vault: live 16:9 preview wrapped with the selected
+  frame + mock telemetry, a glassmorphic carousel (AnimatePresence dissolve on
+  switch), and an APEX-colored "Equip Frame" button.
+
+### Patch 2.3 — Nexus Grid Sidebar
+- `Sidebar.jsx` server list: absolute bezier web-strand SVG behind nodes (z-0,
+  `M 40 0 Q 60 200 40 400`, `#8b0000` 1.5px opacity-40); squircle nodes (z-10);
+  active = `shadow-[0_0_25px_rgba(220,38,38,0.5)]` + left-edge pill
+  (`w-[6px] h-10 bg-[#dc2626] rounded-r-md`), removed dots; no-image fallback
+  `bg-[#8b0000]`; Add Server node is a dashed transparent squircle
+  (`border-2 border-dashed border-gray-600/80`) with the strand visible through.
+
+### Patch 2.4 — APEX Nameplates & Badges
+- Schema: `apexBadgeUrl`, `apexBadgeGlow` (default `#fb923c`),
+  `apexNameplateStyle` (default 'default').
+- New `UserNameplate.jsx`: typography wrapper — glitch (chromatic RGB-split
+  text-shadow), neon (APEX-color glow), terminal (mono + CRT scanline), default.
+- `CommunityPanel` member rows: floating custom badge (`-top-2 -left-2 w-6 h-6
+  rounded-full z-20`, `boxShadow 0 0 12px <glow>`, object-cover) with the spider
+  mark as fallback; usernames render through `UserNameplate`.
+- `ApexVisuals` gains a Nameplates & Badges section: badge upload (client-side
+  canvas compression to 64x64 PNG since no Sharp backend), glow color picker,
+  and a nameplate-style picker with live previews.
+
+### Files
+Added: `SymbioteInfectionOverlay.jsx`, `hooks/useStreamStats.js`,
+`FrameRegistry.jsx`, `SymbioteStreamHUD.jsx`, `UserNameplate.jsx`.
+Modified: `AppShellContext.jsx`, `SpidrShell.jsx`, `HolographicProfile.jsx`,
+`VoiceChannel.jsx`, `ApexVisuals.jsx`, `Sidebar.jsx`, `CommunityPanel.jsx`,
+`spidr-server/src/models/UserProfile.js`.
+
+All touched files pass esbuild / node --check; mojibake-free.
+
+### Caveats (need runtime check)
+- Remote-share HUD depends on resolving the sharing peer's profile from the
+  voice session socket id; the P2P stream keys by socketId (approximate for 3+
+  callers), so a remote APEX HUD may not always attach. Local share HUD is exact.
+- Bitrate telemetry needs the active RTCPeerConnection passed in to populate; the
+  current wiring passes the stream (resolution/fps/viewers work; bitrate shows
+  '—' until a pc is threaded through, a small follow-up).
+- All visuals verified by build + logic, not a live runtime session.

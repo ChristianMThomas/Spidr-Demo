@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import UserNameplate from './UserNameplate';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Shield, Crown, User, ChevronDown, Pencil, Check, X, UserX, Ban, Volume2, VolumeX, PhoneOff, ArrowRight, Settings, GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -611,10 +612,21 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
                                            </AvatarFallback>
                                          )}
                                        </Avatar>
+                                       {/* APEX floating badge (Patch 2.4): custom
+                                           badge image if set, else the spider mark. */}
                                        {profile?.apex_tier === 'apex' && (
-                                         <div className="absolute -top-1 -left-1 w-4 h-4 bg-gradient-to-br from-yellow-500 to-red-500 rounded-full flex items-center justify-center shadow-[0_0_10px_rgba(234,179,8,0.8)]">
-                                           <span className="text-[8px]">🕷️</span>
-                                         </div>
+                                         (profile?.apexBadgeUrl || profile?.apex_features?.apexBadgeUrl) ? (
+                                           <div
+                                             className="absolute -top-2 -left-2 w-6 h-6 rounded-full z-20 overflow-hidden border border-black/40"
+                                             style={{ boxShadow: `0 0 12px ${profile?.apexBadgeGlow || profile?.apex_features?.apexBadgeGlow || '#fb923c'}` }}
+                                           >
+                                             <img src={profile?.apexBadgeUrl || profile?.apex_features?.apexBadgeUrl} alt="" className="w-full h-full object-cover" />
+                                           </div>
+                                         ) : (
+                                           <div className="absolute -top-1 -left-1 w-4 h-4 bg-gradient-to-br from-yellow-500 to-red-500 rounded-full flex items-center justify-center shadow-[0_0_10px_rgba(234,179,8,0.8)]">
+                                             <span className="text-[8px]">🕷️</span>
+                                           </div>
+                                         )
                                        )}
                                      </div>
                                       <div className="flex-1 min-w-0">
@@ -662,7 +674,11 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
                                         ) : (
                                           <div className="flex items-center gap-1">
                                             <p className="text-white font-medium text-sm truncate hover:underline">
-                                              {member.nickname || profile?.display_name || member.user_name}
+                                              <UserNameplate
+                                                name={member.nickname || profile?.display_name || member.user_name}
+                                                style={profile?.apex_tier === 'apex' ? (profile?.apexNameplateStyle || profile?.apex_features?.apexNameplateStyle || 'default') : 'default'}
+                                                apexColor={apexColor}
+                                              />
                                             </p>
                                             {canGiveNicknames && (
                                               <button

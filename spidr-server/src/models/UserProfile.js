@@ -41,6 +41,12 @@ const s = new Schema({
   // subscriptions / features
   apex_tier:      { type: String, enum: ['free','apex'], default: 'free' },
   apex_features:  { type: Schema.Types.Mixed, default: {} },
+  // APEX visual customization (Patches 2.2 + 2.4). Also mirrored inside
+  // apex_features by some writers; consumers read top-level first then fall back.
+  apexFrameStyle:    { type: String, default: 'symbiote-tear' },
+  apexBadgeUrl:      { type: String, default: '' },
+  apexBadgeGlow:     { type: String, default: '#fb923c' },
+  apexNameplateStyle:{ type: String, default: 'default' },
   thread_skin:    String,
   squad_overclock:{ type: Boolean, default: false },
   deep_storage:   { type: Boolean, default: false },

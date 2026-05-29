@@ -238,7 +238,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
               <TabsTrigger value="widgets" className="flex items-center gap-2 data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-400 px-3 py-2 text-sm">
                 <LayoutPanelLeft className="w-4 h-4" /> <span className="hidden sm:inline">Widgets</span>
               </TabsTrigger>
-              {profile?.apex_tier === 'apex' && (
+              {(profile?.apex_tier === 'apex' || currentUser?.apex_tier === 'apex') && (
                 <TabsTrigger value="apex" className="flex items-center gap-2 data-[state=active]:bg-yellow-500/20 data-[state=active]:text-yellow-500 px-3 py-2 text-sm">
                   <SpiderLogo size={16} /> <span className="hidden sm:inline">APEX</span>
                 </TabsTrigger>
@@ -992,7 +992,19 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                       onClick={() => updateFormData({ 
                         apex_features: { 
                           ...formData.apex_features, 
-                          thread_skin: skin.value 
+                          thread_skin: skin.value,
+                          // Map the named skin to a concrete thread color so the
+                          // minimized web node, member-list borders, and call
+                          // threads actually reflect the choice. RGB/Glitch are
+                          // animated gradients elsewhere; store a representative
+                          // hex so the solid-color consumers still get a tint.
+                          thread_skin_color: ({
+                            default: '#FF3333',
+                            rgb: '#22c55e',
+                            venom: '#9333ea',
+                            glitch: '#00ff00',
+                            invisible: 'transparent',
+                          })[skin.value] || '#FF3333',
                         } 
                       })}
                       className={`px-4 py-3 rounded-lg text-white text-sm transition-all hover:scale-105 ${

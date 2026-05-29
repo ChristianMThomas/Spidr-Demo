@@ -1297,8 +1297,11 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       </div>
 
       {/* Voice Channel or Chat Area */}
-      {activeVoiceChannel && !isCallMinimized ? (
-        <div className="flex-1 flex flex-col relative min-w-0">
+      {/* Single persistent VoiceChannel — never unmounts while in a call, so
+          minimizing only hides it (CSS) and the WebRTC session, audio, and
+          remote streams stay fully alive. Expanding un-hides it. */}
+      {activeVoiceChannel && (
+        <div className={isCallMinimized ? 'hidden' : 'flex-1 flex flex-col relative min-w-0'} aria-hidden={isCallMinimized}>
           <VoiceChannel
             server={server}
             channel={activeVoiceChannel}
@@ -1310,7 +1313,10 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             onMinimize={() => { if (onMinimizeCall) onMinimizeCall(); }}
           />
         </div>
-      ) : (
+      )}
+      {/* Chat view — shown when no full call deck is occupying the pane (either
+          not in a call, or in a call that's been minimized). */}
+      {(!activeVoiceChannel || isCallMinimized) && (
       <div className={`${
         mobileView === 'chat' ? 'flex' : 'hidden md:flex'
       } flex-1 flex-col bg-zinc-900 min-w-0`}>
@@ -1824,24 +1830,9 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           shell). This panel only dispatches activate/message/deactivate events
           to it — rendering a second local overlay here caused the "double". */}
 
-      {/* Minimized voice — keep the VoiceChannel (and its WebRTC session)
-          mounted but hidden so minimizing never disconnects the user. The
-          MinimizedCallBar at the shell level drives mute/deafen/leave via
-          window events that this hidden instance listens for. */}
-      {activeVoiceChannel && isCallMinimized && (
-        <div className="hidden" aria-hidden="true">
-          <VoiceChannel
-            server={server}
-            channel={activeVoiceChannel}
-            currentUser={currentUser}
-            onLeave={() => {
-              setActiveVoiceChannel(null);
-              if (onVoiceLeave) onVoiceLeave();
-            }}
-            onMinimize={() => { if (onMinimizeCall) onMinimizeCall(); }}
-          />
-        </div>
-      )}
+      {/* (The voice deck is a single persistent instance rendered above; it
+          stays mounted and merely hidden while minimized, so the WebRTC session
+          is never torn down. No second instance is needed here.) */}
     </div>
     )}
 

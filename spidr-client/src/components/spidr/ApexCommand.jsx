@@ -5,7 +5,7 @@ import {
   X, ArrowLeft, Lock, Check, Loader2, Download, ChevronRight, Zap
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { entities } from '@/api/apiClient';
+import { entities, auth } from '@/api/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -15,6 +15,18 @@ export default function ApexCommand({ isOpen, onClose, currentTier = 'free', cur
   const [showCancelDialog,  setShowCancelDialog]  = useState(false);
   const [processing,        setProcessing]        = useState(false);
   const queryClient = useQueryClient();
+
+  // Defense-in-depth: if no profile was passed, resolve it so activation can
+  // never silently no-op (the bug where subscribing didn't grant APEX).
+  const resolveProfile = async () => {
+    if (profile?.id) return profile;
+    try {
+      const me = currentUser || await auth.me();
+      if (!me?.id) return null;
+      const rows = await entities.UserProfile.filter({ user_id: me.id });
+      return rows?.[0] || null;
+    } catch { return null; }
+  };
 
   // Billing form state
   const [billing, setBilling] = useState({
@@ -57,8 +69,9 @@ export default function ApexCommand({ isOpen, onClose, currentTier = 'free', cur
       // For now: simulate processing delay then update DB
       await new Promise(r => setTimeout(r, 1800));
 
-      if (profile?.id) {
-        await entities.UserProfile.update(profile.id, {
+      const activeProfile = await resolveProfile();
+      if (activeProfile?.id) {
+        await entities.UserProfile.update(activeProfile.id, {
           apex_tier: 'apex',
           apex_features: {
             thread_skin: 'default',
@@ -74,20 +87,23 @@ export default function ApexCommand({ isOpen, onClose, currentTier = 'free', cur
         // both the user_id-keyed cache (used by HolographicProfile) and the
         // currentUser.id-keyed cache (used by Settings) — they're the same
         // string in practice, but explicit is safer than implicit.
-        queryClient.invalidateQueries({ queryKey: ['userProfile', profile.user_id] });
+        queryClient.invalidateQueries({ queryKey: ['userProfile', activeProfile.user_id] });
         queryClient.invalidateQueries({ queryKey: ['userProfile', currentUser?.id] });
         queryClient.invalidateQueries({ queryKey: ['userProfile'] });
         queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
+        queryClient.invalidateQueries({ queryKey: ['currentUser'] });
         queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
         // Re-sync the shell's currentUser so the APEX tab + badge unlock
         // immediately without a page reload.
         window.dispatchEvent(new CustomEvent('spidr-profile-updated', {
           detail: { profile: { apex_tier: 'apex' } },
         }));
+        toast.success('🕷️ APEX ACTIVATED — Welcome to the network.');
+        setStep('manage');
+      } else {
+        // Don't show a fake success — surface the real problem.
+        toast.error('Could not find your profile to activate APEX. Please reload and try again.');
       }
-
-      toast.success('🕷️ APEX ACTIVATED — Welcome to the network.');
-      setStep('manage');
     } catch (err) {
       toast.error('Payment processing failed. Please try again.');
     } finally {

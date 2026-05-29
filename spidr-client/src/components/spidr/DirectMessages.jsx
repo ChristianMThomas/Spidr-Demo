@@ -531,10 +531,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
 
       {/* Call Deck — uses the SAME VoiceChannel deck as servers (consistent UI,
           APEX threads, context menus, screen share). A synthetic server/channel
-          maps the DM to a unified voice room (channel_id = conversationId). The
-          minimized state is the shell-level MinimizedWebNode. */}
-      {inCall && showCallDeck && (
-        <div className="absolute inset-0 z-50">
+          maps the DM to a unified voice room (channel_id = conversationId).
+          IMPORTANT: while in a call the VoiceChannel stays MOUNTED and is merely
+          hidden when minimized, so the WebRTC session/audio/streams persist. */}
+      {inCall && (
+        <div className={showCallDeck ? 'absolute inset-0 z-50' : 'hidden'} aria-hidden={!showCallDeck}>
           <VoiceChannel
             server={{ id: 'dm', name: `DM — ${displayName}`, channels: [], members: [] }}
             channel={{ id: activeConversationId, name: displayName, type: 'voice' }}

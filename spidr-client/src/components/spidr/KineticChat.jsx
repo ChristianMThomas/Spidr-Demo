@@ -477,8 +477,8 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
       {/* Call Deck — SAME VoiceChannel deck as servers (consistent UI). The
           group maps to a unified voice room via a synthetic server/channel
           (channel_id = groupId). Minimized state is the shell MinimizedWebNode. */}
-      {inCall && showCallDeck && (
-        <div className="absolute inset-0 z-50">
+      {inCall && (
+        <div className={showCallDeck ? 'absolute inset-0 z-50' : 'hidden'} aria-hidden={!showCallDeck}>
           <VoiceChannel
             server={{ id: 'group', name: `Group — ${group?.name || 'Chat'}`, channels: [], members: group?.members || [], owner_id: group?.owner_id }}
             channel={{ id: groupId, name: group?.name || 'Group Chat', type: 'voice' }}

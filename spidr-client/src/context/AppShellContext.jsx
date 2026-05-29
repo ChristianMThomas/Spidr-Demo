@@ -51,6 +51,9 @@ export function AppShellProvider({ children }) {
   // Cross-page hand-off state
   const [selectedServerId, setSelectedServerId] = useState(null);
   const [pendingDM, setPendingDM] = useState(null);
+  // Symbiote Profile Takeover (Patch 2.0): tracks the APEX profile currently
+  // open so the global SymbioteInfectionOverlay can "infect" the viewport.
+  const [activeApexProfile, setActiveApexProfile] = useState({ isApex: false, color: null });
 
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -169,6 +172,8 @@ export function AppShellProvider({ children }) {
     setSelectedServerId,
     pendingDM,
     setPendingDM,
+    activeApexProfile,
+    setActiveApexProfile,
     navigateToDM,
     openServer,
     refreshCurrentUser,
