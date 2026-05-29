@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p15',
+    title: 'Patch 1.5 is now live',
+    date: '2026-05-29',
+    type: 'UPDATE',
+    description: 'APEX Symbiote suite: Profile Takeover overlay, Stream HUD with live telemetry, Frame Vault, Nexus Grid sidebar, and custom Nameplates & Badges. Plus fixes: the minimized call now uses the new Web Node design across servers, DMs, and groups; minimizing no longer disconnects you; the sidebar logo box is gone; APEX activation and access are fixed; and trending servers no longer 404.',
+  },
+  {
     id: 'p14',
     title: 'Patch 1.4 is now live',
     date: '2026-05-24',
