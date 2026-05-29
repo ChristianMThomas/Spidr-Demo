@@ -12,6 +12,7 @@ import HolographicProfile from '@/components/spidr/HolographicProfile';
 import GlobalGhostOverlay from '@/components/spidr/GlobalGhostOverlay';
 import MobileBottomBar from '@/components/spidr/MobileBottomBar';
 import MinimizedWebNode from '@/components/spidr/MinimizedWebNode';
+import SymbioteInfectionOverlay from '@/components/spidr/SymbioteInfectionOverlay';
 import BiomassBalancePill from '@/components/spidr/BiomassBalancePill';
 import UserStatusChip from '@/components/spidr/UserStatusChip';
 import { NotificationProvider } from '@/components/spidr/NotificationCenter';
@@ -308,6 +309,10 @@ export default function SpidrShell() {
             />
           )}
         </AnimatePresence>
+
+        {/* Symbiote Profile Takeover overlay (Patch 2.0) — dormant until an APEX
+            profile modal is opened. z-[100]: above the app, below modals. */}
+        <SymbioteInfectionOverlay />
 
         {/* Global right-click menu portal */}
         <SpidrMenu />

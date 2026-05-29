@@ -1,6 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Headphones, HeadphoneOff, Maximize2, PhoneOff } from 'lucide-react';
+import { entities, auth } from '@/api/apiClient';
 
 /**
  * MinimizedWebNode — the "Suspended Web Node" minimized call UI (Part 4).
@@ -36,9 +37,26 @@ export default function MinimizedWebNode({
   const [hovered, setHovered] = useState(false);
   const [muted, setMuted] = useState(false);
   const [deafened, setDeafened] = useState(false);
+  const [fetchedColor, setFetchedColor] = useState(null);
   const dragControls = useRef(null);
 
-  const color = apexColor && apexColor !== '#3f3f46' ? apexColor : '#FF3333';
+  // Pull the current user's equipped APEX thread skin color so the minimized
+  // node's thread + waveform + glow reflect the customization from the APEX
+  // settings (Thread Skins / Chroma). Falls back to the apexColor prop, then red.
+  useEffect(() => {
+    let alive = true;
+    auth.me?.().then(async (me) => {
+      if (!me?.id) return;
+      const profiles = await entities.UserProfile.filter({ user_id: me.id }).catch(() => []);
+      const c = profiles?.[0]?.apex_features?.thread_skin_color
+        || profiles?.[0]?.accent_color;
+      if (alive && c) setFetchedColor(c);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const resolved = fetchedColor || apexColor;
+  const color = resolved && resolved !== '#3f3f46' ? resolved : '#FF3333';
   const participants = (call.participants || []).slice(0, 3);
 
   // Drag offset → thread stretch. The thread is anchored at screen top; as the

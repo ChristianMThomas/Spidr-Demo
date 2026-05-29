@@ -1,10 +1,13 @@
 import React from 'react';
 import { Crown, Image as ImageIcon, Type, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { toast } from 'sonner';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { FRAME_OPTIONS, getFrameComponent } from './FrameRegistry';
+import UserNameplate from './UserNameplate';
 
 const THEME_COLORS = ['#ffffff', '#FF3333', '#a855f7', '#3b82f6', '#10b981', '#eab308', '#ec4899', '#f97316'];
 
@@ -288,6 +291,203 @@ export default function ApexVisuals({ formData, updateFormData }) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── FRAME VAULT (Patch 2.2) ─────────────────────────────────────── */}
+      <FrameVault formData={formData} updateFormData={updateFormData} accentColor={accentColor} />
+
+      {/* ── NAMEPLATES & BADGES (Patch 2.4) ─────────────────────────────── */}
+      <BadgeAndNameplate formData={formData} updateFormData={updateFormData} accentColor={accentColor} />
+    </div>
+  );
+}
+/**
+ * FrameVault (Patch 2.2) — live 16:9 preview wrapped with the selected frame +
+ * a glassmorphic carousel of frame options and an Equip button. Frame choice is
+ * staged into formData.apex_features.apexFrameStyle (saved by the parent's
+ * "Deploy Apex Configurations" / handleSave).
+ */
+function FrameVault({ formData, updateFormData, accentColor }) {
+  const apexFeatures = formData.apex_features || {};
+  const current = apexFeatures.apexFrameStyle || formData.apexFrameStyle || 'symbiote-tear';
+  const [selected, setSelected] = React.useState(current);
+  const color = apexFeatures.thread_skin_color || accentColor || '#FF3333';
+  const PreviewFrame = getFrameComponent(selected);
+
+  const equip = () => {
+    updateFormData({
+      apexFrameStyle: selected,
+      apex_features: { ...apexFeatures, apexFrameStyle: selected },
+    });
+    toast.success('Frame equipped — Deploy to save.');
+  };
+
+  return (
+    <div className="border border-white/5 rounded-2xl p-6 bg-[#0a0a0a]/60">
+      <div className="flex items-center gap-2 mb-1">
+        <Sparkles size={16} className="text-[#FF3333]" />
+        <h3 className="text-sm font-black text-white">Frame Vault</h3>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">APEX Stream HUD Frames — preview updates live.</p>
+
+      {/* Live 16:9 preview with the selected frame */}
+      <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-gradient-to-br from-zinc-900 to-black border border-white/5 mb-4"
+        style={{ boxShadow: `inset 0 0 20px ${color}44` }}>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="font-mono text-[10px] tracking-[0.3em] text-white/20">PREVIEW STREAM</span>
+        </div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={selected}
+            initial={{ opacity: 0, scale: 1.04 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.3 }}
+            className="absolute inset-0"
+          >
+            <PreviewFrame color={color} />
+          </motion.div>
+        </AnimatePresence>
+        {/* mock telemetry */}
+        <div className="absolute top-2 left-3 font-mono text-[10px] tracking-[0.2em] text-white/70">
+          <span>{'> SYS.RES: '}</span><span style={{ color }}>1920x1080</span><span>{' // '}</span><span style={{ color }}>60</span><span> FPS</span>
+        </div>
+        <div className="absolute top-2 right-3 font-mono text-[10px] tracking-[0.2em] text-white/70 text-right">
+          <span>{'> UPLINK: '}</span><span style={{ color }}>7.2</span><span>{' Mbps // EYES: '}</span><span style={{ color }}>42</span>
+        </div>
+      </div>
+
+      {/* Carousel of frame tiles */}
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {FRAME_OPTIONS.map((opt) => {
+          const Tile = getFrameComponent(opt.id);
+          const isSel = selected === opt.id;
+          return (
+            <button
+              key={opt.id}
+              onClick={() => setSelected(opt.id)}
+              className={`relative shrink-0 w-40 rounded-xl border p-2 text-left transition-all ${isSel ? 'border-[#FF3333] bg-white/[0.04]' : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.04]'}`}
+            >
+              <div className="relative w-full aspect-video rounded-lg overflow-hidden bg-black mb-2">
+                <Tile color={isSel ? color : '#666'} />
+              </div>
+              <p className="text-[11px] font-bold text-white font-mono">{opt.name}</p>
+              <p className="text-[9px] text-gray-500">{opt.desc}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      <button
+        onClick={equip}
+        className="mt-4 w-full py-2.5 rounded-xl font-black text-white transition-transform hover:scale-[1.01]"
+        style={{ background: `linear-gradient(90deg, ${color}, ${color}aa)`, boxShadow: `0 0 18px ${color}55` }}
+      >
+        Equip Frame
+      </button>
+    </div>
+  );
+}
+
+/**
+ * BadgeAndNameplate (Patch 2.4) — custom floating badge upload (client-side
+ * compressed to 64x64), badge glow color, and nameplate style picker. Staged
+ * into both top-level fields and apex_features so every consumer resolves it.
+ */
+function BadgeAndNameplate({ formData, updateFormData, accentColor }) {
+  const apexFeatures = formData.apex_features || {};
+  const badgeUrl = formData.apexBadgeUrl || apexFeatures.apexBadgeUrl || '';
+  const badgeGlow = formData.apexBadgeGlow || apexFeatures.apexBadgeGlow || '#fb923c';
+  const nameplate = formData.apexNameplateStyle || apexFeatures.apexNameplateStyle || 'default';
+  const apexColor = apexFeatures.thread_skin_color || accentColor || '#FF3333';
+
+  // Compress a badge to 64x64 PNG via canvas before upload (no Sharp backend).
+  const handleBadgeUpload = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Please choose an image.'); return; }
+    try {
+      const dataUrl = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result);
+        reader.onerror = rej;
+        reader.readAsDataURL(file);
+      });
+      const img = await new Promise((res, rej) => {
+        const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = dataUrl;
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = 64; canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      // cover-fit into 64x64
+      const scale = Math.max(64 / img.width, 64 / img.height);
+      const w = img.width * scale, h = img.height * scale;
+      ctx.drawImage(img, (64 - w) / 2, (64 - h) / 2, w, h);
+      const blob = await new Promise((res) => canvas.toBlob(res, 'image/png', 0.9));
+      const compressed = new File([blob], 'badge.png', { type: 'image/png' });
+      const { url } = await integrations.Core.UploadFile({ file: compressed });
+      if (url) {
+        updateFormData({ apexBadgeUrl: url, apex_features: { ...apexFeatures, apexBadgeUrl: url } });
+        toast.success('Badge uploaded — Deploy to save.');
+      }
+    } catch { toast.error('Badge upload failed.'); }
+  };
+
+  const NAMEPLATE_STYLES = ['default', 'glitch', 'neon', 'terminal'];
+  const GLOWS = ['#fb923c', '#FF3333', '#a855f7', '#3b82f6', '#10b981', '#ec4899'];
+
+  return (
+    <div className="border border-white/5 rounded-2xl p-6 bg-[#0a0a0a]/60">
+      <div className="flex items-center gap-2 mb-1">
+        <Type size={16} className="text-[#FF3333]" />
+        <h3 className="text-sm font-black text-white">Nameplates & Badges</h3>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">Your visual presence in member lists, DMs, and chats.</p>
+
+      {/* Floating badge */}
+      <div className="flex items-center gap-4 mb-6">
+        <div className="relative w-12 h-12 shrink-0">
+          <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center text-white font-bold">A</div>
+          {badgeUrl && (
+            <div className="absolute -top-2 -left-2 w-6 h-6 rounded-full z-20 overflow-hidden border border-black/40"
+              style={{ boxShadow: `0 0 12px ${badgeGlow}` }}>
+              <img src={badgeUrl} alt="" className="w-full h-full object-cover" />
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col gap-2">
+          <label className="text-[11px] font-bold text-white px-2 py-1 rounded-md bg-zinc-700 hover:bg-zinc-600 cursor-pointer transition-colors w-fit">
+            Upload Badge (64x64)
+            <input type="file" accept="image/*" className="hidden" onChange={handleBadgeUpload} />
+          </label>
+          {badgeUrl && (
+            <button onClick={() => updateFormData({ apexBadgeUrl: '', apex_features: { ...apexFeatures, apexBadgeUrl: '' } })}
+              className="text-[10px] text-red-400 hover:text-red-300 w-fit">Remove badge</button>
+          )}
+        </div>
+      </div>
+
+      {/* Badge glow color */}
+      <p className="text-[11px] uppercase tracking-widest text-gray-500 mb-2">Badge Glow</p>
+      <div className="flex gap-2 mb-6">
+        {GLOWS.map((g) => (
+          <button key={g} onClick={() => updateFormData({ apexBadgeGlow: g, apex_features: { ...apexFeatures, apexBadgeGlow: g } })}
+            className={`w-7 h-7 rounded-lg transition-transform hover:scale-110 ${badgeGlow === g ? 'ring-2 ring-white' : ''}`}
+            style={{ background: g, boxShadow: `0 0 10px ${g}` }} />
+        ))}
+      </div>
+
+      {/* Nameplate style */}
+      <p className="text-[11px] uppercase tracking-widest text-gray-500 mb-2">Nameplate Style</p>
+      <div className="grid grid-cols-2 gap-2">
+        {NAMEPLATE_STYLES.map((s) => (
+          <button key={s} onClick={() => updateFormData({ apexNameplateStyle: s, apex_features: { ...apexFeatures, apexNameplateStyle: s } })}
+            className={`px-4 py-3 rounded-lg bg-zinc-800/60 border transition-all ${nameplate === s ? 'border-[#FF3333]' : 'border-white/5 hover:border-white/20'}`}>
+            <UserNameplate name={`Spidr_User`} style={s} apexColor={apexColor} className="text-sm" />
+            <span className="block text-[9px] text-gray-500 uppercase tracking-widest mt-1">{s}</span>
+          </button>
+        ))}
       </div>
     </div>
   );

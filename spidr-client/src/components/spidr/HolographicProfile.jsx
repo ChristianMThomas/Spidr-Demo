@@ -1,4 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
+import { useAppShell } from '@/context/AppShellContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
@@ -44,6 +45,23 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
     },
     enabled: !!userId && open
   });
+
+  // Symbiote Profile Takeover (Patch 2.0): when an APEX user's profile modal is
+  // open, push their thread color into the global overlay state so it "infects"
+  // the viewport. Reset on close/unmount so the symbiote recedes.
+  const { setActiveApexProfile } = useAppShell();
+  useEffect(() => {
+    const isApex = open && userProfile?.apex_tier === 'apex';
+    if (isApex) {
+      const color = userProfile?.apex_features?.thread_skin_color
+        || userProfile?.accent_color
+        || '#FF3333';
+      setActiveApexProfile({ isApex: true, color });
+    } else {
+      setActiveApexProfile({ isApex: false, color: null });
+    }
+    return () => setActiveApexProfile({ isApex: false, color: null });
+  }, [open, userProfile?.apex_tier, userProfile?.apex_features?.thread_skin_color, userProfile?.accent_color, setActiveApexProfile]);
 
   const { data: friendshipData } = useQuery({
     queryKey: ['friendship', currentUser?.id, userId],

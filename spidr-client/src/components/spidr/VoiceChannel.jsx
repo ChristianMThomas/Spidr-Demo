@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import SpiderLogo from './SpiderLogo';
+import SymbioteStreamHUD from './SymbioteStreamHUD';
 import { playSound } from './SoundEngine';
 import StreamSelector from './StreamSelector';
 import CinemaStage from './CinemaStage';
@@ -447,6 +448,15 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
                     className="col-span-full aspect-video rounded-2xl overflow-hidden border-2 border-[#FF3333] bg-black relative">
                   <video ref={v => { if (v && screenStream) v.srcObject = screenStream; }} autoPlay muted
                     className="w-full h-full object-contain" />
+                  {/* APEX Symbiote HUD over your own stream */}
+                  {isApexUser && (
+                    <SymbioteStreamHUD
+                      stream={screenStream}
+                      viewers={Object.keys(rtc.remoteStreams || {}).length}
+                      apexColor={currentProfile?.apex_features?.thread_skin_color || currentProfile?.accent_color || '#FF3333'}
+                      apexFrameStyle={currentProfile?.apex_features?.apexFrameStyle || currentProfile?.apexFrameStyle || 'symbiote-tear'}
+                    />
+                  )}
                   <div className="absolute top-3 left-3 bg-[#FF3333] text-white text-[10px] font-black px-2.5 py-1 rounded-full animate-pulse">
                     🔴 STREAMING
                   </div>
@@ -461,18 +471,37 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
                   Routed via rtc.screenStreams so a peer's screen never overwrites
                   their webcam tile (screen-share consumer fix). muted +
                   playsInline so browsers don't block autoplay. */}
-              {Object.entries(rtc.screenStreams || {}).map(([sid, stream]) => (
+              {Object.entries(rtc.screenStreams || {}).map(([sid, stream]) => {
+                // Best-effort: resolve the sharing peer's profile so APEX peers
+                // get the Symbiote HUD. Streams key by socketId; we match the
+                // voice session whose socket maps to this stream, then its
+                // profile. If unresolved, no HUD is shown (safe default).
+                const peerSession = (voiceSessions || []).find(s => s.socket_id === sid || s.session_id === sid);
+                const peerProfile = peerSession
+                  ? (profiles || []).find(p => p.user_id === peerSession.user_id)
+                  : null;
+                const peerIsApex = peerProfile?.apex_tier === 'apex';
+                return (
                 <motion.div key={`screen-${sid}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                   className="col-span-full aspect-video rounded-2xl overflow-hidden border-2 border-blue-500 bg-black relative">
                   <video
                     ref={v => { if (v && stream && v.srcObject !== stream) { v.srcObject = stream; v.play?.().catch(() => {}); } }}
                     autoPlay playsInline muted
                     className="w-full h-full object-contain" />
+                  {peerIsApex && (
+                    <SymbioteStreamHUD
+                      stream={stream}
+                      viewers={Object.keys(rtc.remoteStreams || {}).length}
+                      apexColor={peerProfile?.apex_features?.thread_skin_color || peerProfile?.accent_color || '#FF3333'}
+                      apexFrameStyle={peerProfile?.apex_features?.apexFrameStyle || peerProfile?.apexFrameStyle || 'symbiote-tear'}
+                    />
+                  )}
                   <div className="absolute top-3 left-3 bg-blue-600 text-white text-[10px] font-black px-2.5 py-1 rounded-full">
                     🖥️ SCREEN SHARE
                   </div>
                 </motion.div>
-              ))}
+                );
+              })}
 
               {/* Your local video when camera on */}
               {rtc.isVideoOn && rtc.localStream && (

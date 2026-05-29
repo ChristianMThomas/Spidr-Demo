@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Server, Settings, MessageCircle, Plus, Network, Radio, Shield, Blocks, Activity } from 'lucide-react';
 import SpiderLogo from './SpiderLogo';
@@ -12,6 +12,9 @@ import { ServerPulse } from '@/components/ui/PulseBadge';
 
 export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGlass = false, orientation = 'vertical' }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  // Active server id from the URL (/servers/:id) for the Nexus Grid active state.
+  const activeServerId = (location.pathname.match(/\/servers\/([^/]+)/) || [])[1] || null;
   const horizontal = orientation === 'horizontal';
   const [hovered, setHovered] = useState(null);
   const [showApex, setShowApex] = useState(false);
@@ -107,13 +110,12 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
         } z-50 relative transition-all ${isGlass ? "bg-black/30 backdrop-blur-xl border-white/10" : "bg-[#050505] border-white/5"}`}>
       {/* Logo */}
       <motion.div 
-        className={`${horizontal ? 'mr-6' : 'mb-8'} w-12 h-12 bg-red-600/10 rounded-xl flex items-center justify-center border border-red-600/20 cursor-pointer hover:bg-red-600/20 transition-all flex-shrink-0`}
+        className={`${horizontal ? 'mr-6' : 'mb-8'} w-12 h-12 flex items-center justify-center cursor-pointer transition-all flex-shrink-0`}
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setActiveTab('home')}
-        style={{ boxShadow: '0 0 15px rgba(229, 62, 62, 0.2)' }}
       >
-        <SpiderLogo size={32} />
+        <SpiderLogo size={36} />
       </motion.div>
       
       {/* Navigation */}
@@ -209,36 +211,57 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
       
       {/* Server list preview - only show when on servers tab (vertical only) */}
       {activeTab === 'servers' && !horizontal && (
-        <div className="flex flex-col gap-2 w-full px-2 mb-4">
-          <div className="w-8 h-0.5 bg-red-900/50 rounded-full mx-auto mb-2" />
-          
-          <div className="flex flex-col gap-2 max-h-[200px] overflow-y-auto scrollbar-thin">
-            {servers.slice(0, 5).map((server) => (
+        <div className="relative flex flex-col gap-2 w-full px-2 mb-4">
+          {/* Nexus Grid web strand — a subtle bezier curve woven behind the
+              nodes (z-0). Nodes sit on top at z-10. */}
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            style={{ zIndex: 0 }}
+            preserveAspectRatio="none"
+            viewBox="0 0 80 400"
+            aria-hidden="true"
+          >
+            <path d="M 40 0 Q 60 200 40 400" stroke="#8b0000" strokeWidth="1.5" fill="none" opacity="0.4" />
+          </svg>
+
+          <div className="relative z-10 w-8 h-0.5 bg-red-900/50 rounded-full mx-auto mb-2" />
+
+          <div className="relative z-10 flex flex-col gap-2 max-h-[200px] overflow-y-auto scrollbar-thin">
+            {servers.slice(0, 5).map((server) => {
+              const isActive = activeServerId === server.id;
+              return (
               <div key={server.id} className="relative mx-auto">
+                {/* Left-edge active indicator pill (replaces Discord-style dots) */}
+                {isActive && (
+                  <div className="absolute left-[-10px] top-1/2 -translate-y-1/2 w-[6px] h-10 bg-[#dc2626] rounded-r-md" />
+                )}
                 <motion.button
                   onClick={() => navigate(`/servers/${server.id}`)}
                   onContextMenu={(e) => triggerMenu(e, 'server_sidebar', { id: server.id, name: server.name })}
                   onMouseEnter={() => playSound('hover')}
-                  className="w-12 h-12 rounded-2xl bg-zinc-800/50 overflow-hidden hover:rounded-xl transition-all duration-200"
+                  className="w-12 h-12 rounded-2xl overflow-hidden transition-all duration-200"
+                  style={isActive ? { boxShadow: '0 0 25px rgba(220,38,38,0.5)' } : {}}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >
                   {server.icon_url ? (
                     <img src={server.icon_url} alt={server.name} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-red-800 to-red-950 flex items-center justify-center text-white font-bold text-lg">
+                    <div className="w-full h-full bg-[#8b0000] flex items-center justify-center text-white font-bold text-lg">
                       {server.name?.charAt(0).toUpperCase()}
                     </div>
                   )}
                 </motion.button>
-                <ServerPulse unread={false} mentions={0} />
               </div>
-            ))}
+              );
+            })}
           </div>
-          
+
+          {/* Add Server node — dashed squircle, transparent center so the web
+              strand shows through. */}
           <motion.button
             onClick={onCreateServer}
-            className="w-12 h-12 rounded-2xl bg-zinc-800/30 text-green-500 hover:bg-green-600 hover:text-white flex items-center justify-center transition-all duration-200 mx-auto"
+            className="relative z-10 w-12 h-12 rounded-2xl bg-transparent border-2 border-dashed border-gray-600/80 text-gray-500 hover:border-[#dc2626] hover:text-[#dc2626] flex items-center justify-center transition-all duration-200 mx-auto"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >

@@ -8,8 +8,10 @@ import ApexCommand from './ApexCommand';
 
 export default function ApexStore({ isOpen, onClose, currentTier = 'free', currentUser: propUser, profile: propProfile }) {
   const [showCommand, setShowCommand] = useState(false);
-  const { data: currentUser } = useQuery({ queryKey: ['currentUser'], queryFn: () => auth.me(), staleTime: 120000 });
-  const { data: profile } = useQuery({ queryKey: ['userProfile', currentUser?.id], queryFn: () => entities.UserProfile.filter({ user_id: currentUser.id }).then(r => r[0]), enabled: !!currentUser?.id, staleTime: 60000 });
+  const { data: fetchedUser } = useQuery({ queryKey: ['currentUser'], queryFn: () => auth.me(), staleTime: 120000 });
+  const currentUser = propUser || fetchedUser;
+  const { data: fetchedProfile } = useQuery({ queryKey: ['userProfile', currentUser?.id], queryFn: () => entities.UserProfile.filter({ user_id: currentUser.id }).then(r => r[0]), enabled: !!currentUser?.id, staleTime: 60000 });
+  const profile = propProfile || fetchedProfile;
   
   if (!isOpen) return null;
 
@@ -132,6 +134,8 @@ export default function ApexStore({ isOpen, onClose, currentTier = 'free', curre
         isOpen={showCommand} 
         onClose={() => setShowCommand(false)}
         currentTier={currentTier}
+        currentUser={currentUser}
+        profile={profile}
       />
     </div>
   ), document.body);
