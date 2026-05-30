@@ -330,6 +330,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const handleStartCall = () => {
     playSound('join');
     setInCall(true);
+    setShowCallDeck(true); // open the full VoiceChannel deck immediately, like servers
     createSessionMutation.mutate({
       server_id: 'group',
       channel_id: groupId,
@@ -588,7 +589,6 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
       {/* Neural Header */}
       <div 
         className="h-14 flex items-center justify-between px-4 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-20 flex-shrink-0 transition-all duration-500"
-        style={{ marginTop: inCall ? '300px' : '0' }}
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <Button size="icon" variant="ghost" onClick={onBack} className="text-zinc-500 hover:text-white shrink-0 w-8 h-8">

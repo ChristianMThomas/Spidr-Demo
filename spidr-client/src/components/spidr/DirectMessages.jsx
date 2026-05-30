@@ -297,6 +297,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const handleStartCall = (skipInvite = false) => {
     playSound('join');
     setInCall(true);
+    setShowCallDeck(true); // open the full VoiceChannel deck immediately, like servers
     createSessionMutation.mutate({
       server_id: 'dm',
       channel_id: activeConversationId,
@@ -546,94 +547,13 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         </div>
       )}
 
-      {/* Call Web Display */}
-      {false && inCall && (
-        <motion.div 
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          className="bg-black/80 backdrop-blur-xl border-b border-red-900/30 p-4 relative z-10"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-sm text-green-500 font-mono">ACTIVE CALL</span>
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setInCall(false)}
-              className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
-            >
-              End Call
-            </Button>
-          </div>
-          
-          {/* Web with hanging participants */}
-          <div className="flex justify-center gap-8 py-4">
-            {/* Current User */}
-            <div className="relative flex flex-col items-center">
-              <motion.div 
-                className="w-[2px] bg-[#FF3333] opacity-40 origin-top"
-                style={{ height: 40 }}
-                animate={{ x: [-1, 1, -1] }}
-                transition={{ repeat: Infinity, duration: 0.5 }}
-              />
-              <motion.div
-                initial={{ y: -50, opacity: 0 }}
-                animate={{ y: 0, opacity: 1, rotate: [0, 2, -2, 0] }}
-                transition={{ rotate: { repeat: Infinity, duration: 3, ease: "easeInOut" } }}
-              >
-                <div className="w-12 h-12 rounded-full border-2 border-green-400 bg-black overflow-hidden shadow-[0_0_15px_rgba(34,197,94,0.4)]">
-                  <Avatar className="w-full h-full">
-                    {currentUser?.avatar_url ? (
-                      <AvatarImage src={currentUser.avatar_url} />
-                    ) : (
-                      <AvatarFallback className="bg-red-900 text-white">
-                        {currentUser?.full_name?.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    )}
-                  </Avatar>
-                </div>
-                <div className="text-[10px] text-gray-400 text-center mt-2 whitespace-nowrap">You</div>
-              </motion.div>
-            </div>
-
-            {/* Recipient */}
-            <div className="relative flex flex-col items-center">
-              <motion.div 
-                className="w-[2px] bg-[#FF3333] opacity-40 origin-top"
-                style={{ height: 55 }}
-                animate={{ x: [1, -1, 1] }}
-                transition={{ repeat: Infinity, duration: 0.6 }}
-              />
-              <motion.div
-                initial={{ y: -50, opacity: 0 }}
-                animate={{ y: 0, opacity: 1, rotate: [0, -2, 2, 0] }}
-                transition={{ rotate: { repeat: Infinity, duration: 3.2, ease: "easeInOut" } }}
-              >
-                <div className="w-12 h-12 rounded-full border-2 border-[#FF3333] bg-black overflow-hidden shadow-[0_0_15px_rgba(255,51,51,0.4)]">
-                  <Avatar className="w-full h-full">
-                    {displayAvatar ? (
-                      <AvatarImage src={displayAvatar} />
-                    ) : (
-                      <AvatarFallback className="bg-red-900 text-white">
-                        {displayName?.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    )}
-                  </Avatar>
-                </div>
-                <div className="text-[10px] text-gray-400 text-center mt-2 whitespace-nowrap">{displayName}</div>
-              </motion.div>
-            </div>
-          </div>
-        </motion.div>
-      )}
+      {/* (Legacy in-chat call banner removed — the minimized call now renders
+          as the shared MinimizedWebNode at the shell, and the full deck is the
+          VoiceChannel overlay above.) */}
       
       {/* Neural Header */}
       <div 
         className="h-14 flex items-center justify-between px-4 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-20 flex-shrink-0 transition-all duration-500"
-        style={{ marginTop: inCall ? '300px' : '0' }}
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {onBack && (
