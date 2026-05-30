@@ -12,6 +12,7 @@ import HolographicProfile from '@/components/spidr/HolographicProfile';
 import GlobalGhostOverlay from '@/components/spidr/GlobalGhostOverlay';
 import MobileBottomBar from '@/components/spidr/MobileBottomBar';
 import MinimizedWebNode from '@/components/spidr/MinimizedWebNode';
+import VoiceChannel from '@/components/spidr/VoiceChannel';
 import SymbioteInfectionOverlay from '@/components/spidr/SymbioteInfectionOverlay';
 import BiomassBalancePill from '@/components/spidr/BiomassBalancePill';
 import UserStatusChip from '@/components/spidr/UserStatusChip';
@@ -62,7 +63,7 @@ function deriveTab(pathname) {
 }
 
 export default function SpidrShell() {
-  const { currentUser, userLoaded, appTheme, activeCall, isCallMinimized, setActiveCall, setIsCallMinimized } = useAppShell();
+  const { currentUser, userLoaded, appTheme, activeCall, isCallMinimized, setActiveCall, setIsCallMinimized, voiceSession, voiceDeckExpanded, setVoiceDeckExpanded, endVoiceSession } = useAppShell();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -279,31 +280,47 @@ export default function SpidrShell() {
           onOpenSidebar={() => setMobileSidebarOpen(true)}
         />
 
+        {/* Patch 2.6: the ONE persistent voice deck. Mounted here at the shell
+            (outside <Outlet/>) so it never unmounts on navigation — the WebRTC
+            session + audio survive moving around the app. Shown fullscreen when
+            expanded; kept mounted-but-hidden when minimized so audio keeps
+            playing while the MinimizedWebNode drives controls. */}
+        {voiceSession && (
+          <div
+            className={voiceDeckExpanded && !isCallMinimized
+              ? 'fixed inset-0 z-[150] bg-[#0a0a0a]'
+              : 'hidden'}
+            aria-hidden={!(voiceDeckExpanded && !isCallMinimized)}
+          >
+            <VoiceChannel
+              server={voiceSession.server}
+              channel={voiceSession.channel}
+              currentUser={voiceSession.currentUser || currentUser}
+              onLeave={() => { endVoiceSession(); }}
+              onMinimize={() => { setVoiceDeckExpanded(false); setIsCallMinimized(true); }}
+            />
+          </div>
+        )}
+
         {/* Minimized voice call — keeps the WebRTC session alive across pages.
-            On mobile we shift it left of the bottom bar; on desktop it sits
-            above the floating dock. Includes inline mute toggle and a call
-            timer so users can manage the call without re-entering. */}
+            Expanding just un-hides the shell deck (no navigation needed, since
+            the deck lives here now). */}
         <AnimatePresence>
-          {activeCall && isCallMinimized && (
+          {voiceSession && isCallMinimized && (
             <MinimizedWebNode
-              call={activeCall}
+              call={activeCall || {}}
               apexColor={activeCall?.apexThreadColor || '#3f3f46'}
               speaking={false}
               onExpand={() => {
-                // Part 6: returning to the call ONLY restores the view. If we
-                // navigated away from the server page, route back so the
-                // VoiceChannel re-mounts; never disconnect here.
-                if (activeCall?.serverId) {
-                  navigate(`/servers/${activeCall.serverId}`);
-                }
+                // The deck is mounted at the shell, so just un-hide it. No route
+                // change and no re-mount → the call is never interrupted.
+                setVoiceDeckExpanded(true);
                 setIsCallMinimized(false);
               }}
               onEnd={() => {
-                // Tear down the live RTC session (VoiceChannel listens), then
-                // clear the shell call state.
+                // Real disconnect: VoiceChannel listens for this to tear down RTC.
                 window.dispatchEvent(new Event('spidr-call-disconnect'));
-                setActiveCall(null);
-                setIsCallMinimized(false);
+                endVoiceSession();
                 toast.info('Left voice channel');
               }}
             />

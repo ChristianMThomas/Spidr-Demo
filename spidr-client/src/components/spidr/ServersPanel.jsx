@@ -274,7 +274,7 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
 function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall, onBackToServerList }) {
   const queryClient = useQueryClient();
   const { triggerMenu } = useMenu();
-  const { isCallMinimized } = useAppShell();
+  const { isCallMinimized, startVoiceSession } = useAppShell();
   const [searchParams, setSearchParams] = useSearchParams();
   // Initial channel honors ?channel= param (used by activity-feed deep links)
   // so clicking a mention notification jumps straight to the right channel.
@@ -1062,10 +1062,10 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           toast.success('Audio bitrate boosted to 384kbps for this channel');
         } else if (action === 'start-stream') {
           const ch = channels.find(c => c.id === data?.id);
-          if (ch) { setActiveVoiceChannel(ch); if (onVoiceJoin) onVoiceJoin(server, ch); }
+          if (ch) { setActiveVoiceChannel(ch); startVoiceSession({ server, channel: ch, currentUser }); if (onVoiceJoin) onVoiceJoin(server, ch); }
         } else if (action === 'join-voice') {
           const ch = channels.find(c => c.id === data?.id);
-          if (ch) { setActiveVoiceChannel(ch); if (onVoiceJoin) onVoiceJoin(server, ch); }
+          if (ch) { setActiveVoiceChannel(ch); startVoiceSession({ server, channel: ch, currentUser }); if (onVoiceJoin) onVoiceJoin(server, ch); }
         } else if (action === 'disconnect-all' && isAdmin) {
           const sessions = await entities.VoiceSession.filter({ server_id: server.id, channel_id: data?.id });
           for (const s of sessions) { await entities.VoiceSession.delete(s.id); }
@@ -1286,6 +1286,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     users={channelUsers}
                     onJoin={() => {
                       setActiveVoiceChannel(channel);
+                      startVoiceSession({ server, channel, currentUser });
                       if (onVoiceJoin) onVoiceJoin(server, channel);
                     }}
                   />
@@ -1296,27 +1297,9 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         </ScrollArea>
       </div>
 
-      {/* Voice Channel or Chat Area */}
-      {/* Single persistent VoiceChannel — never unmounts while in a call, so
-          minimizing only hides it (CSS) and the WebRTC session, audio, and
-          remote streams stay fully alive. Expanding un-hides it. */}
-      {activeVoiceChannel && (
-        <div className={isCallMinimized ? 'hidden' : 'flex-1 flex flex-col relative min-w-0'} aria-hidden={isCallMinimized}>
-          <VoiceChannel
-            server={server}
-            channel={activeVoiceChannel}
-            currentUser={currentUser}
-            onLeave={() => {
-              setActiveVoiceChannel(null);
-              if (onVoiceLeave) onVoiceLeave();
-            }}
-            onMinimize={() => { if (onMinimizeCall) onMinimizeCall(); }}
-          />
-        </div>
-      )}
-      {/* Chat view — shown when no full call deck is occupying the pane (either
-          not in a call, or in a call that's been minimized). */}
-      {(!activeVoiceChannel || isCallMinimized) && (
+      {/* Voice deck now lives at the shell (SpidrShell) so it persists across
+          navigation. This pane always shows the channel chat. */}
+      {(
       <div className={`${
         mobileView === 'chat' ? 'flex' : 'hidden md:flex'
       } flex-1 flex-col bg-zinc-900 min-w-0`}>

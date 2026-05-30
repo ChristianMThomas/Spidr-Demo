@@ -2379,3 +2379,88 @@ Verified: full esbuild bundle of the app — zero warnings/errors; mojibake-free
   `useWebRTC.js` line ~444). The correct fix is to lift the voice session to the
   shell level so it survives route changes. This is a larger architectural change
   and is deliberately left as a focused next step rather than rushed here.
+
+---
+
+## 61. Patch 2.6 — Global voice state (no disconnect on navigation) + radial node
+
+### Part 1 — Hoisted the WebRTC session to the shell (fixes disconnect-on-nav)
+Root cause of calls dropping when navigating: `useWebRTC` (and the remote
+`<audio>` elements) lived inside `VoiceChannel`, which was mounted INSIDE the
+page components (ServersPanel / DirectMessages / KineticChat). Changing pages
+unmounted the page → unmounted VoiceChannel → `useWebRTC`'s cleanup fired
+`leave()` → disconnect.
+Fix:
+- `AppShellContext` now holds the full voice deck props: `voiceSession`
+  ({ server, channel, currentUser }), `voiceDeckExpanded`, plus
+  `startVoiceSession()` / `endVoiceSession()`.
+- ONE persistent `VoiceChannel` is now mounted in `SpidrShell` (outside
+  `<Outlet/>`), so it survives every route change — the WebRTC session, audio
+  elements, and remote streams are never torn down by navigation. Shown
+  fullscreen (`z-[150]`) when expanded; kept mounted-but-`hidden` when minimized
+  so audio keeps playing.
+- `ServersPanel`, `DirectMessages`, and `KineticChat` no longer mount their own
+  VoiceChannel; they call `startVoiceSession(...)` to start/join (servers pass
+  the real server+channel; DM/group pass their synthetic room objects), and
+  `endVoiceSession()` to leave. Their chat panes always render now.
+
+### Part 2 — Global floating node
+The `MinimizedWebNode` is mounted in `SpidrShell` (outside routing) and shows
+when `voiceSession && isCallMinimized`, so it persists across all pages.
+Expanding just un-hides the shell deck (no navigation, no re-mount → call never
+interrupted).
+
+### Part 3 — Radial node visuals
+`MinimizedWebNode` has the avatar center, a pulsing glow ring, the radial
+waveform, framer-motion hover-orbital action buttons (Mute / Deafen / Maximize /
+Disconnect, spring `stiffness: 420`), and now a meta pill below the node showing
+a live call timer + participant count (`00:00 • N`) with its own internal timer.
+Intentional deviation from the brief: the ring/accents use the user's APEX
+thread color (red fallback) rather than hardcoded blue, to stay consistent with
+the APEX color-customization added in earlier patches.
+
+### Files
+Modified: `context/AppShellContext.jsx`, `components/SpidrShell.jsx`,
+`components/spidr/MinimizedWebNode.jsx`, `components/spidr/ServersPanel.jsx`,
+`components/spidr/DirectMessages.jsx`, `components/spidr/KineticChat.jsx`.
+
+Verified: full esbuild bundle of the app (whole import graph + every JSX file) —
+zero warnings, zero errors — on both the working copy and the merged tree.
+Confirmed no leftover page-level `<VoiceChannel>` mounts and only one
+`MinimizedWebNode` renders in the live shell. Mojibake-free.
+
+### Caveats (need runtime check)
+- This is verified by build, not a live multi-user session. The key things to
+  smoke-test: start a call, navigate across pages/scroll THE WEB — you should
+  stay connected; minimize/expand should not interrupt audio; leaving (or being
+  removed) should disconnect.
+- The page-level `onVoiceJoin`/`onMinimizeCall` handlers still set the
+  `activeCall` metadata + `isCallMinimized` flag (used by the node for
+  participant info); they now complement `startVoiceSession` rather than
+  mounting a deck.
+
+---
+
+## 62. Minimized voice node — matched to the reference (example1.mp4)
+
+Rebuilt `MinimizedWebNode` to match the reference video exactly (I extracted
+frames to confirm the design):
+- **Blue radial tick ring:** 32 discrete short radial lines around the avatar
+  (alternating lengths), glowing blue (`#3b82f6`), brightening + gently scaling
+  when speaking — replacing the previous jagged single-path "symbiote" ring.
+- **Clean circular avatar:** a 52px dark circle with the participant's image
+  (mic-icon fallback) and a soft blue glow.
+- **Meta pill:** dark rounded pill below the node showing `MM:SS · N`
+  (live timer · participant count), timer in blue.
+- **Orbital hover buttons** matching the video's positions: Mute (upper-right),
+  Disconnect (lower-left, red), Expand (lower-right, blue), popping outward on
+  hover with a framer spring; each stops propagation so the wrapper click
+  (expand) never fires from a button.
+- Still hangs from a thin thread at the top and is draggable with spring physics.
+
+Note: per the reference, the ring is blue (not the APEX thread color) — this
+matches the video. The deafen button was dropped to match the video's 3-button
+layout (mute/disconnect/expand).
+
+Verified: full esbuild bundle (working copy + merged tree) — zero warnings/
+errors; mojibake-free.
