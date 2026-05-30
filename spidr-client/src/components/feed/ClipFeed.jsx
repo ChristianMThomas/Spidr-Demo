@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Heart, MessageCircle, Share2, Volume2, VolumeX, Play,
-  Bookmark, Sparkles, Send, Users,
+  Bookmark, Sparkles, Send, Users, Lock,
 } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { entities, algorithm } from '@/api/apiClient';
@@ -14,6 +14,7 @@ import EmojiPicker from '@/components/spidr/EmojiPicker';
 import ShareWeb from '@/components/spidr/ShareWeb';
 import { useMenu } from '@/components/MenuContext';
 import DataDisc from '@/components/feed/DataDisc';
+import { isTrending, tensionScore } from '@/lib/tensionScore';
 import ScrollingAudioBanner from '@/components/feed/ScrollingAudioBanner';
 import FrequencyArchive from '@/components/feed/FrequencyArchive';
 
@@ -232,10 +233,14 @@ function ClipCard({
   const [shareMenu, setShareMenu] = useState(false);
   const [shareWeb, setShareWeb] = useState(false);
   const [freqAudio, setFreqAudio] = useState(null);
+  const [striking, setStriking] = useState(false);
+  const [encrypting, setEncrypting] = useState(false);
   const queryClient = useQueryClient();
   const menu = useMenu();
   const navigate = useNavigate();
   const hasLiked = clip.likes?.includes(currentUser?.id);
+  // The Pulse (Patch 2.11): trending clips breathe + glow.
+  const trending = isTrending(clip);
 
   // Handle web_post right-click actions for this clip.
   React.useEffect(() => {
@@ -247,8 +252,23 @@ function ClipCard({
         toast.success('Link copied!');
       } else if (action === 'sling') {
         setShareWeb(true);
-      } else if (action === 'save') {
+      } else if (action === 'save' || action === 'encrypt') {
         saveMut.mutate();
+        if (action === 'encrypt') {
+          setEncrypting(true);
+          setTimeout(() => setEncrypting(false), 1400);
+        }
+      } else if (action === 'web-strike') {
+        // APEX Web-Strike: slam a reaction + shake the card.
+        setStriking(true);
+        try { navigator.vibrate?.(80); } catch {}
+        setTimeout(() => setStriking(false), 600);
+        toast.success('⚡ Web-Strike landed!');
+      } else if (action === 'overclock') {
+        // APEX Overclock: boost the post's algorithm weight for 1 hour.
+        entities.Clip.update(clip.id, { overclock_until: new Date(Date.now() + 3600_000).toISOString() })
+          .then(() => { queryClient.invalidateQueries({ queryKey: ['clips'] }); toast.success('Post overclocked for 1 hour 🔥'); })
+          .catch(() => toast.error('Overclock failed'));
       } else if (action === 'profile' && data.author_id) {
         window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: data.author_id } }));
       } else if (action === 'report') {
@@ -483,9 +503,13 @@ function ClipCard({
       style={{ height: '82vh' }}
     >
       {/* Video card */}
-      <div
-        className="relative bg-zinc-900 rounded-2xl overflow-hidden border border-white/[0.08] shadow-2xl flex-shrink-0"
-        style={{ aspectRatio: aspectCss, maxHeight: '82vh' }}
+      <motion.div
+        className="relative bg-zinc-900 rounded-2xl overflow-hidden border shadow-2xl flex-shrink-0"
+        style={{ aspectRatio: aspectCss, maxHeight: '82vh', borderColor: trending ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.08)' }}
+        animate={striking
+          ? { x: [0, -8, 8, -6, 6, 0], boxShadow: '0 0 60px rgba(239,68,68,0.8)' }
+          : trending ? { boxShadow: ['0 0 22px rgba(239,68,68,0.25)', '0 0 46px rgba(239,68,68,0.55)', '0 0 22px rgba(239,68,68,0.25)'] } : {}}
+        transition={striking ? { duration: 0.5 } : trending ? { duration: 2.6, repeat: Infinity, ease: 'easeInOut' } : {}}
         onContextMenu={(e) => {
           if (!menu?.triggerMenu) return;
           e.preventDefault();
@@ -496,6 +520,38 @@ function ClipCard({
           });
         }}
       >
+        {encrypting && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-40 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center font-mono pointer-events-none"
+          >
+            <Lock className="w-8 h-8 text-green-400 mb-3" />
+            <motion.div
+              className="text-green-400 text-xs tracking-widest"
+              animate={{ opacity: [0.4, 1, 0.4] }}
+              transition={{ duration: 0.6, repeat: Infinity }}
+            >
+              &gt; ENCRYPTING_NODE...
+            </motion.div>
+            <div className="text-green-600 text-[10px] mt-1 tracking-widest">SAVED TO VAULT</div>
+          </motion.div>
+        )}
+        {trending && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="absolute top-3 left-3 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/70 backdrop-blur-md border border-red-500/50 pointer-events-none"
+          >
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-red-500"
+              animate={{ opacity: [1, 0.3, 1], scale: [1, 1.4, 1] }}
+              transition={{ duration: 1.4, repeat: Infinity }}
+            />
+            <span className="text-[9px] font-black tracking-widest text-red-400 uppercase">Trending</span>
+          </motion.div>
+        )}
         <video
           ref={videoRef}
           src={clip.video_url}
@@ -656,7 +712,7 @@ function ClipCard({
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Comments pane */}
       <AnimatePresence>

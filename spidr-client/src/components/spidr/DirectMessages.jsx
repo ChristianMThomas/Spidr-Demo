@@ -31,7 +31,7 @@ import SignalTracker from './SignalTracker';
 export default function DirectMessages({ conversation, currentUser, onBack, recipientId, conversationId, onVoiceJoin, onVoiceLeave, onMinimizeCall }) {
   const queryClient = useQueryClient();
   const typingTimeoutRef = useRef(null);
-  const { triggerMenu } = useMenu();
+  const { triggerMenu, bindLongPress } = useMenu();
   const [message, setMessage] = useState('');
   const [reportTarget, setReportTarget] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
@@ -700,8 +700,10 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
                   <div 
                     key={msg.id} 
                     data-msg-id={msg.id}
-                    className="group relative"
+                    className="group relative select-none md:select-auto"
+                    style={{ WebkitTouchCallout: 'none' }}
                     onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, sender_id: msg.sender_id, sender_name: msg.sender_name, sender_avatar: msg.sender_avatar, attachments: msg.attachments })}
+                    {...bindLongPress('message', { id: msg.id, content: msg.content, sender_id: msg.sender_id, sender_name: msg.sender_name, sender_avatar: msg.sender_avatar, attachments: msg.attachments })}
                   >
                     <MessageItem
                       msg={msg}

@@ -13,6 +13,7 @@ import GhostOverlay from './GhostOverlay';
 import MessageItem from './MessageItem';
 import CatchMeUpBar from './CatchMeUpBar';
 import HolographicProfile from './HolographicProfile';
+import CommunityPanel from './CommunityPanel';
 import GroupChatMembers from './GroupChatMembers';
 import GroupChatSettings from './GroupChatSettings';
 import CallAVControls from './CallAVControls';
@@ -61,7 +62,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   useEffect(() => { setReplyingTo(null); }, [groupId]);
 
 
-  const { triggerMenu } = useMenu();
+  const { triggerMenu, bindLongPress } = useMenu();
 
   const deleteMessageMutation = useMutation({
     mutationFn: (id) => entities.GroupChatMessage.delete(id),
@@ -670,8 +671,10 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
               <div 
                 key={msg.id} 
                 data-msg-id={msg.id}
-                className="group relative"
+                className="group relative select-none md:select-auto"
+                style={{ WebkitTouchCallout: 'none' }}
                 onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, sender_id: msg.sender_id, sender_name: msg.sender_name, sender_avatar: msg.sender_avatar, attachments: msg.attachments })}
+                {...bindLongPress('message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, sender_id: msg.sender_id, sender_name: msg.sender_name, sender_avatar: msg.sender_avatar, attachments: msg.attachments })}
               >
                 <MessageItem
                   msg={msg}
@@ -790,6 +793,30 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           textEffect={textEffect}
           onTextEffectChange={setTextEffect}
         />
+      </div>
+
+      {/* Patch 2.7: group-chat member list (right sidebar). Reuses CommunityPanel
+          in flat 'group' mode — fills the right column so there's no gray void.
+          Group members may be stored as plain user-id strings or as objects, so
+          we normalize to { user_id, user_name } and enrich the name from fetched
+          profiles where available. */}
+      <div className="hidden lg:block h-full shrink-0">
+      <CommunityPanel
+        chatType="group"
+        server={{ id: 'group', name: group?.name || 'Group Chat', owner_id: group?.owner_id, created_by: group?.created_by, members: (group?.members || []) }}
+        members={(group?.members || []).map((m) => {
+          const uid = typeof m === 'string' ? m : (m?.user_id || m?.id);
+          const prof = profilesByUserId?.[uid];
+          return {
+            user_id: uid,
+            user_name: (typeof m === 'object' && (m.user_name || m.full_name)) || prof?.display_name || prof?.user_name || 'Spider',
+            nickname: (typeof m === 'object' && m.nickname) || undefined,
+            role: 'member',
+          };
+        })}
+        currentUser={currentUser}
+        onSelectUser={(id) => setSelectedProfileUserId(id)}
+      />
       </div>
 
       {/* Spidr Protocol overlay renders globally (GlobalGhostOverlay at the

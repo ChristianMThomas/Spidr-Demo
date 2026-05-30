@@ -14,6 +14,7 @@ import MobileBottomBar from '@/components/spidr/MobileBottomBar';
 import MinimizedWebNode from '@/components/spidr/MinimizedWebNode';
 import VoiceChannel from '@/components/spidr/VoiceChannel';
 import SymbioteInfectionOverlay from '@/components/spidr/SymbioteInfectionOverlay';
+import ImageLightboxOverlay from '@/components/spidr/ImageLightboxOverlay';
 import BiomassBalancePill from '@/components/spidr/BiomassBalancePill';
 import UserStatusChip from '@/components/spidr/UserStatusChip';
 import { NotificationProvider } from '@/components/spidr/NotificationCenter';
@@ -174,7 +175,7 @@ export default function SpidrShell() {
   // The route guards in App.jsx redirect to /login if needed.
   if (!userLoaded) {
     return (
-      <div className="w-full h-screen bg-black flex items-center justify-center">
+      <div className="w-full h-[100dvh] bg-black flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-zinc-700 border-t-red-500 rounded-full animate-spin" />
       </div>
     );
@@ -184,7 +185,7 @@ export default function SpidrShell() {
     <MenuProvider>
       <NotificationProvider currentUser={currentUser}>
       <div
-        className={`w-full h-screen flex relative overflow-hidden text-white ${
+        className={`w-full h-[100dvh] flex relative overflow-hidden text-white ${
           (sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'md:flex-col' : 'flex-row'
         }`}
         style={getBackgroundStyle()}
@@ -288,7 +289,7 @@ export default function SpidrShell() {
         {voiceSession && (
           <div
             className={voiceDeckExpanded && !isCallMinimized
-              ? 'fixed inset-0 z-[150] bg-[#0a0a0a]'
+              ? 'fixed inset-0 z-[150] bg-[#0a0a0a] flex flex-col'
               : 'hidden'}
             aria-hidden={!(voiceDeckExpanded && !isCallMinimized)}
           >
@@ -330,6 +331,10 @@ export default function SpidrShell() {
         {/* Symbiote Profile Takeover overlay (Patch 2.0) — dormant until an APEX
             profile modal is opened. z-[100]: above the app, below modals. */}
         <SymbioteInfectionOverlay />
+
+        {/* Patch 2.9: global image lightbox — mounted at the shell root so it
+            covers the viewport without being clipped by chat overflow. */}
+        <ImageLightboxOverlay />
 
         {/* Global right-click menu portal */}
         <SpidrMenu />

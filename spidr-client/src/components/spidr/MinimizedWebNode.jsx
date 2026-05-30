@@ -38,6 +38,7 @@ export default function MinimizedWebNode({
   const [muted, setMuted] = useState(false);
   const [deafened, setDeafened] = useState(false);
   const [fetchedColor, setFetchedColor] = useState(null);
+  const [myAvatar, setMyAvatar] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const dragControls = useRef(null);
 
@@ -49,17 +50,19 @@ export default function MinimizedWebNode({
     return () => clearInterval(id);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Pull the current user's equipped APEX thread skin color so the minimized
-  // node's thread + waveform + glow reflect the customization from the APEX
-  // settings (Thread Skins / Chroma). Falls back to the apexColor prop, then red.
+  // Pull the current user's avatar + equipped APEX thread skin color so the
+  // minimized node shows their profile pic and reflects their customization.
+  // Falls back to the apexColor prop, then red.
   useEffect(() => {
     let alive = true;
     auth.me?.().then(async (me) => {
       if (!me?.id) return;
+      if (alive && me.avatar_url) setMyAvatar(me.avatar_url);
       const profiles = await entities.UserProfile.filter({ user_id: me.id }).catch(() => []);
       const c = profiles?.[0]?.apex_features?.thread_skin_color
         || profiles?.[0]?.accent_color;
       if (alive && c) setFetchedColor(c);
+      if (alive && !me.avatar_url && profiles?.[0]?.avatar_url) setMyAvatar(profiles[0].avatar_url);
     }).catch(() => {});
     return () => { alive = false; };
   }, []);
@@ -67,6 +70,8 @@ export default function MinimizedWebNode({
   const resolved = fetchedColor || apexColor;
   const color = resolved && resolved !== '#3f3f46' ? resolved : '#FF3333';
   const participants = (call.participants || []).slice(0, 3);
+  // Avatar shown in the node: first participant's, else the current user's.
+  const nodeAvatar = participants[0]?.avatar || myAvatar;
 
   // Drag offset → thread stretch. The thread is anchored at screen top; as the
   // node is dragged down/around, the thread visually lengthens.
@@ -112,29 +117,30 @@ export default function MinimizedWebNode({
   const speakingBoost = speaking ? 1 : 0.55;
 
   return (
-    <div className="fixed top-0 right-12 z-[60] pointer-events-none" style={{ width: 0, height: 0 }}>
-      {/* Thin thread from the top of the screen to the node */}
-      <motion.div
-        className="absolute left-1/2 top-0 origin-top pointer-events-none"
-        style={{
-          width: 1.5,
-          height: useTransform(threadLen, (l) => 60 + l),
-          background: `linear-gradient(to bottom, ${ringColor}, ${ringColor}22)`,
-          x: useTransform(x, (v) => v),
-          filter: `drop-shadow(0 0 3px ${ringColor}88)`,
-        }}
-      />
+    <div className="fixed inset-x-0 top-0 z-[60] pointer-events-none flex justify-center" style={{ height: 0 }}>
+      {/* Wrapper centered at top of screen; the node hangs below via the thread. */}
+      <div className="relative" style={{ width: 0, height: 0 }}>
+        {/* Thin thread from the top of the screen to the node */}
+        <motion.div
+          className="absolute left-1/2 top-0 -translate-x-1/2 origin-top pointer-events-none"
+          style={{
+            width: 2,
+            height: useTransform(threadLen, (l) => 56 + l),
+            background: `linear-gradient(to bottom, ${ringColor}, ${ringColor}22)`,
+            filter: `drop-shadow(0 0 3px ${ringColor}88)`,
+          }}
+        />
 
-      <motion.div
-        drag
-        dragMomentum
-        dragConstraints={{ left: -window.innerWidth + 140, right: 40, top: 0, bottom: window.innerHeight - 180 }}
-        dragTransition={{ bounceStiffness: 320, bounceDamping: 22 }}
-        style={{ x, y }}
-        onHoverStart={() => setHovered(true)}
-        onHoverEnd={() => setHovered(false)}
-        className="absolute left-1/2 -translate-x-1/2 mt-[60px] pointer-events-auto"
-      >
+        <motion.div
+          drag
+          dragMomentum={false}
+          dragConstraints={{ left: -(window.innerWidth / 2) + 90, right: (window.innerWidth / 2) - 90, top: 0, bottom: window.innerHeight - 200 }}
+          dragElastic={0.08}
+          style={{ x, y }}
+          onHoverStart={() => setHovered(true)}
+          onHoverEnd={() => setHovered(false)}
+          className="absolute left-1/2 -translate-x-1/2 top-[56px] pointer-events-auto"
+        >
         {/* Orbital action buttons — pop outward on hover with a spring */}
         <AnimatePresence>
           {hovered && orbital.map((b) => {
@@ -194,8 +200,8 @@ export default function MinimizedWebNode({
             className="relative w-[52px] h-[52px] rounded-full overflow-hidden bg-[#050505] flex items-center justify-center"
             style={{ boxShadow: `0 0 14px ${ringColor}66, inset 0 0 8px rgba(0,0,0,0.8)` }}
           >
-            {participants[0]?.avatar ? (
-              <img src={participants[0].avatar} alt="" className="w-full h-full object-cover" />
+            {nodeAvatar ? (
+              <img src={nodeAvatar} alt="" className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full flex items-center justify-center" style={{ background: `${color}22` }}>
                 <Mic size={18} style={{ color }} />
@@ -213,6 +219,7 @@ export default function MinimizedWebNode({
           </div>
         </div>
       </motion.div>
+      </div>
     </div>
   );
 }

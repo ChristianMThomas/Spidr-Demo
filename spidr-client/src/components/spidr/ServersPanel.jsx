@@ -273,7 +273,7 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
 
 function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall, onBackToServerList }) {
   const queryClient = useQueryClient();
-  const { triggerMenu } = useMenu();
+  const { triggerMenu, bindLongPress } = useMenu();
   const { isCallMinimized, startVoiceSession } = useAppShell();
   const [searchParams, setSearchParams] = useSearchParams();
   // Initial channel honors ?channel= param (used by activity-feed deep links)
@@ -1430,12 +1430,14 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               <div 
                 key={msg.id} 
                 data-msg-id={msg.id}
-                className={`flex gap-3 group hover:bg-zinc-800/30 p-2 rounded-lg -mx-2 relative ${
+                className={`flex gap-3 group hover:bg-zinc-800/30 p-2 rounded-lg -mx-2 relative select-none md:select-auto ${
                   msg.content?.includes(`@${currentUser?.full_name?.split(' ')[0]}`) 
                     ? 'bg-[#FF3333]/5 border-l-2 border-[#FF3333]' 
                     : ''
                 }`}
+                style={{ WebkitTouchCallout: 'none' }}
                 onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, author_id: msg.author_id, author_name: msg.author_name, author_avatar: msg.author_avatar, attachments: msg.attachments })}
+                {...bindLongPress('message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, author_id: msg.author_id, author_name: msg.author_name, author_avatar: msg.author_avatar, attachments: msg.attachments })}
                 >
                 <Avatar 
                   className="w-10 h-10 shrink-0 cursor-pointer"
@@ -1748,7 +1750,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             animate={{ width: 'auto', opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="hidden md:block overflow-hidden shrink-0"
+            className="hidden lg:block h-full overflow-hidden shrink-0"
           >
             <CommunityPanel server={server} currentUser={currentUser} onSelectUser={(id) => setSelectedUserId(id)} />
           </motion.div>

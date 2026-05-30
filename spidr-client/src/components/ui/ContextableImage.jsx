@@ -1,23 +1,32 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 import { useMenu } from '@/components/MenuContext';
+import { useMedia } from '@/context/MediaContext';
 
 /**
- * ContextableImage — drop-in replacement for <img> that opens the
- * "media" context menu on right-click.
+ * ContextableImage — drop-in replacement for <img> for user-uploaded chat
+ * images. Adds two behaviors over a plain <img>:
+ *   • right-click / long-press → "media" context menu (unchanged)
+ *   • click → expands into the global ImageLightboxOverlay via framer shared
+ *     layout (Patch 2.9). The layoutId is derived from the src so the thumbnail
+ *     and the expanded image map to the same node.
  *
- * Use this for any user-uploaded image in chats, attachments, and clip
- * thumbnails so the right-click menu always offers Open in New Tab / Copy
- * Link / Download / Save to Collection / Report.
- *
- * Passes through every prop to the underlying <img>; the only added
- * behavior is the onContextMenu handler.
+ * Optional props for the lightbox HUD: senderName, apexColor, resolution, size.
+ * All other props pass through to the underlying <img>.
  */
-export default function ContextableImage({ src, alt, filename, onContextMenu, ...rest }) {
+export default function ContextableImage({
+  src, alt, filename, onContextMenu, onClick,
+  senderName, apexColor, resolution, size,
+  ...rest
+}) {
   const { triggerMenu } = useMenu();
+  const { openImage } = useMedia();
+
+  // Stable id shared between thumbnail and the expanded overlay image.
+  const layoutId = `img-${src}`;
 
   const handleContext = (e) => {
     if (!src) return;
-    // Allow callers to pre-empt or add behavior via onContextMenu prop
     if (onContextMenu) onContextMenu(e);
     if (e.defaultPrevented) return;
     triggerMenu(e, 'media', {
@@ -28,5 +37,20 @@ export default function ContextableImage({ src, alt, filename, onContextMenu, ..
     });
   };
 
-  return <img src={src} alt={alt} onContextMenu={handleContext} {...rest} />;
+  const handleClick = (e) => {
+    if (onClick) onClick(e);
+    if (e.defaultPrevented || !src) return;
+    openImage({ id: layoutId, src, name: alt, senderName, apexColor, resolution, size });
+  };
+
+  return (
+    <motion.img
+      layoutId={layoutId}
+      src={src}
+      alt={alt}
+      onContextMenu={handleContext}
+      onClick={handleClick}
+      {...rest}
+    />
+  );
 }

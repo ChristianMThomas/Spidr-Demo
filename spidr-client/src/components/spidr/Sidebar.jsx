@@ -106,11 +106,11 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
 
       <div className={`${horizontal
           ? 'w-full h-[64px] flex flex-row items-center px-4 border-b'
-          : 'w-[72px] flex flex-col items-center py-6 border-r h-screen'
+          : 'w-[72px] flex flex-col items-center py-4 border-r h-[100dvh]'
         } z-50 relative transition-all ${isGlass ? "bg-black/30 backdrop-blur-xl border-white/10" : "bg-[#050505] border-white/5"}`}>
       {/* Logo */}
       <motion.div 
-        className={`${horizontal ? 'mr-6' : 'mb-8'} w-12 h-12 flex items-center justify-center cursor-pointer transition-all flex-shrink-0`}
+        className={`${horizontal ? 'mr-6' : 'mb-6'} w-12 h-12 flex items-center justify-center cursor-pointer transition-all flex-shrink-0`}
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setActiveTab('home')}
@@ -119,7 +119,7 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
       </motion.div>
       
       {/* Navigation */}
-      <div className={`${horizontal ? 'flex flex-row gap-2 flex-1 items-center overflow-x-auto' : 'flex flex-col gap-4 flex-1 w-full px-2'}`}>
+      <div className={`${horizontal ? 'flex flex-row gap-2 flex-1 items-center overflow-x-auto' : 'flex flex-col gap-4 flex-1 w-full px-2 overflow-y-auto overflow-x-hidden pb-4 scrollbar-thin min-h-0'}`}>
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           const isHovered = hovered === item.id;
@@ -271,7 +271,7 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
       )}
 
       {/* APEX POWER-UP BUTTON */}
-      <div className={`${horizontal ? 'ml-4 w-12 flex-shrink-0' : 'mb-4 px-2 w-full'}`}>
+      <div className={`${horizontal ? 'ml-4 w-12 flex-shrink-0' : 'mt-2 mb-2 px-2 w-full flex-shrink-0 flex justify-center'}`}>
         <motion.button
           onClick={() => setShowApex(true)}
           whileHover={{ scale: 1.05 }}

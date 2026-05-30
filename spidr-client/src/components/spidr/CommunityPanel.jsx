@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import UserNameplate from './UserNameplate';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Shield, Crown, User, ChevronDown, Pencil, Check, X, UserX, Ban, Volume2, VolumeX, PhoneOff, ArrowRight, Settings, GripVertical } from 'lucide-react';
+import { Shield, Crown, User, Users, ChevronDown, Pencil, Check, X, UserX, Ban, Volume2, VolumeX, PhoneOff, ArrowRight, Settings, GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,8 @@ const statusColors = {
   streaming: '#A855F7'
 };
 
-export default function CommunityPanel({ server, currentUser, onSelectUser }) {
+export default function CommunityPanel({ server, currentUser, onSelectUser, chatType = 'server', members: membersProp = null }) {
+  const isGroup = chatType === 'group';
   const [expandedTiers, setExpandedTiers] = useState({ admin: true, moderator: true, member: true });
   const [editMode, setEditMode] = useState(false); // role-hierarchy edit (admin)
   const [editingNickname, setEditingNickname] = useState(null);
@@ -459,16 +460,34 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
     if (!seen.has(m.user_id) && fallbackKey) { membersByRole[fallbackKey].push(m); seen.add(m.user_id); }
   });
 
-  if (!server) return null;
+  // ── GROUP CHAT (Patch 2.7): bypass role sorting. Build ONE flat "MEMBERS"
+  // tier from the passed-in members array. The group creator (owner_id) is
+  // marked so the row can show a crown.
+  let groupRoleTiers = roleTiers;
+  let groupOrderedKeys = orderedRoleKeys;
+  let groupMembersByRole = membersByRole;
+  const groupMembers = membersProp || server?.members || [];
+  if (isGroup) {
+    groupRoleTiers = { members: { name: 'Members', icon: Users, color: '#9ca3af' } };
+    groupOrderedKeys = ['members'];
+    groupMembersByRole = { members: groupMembers };
+  }
+  const tiers = isGroup ? groupRoleTiers : roleTiers;
+  const tierKeys = isGroup ? groupOrderedKeys : orderedRoleKeys;
+  const tierMembers = isGroup ? groupMembersByRole : membersByRole;
+  const totalCount = isGroup ? groupMembers.length : (server?.members?.length || 0);
+
+  // For servers we require a server object; groups can render without one.
+  if (!isGroup && !server) return null;
 
   return (
-    <div className="w-72 shrink-0 bg-[#0a0a0a] border-l border-red-900/20 flex flex-col">
+    <div className="w-72 shrink-0 h-full bg-[#0a0a0a] border-l border-red-900/20 flex flex-col overflow-y-auto">
       <div className="p-4 border-b border-red-900/20 flex items-center justify-between">
         <h3 className="font-bold text-white flex items-center gap-2">
           <Shield className="w-5 h-5 text-red-500" />
-          Community ({server.members?.length || 0})
+          {isGroup ? `Members (${totalCount})` : `Community (${totalCount})`}
         </h3>
-        {isOwner && (
+        {isOwner && !isGroup && (
           <button
             onClick={() => setEditMode(e => !e)}
             title={editMode ? 'Done editing hierarchy' : 'Edit Node Hierarchy'}
@@ -519,11 +538,11 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
             </Droppable>
           ) : (
           <div className="p-3 space-y-3">
-            {orderedRoleKeys.map((roleKey) => {
-              const tier = roleTiers[roleKey];
+            {tierKeys.map((roleKey) => {
+              const tier = tiers[roleKey];
               if (!tier) return null;
               const Icon = tier.icon;
-              const members = membersByRole[roleKey] || [];
+              const members = tierMembers[roleKey] || [];
               
               return (
                 <div key={roleKey} className="space-y-2">
@@ -680,6 +699,9 @@ export default function CommunityPanel({ server, currentUser, onSelectUser }) {
                                                 apexColor={apexColor}
                                               />
                                             </p>
+                                            {isGroup && (member.user_id === server?.owner_id || member.user_id === server?.created_by) && (
+                                              <Crown className="w-3.5 h-3.5 text-yellow-400 shrink-0" title="Group creator" style={{ filter: 'drop-shadow(0 0 4px rgba(250,204,21,0.6))' }} />
+                                            )}
                                             {canGiveNicknames && (
                                               <button
                                                 onClick={(e) => {

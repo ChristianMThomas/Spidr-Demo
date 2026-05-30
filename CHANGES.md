@@ -2464,3 +2464,276 @@ layout (mute/disconnect/expand).
 
 Verified: full esbuild bundle (working copy + merged tree) — zero warnings/
 errors; mojibake-free.
+
+---
+
+## 63. Patch 2.7 — Group-chat member list + gray-void fix
+
+Filename reconciliation: the task's `MemberList` / `RightSidebarLayout` /
+`UserAvatarRow` are all the one real component, `CommunityPanel.jsx`.
+
+### Part 1 — Gray void fixed
+The member list only renders on servers, and its motion-div wrapper in
+`ServersPanel` was `hidden md:block overflow-hidden shrink-0` — a block parent
+with no height, so `CommunityPanel`'s `h-full` collapsed to content height and
+left a gray void below. Added `h-full` to that wrapper. (CommunityPanel's own
+outer div already had `h-full bg-[#0a0a0a] overflow-y-auto`.) For groups, the
+void is removed simply by rendering the panel there at all.
+
+### Part 2 — CommunityPanel made context-aware
+- New props: `chatType="server" | "group"` (default 'server') and `members`.
+- Server mode is unchanged: members grouped by role tiers (THE COUNCIL, THE
+  GUARDIANS, …) with the existing hierarchy sort and edit-mode.
+- Group mode bypasses all role sorting and renders one flat `Members` tier from
+  the passed-in array; the role-hierarchy edit button is hidden.
+
+### Part 3 — Group member list mounted + admin crown
+- `KineticChat` now mounts `CommunityPanel chatType="group"` as the right
+  sidebar. Group members may be stored as plain id strings or objects, so they're
+  normalized to `{ user_id, user_name }` and enriched from the fetched group
+  profiles. The same user-node UI (APEX-border avatar, `UserNameplate`, monospace
+  status) is reused.
+- The group creator (`owner_id` / `created_by`) gets a gold crown next to their
+  name in the flat list.
+
+### Files
+Modified: `components/spidr/CommunityPanel.jsx`,
+`components/spidr/KineticChat.jsx`, `components/spidr/ServersPanel.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) — zero warnings/
+errors; mojibake-free.
+
+### Caveats (need runtime check)
+- Verified by build, not a live session. Worth checking: open a group chat →
+  the right sidebar should be filled (no gray void) with a flat MEMBERS list, the
+  creator showing a crown; open a server → member list unchanged and the void
+  below it gone.
+- Group member presence (ONLINE/OFFLINE split) isn't shown — there's no reliable
+  per-user presence source wired for groups yet, so all members appear under one
+  MEMBERS header as the task's fallback allows.
+
+---
+
+## 64. ULTIMATE FIX — minimized node position/avatar + empty expanded deck
+
+Diagnosed from the screen recording (extracted frames). Three real runtime bugs
+that compile-clean checks had missed:
+
+1. **Minimized node stuck at the right edge, cut off** (not hanging top-center).
+   Cause: the node's fixed container was `top-0 right-12` with a 0-width box, so
+   the `left-1/2` children resolved against the right edge. Fix: container is now
+   `fixed inset-x-0 top-0 flex justify-center`, so the node hangs from
+   screen-top-center on its thread. Drag constraints recomputed around center.
+
+2. **No profile picture in the node.** Cause: the node only read
+   `call.participants[0].avatar`, but `activeCall` never carried a participants
+   array, so it always fell back to the mic icon. Fix: the node now fetches the
+   current user's `avatar_url` (from `auth.me()` / their profile) and shows it,
+   falling back to a participant avatar then the icon. Verified the tick-ring +
+   avatar + pill geometry against the reference (example1.mp4).
+
+3. **Expanded voice deck was a near-empty black void with no visible controls.**
+   Cause: the shell mounted `VoiceChannel` (whose root is `flex-1 flex flex-col`)
+   inside a plain `fixed inset-0` div — not a flex container — so `flex-1` had no
+   height and the participant grid + bottom control bar collapsed/overflowed off
+   screen. Fix: the shell deck wrapper is now `fixed inset-0 ... flex flex-col`,
+   restoring the height cascade so the header, scrollable participant grid, and
+   the control bar (mute / video / screen-share / minimize / leave) all lay out
+   correctly.
+
+Also: the thread now stays anchored at top-center instead of shifting on drag.
+
+The pink node seen in the channel sidebar during the recording is the decorative
+"web vibration" flair element in ServersPanel (voice-channel roster), not a
+second call node — left as-is.
+
+### Files
+Modified: `components/spidr/MinimizedWebNode.jsx`, `components/SpidrShell.jsx`,
+`components/spidr/VoiceChannel.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) — zero warnings/
+errors; mojibake-free; node geometry rendered offline and compared to the
+reference frames.
+
+### Honest status
+I still cannot run the live app in this environment (no browser available — I
+rendered the node's geometry separately to verify the look). These three fixes
+target the exact causes visible in your recording. Please rebuild
+(`npm run build`) + hard-refresh and check: the node should hang from top-center
+with your profile pic and a blue tick-ring; expanding should show a full deck
+with a visible control bar at the bottom.
+
+---
+
+## 65. Patch 2.8 + 2.10 — Mobile responsiveness, sidebar scroll, long-press menus
+
+### 2.8 — Mobile sidebar cutoff + fluid responsiveness
+- **Sidebar options cut off on mobile:** the vertical Sidebar root was `h-screen`
+  with a non-scrolling nav column, so on short mobile viewports the lower nav
+  items (and the APEX button) were unreachable. Fixed: root is now `h-[100dvh]`
+  (dynamic viewport height — immune to the mobile URL-bar resize bug), the nav
+  list is `flex-1 overflow-y-auto pb-4 min-h-0` (scrolls when tall), and the APEX
+  button is `flex-shrink-0` so it stays pinned and visible.
+- **Global height bug:** replaced `h-screen` with `h-[100dvh]` on the SpidrShell
+  layout root + loading state.
+- **Responsive columns:** the member list (CommunityPanel) now shows only on
+  large screens (`hidden lg:block`) for both servers and groups, so phones/tablets
+  aren't squeezed; the main chat keeps `flex-1 min-w-0` (already present) to
+  prevent horizontal overflow. The server-sidebar off-canvas drawer + click-away
+  overlay already existed in SpidrShell (mobileSidebarOpen, slide transform).
+
+### 2.10 — Mobile long-press → context menus
+- New `hooks/useSpidrLongPress.js` and a `bindLongPress(type, data)` helper on
+  `MenuContext`: a ~400ms hold (cancelled if the finger moves >10px, so scrolling
+  still works) opens the SAME context menu as desktop right-click, with a 50ms
+  `navigator.vibrate` haptic. Coordinates come from the touch point.
+- Wired into the message rows of all three chat surfaces (ServersPanel,
+  DirectMessages, KineticChat) alongside the existing `onContextMenu`, with
+  `select-none md:select-auto` + `-webkit-touch-callout: none` (and a global CSS
+  rule) to suppress native iOS/Android selection + callout menus.
+- The existing `SpidrMenu` renderer already portals and scales up from the
+  (x, y) coordinates with a glassmorphic style, so the long-press menu reuses it
+  directly — same look/animation the task describes, no duplicate menu.
+
+### Files
+Modified: `components/spidr/Sidebar.jsx`, `components/SpidrShell.jsx`,
+`components/spidr/ServersPanel.jsx`, `components/spidr/KineticChat.jsx`,
+`components/spidr/DirectMessages.jsx`, `components/MenuContext.jsx`, `index.css`.
+Added: `hooks/useSpidrLongPress.js`.
+
+Verified: full esbuild bundle (working copy + merged tree) — zero warnings/
+errors; mojibake-free.
+
+### Honest status / deviations
+- No live device test possible here (no browser/emulator in this environment);
+  verified by build + reading. Worth checking on a real phone: all sidebar icons
+  reachable (scroll if needed), no horizontal scrolling, and a long-press on a
+  chat message opens the menu with a haptic buzz.
+- I kept the existing mobile patterns (SpidrShell's sidebar drawer,
+  ServersPanel's channels/chat `mobileView` toggle) rather than rebuilding them to
+  the task's exact class names, to avoid regressions. The `useSpidrLongPress`
+  hook file exists per the task; the actual wiring uses the equivalent
+  `bindLongPress` helper on the shared menu context so every call site stays a
+  one-liner.
+- The framer "tension compression" on press (scale 0.98 + red shadow) is not
+  wired per-message yet — the hook exposes an `onPressState` callback for it, but
+  applying it to every row needs per-row state; deferred to avoid a heavy change
+  across all message components this pass.
+
+---
+
+## 66. Patch 2.9 — Shared-layout image lightbox
+
+Chat images couldn't be expanded. Added a global, physics-based lightbox.
+
+- **New `context/MediaContext.jsx`** (`MediaProvider` + `useMedia`): global
+  `expandedImage` state with `openImage()` / `closeImage()`. Wraps the app in
+  `App.jsx` (`AppShellProvider > MediaProvider > SpidrShell`).
+- **New `components/spidr/ImageLightboxOverlay.jsx`**: mounted once at the shell
+  root at `z-[999]` (outside chat routing, so chat `overflow-hidden` never clips
+  it). `fixed inset-0 bg-[#050505]/95 backdrop-blur-xl`, fades in via
+  `AnimatePresence`.
+- **Shared-layout expansion:** `ContextableImage` was rewritten as a
+  `motion.img` with `layoutId={`img-${src}`}`; the overlay renders a second
+  `motion.img` with the SAME layoutId, so framer animates the image flying from
+  its chat thumbnail to center screen (and back on close).
+- **Drag-to-dismiss physics:** the expanded image has `drag="y"`,
+  `dragConstraints={{top:0,bottom:0}}`, `dragElastic={0.8}`; a hard pull
+  (offset > 140px or velocity > 600) closes it. Click-outside and Esc also close.
+- **Terminal HUD:** a monospace footer (`> SRC: <sender> // RES: … // SIZE: …`)
+  with the sender in their APEX color, fading in ~320ms AFTER the expand settles
+  so it doesn't interrupt the motion. MessageItem passes the sender name through.
+- Right-click / long-press still opens the existing media context menu; the
+  lightbox is on left-click. Both chat image call sites (MessageItem,
+  ServersPanel) get it for free since they both use `ContextableImage`.
+
+### Files
+Added: `context/MediaContext.jsx`, `components/spidr/ImageLightboxOverlay.jsx`.
+Modified: `components/ui/ContextableImage.jsx`, `App.jsx`,
+`components/SpidrShell.jsx`, `components/spidr/MessageItem.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) — zero warnings/
+errors; mojibake-free.
+
+### Honest status
+- Verified by build, not a live session (no browser here). Worth checking: click
+  a chat image → it expands to center; drag it up/down hard → it dismisses; the
+  terminal footer shows the sender after the motion settles.
+- RES/SIZE in the HUD only show if provided; image dimensions/byte size aren't
+  currently measured at the call site (sender name is passed). Wiring real
+  resolution would mean reading `naturalWidth/Height` on load — a small
+  follow-up if you want those populated.
+- Edge case: if the identical image src appears in two messages, the shared
+  layoutId maps to the first match (framer behavior). Fine for typical use.
+
+---
+
+## 67. Patch 2.11 (core) — The Pulse algorithm, The Weaver, web-post context engine
+
+Filename reconciliation: the feed is `FeedPanel` → `ClipFeed` (clips are the
+"posts"); the upload studio already exists as `VideoStudio` (= "The Weaver");
+comments are `RichComments`; the activity feed is `EnhancedFeed`.
+
+### Part 1 — The Weaver (enhanced existing VideoStudio)
+- Added the spec-named signature filters: **Dormant** (grayscale), **Glitch**
+  (chromatic/contrast), **Neon Tear** (high contrast+saturation), alongside the
+  existing ones.
+- Converted the caption field to a terminal/command-line input
+  (`> INJECT_DATA: _`, monospace, green-on-black, red prompt caret).
+
+### Part 2 — Advanced commenting (RichComments)
+- Comment media now renders through `ContextableImage`, so GIFs/images in
+  comments get the Patch-2.9 lightbox `layoutId` physics (click → expands to
+  center). GIF picker, image upload, emoji picker, and previews already existed.
+- Nested replies now use a curved web-strand connector
+  (`border-l-2 border-gray-800 rounded-bl-lg`).
+
+### Part 3 — The Context Engine (web_post menu)
+- Added Spidr-specific options to the post right-click/long-press menu:
+  **Encrypt (Save)** with a matrix-decrypt overlay animation, **[APEX]
+  Web-Strike** (slams a reaction + shakes the card + haptic), and **[APEX]
+  Overclock Post** (sets `overclock_until` +1h to boost algorithm weight).
+  Wired the handlers in `ClipCard`.
+
+### Part 4 — The Pulse ranking algorithm
+- New `lib/tensionScore.js`: weighted `TensionScore` = time-decay **Base** +
+  recent-engagement **Velocity** + saves/shares **Resonance** (highest weight) +
+  APEX **Overclock** boost. Pure client-side function over existing clip fields
+  (no schema/route change needed).
+- Trending clips (score ≥ threshold) now physically **breathe** (infinite glow
+  pulse) with a red border and a pulsing **TRENDING** badge in `ClipFeed`.
+- `EnhancedFeed` activity stream gets a faint central SVG "web thread" so it
+  reads as a living web rather than flat cards.
+
+### Files
+Added: `lib/tensionScore.js`. Modified: `components/spidr/VideoStudio.jsx`,
+`components/feed/ClipFeed.jsx`, `components/ui/SpidrMenu.jsx`,
+`components/spidr/RichComments.jsx`, `components/spidr/EnhancedFeed.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) — zero warnings/
+errors; mojibake-free.
+
+### Honest status — what's done vs still outstanding across 2.11–2.13
+DONE (this pass): Weaver filters + terminal caption; rich-media comments with
+lightbox + nested web-strand borders; web_post Spidr context menu
+(Encrypt/Web-Strike/Overclock); the Pulse TensionScore + trending breathing UI;
+feed web-thread accent.
+
+NOT DONE (deliberately deferred — large/interdependent, would be half-wired):
+- Full left/right alternating web-thread feed *layout* rewrite (did the accent
+  thread, not the structural alternation — that's a big rewrite of a working
+  feed and high regression risk).
+- Backend `TensionScore` persisted in the feed query (currently computed
+  client-side, which works off existing fields without a risky route change).
+- Patch 2.12 entirely: precision video scrubber with dual-handle trim + frame
+  thumbnails; the audio-grafting uplink (Spotify/YouTube/Apple Music URL parser
+  + backend `/weaver/parse-audio`); synced multi-track timeline.
+- Patch 2.13 entirely: viewport auto-play engine for grafted audio
+  (`useViewportMedia`, single-active-audio, autoplay-policy fallback, fade
+  in/out, `AudioGraftNode` floating disc). This chain depends on 2.12's audio
+  source existing first, so building it now would wire to nothing.
+
+These remaining pieces are real, multi-file features best done as their own
+focused passes (with the same full-bundle verification) rather than crammed in.
+
+Verified by build, not a live session.

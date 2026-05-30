@@ -99,7 +99,12 @@ export default function EnhancedFeed({ currentUser }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 relative">
+      {/* Patch 2.11: faint central "web thread" running down the feed, so the
+          activity stream reads as a living web structure rather than flat cards. */}
+      <svg className="absolute left-1/2 top-0 -translate-x-1/2 h-full w-8 pointer-events-none -z-10" preserveAspectRatio="none" viewBox="0 0 32 1000" aria-hidden="true">
+        <line x1="16" y1="0" x2="16" y2="1000" stroke="#FF3333" strokeWidth="1" opacity="0.12" />
+      </svg>
       {/* Pinned announcements */}
       {pinnedItems.length > 0 && (
         <div className="space-y-2 mb-4">

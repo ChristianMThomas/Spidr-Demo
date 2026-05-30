@@ -4,6 +4,7 @@ import { entities, auth, integrations } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import ContextableImage from '@/components/ui/ContextableImage';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Heart, Reply, Image as ImageIcon, Loader2, X, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -75,7 +76,7 @@ function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, prof
 
   return (
     <>
-      <div className={`${level > 0 ? 'ml-8 mt-3' : 'mt-4'}`}>
+      <div className={`${level > 0 ? 'ml-5 mt-3 pl-3 border-l-2 border-gray-800 rounded-bl-lg' : 'mt-4'}`}>
         <div className="flex gap-3">
           <Avatar 
             className="w-8 h-8 flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-red-500 transition-all"
@@ -142,11 +143,12 @@ function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, prof
             {comment.media_urls && comment.media_urls.length > 0 && (
               <div className="mt-2 grid grid-cols-2 gap-2">
                 {comment.media_urls.map((url, idx) => (
-                  <img 
+                  <ContextableImage
                     key={idx}
-                    src={url} 
+                    src={url}
                     alt="attachment"
-                    className="rounded-lg max-h-40 object-cover"
+                    senderName={comment.author_name || comment.user_name}
+                    className="rounded-lg max-h-40 object-cover cursor-pointer w-full"
                   />
                 ))}
               </div>
