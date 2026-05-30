@@ -16,9 +16,12 @@ import AudioDatabase from '../feed/AudioDatabase';
 
 // ── Visual filters ────────────────────────────────────────────────────────────
 const FILTERS = [
-  { id: 'none',     label: 'RAW',     color: '#555',    css: {} },
+  { id: 'none',      label: 'RAW',       color: '#555',    css: {} },
+  // Patch 2.11 — Spidr-named signature filters (The Weaver).
+  { id: 'dormant',   label: 'DORMANT',   color: '#9ca3af', css: { filter: 'grayscale(1) contrast(1.1) brightness(0.95)' } },
+  { id: 'glitch',    label: 'GLITCH',    color: '#FF3333', css: { filter: 'contrast(1.6) saturate(2) hue-rotate(15deg)' } },
+  { id: 'neon-tear', label: 'NEON TEAR', color: '#f43f5e', css: { filter: 'contrast(1.35) saturate(1.9) brightness(1.05)' } },
   { id: 'venom',    label: 'TOXIN',   color: '#10B981', css: { filter: 'hue-rotate(90deg) contrast(1.2) saturate(1.5)' } },
-  { id: 'glitch',   label: 'ERROR',   color: '#FF3333', css: { filter: 'contrast(1.6) saturate(2) hue-rotate(15deg)' } },
   { id: 'noir',     label: 'VOID',    color: '#fff',    css: { filter: 'grayscale(1) contrast(1.3) brightness(0.85)' } },
   { id: 'neon',     label: 'CYBER',   color: '#8B5CF6', css: { filter: 'hue-rotate(280deg) saturate(1.6) contrast(1.1)' } },
   { id: 'heat',     label: 'HEAT',    color: '#F97316', css: { filter: 'sepia(0.6) saturate(2) hue-rotate(-20deg) contrast(1.2)' } },
@@ -510,11 +513,16 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
 
             {/* Details form */}
             <div className="flex-1 overflow-y-auto p-5 space-y-5 pb-24">
-              {/* Caption */}
+              {/* Caption — terminal/command-line styled (Patch 2.11) */}
               <div>
-                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 block">Caption</label>
-                <Textarea value={caption} onChange={e => setCaption(e.target.value)}
-                  placeholder="Describe your strand…" className="bg-zinc-900 border-zinc-700 text-white resize-none h-20 text-sm" maxLength={500} />
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 block">&gt; INJECT_DATA</label>
+                <div className="bg-black/70 border border-[#FF3333]/30 rounded-lg p-3 font-mono focus-within:border-[#FF3333]/60 transition-colors">
+                  <div className="flex items-start gap-2">
+                    <span className="text-[#FF3333] text-sm select-none mt-0.5">&gt;</span>
+                    <Textarea value={caption} onChange={e => setCaption(e.target.value)}
+                      placeholder="INJECT_DATA: _" className="bg-transparent border-0 text-green-300 resize-none h-20 text-sm font-mono p-0 focus-visible:ring-0 placeholder:text-green-300/30" maxLength={500} />
+                  </div>
+                </div>
                 <div className="flex justify-between mt-1">
                   <span className="text-zinc-600 text-[10px]">{caption.length}/500</span>
                   <button onClick={generateAIHashtags} disabled={!caption.trim() || loadingAI}

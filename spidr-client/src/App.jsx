@@ -11,6 +11,7 @@ import LandingPage from '@/pages/LandingPage';
 import JoinServer from '@/pages/JoinServer';
 import { getSocket } from '@/api/apiClient';
 import { AppShellProvider } from '@/context/AppShellContext';
+import { MediaProvider } from '@/context/MediaContext';
 import SpidrShell from '@/components/SpidrShell';
 
 /**
@@ -110,7 +111,7 @@ function AppRoutes() {
         <>
         {/* Standalone pop-out call window (Electron child window). No shell. */}
         <Route path="/popout/call" element={<PopoutCall />} />
-        <Route element={<AppShellProvider><SpidrShell /></AppShellProvider>}>
+        <Route element={<AppShellProvider><MediaProvider><SpidrShell /></MediaProvider></AppShellProvider>}>
           <Route path="/home"            element={<HomeDashboard />} />
           <Route path="/friends"         element={<FriendsPage />} />
           <Route path="/friends/:tab"    element={<FriendsPage />} />

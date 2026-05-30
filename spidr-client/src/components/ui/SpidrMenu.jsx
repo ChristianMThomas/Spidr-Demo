@@ -79,7 +79,10 @@ export default function SpidrMenu() {
         return [
           { icon: Copy, label: 'Copy Link', color: 'text-white', action: 'copy-link' },
           { icon: Share2, label: 'Sling to DMs', color: 'text-white', action: 'sling' },
-          { icon: Bookmark, label: 'Save', color: 'text-white', action: 'save' },
+          { icon: Lock, label: 'Encrypt (Save)', color: 'text-white', action: 'encrypt' },
+          { separator: true },
+          { icon: Zap, label: '[APEX] Web-Strike', color: 'text-[#FF3333]', action: 'web-strike' },
+          { icon: Zap, label: '[APEX] Overclock Post', color: 'text-orange-400', action: 'overclock' },
           { separator: true },
           { icon: User, label: 'View Creator', color: 'text-white', action: 'profile' },
           { icon: Flag, label: 'Report Post', color: 'text-yellow-400', action: 'report' },

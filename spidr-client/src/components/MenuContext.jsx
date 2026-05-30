@@ -41,8 +41,32 @@ export const MenuProvider = ({ children }) => {
     });
   };
 
+  // Patch 2.10: mobile long-press → context menu. Returns touch handlers to
+  // spread onto an element so a ~400ms hold opens the same menu as right-click.
+  // Scrolling cancels it (movement > 10px). Fires a 50ms haptic on trigger.
+  const bindLongPress = (type, data) => {
+    let timer = null;
+    let start = { x: 0, y: 0 };
+    const begin = (x, y) => {
+      start = { x, y };
+      timer = setTimeout(() => {
+        timer = null;
+        try { navigator.vibrate?.(50); } catch {}
+        playSound('join');
+        setMenu({ visible: true, x, y, type, data });
+      }, 400);
+    };
+    const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    return {
+      onTouchStart: (e) => { const t = e.touches?.[0]; if (t) begin(t.clientX, t.clientY); },
+      onTouchMove: (e) => { const t = e.touches?.[0]; if (t && timer && (Math.abs(t.clientX - start.x) > 10 || Math.abs(t.clientY - start.y) > 10)) cancel(); },
+      onTouchEnd: cancel,
+      onTouchCancel: cancel,
+    };
+  };
+
   return (
-    <MenuContext.Provider value={{ menu, triggerMenu, setMenu }}>
+    <MenuContext.Provider value={{ menu, triggerMenu, setMenu, bindLongPress }}>
       {children}
     </MenuContext.Provider>
   );

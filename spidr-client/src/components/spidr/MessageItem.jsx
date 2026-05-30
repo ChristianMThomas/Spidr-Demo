@@ -222,7 +222,9 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                     );
                   }
                   return (
-                    <ContextableImage key={i} src={url} alt="attachment" className="max-w-[200px] max-h-[180px] rounded-lg border border-white/10 hover:border-[#FF3333]/30 transition-colors cursor-pointer object-cover" />
+                    <ContextableImage key={i} src={url} alt="attachment"
+                      senderName={msg.sender_name || msg.user_name || msg.author_name}
+                      className="max-w-[200px] max-h-[180px] rounded-lg border border-white/10 hover:border-[#FF3333]/30 transition-colors cursor-pointer object-cover" />
                   );
                 })}
               </div>
