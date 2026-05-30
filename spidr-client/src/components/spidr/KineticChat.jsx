@@ -8,6 +8,7 @@ import { Send, ArrowLeft, Users, Settings, Ghost, Pin, Phone, Video, Archive, Co
 import StickyWeb from './StickyWeb';
 import { toast } from 'sonner';
 import { useTension } from '@/hooks/useTension';
+import { useAppShell } from '@/context/AppShellContext';
 import GhostOverlay from './GhostOverlay';
 import MessageItem from './MessageItem';
 import CatchMeUpBar from './CatchMeUpBar';
@@ -35,6 +36,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const [textEffect, setTextEffect] = useState('normal');
   const [selectedProfileUserId, setSelectedProfileUserId] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const { startVoiceSession, endVoiceSession } = useAppShell();
   const [inCall, setInCall] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
@@ -330,7 +332,12 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const handleStartCall = () => {
     playSound('join');
     setInCall(true);
-    setShowCallDeck(true); // open the full VoiceChannel deck immediately, like servers
+    setShowCallDeck(true); // legacy flag, kept for header toggle compatibility
+    startVoiceSession({
+      server: { id: 'group', name: `Group — ${group?.name || 'Chat'}`, channels: [], members: group?.members || [], owner_id: group?.owner_id },
+      channel: { id: groupId, name: group?.name || 'Group Chat', type: 'voice' },
+      currentUser,
+    });
     createSessionMutation.mutate({
       server_id: 'group',
       channel_id: groupId,
@@ -353,6 +360,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
       deleteSessionMutation.mutate(mySession.id);
     }
     setInCall(false);
+    endVoiceSession();
     if (onVoiceLeave) {
       onVoiceLeave();
     }
@@ -475,20 +483,8 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
       
       <div className="flex-1 flex flex-col relative z-10 min-h-0">
       
-      {/* Call Deck — SAME VoiceChannel deck as servers (consistent UI). The
-          group maps to a unified voice room via a synthetic server/channel
-          (channel_id = groupId). Minimized state is the shell MinimizedWebNode. */}
-      {inCall && (
-        <div className={showCallDeck ? 'absolute inset-0 z-50' : 'hidden'} aria-hidden={!showCallDeck}>
-          <VoiceChannel
-            server={{ id: 'group', name: `Group — ${group?.name || 'Chat'}`, channels: [], members: group?.members || [], owner_id: group?.owner_id }}
-            channel={{ id: groupId, name: group?.name || 'Group Chat', type: 'voice' }}
-            currentUser={currentUser}
-            onLeave={handleEndCall}
-            onMinimize={() => { setShowCallDeck(false); onMinimizeCall?.(); }}
-          />
-        </div>
-      )}
+      {/* The voice deck now lives at the shell (SpidrShell) so it persists
+          across navigation. Group calls start it via startVoiceSession(). */}
       
       <style>{`
         .kinetic-scroll {

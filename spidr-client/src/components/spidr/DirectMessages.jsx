@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { useTension } from '@/hooks/useTension';
+import { useAppShell } from '@/context/AppShellContext';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
@@ -37,6 +38,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const [showProfile, setShowProfile] = useState(false);
   const [ghostMode, setGhostMode] = useState(false);
   const [selectedProfileUserId, setSelectedProfileUserId] = useState(null);
+  const { startVoiceSession, endVoiceSession } = useAppShell();
   const [inCall, setInCall] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
@@ -297,7 +299,13 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const handleStartCall = (skipInvite = false) => {
     playSound('join');
     setInCall(true);
-    setShowCallDeck(true); // open the full VoiceChannel deck immediately, like servers
+    setShowCallDeck(true); // legacy flag, kept for header toggle compatibility
+    // Start the shell-level persistent voice deck (survives navigation).
+    startVoiceSession({
+      server: { id: 'dm', name: `DM — ${displayName}`, channels: [], members: [] },
+      channel: { id: activeConversationId, name: displayName, type: 'voice' },
+      currentUser,
+    });
     createSessionMutation.mutate({
       server_id: 'dm',
       channel_id: activeConversationId,
@@ -344,6 +352,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       getSocket().emit('call:cancel', { recipientId: activeRecipientId, conversationId: activeConversationId });
     } catch { /* non-fatal */ }
     setInCall(false);
+    endVoiceSession();
     if (onVoiceLeave) {
       onVoiceLeave();
     }
@@ -530,22 +539,8 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       {/* Fly Hunt Overlay */}
       <FlyHunt onCatch={handleFlyCatch} userName={currentUser?.full_name || 'You'} />
 
-      {/* Call Deck — uses the SAME VoiceChannel deck as servers (consistent UI,
-          APEX threads, context menus, screen share). A synthetic server/channel
-          maps the DM to a unified voice room (channel_id = conversationId).
-          IMPORTANT: while in a call the VoiceChannel stays MOUNTED and is merely
-          hidden when minimized, so the WebRTC session/audio/streams persist. */}
-      {inCall && (
-        <div className={showCallDeck ? 'absolute inset-0 z-50' : 'hidden'} aria-hidden={!showCallDeck}>
-          <VoiceChannel
-            server={{ id: 'dm', name: `DM — ${displayName}`, channels: [], members: [] }}
-            channel={{ id: activeConversationId, name: displayName, type: 'voice' }}
-            currentUser={currentUser}
-            onLeave={handleEndCall}
-            onMinimize={() => { setShowCallDeck(false); onMinimizeCall?.(); }}
-          />
-        </div>
-      )}
+      {/* The voice deck now lives at the shell (SpidrShell) so it persists
+          across navigation. DM calls start it via startVoiceSession(). */}
 
       {/* (Legacy in-chat call banner removed — the minimized call now renders
           as the shared MinimizedWebNode at the shell, and the full deck is the

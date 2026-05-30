@@ -47,6 +47,28 @@ export function AppShellProvider({ children }) {
   // Voice / call state — survives navigation so a minimized call keeps running
   const [activeCall, setActiveCall] = useState(null);
   const [isCallMinimized, setIsCallMinimized] = useState(false);
+  // Patch 2.6: the full props for the single shell-level voice deck. Holding
+  // these here (instead of inside a page component) lets ONE VoiceChannel stay
+  // mounted across navigation, so the WebRTC session + audio never drop when
+  // the user moves around the app. Shape: { server, channel, currentUser } or null.
+  const [voiceSession, setVoiceSession] = useState(null);
+  const [voiceDeckExpanded, setVoiceDeckExpanded] = useState(false);
+
+  // Start (or switch to) a voice session at the shell. Expanded by default,
+  // exactly like clicking into a server voice channel.
+  const startVoiceSession = useCallback((sessionProps) => {
+    setVoiceSession(sessionProps);
+    setVoiceDeckExpanded(true);
+    setIsCallMinimized(false);
+  }, []);
+
+  // End the active voice session entirely (real disconnect).
+  const endVoiceSession = useCallback(() => {
+    setVoiceSession(null);
+    setVoiceDeckExpanded(false);
+    setIsCallMinimized(false);
+    setActiveCall(null);
+  }, []);
 
   // Cross-page hand-off state
   const [selectedServerId, setSelectedServerId] = useState(null);
@@ -168,6 +190,12 @@ export function AppShellProvider({ children }) {
     setActiveCall,
     isCallMinimized,
     setIsCallMinimized,
+    voiceSession,
+    setVoiceSession,
+    voiceDeckExpanded,
+    setVoiceDeckExpanded,
+    startVoiceSession,
+    endVoiceSession,
     selectedServerId,
     setSelectedServerId,
     pendingDM,

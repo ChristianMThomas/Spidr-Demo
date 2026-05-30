@@ -38,7 +38,16 @@ export default function MinimizedWebNode({
   const [muted, setMuted] = useState(false);
   const [deafened, setDeafened] = useState(false);
   const [fetchedColor, setFetchedColor] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
   const dragControls = useRef(null);
+
+  // Internal call timer — counts from when this node first appears, so the meta
+  // pill shows a live duration even if the parent doesn't supply one.
+  useEffect(() => {
+    const started = Date.now() - (call.durationSeconds ? call.durationSeconds * 1000 : 0);
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pull the current user's equipped APEX thread skin color so the minimized
   // node's thread + waveform + glow reflect the customization from the APEX
@@ -84,75 +93,67 @@ export default function MinimizedWebNode({
   };
   const handleMaximize = (e) => { e.stopPropagation(); handleExpand(); };
 
-  // Radial menu button positions (top-left, top-right, bottom) around the node.
-  const radial = [
-    { key: 'mute', icon: muted ? MicOff : Mic, onClick: handleMute, angle: -140, active: muted, danger: false },
-    { key: 'deafen', icon: deafened ? HeadphoneOff : Headphones, onClick: handleDeafen, angle: -40, active: deafened, danger: false },
-    { key: 'max', icon: Maximize2, onClick: handleMaximize, angle: 90, active: false, danger: false },
-    { key: 'end', icon: PhoneOff, onClick: handleDisconnect, angle: 180, active: false, danger: true },
+  // Orbital buttons positioned to match the reference video:
+  //  • Mute      → upper-right
+  //  • Disconnect→ lower-left
+  //  • Expand    → lower-right
+  // Angles in degrees (0 = right, 90 = down, clockwise).
+  const orbital = [
+    { key: 'mute',   icon: muted ? MicOff : Mic,            onClick: handleMute,       angle: -45,  variant: muted ? 'danger' : 'neutral' },
+    { key: 'end',    icon: PhoneOff,                         onClick: handleDisconnect, angle: 135,  variant: 'danger' },
+    { key: 'expand', icon: Maximize2,                        onClick: handleMaximize,   angle: 45,   variant: 'accent' },
   ];
-  const R = 46; // radial distance
+  const R = 58; // orbital distance from node center
+
+  // Blue radial visualizer ticks around the avatar — discrete short lines that
+  // radiate outward and brighten with speaking/amplitude, matching the video.
+  const TICKS = 32;
+  const ringColor = '#3b82f6'; // the reference ring is blue
+  const speakingBoost = speaking ? 1 : 0.55;
 
   return (
-    <div className="fixed top-0 right-10 z-[60] pointer-events-none" style={{ width: 0, height: 0 }}>
-      {/* APEX thread from the top of the screen to the node */}
+    <div className="fixed top-0 right-12 z-[60] pointer-events-none" style={{ width: 0, height: 0 }}>
+      {/* Thin thread from the top of the screen to the node */}
       <motion.div
         className="absolute left-1/2 top-0 origin-top pointer-events-none"
         style={{
-          width: 2,
-          height: useTransform(threadLen, (l) => 70 + l),
-          background: `linear-gradient(to bottom, ${color}, ${color}40)`,
+          width: 1.5,
+          height: useTransform(threadLen, (l) => 60 + l),
+          background: `linear-gradient(to bottom, ${ringColor}, ${ringColor}22)`,
           x: useTransform(x, (v) => v),
-          filter: `drop-shadow(0 0 4px ${color}88)`,
+          filter: `drop-shadow(0 0 3px ${ringColor}88)`,
         }}
       />
 
       <motion.div
         drag
         dragMomentum
-        dragConstraints={{ left: -window.innerWidth + 120, right: 40, top: 0, bottom: window.innerHeight - 160 }}
+        dragConstraints={{ left: -window.innerWidth + 140, right: 40, top: 0, bottom: window.innerHeight - 180 }}
         dragTransition={{ bounceStiffness: 320, bounceDamping: 22 }}
         style={{ x, y }}
         onHoverStart={() => setHovered(true)}
         onHoverEnd={() => setHovered(false)}
-        className="absolute left-1/2 -translate-x-1/2 mt-[70px] pointer-events-auto"
+        className="absolute left-1/2 -translate-x-1/2 mt-[60px] pointer-events-auto"
       >
-        {/* Radial active-speaker waveform (Part 4.3) */}
+        {/* Orbital action buttons — pop outward on hover with a spring */}
         <AnimatePresence>
-          {speaking && !muted && (
-            <motion.svg
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 0.5 + amplitude * 0.5, scale: 1 + amplitude * 0.18 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              width="120" height="120" viewBox="0 0 120 120"
-              className="absolute -inset-[18px] pointer-events-none"
-              style={{ filter: `drop-shadow(0 0 8px ${color})` }}
-            >
-              <path d={radialWaveform(60, 60, 44, 8)} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" opacity="0.9" />
-            </motion.svg>
-          )}
-        </AnimatePresence>
-
-        {/* Radial symbiote menu (Part 4.2) */}
-        <AnimatePresence>
-          {hovered && radial.map((b) => {
+          {hovered && orbital.map((b) => {
             const rad = (b.angle * Math.PI) / 180;
             const bx = Math.cos(rad) * R, by = Math.sin(rad) * R;
             const Icon = b.icon;
+            const cls =
+              b.variant === 'danger' ? 'bg-[#1a0c0c]/90 border-red-500/50 text-red-400'
+              : b.variant === 'accent' ? 'bg-[#0c1320]/90 border-blue-500/50 text-blue-400'
+              : 'bg-[#0a0a0a]/90 border-white/15 text-zinc-200 hover:text-white';
             return (
               <motion.button
                 key={b.key}
-                initial={{ x: 0, y: 0, opacity: 0, scale: 0.5 }}
+                initial={{ x: 0, y: 0, opacity: 0, scale: 0.4 }}
                 animate={{ x: bx, y: by, opacity: 1, scale: 1 }}
-                exit={{ x: 0, y: 0, opacity: 0, scale: 0.5 }}
-                transition={{ type: 'spring', stiffness: 420, damping: 26 }}
+                exit={{ x: 0, y: 0, opacity: 0, scale: 0.4 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 22 }}
                 onClick={b.onClick}
-                className={`absolute left-1/2 top-1/2 -ml-4 -mt-4 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border ${
-                  b.danger ? 'bg-red-600/80 border-red-400/40 text-white'
-                  : b.active ? 'bg-[#FF3333]/30 border-[#FF3333]/60 text-[#FF3333]'
-                  : 'bg-[#050505]/90 border-white/15 text-zinc-200 hover:text-white'
-                }`}
-                style={{ boxShadow: b.danger ? '0 0 10px rgba(220,38,38,0.6)' : undefined }}
+                className={`absolute left-1/2 top-1/2 -ml-4 -mt-4 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border ${cls}`}
               >
                 <Icon size={14} />
               </motion.button>
@@ -160,50 +161,65 @@ export default function MinimizedWebNode({
           })}
         </AnimatePresence>
 
-        {/* The core node (Part 4.1) — click to maximize ONLY (Part 6) */}
+        {/* The node: blue radial tick ring + circular avatar (click = expand) */}
         <div
           onClick={handleExpand}
           role="button"
           title="Return to call"
-          className="relative w-[60px] h-[60px] rounded-full bg-[#050505]/90 backdrop-blur-md border cursor-pointer flex items-center justify-center"
-          style={{ borderColor: `${color}66`, boxShadow: `0 0 16px ${color}55` }}
+          className="relative w-[88px] h-[88px] flex items-center justify-center cursor-pointer"
         >
-          {/* Avatar cluster — speaker floats to top of z-stack */}
-          {participants.length > 0 ? (
-            <div className="relative flex items-center justify-center">
-              {participants.map((p, i) => (
-                <img
-                  key={i}
-                  src={p.avatar}
-                  alt=""
-                  className="absolute w-7 h-7 rounded-full object-cover border-2"
-                  style={{
-                    borderColor: p.speaking ? color : '#000',
-                    left: `${(i - (participants.length - 1) / 2) * 12}px`,
-                    zIndex: p.speaking ? 30 : 10 - i,
-                  }}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: `${color}22` }}>
-              <Mic size={14} style={{ color }} />
-            </div>
-          )}
+          {/* Radial tick ring */}
+          <motion.svg
+            width="88" height="88" viewBox="0 0 88 88"
+            className="absolute inset-0 pointer-events-none"
+            animate={{ scale: speaking ? [1, 1.04, 1] : 1 }}
+            transition={{ duration: 1.2, repeat: speaking ? Infinity : 0, ease: 'easeInOut' }}
+            style={{ filter: `drop-shadow(0 0 6px ${ringColor}aa)` }}
+          >
+            {Array.from({ length: TICKS }).map((_, i) => {
+              const a = (i / TICKS) * Math.PI * 2 - Math.PI / 2;
+              const inner = 30, outer = 30 + (6 + (i % 2 === 0 ? 4 : 0));
+              const x1 = 44 + Math.cos(a) * inner, y1 = 44 + Math.sin(a) * inner;
+              const x2 = 44 + Math.cos(a) * outer, y2 = 44 + Math.sin(a) * outer;
+              return (
+                <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
+                  stroke={ringColor} strokeWidth="1.6" strokeLinecap="round"
+                  opacity={(0.35 + 0.5 * Math.abs(Math.sin(i))) * speakingBoost} />
+              );
+            })}
+          </motion.svg>
+
+          {/* Circular avatar */}
+          <div
+            className="relative w-[52px] h-[52px] rounded-full overflow-hidden bg-[#050505] flex items-center justify-center"
+            style={{ boxShadow: `0 0 14px ${ringColor}66, inset 0 0 8px rgba(0,0,0,0.8)` }}
+          >
+            {participants[0]?.avatar ? (
+              <img src={participants[0].avatar} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center" style={{ background: `${color}22` }}>
+                <Mic size={18} style={{ color }} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Meta pill below the node — call timer · participant count */}
+        <div className="absolute left-1/2 -translate-x-1/2 top-[88px] whitespace-nowrap">
+          <div className="px-2.5 py-0.5 rounded-md bg-black/85 backdrop-blur-md border border-white/10 font-mono text-[10px] text-white/90 flex items-center gap-1.5">
+            <span className="tabular-nums" style={{ color: ringColor }}>{formatTimer(elapsed || call.durationSeconds || 0)}</span>
+            <span className="text-white/30">·</span>
+            <span>{Math.max(participants.length, 1)}</span>
+          </div>
         </div>
       </motion.div>
     </div>
   );
 }
 
-// Build a jagged radial SVG path approximating a circular waveform.
-function radialWaveform(cx, cy, baseR, spikes) {
-  const pts = [];
-  const steps = spikes * 4;
-  for (let i = 0; i <= steps; i++) {
-    const a = (i / steps) * Math.PI * 2;
-    const jag = i % 2 === 0 ? baseR : baseR - 6;
-    pts.push([cx + Math.cos(a) * jag, cy + Math.sin(a) * jag]);
-  }
-  return 'M' + pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' L') + ' Z';
+function formatTimer(totalSeconds) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
