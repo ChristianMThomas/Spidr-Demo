@@ -2345,3 +2345,37 @@ clean (zero warnings/errors), mojibake-free.
 Since "Patch 1.4" is already in the Spidr System feed, today's entry was renamed
 from 1.3 → "Patch 1.5 is now live" (id p13 → p15) in both `routes/system.js` and
 `SpidrSystem.jsx` so it reads as the newest patch above 1.4. Same date/description.
+
+---
+
+## 60. Patch 2.5 (partial) — DM/group call UI fixes + APEX upgrade freeze
+
+### Fixed
+- **Black banner in DM/group calls:** removed the `marginTop: 300px` reservation
+  on the chat header (`DirectMessages.jsx`, `KineticChat.jsx`) that left a black
+  void where an old in-call banner used to be, plus deleted the dead
+  `{false && inCall && (...)}` legacy banner block in DMs.
+- **Call deck never appeared / "HUD won't go away":** `handleStartCall` set
+  `inCall=true` but never `showCallDeck=true`, so the VoiceChannel rendered
+  `hidden` and the call had no usable UI. Now both DM and group calls open the
+  full VoiceChannel deck immediately on start (same as servers); minimizing hands
+  off to the shared MinimizedWebNode. The Symbiote Stream HUD remains correctly
+  gated on an actual screen share, so it only shows while sharing.
+- **APEX "Initiate Upgrade" freeze:** the upgrade modal (`ApexCommand`, a Radix
+  Dialog) was rendering nested inside the `ApexStore` full-screen portal overlay,
+  causing a focus-trap deadlock that froze interaction. Now the store card dims +
+  goes `pointer-events-none` while the upgrade dialog is open, so the dialog has
+  sole focus. Activation (which sets `apex_tier='apex'`) can now complete — and
+  the APEX settings tab (Frame Vault, nameplates, etc.) appears once it does,
+  since that tab is gated on `apex_tier === 'apex'`.
+
+Verified: full esbuild bundle of the app — zero warnings/errors; mojibake-free.
+
+### NOT yet done (honest status)
+- **Navigating without disconnecting ("scroll THE WEB / move around the app and
+  stay in the call"):** the WebRTC session lives in `useWebRTC`, which is owned
+  by the page-mounted `VoiceChannel`; navigating away unmounts the page →
+  `useWebRTC`'s unmount cleanup fires `leave()` → disconnect (auto-join effect in
+  `useWebRTC.js` line ~444). The correct fix is to lift the voice session to the
+  shell level so it survives route changes. This is a larger architectural change
+  and is deliberately left as a focused next step rather than rushed here.

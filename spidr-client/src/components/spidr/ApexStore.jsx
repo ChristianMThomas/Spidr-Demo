@@ -24,7 +24,7 @@ export default function ApexStore({ isOpen, onClose, currentTier = 'free', curre
       <motion.div 
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="w-full max-w-4xl bg-[#0a0a0a] border border-[#FF3333]/30 rounded-3xl overflow-hidden shadow-[0_0_100px_rgba(255,51,51,0.2)] flex"
+        className={`w-full max-w-4xl bg-[#0a0a0a] border border-[#FF3333]/30 rounded-3xl overflow-hidden shadow-[0_0_100px_rgba(255,51,51,0.2)] flex ${showCommand ? 'pointer-events-none opacity-30' : ''}`}
       >
         
         {/* LEFT: THE PITCH */}
