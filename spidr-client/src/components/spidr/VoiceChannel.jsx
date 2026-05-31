@@ -24,7 +24,7 @@ import VoiceDeckContextMenu from './VoiceDeckContextMenu';
 import { useWebRTC } from './useWebRTC';
 import { useSpeakingDetector } from '@/hooks/useSpeakingDetector';
 
-export default function VoiceChannel({ server, channel, currentUser, onLeave, onMinimize }) {
+export default function VoiceChannel({ server, channel, currentUser, onLeave, onMinimize, deckHidden = false }) {
   const [showAIPanel, setShowAIPanel]         = useState(false);
   const [aiPrompt, setAIPrompt]               = useState('');
   const [isAILoading, setIsAILoading]         = useState(false);
@@ -638,6 +638,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
                       onServerDeafen={() => updateMutation.mutate({ id: session.id, data: { is_deafened: !session.is_deafened } })}
                       moveChannels={(server.channels || []).filter(c => c.type === 'voice' && c.id !== channel.id).map(c => ({ id: c.id, name: c.name }))}
                       onMoveTo={(chId) => updateMutation.mutate({ id: session.id, data: { channel_id: chId } })}
+                      deckHidden={deckHidden}
                     />
                     </div>
                   );
@@ -857,6 +858,7 @@ function VoiceTile({
   onServerDeafen,
   onMoveTo,
   moveChannels = [],
+  deckHidden = false,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
@@ -865,9 +867,10 @@ function VoiceTile({
   const [localMutedState, setLocalMutedState] = useState(false);
   const [localDeafenedState, setLocalDeafenedState] = useState(false);
   // Don't run the detector if there's no stream (the member is muted or
-  // hasn't connected yet) or if they're server-muted.
+  // hasn't connected yet), if they're server-muted, OR if the deck is hidden
+  // (minimized) — no point burning a rAF loop per tile when nothing is painted.
   const isSpeaking = useSpeakingDetector(stream, {
-    enabled: !!stream && !session.is_muted && !session.is_deafened,
+    enabled: !deckHidden && !!stream && !session.is_muted && !session.is_deafened,
   });
 
   // Spidr AI uses its own visualizer; everyone else uses RMS detection.
@@ -884,13 +887,13 @@ function VoiceTile({
         setMenuPos({ x: e.clientX, y: e.clientY });
         setMenuOpen(true);
       }}
-      className={`relative aspect-video rounded-3xl overflow-hidden border group transition-all backdrop-blur-xl
+      className={`relative aspect-video rounded-3xl overflow-hidden border group transition-all backdrop-blur-sm
         ${showSpeakingRing ? 'border-green-500/70' : isSelf ? 'border-[#FF3333]/50' : 'border-white/10 hover:border-[#FF3333]/40'}`}
       style={{
-        background: 'linear-gradient(to bottom right, rgba(28,18,20,0.55), rgba(10,6,7,0.65))',
+        background: 'linear-gradient(to bottom right, rgba(40,24,28,0.45), rgba(12,7,9,0.55))',
         boxShadow: showSpeakingRing
-          ? '0 0 18px rgba(34,197,94,0.45), inset 0 1px 0 rgba(255,255,255,0.05)'
-          : 'inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.35)',
+          ? '0 0 18px rgba(34,197,94,0.45), inset 0 1px 0 rgba(255,255,255,0.06)'
+          : 'inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 24px rgba(0,0,0,0.35)',
       }}
     >
       {session.is_spidr_ai ? (
