@@ -482,7 +482,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser, chat
 
   return (
     <div className="w-72 shrink-0 h-full bg-[#0a0a0a] border-l border-red-900/20 flex flex-col overflow-y-auto">
-      <div className="p-4 border-b border-red-900/20 flex items-center justify-between">
+      <div className="p-4 pt-16 border-b border-red-900/20 flex items-center justify-between">
         <h3 className="font-bold text-white flex items-center gap-2">
           <Shield className="w-5 h-5 text-red-500" />
           {isGroup ? `Members (${totalCount})` : `Community (${totalCount})`}

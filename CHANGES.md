@@ -3154,3 +3154,32 @@ Modified: `spidr-client/src/components/spidr/SpidrSystem.jsx`,
 
 Verified: client full bundle + server `node --check` clean (working copy and
 merged tree); mojibake-free.
+
+---
+
+## 77. Fix message-row lines + top-right widget overlap
+
+- **Lines between messages:** the §72 reskin added `border-b border-white/5` to
+  every server message row, which read as faint divider lines down the feed.
+  Removed the bottom border (kept the row padding + hover) so the feed is clean
+  with no lines.
+- **Top-right profile widget overlapping content:** the biomass pill + status
+  chip cluster is `fixed top-4 right-4 z-40`, so it floated over the right-edge
+  community/member panel and (when the member panel is hidden on md screens) the
+  chat header's search/memory-web controls. Added top clearance to the
+  CommunityPanel header (`pt-16`) so member content starts below the widget, and
+  a responsive right margin on the chat header controls (`mr-[150px]` under lg,
+  `0` at lg+) so they never tuck under the widget when the member panel is
+  hidden.
+
+### Files
+Modified: `components/spidr/ServersPanel.jsx`, `components/spidr/CommunityPanel.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+mojibake-free.
+
+### Honest note
+Verified by build, not a live session. The widget itself wasn't moved (you
+didn't ask to relocate it) — instead the panels now reserve space so it no
+longer covers their content. If you'd rather the widget sit inside a top bar
+than float, that's a small follow-up.
