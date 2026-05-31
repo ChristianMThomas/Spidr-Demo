@@ -11,6 +11,8 @@ const s = new Schema({
   caption:       String,
   hashtags:      [String],
   audio_id:      String,
+  grafted_audio: { type: Schema.Types.Mixed, default: null },  // Patch 2.12 external audio graft
+  overclock_until: { type: Date, default: null },              // Patch 2.11 APEX overclock boost
   duration:      { type: Number, default: 0 },
   aspect_ratio:  { type: String, default: '9:16' },
   // Crop region from the Spidr Studio cropper (Part 6): { x, y, width, height }

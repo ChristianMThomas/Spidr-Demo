@@ -2737,3 +2737,157 @@ These remaining pieces are real, multi-file features best done as their own
 focused passes (with the same full-bundle verification) rather than crammed in.
 
 Verified by build, not a live session.
+
+---
+
+## 68. Patch 2.12 — Precision scrubber + external audio grafting (The Weaver)
+
+### Part 1 — Precision video timeline scrubber
+- New `components/spidr/VideoScrubber.jsx`: a glassmorphic timeline
+  (`bg-white/5 border border-white/10 h-16`) that renders the captured frame
+  thumbnails across the track, with framer-motion `drag="x"` dual handles
+  (start/end web-anchors in the APEX color), a 1-second minimum window clamp, a
+  click-to-seek track, and a thin crimson playhead needle
+  (`bg-red-600 drop-shadow`) synced to `currentTime`.
+- Replaced the old range-slider `TrimPanel` usage in `VideoStudio` with this
+  (TrimPanel left as dead code, harmless).
+
+### Part 2 — External audio grafting pipeline
+- New backend `routes/weaver.js` → `POST /weaver/parse-audio { url }`: detects
+  YouTube / Spotify / Apple Music, resolves title + author + thumbnail via each
+  provider's public **oEmbed** endpoint (no API keys), and best-effort fetches a
+  30s Apple Music preview via the public iTunes lookup API. Validates the URL,
+  rejects unsupported/non-http sources, and degrades gracefully (returns a
+  minimal payload if oEmbed is unreachable). Registered at `/weaver`.
+- New `components/spidr/AudioUplinkInput.jsx`: the `[ GRAFT AUDIO SOURCE: _ ]`
+  socket-style input. On pasting a valid URL it freezes input and plays a
+  terminal extraction animation (`> INTERCEPTING_LINK... > CONNECTING TO
+  LINKED_NODE... > FETCHING_METADATA...`), calls the proxy, then shows the
+  grafted track chip (album art + `> TRACK: … // NODE: …_API`).
+
+### Part 3 — Synced multi-track view
+- When audio is grafted, `VideoStudio` renders a second track under the scrubber:
+  album-art thumbnail + a synthetic waveform + `> TRACK: … // <provider>_API`
+  metadata in faded mono.
+- The grafted track is carried into the publish payload as `grafted_audio`
+  ({ provider, title, author, thumbnail, sourceUrl, previewUrl }).
+- `Clip` schema now declares `grafted_audio` (Mixed) and `overclock_until`
+  (Date, from Patch 2.11) so these persist (the schema is strict by default).
+
+### Files
+Added: `spidr-server/src/routes/weaver.js`,
+`spidr-client/src/components/spidr/VideoScrubber.jsx`,
+`spidr-client/src/components/spidr/AudioUplinkInput.jsx`.
+Modified: `spidr-server/src/index.js`, `spidr-server/src/models/Clip.js`,
+`spidr-client/src/components/spidr/VideoStudio.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+server `node --check` clean; provider-detection + Apple-id extraction logic
+unit-tested offline; mojibake-free.
+
+### Honest status / caveats
+- The oEmbed calls work from a normal server/region, but I could not fully
+  smoke-test the live fetch here: YouTube's oEmbed returned HTTP 403 to this
+  datacenter IP (bot protection on the sandbox network), not a code fault. The
+  route degrades gracefully (still returns provider + sourceUrl), and Spotify/
+  Apple oEmbed are typically less aggressive. Worth confirming on your host.
+- Spotify 30s previews need an authed Web API token (not done); Apple previews
+  use the public iTunes lookup (best-effort). YouTube has no audio preview via
+  oEmbed — only metadata/thumbnail.
+- Frame thumbnails come from the studio's existing capture (scrub/generate); if
+  none are captured the track shows a prompt instead of frames.
+- Patch 2.13 (viewport auto-play of the grafted audio + floating AudioGraftNode
+  in the feed) is the natural next step now that `grafted_audio` rides on the
+  clip — not built yet.
+- Verified by build, not a live session.
+
+---
+
+## 69. Patch 2.13 — The Web auto-play engine (grafted audio)
+
+Builds on 2.12's `grafted_audio` clip payload. When a feed clip carries grafted
+external audio, it now auto-plays as the clip enters the viewport.
+
+### Part 1 — Intersection engine + single-audio coordinator
+- New `hooks/useViewportMedia.js`: an `IntersectionObserver` (threshold 0.7) plus
+  a module-level singleton so only ONE post plays audio at a time — when a new
+  post becomes the most-visible one it claims the slot and forces the previous to
+  pause. Unit-tested the claim/release logic.
+
+### Part 2 — Autoplay-policy fallback
+- The `.play()` call is wrapped in try/catch; on a `NotAllowedError` (browser
+  blocks autoplay before any user interaction) the node drops to a muted "tap to
+  initiate" state instead of throwing. The first tap satisfies the policy and
+  auto-play works for subsequent posts. A global pointer/key listener also marks
+  interaction.
+
+### Part 3 — Floating AudioGraftNode
+- New `components/feed/AudioGraftNode.jsx`: a `w-10 h-10` glassmorphic disc
+  bottom-right of the clip media. Active = album-art disc spins infinitely with
+  an APEX-colored glow; muted/blocked = rotation stops and a diagonal SVG slash
+  (APEX color) is drawn across it. Tapping does a `scale:[1,0.8,1]` pop. If the
+  source has no inline-playable preview (e.g. YouTube/Spotify without a token),
+  the disc opens the original link in a new tab instead.
+- Mounted inside `ClipCard`; the card frame is the IntersectionObserver target.
+
+### Part 4 — Volume fading
+- Audio fades 0 → 0.8 over ~300ms on enter and back to 0 before pausing on exit,
+  for a doppler-like pass-by feel (via a stepped interval in the hook).
+
+### Files
+Added: `hooks/useViewportMedia.js`, `components/feed/AudioGraftNode.jsx`.
+Modified: `components/feed/ClipFeed.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+coordinator logic unit-tested; mojibake-free.
+
+### Honest status / caveats
+- Verified by build + logic tests, not a live session. Worth checking: scroll a
+  feed where a clip has grafted audio with a playable `previewUrl` (Apple Music
+  previews resolve via 2.12; Spotify/YouTube need a token so those fall back to
+  "tap opens source").
+- The grafted audio is an independent track layered over the (muted) clip video,
+  matching the "song grafted onto the node" intent — they don't fight for output.
+- Only clips that actually carry `grafted_audio` (created via The Weaver's audio
+  uplink) show the node; existing clips are unaffected.
+
+---
+
+## 70. Pill-Node channel sidebar (match reference image)
+
+Reconciliation: the task's `ChannelCategory` / `ChannelItem` /
+`ChannelNotifications` are all the channel-list region inside `ServersPanel.jsx`.
+Rebuilt that region to match the uploaded reference exactly.
+
+- **Category headers** ("Main Web" / "Voice Webs"): replaced the plain caption
+  with a glowing concentric node (faint `border-red-500/30` ring + solid
+  `bg-red-500 shadow-[0_0_8px_#ef4444]` core), monospace cyan caps
+  (`font-mono text-[11px] tracking-[0.15em] text-cyan-600/80 uppercase`), and a
+  collapse chevron pushed to the far right.
+- **Channel pills (inactive):** stadium nodes — `rounded-full bg-[#0a0a0a]
+  border border-white/5 mx-2 my-1.5 px-4 py-2`, muted `#`/name in
+  `text-neutral-400 font-medium`.
+- **Active channel:** `bg-red-950/40 border-red-900/50`, a sharp crimson accent
+  line on the inner-left edge (`w-1 h-[60%] bg-red-500 rounded-r-full absolute
+  left-0`), and white `#`/name.
+- **Badges/status:** unread pings as red pill badges
+  (`bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full`) far
+  right; active voice channels show a bright green dot (`bg-green-500`) in the
+  same slot. Voice channels are now pills with a speaker icon (replacing the old
+  VoiceWeb block) and join on click.
+
+### Files
+Modified: `components/spidr/ServersPanel.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+sidebar geometry rendered offline and compared to the reference (close match);
+mojibake-free.
+
+### Honest note
+The reference shows TWO separate text categories (Main Web + Gaming Web). The
+app's channels don't yet carry a `category` field, so channels are grouped by
+type (all text under "Main Web", all voice under "Voice Webs") with the exact
+pill/node styling from the image. True multi-category grouping (custom category
+names per channel group) would need a `category` field on the channel model +
+admin UI to assign it — a separate backend change. Verified by build, not a live
+session.

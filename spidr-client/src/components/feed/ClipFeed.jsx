@@ -15,6 +15,8 @@ import ShareWeb from '@/components/spidr/ShareWeb';
 import { useMenu } from '@/components/MenuContext';
 import DataDisc from '@/components/feed/DataDisc';
 import { isTrending, tensionScore } from '@/lib/tensionScore';
+import { useViewportMedia } from '@/hooks/useViewportMedia';
+import AudioGraftNode from '@/components/feed/AudioGraftNode';
 import ScrollingAudioBanner from '@/components/feed/ScrollingAudioBanner';
 import FrequencyArchive from '@/components/feed/FrequencyArchive';
 
@@ -497,6 +499,19 @@ function ClipCard({
     ? clip.reactions.filter(r => r.users?.includes(currentUser?.id))
     : [];
 
+  // Patch 2.13: grafted-audio viewport auto-play. The hook owns the observer
+  // container ref (attached to the card frame) + the <audio> element ref.
+  const graftAudioRef = useRef(null);
+  const graft = clip.grafted_audio || null;
+  const { containerRef: graftContainerRef, isActive: graftActive, isMuted: graftMuted, requestUnmute: graftUnmute } =
+    useViewportMedia(graftAudioRef, { id: `clip-${clip.id}`, threshold: 0.7, targetVolume: 0.8 });
+  const graftPlaying = graftActive && !graftMuted && !!graft?.previewUrl;
+  const handleGraftTap = (e) => {
+    e.stopPropagation();
+    if (!graft?.previewUrl) { if (graft?.sourceUrl) window.open(graft.sourceUrl, '_blank', 'noopener'); return; }
+    if (graftMuted) graftUnmute();
+  };
+
   return (
     <div
       className={`relative flex gap-3 ${comments ? 'max-w-4xl' : 'max-w-sm'}`}
@@ -504,6 +519,7 @@ function ClipCard({
     >
       {/* Video card */}
       <motion.div
+        ref={graftContainerRef}
         className="relative bg-zinc-900 rounded-2xl overflow-hidden border shadow-2xl flex-shrink-0"
         style={{ aspectRatio: aspectCss, maxHeight: '82vh', borderColor: trending ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.08)' }}
         animate={striking
@@ -564,6 +580,17 @@ function ClipCard({
           onClick={togglePlay}
           onLoadedMetadata={(e) => { const v = e.target; if (v.videoWidth) setNatSize({ width: v.videoWidth, height: v.videoHeight }); }}
         />
+
+        {/* Grafted external audio — floating auto-play disc (Patch 2.13) */}
+        {graft && (
+          <AudioGraftNode
+            audio={graft}
+            audioRef={graftAudioRef}
+            playing={graftPlaying}
+            muted={graftMuted || !graft.previewUrl}
+            onTap={handleGraftTap}
+          />
+        )}
 
         {/* Buffering spinner */}
         <AnimatePresence>
