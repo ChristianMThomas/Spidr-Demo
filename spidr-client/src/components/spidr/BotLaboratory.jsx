@@ -113,30 +113,29 @@ export default function BotLaboratory({ currentUser }) {
   });
 
   return (
-    <div className="flex-1 flex flex-col bg-gradient-to-br from-zinc-900 via-black to-zinc-900">
+    <div className="flex-1 flex flex-col bg-black/40">
       {/* Header */}
-      <div className="p-6 border-b border-red-900/20 bg-zinc-900/50 backdrop-blur-xl">
-        <h2 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-          <Bot className="w-8 h-8 text-red-500" />
-          Bot Laboratory
+      <div className="p-6 border-b border-red-900/20 bg-black/30 backdrop-blur-xl">
+        <h2 className="text-2xl md:text-3xl font-mono font-bold text-white mb-2 flex items-center gap-2">
+          <span className="text-red-500">&gt;</span> BOT_LABORATORY
         </h2>
-        <p className="text-zinc-400">Build, import, and deploy bots for your servers</p>
+        <p className="text-neutral-500 font-mono text-sm">Build, import, and deploy bots for your servers.</p>
 
-        <div className="flex gap-1 mt-4 bg-zinc-800/50 rounded-xl p-1 w-fit">
+        <div className="flex flex-wrap gap-2 mt-4">
           {TABS.map(tab => {
-            const Icon = tab.icon;
+            const active = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
-                  activeTab === tab.id
-                    ? 'bg-[#FF3333] text-white shadow-lg shadow-red-900/30'
-                    : 'text-zinc-500 hover:text-white hover:bg-zinc-700/50'
+                className={`relative flex items-center gap-2 px-4 py-2 rounded-full border font-mono text-xs tracking-widest uppercase transition-all ${
+                  active
+                    ? 'bg-red-950/40 border-red-900/50 text-white'
+                    : 'bg-[#0a0a0a] border-white/5 text-neutral-400 hover:border-white/10 hover:text-neutral-200'
                 }`}
               >
-                <Icon size={14} />
-                {tab.label}
+                {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-[55%] bg-red-500 rounded-r-full" />}
+                [ {tab.label.replace(/ /g, '_')} ]
               </button>
             );
           })}
@@ -147,14 +146,19 @@ export default function BotLaboratory({ currentUser }) {
         <AnimatePresence mode="wait">
           {activeTab === 'store' && (
             <motion.div key="store" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <div className="mb-6 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
-                <Input
-                  placeholder="Search bots..."
+              <div className="mb-6 relative group">
+                <input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 bg-zinc-800/50 border-zinc-700 text-white"
+                  className="w-full bg-black/60 border border-white/10 rounded-md py-3 pl-4 pr-4 text-white font-mono text-sm outline-none transition-all focus:border-red-500 focus:shadow-[0_0_10px_#ef4444] placeholder-transparent"
+                  placeholder="search"
                 />
+                {/* Terminal prompt overlay — shows when empty, with a blinking cursor */}
+                {!searchQuery && (
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 font-mono text-sm text-neutral-500 pointer-events-none">
+                    &gt; SEARCH_BOTS: <span className="spidr-blink text-red-500">_</span>
+                  </div>
+                )}
               </div>
 
               {loadingBots ? (
@@ -172,9 +176,12 @@ export default function BotLaboratory({ currentUser }) {
                     const Icon = meta.icon;
                     return (
                       <div key={categoryKey}>
-                        <div className="flex items-center gap-3 mb-4">
-                          <Icon className="w-6 h-6" style={{ color: meta.color }} />
-                          <h3 className="text-xl font-bold text-white">{meta.name}</h3>
+                        {/* Category header — glowing concentric node + cyan terminal type */}
+                        <div className="flex items-center gap-2.5 mb-4">
+                          <span className="relative flex items-center justify-center w-3.5 h-3.5 rounded-full border border-red-500/30 shrink-0">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]" />
+                          </span>
+                          <h3 className="font-mono text-xs tracking-[0.15em] text-cyan-600/80 uppercase">&gt; {meta.name}</h3>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                           {categoryBots.map((bot, index) => (
@@ -185,41 +192,32 @@ export default function BotLaboratory({ currentUser }) {
                               transition={{ delay: index * 0.05 }}
                               className="group relative"
                             >
-                              <div className="absolute -inset-0.5 bg-gradient-to-r rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur"
-                                style={{ backgroundImage: `linear-gradient(90deg, ${meta.color}, #dc2626, ${meta.color})` }}
-                              />
-                              <div className="relative bg-zinc-800/90 backdrop-blur-xl rounded-2xl p-5 border border-zinc-700/50 h-full flex flex-col">
-                                <div className="mb-4 relative">
-                                  <motion.div
-                                    className="text-6xl transform-gpu"
-                                    style={{ filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.5))', transform: 'rotateX(15deg) rotateY(-15deg)' }}
-                                    whileHover={{ scale: 1.1, rotateY: 0, rotateX: 0 }}
-                                    transition={{ type: 'spring', stiffness: 300 }}
-                                  >
-                                    {bot.icon_emoji || '🤖'}
-                                  </motion.div>
-                                  <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-16 h-2 rounded-full blur-lg"
-                                    style={{ backgroundColor: meta.color, opacity: 0.3 }}
-                                  />
+                              <div className="relative bg-[#0a0a0a]/80 backdrop-blur-md rounded-xl p-5 border border-white/5 h-full flex flex-col transition-all duration-300 group-hover:border-red-900/50 group-hover:shadow-[0_0_24px_rgba(220,38,38,0.12)]">
+                                {/* Bot icon — flat glowing node */}
+                                <div className="mb-4 flex items-center">
+                                  <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center text-2xl"
+                                    style={{ boxShadow: `0 0 16px ${meta.color}33`, borderColor: `${meta.color}40` }}>
+                                    {bot.icon_emoji || '◆'}
+                                  </div>
                                 </div>
                                 <div className="flex items-center gap-2 mb-2">
-                                  <h4 className="text-lg font-bold text-white">{bot.name}</h4>
+                                  <h4 className="text-lg font-bold text-white font-mono">{bot.name}</h4>
                                   {bot.is_official && (
-                                    <span className="text-[8px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider border border-blue-500/30">
+                                    <span className="border border-purple-500/50 bg-purple-500/10 text-purple-400 text-[10px] uppercase px-1.5 py-0.5 rounded-[3px] font-mono tracking-wider">
                                       Official
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-sm text-zinc-400 mb-4 flex-1">{bot.description}</p>
+                                <p className="text-sm text-gray-400 mb-4 flex-1">{bot.description}</p>
                                 <div className="space-y-1 mb-4">
                                   {(bot.features || []).slice(0, 3).map((feature, i) => (
-                                    <div key={i} className="flex items-center gap-2 text-xs text-zinc-500">
-                                      <Sparkles className="w-3 h-3" style={{ color: meta.color }} />
+                                    <div key={i} className="flex items-center gap-2 text-sm text-gray-400 font-mono">
+                                      <span className="text-red-500 shrink-0">&gt;</span>
                                       {feature}
                                     </div>
                                   ))}
                                 </div>
-                                <Button
+                                <button
                                   onClick={() => {
                                     if (myServers.length === 0) {
                                       toast.error('Join or create a server first to install bots');
@@ -228,12 +226,11 @@ export default function BotLaboratory({ currentUser }) {
                                     setInstallingBot(bot);
                                     setSelectedServerId(myServers[0].id);
                                   }}
-                                  className="bg-[#FF3333] hover:bg-red-500 text-white w-full"
-                                  size="sm"
+                                  className="w-full rounded-md bg-red-600/10 border border-red-500/40 text-red-500 font-mono text-sm tracking-widest uppercase py-2 hover:bg-red-500 hover:text-white transition-all duration-300"
                                 >
-                                  <Plus size={14} className="mr-1" /> Install to Server
-                                </Button>
-                                <div className="text-[10px] text-zinc-600 text-center mt-2">
+                                  [ INSTALL_TO_SERVER ]
+                                </button>
+                                <div className="text-[10px] text-neutral-600 text-center mt-2 font-mono">
                                   {(bot.install_count || 0).toLocaleString()} installs
                                 </div>
                               </div>

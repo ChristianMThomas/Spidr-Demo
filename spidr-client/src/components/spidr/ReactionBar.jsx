@@ -16,10 +16,10 @@ export default function ReactionBar({ reactions, currentUserId, onToggle }) {
             key={emoji}
             whileTap={{ scale: 0.9 }}
             onClick={() => onToggle?.(emoji)}
-            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] transition-all ${
+            className={`flex items-center gap-1 px-2 py-1 rounded-full text-[11px] transition-all ${
               hasReacted
-                ? 'bg-[#FF3333]/20 border border-[#FF3333]/40 text-white'
-                : 'bg-white/5 border border-white/10 text-zinc-400 hover:bg-white/10'
+                ? 'bg-red-500/10 border border-red-500/40 text-white'
+                : 'bg-white/5 border border-white/5 text-zinc-400 hover:bg-white/10'
             }`}
           >
             {isCustom ? (

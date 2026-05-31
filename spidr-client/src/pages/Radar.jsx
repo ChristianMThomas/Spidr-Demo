@@ -16,7 +16,7 @@ export default function RadarPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="flex-1 bg-black relative">
+    <div className="flex-1 bg-black/40 relative">
       <SignalRadar
         open={true}
         onClose={() => navigate('/home')}

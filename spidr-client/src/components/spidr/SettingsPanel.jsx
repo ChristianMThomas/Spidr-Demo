@@ -201,7 +201,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-zinc-900 relative min-h-0">
+    <div className="flex-1 flex flex-col bg-black/40 relative min-h-0">
       <Tabs defaultValue="profile" className="flex flex-col flex-1 min-h-0">
         {/* Top Tab Navigation */}
         <div className="bg-zinc-800/50 border-b border-red-900/20 px-4 py-3 overflow-x-auto">
