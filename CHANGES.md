@@ -3476,3 +3476,64 @@ Modified: `spidr-client/src/components/spidr/SpidrSystem.jsx`,
 
 Verified: client full bundle + server `node --check` clean (working copy and
 merged tree); mojibake-free.
+
+---
+
+## 85. Minimized radial web-node revert + SpidrBackground expanded deck + glass fix + lag pass
+
+### Minimized UI → back to the radial "web node" (with the new buttons)
+Rewrote `MinimizedWebNode` from the §79 micro-pill back to the radial node design
+you preferred: center circular avatar, an absolute SVG tick-ring that pulses +
+slow-rotates (faster/brighter while speaking), and the dark meta pill below
+showing the live call timer · participant count. Hovering (or Ctrl+`) pops out
+the orbital control dock — and it keeps the fuller button set we added since:
+Mute, Deafen, a volume slider, Expand, Leave, and the `[ RECORD_NODE ]` toggle.
+Still uses the shell contract (`call`, `apexColor`, `speaking`, `onExpand`,
+`onEnd`) and the same mute/deafen events, so nothing else needed rewiring.
+
+### Expanded deck background → your SpidrBackground
+Added `components/spidr/SpidrBackground.jsx` exactly as provided (deep `#020202`
+base + radial crimson core glow + faint tiled spidr-web vector, `mix-blend-screen`).
+The expanded voice deck wrapper now renders the deck inside `<SpidrBackground>`
+instead of the old inline radial-gradient.
+
+### Glassy tiles now show
+The tiles weren't reading as glass because the old deck background was a near-
+opaque dark gradient with a heavy full-screen blur on top — nothing showed
+through. Against the new layered SpidrBackground the translucent tiles now have
+something to blur/tint over, so the glass + smooth corners read properly. Tile
+fill nudged slightly more translucent to lean into it.
+
+### Lag pass (app-wide)
+The expanded deck was the worst offender. Fixes:
+- **Removed the full-screen `backdrop-blur-2xl`** on the `fixed inset-0` deck
+  wrapper — a giant viewport-sized backdrop-filter is one of the most expensive
+  things a browser can paint, and with the opaque SpidrBackground it was doing
+  nothing visible anyway.
+- **Tile blur `backdrop-blur-xl` → `backdrop-blur-sm`** — keeps the glass look at
+  a fraction of the GPU cost (this runs on every participant tile).
+- **Gated the per-tile speaking detectors when the deck is minimized** — the
+  persistent deck stays mounted (so audio keeps playing) but each tile was still
+  running a `requestAnimationFrame` + AudioContext analyser loop even while
+  hidden. Added a `deckHidden` prop threaded from the shell that disables those
+  detectors when minimized, killing N background rAF loops.
+- The radial node uses framer transform-rotate (GPU-composited), not a
+  per-frame canvas redraw.
+
+### Files
+New: `components/spidr/SpidrBackground.jsx`. Modified: `components/SpidrShell.jsx`,
+`components/spidr/VoiceChannel.jsx`, `components/spidr/MinimizedWebNode.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+node + expanded deck rendered offline vs the designs; mojibake-free.
+
+### Honest notes
+- Verified by build + offline render, not a live runtime, so the *feel* of the
+  lag improvement needs your confirmation after `npm run build` + hard refresh.
+  The changes target the known-expensive paths (full-screen backdrop-filter,
+  per-tile blur, always-on rAF audio loops), which are the right levers — but if
+  it's still heavy, the next suspects are: the many `repeat:Infinity` framer
+  loops on landing/feed components, and the global custom-background layers.
+  Tell me where it's still slow and I'll profile that path next.
+- RECORD_NODE + the node's volume slider remain local UI state (record is a
+  visual toggle), as before.
