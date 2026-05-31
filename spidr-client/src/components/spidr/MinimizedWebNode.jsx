@@ -1,67 +1,47 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Headphones, HeadphoneOff, Maximize2, PhoneOff } from 'lucide-react';
-import { entities, auth } from '@/api/apiClient';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence, useMotionValue } from 'framer-motion';
+import { Mic, MicOff, Headphones, PhoneOff, Maximize2, Circle } from 'lucide-react';
+import { auth, entities } from '@/api/apiClient';
 
 /**
- * MinimizedWebNode — the "Suspended Web Node" minimized call UI (Part 4).
+ * MinimizedWebNode — Micro-Tactical HUD (minimized voice overlay).
  *
- * A circular dark-glass node that hangs from the top of the screen by a thread
- * in the user's APEX color. Draggable with spring physics; on hover it unfurls a
- * radial "symbiote" menu (Mute / Deafen / Maximize) connected by thread lines,
- * and a radial waveform wraps the node when the active speaker is talking.
+ * Base state: a tiny draggable glass pill showing only the active-speaker
+ * avatar (with a pulsing voice ring) + the user's self-mute status. No text.
+ * Fades to 30% after 3s of silence/no-hover ("ghost mode"); snaps to 100% on
+ * hover or when someone speaks. Hovering (or Ctrl+`) expands a tactical dock
+ * with the real controls (mute / deafen / volume / record / expand / leave).
  *
- * Part 6 — click-to-maximize correctness:
- *   • The outer wrapper's onClick ONLY calls onExpand (restore full deck). It
- *     NEVER disconnects.
- *   • Every sub-button calls e.stopPropagation() so it can't bubble to the
- *     wrapper (and the wrapper can't trigger a button).
- *   • Disconnect is its own radial button; it is NOT the wrapper action.
- *   • The WebRTC session lives in VoiceChannel/useWebRTC at the shell level and
- *     is untouched here — mounting/unmounting this node never tears down media
- *     (mute/deafen/leave are dispatched as events the live session listens for).
- *
- * Props:
- *   call        { serverName, groupName, channelName, participants?: [{name,avatar,apexColor,speaking}] }
- *   apexColor   current user's APEX thread color (fallback handled)
- *   speaking    boolean — active-speaker state (drives the radial EQ)
- *   amplitude   0..1 — optional volume amplitude (drives EQ scale/opacity)
- *   onExpand    () => restore full deck (FOCUS_MODE)
- *   onEnd       () => leave the call
- *   onMuteToggle(muted), onDeafenToggle(deafened)
+ * Preserves the shell contract: props { call, apexColor, speaking, onExpand,
+ * onEnd } and dispatches spidr-call-mute-toggle / spidr-call-deafen-toggle.
  */
 export default function MinimizedWebNode({
-  call = {}, apexColor = '#3f3f46', speaking = false, amplitude = 0,
-  onExpand, onEnd, onMuteToggle, onDeafenToggle,
+  call = {}, apexColor = '#3f3f46', speaking = false,
+  onExpand, onEnd,
 }) {
-  const [hovered, setHovered] = useState(false);
-  const [active, setActive] = useState(false);
+  const [myAvatar, setMyAvatar] = useState(null);
+  const [fetchedColor, setFetchedColor] = useState(null);
   const [muted, setMuted] = useState(false);
   const [deafened, setDeafened] = useState(false);
-  const [fetchedColor, setFetchedColor] = useState(null);
-  const [myAvatar, setMyAvatar] = useState(null);
-  const [elapsed, setElapsed] = useState(0);
-  const dragControls = useRef(null);
+  const [volume, setVolume] = useState(80);
+  const [recording, setRecording] = useState(false);
 
-  // Internal call timer — counts from when this node first appears, so the meta
-  // pill shows a live duration even if the parent doesn't supply one.
-  useEffect(() => {
-    const started = Date.now() - (call.durationSeconds ? call.durationSeconds * 1000 : 0);
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
-    return () => clearInterval(id);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [hovered, setHovered] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [ghost, setGhost] = useState(false); // faded (no activity)
 
-  // Pull the current user's avatar + equipped APEX thread skin color so the
-  // minimized node shows their profile pic and reflects their customization.
-  // Falls back to the apexColor prop, then red.
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const silenceTimer = useRef(null);
+
+  // Resolve colors + current-user avatar.
   useEffect(() => {
     let alive = true;
     auth.me?.().then(async (me) => {
       if (!me?.id) return;
       if (alive && me.avatar_url) setMyAvatar(me.avatar_url);
       const profiles = await entities.UserProfile.filter({ user_id: me.id }).catch(() => []);
-      const c = profiles?.[0]?.apex_features?.thread_skin_color
-        || profiles?.[0]?.accent_color;
+      const c = profiles?.[0]?.apex_features?.thread_skin_color || profiles?.[0]?.accent_color;
       if (alive && c) setFetchedColor(c);
       if (alive && !me.avatar_url && profiles?.[0]?.avatar_url) setMyAvatar(profiles[0].avatar_url);
     }).catch(() => {});
@@ -69,183 +49,161 @@ export default function MinimizedWebNode({
   }, []);
 
   const resolved = fetchedColor || apexColor;
-  const color = resolved && resolved !== '#3f3f46' ? resolved : '#FF3333';
-  const participants = (call.participants || []).slice(0, 3);
-  // Avatar shown in the node: first participant's, else the current user's.
-  const nodeAvatar = participants[0]?.avatar || myAvatar;
+  const ring = resolved && resolved !== '#3f3f46' ? resolved : '#FF3333';
+  const participants = (call.participants || []).slice(0, 8);
+  // Active speaker avatar: whoever is speaking, else first participant, else me.
+  const activeSpeaker = participants.find(p => p.speaking) || participants[0];
+  const avatar = activeSpeaker?.avatar || myAvatar;
 
-  // Drag offset → thread stretch. The thread is anchored at screen top; as the
-  // node is dragged down/around, the thread visually lengthens.
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const threadLen = useTransform([x, y], ([lx, ly]) => Math.sqrt(lx * lx + ly * ly));
+  // Ghost-fade: drop to 30% after 3s without hover / speaking.
+  useEffect(() => {
+    const active = hovered || expanded || speaking;
+    if (active) {
+      setGhost(false);
+      if (silenceTimer.current) { clearTimeout(silenceTimer.current); silenceTimer.current = null; }
+    } else {
+      silenceTimer.current = setTimeout(() => setGhost(true), 3000);
+    }
+    return () => { if (silenceTimer.current) clearTimeout(silenceTimer.current); };
+  }, [hovered, expanded, speaking]);
 
-  const handleExpand = () => { onExpand?.(); };
+  // Ctrl+` toggles the tactical dock.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.ctrlKey && (e.key === '`' || e.key === '~')) { e.preventDefault(); setExpanded(v => !v); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
-  // Tapping the node body toggles the orbital controls (works on touch, where
-  // there's no hover). The explicit Expand button restores the full deck.
-  const handleNodeTap = (e) => {
-    e.stopPropagation();
-    setActive((v) => !v);
-  };
+  const toggleMute = useCallback((e) => {
+    e?.stopPropagation();
+    setMuted(m => {
+      const next = !m;
+      window.dispatchEvent(new CustomEvent('spidr-call-mute-toggle', { detail: { muted: next } }));
+      return next;
+    });
+  }, []);
 
-  const handleMute = (e) => {
-    e.stopPropagation();
-    const next = !muted; setMuted(next); onMuteToggle?.(next);
-    window.dispatchEvent(new CustomEvent('spidr-call-mute-toggle', { detail: { muted: next } }));
-  };
-  const handleDeafen = (e) => {
-    e.stopPropagation();
-    const next = !deafened; setDeafened(next); onDeafenToggle?.(next);
-    if (next && !muted) { setMuted(true); window.dispatchEvent(new CustomEvent('spidr-call-mute-toggle', { detail: { muted: true } })); }
-    window.dispatchEvent(new CustomEvent('spidr-call-deafen-toggle', { detail: { deafened: next } }));
-  };
-  const handleDisconnect = (e) => {
-    e.stopPropagation(); // CRITICAL: don't bubble to the wrapper (Part 6)
-    onEnd?.();
-  };
-  const handleMaximize = (e) => { e.stopPropagation(); handleExpand(); };
+  const toggleDeafen = useCallback((e) => {
+    e?.stopPropagation();
+    setDeafened(d => {
+      const next = !d;
+      if (next && !muted) { setMuted(true); window.dispatchEvent(new CustomEvent('spidr-call-mute-toggle', { detail: { muted: true } })); }
+      window.dispatchEvent(new CustomEvent('spidr-call-deafen-toggle', { detail: { deafened: next } }));
+      return next;
+    });
+  }, [muted]);
 
-  // Orbital buttons positioned to match the reference video:
-  //  • Mute      → upper-right
-  //  • Disconnect→ lower-left
-  //  • Expand    → lower-right
-  // Angles in degrees (0 = right, 90 = down, clockwise).
-  const orbital = [
-    { key: 'mute',   icon: muted ? MicOff : Mic,            onClick: handleMute,       angle: -45,  variant: muted ? 'danger' : 'neutral' },
-    { key: 'end',    icon: PhoneOff,                         onClick: handleDisconnect, angle: 135,  variant: 'danger' },
-    { key: 'expand', icon: Maximize2,                        onClick: handleMaximize,   angle: 45,   variant: 'accent' },
-  ];
-  const R = 64; // orbital distance from node center (wider = fewer mis-clicks)
-
-  // Blue radial visualizer ticks around the avatar — discrete short lines that
-  // radiate outward and brighten with speaking/amplitude, matching the video.
-  const TICKS = 32;
-  const ringColor = '#3b82f6'; // the reference ring is blue
-  const speakingBoost = speaking ? 1 : 0.55;
+  const handleEnd = (e) => { e?.stopPropagation(); window.dispatchEvent(new Event('spidr-call-disconnect')); onEnd?.(); };
+  const handleExpandDeck = (e) => { e?.stopPropagation(); onExpand?.(); };
+  const toggleRecord = (e) => { e?.stopPropagation(); setRecording(r => !r); };
 
   return (
-    <div className="fixed inset-x-0 top-0 z-[60] pointer-events-none flex justify-center" style={{ height: 0 }}>
-      {/* Wrapper centered at top of screen; the node hangs below via the thread. */}
-      <div className="relative" style={{ width: 0, height: 0 }}>
-        {/* Thin thread from the top of the screen to the node */}
-        <motion.div
-          className="absolute left-1/2 top-0 -translate-x-1/2 origin-top pointer-events-none"
-          style={{
-            width: 2,
-            height: useTransform(threadLen, (l) => 56 + l),
-            background: `linear-gradient(to bottom, ${ringColor}, ${ringColor}22)`,
-            filter: `drop-shadow(0 0 3px ${ringColor}88)`,
-          }}
-        />
-
-        <motion.div
-          drag
-          dragMomentum={false}
-          dragConstraints={{ left: -(window.innerWidth / 2) + 90, right: (window.innerWidth / 2) - 90, top: 0, bottom: window.innerHeight - 200 }}
-          dragElastic={0.08}
-          style={{ x, y }}
-          initial={{ opacity: 0, scale: 0.6 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.6 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 24 }}
-          onHoverStart={() => setHovered(true)}
-          onHoverEnd={() => setHovered(false)}
-          className="absolute left-1/2 -translate-x-1/2 top-[56px] pointer-events-auto"
-        >
-        {/* Orbital action buttons — visible on hover (desktop) or tap (touch) */}
-        <AnimatePresence>
-          {(hovered || active) && orbital.map((b) => {
-            const rad = (b.angle * Math.PI) / 180;
-            const bx = Math.cos(rad) * R, by = Math.sin(rad) * R;
-            const Icon = b.icon;
-            const cls =
-              b.variant === 'danger' ? 'bg-[#1a0c0c]/90 border-red-500/50 text-red-400'
-              : b.variant === 'accent' ? 'bg-[#0c1320]/90 border-blue-500/50 text-blue-400'
-              : 'bg-[#0a0a0a]/90 border-white/15 text-zinc-200 hover:text-white';
-            return (
-              <motion.button
-                key={b.key}
-                initial={{ x: 0, y: 0, opacity: 0, scale: 0.4 }}
-                animate={{ x: bx, y: by, opacity: 1, scale: 1 }}
-                exit={{ x: 0, y: 0, opacity: 0, scale: 0.4 }}
-                whileHover={{ scale: 1.15 }}
-                whileTap={{ scale: 0.85 }}
-                transition={{ type: 'spring', stiffness: 320, damping: 22 }}
-                onClick={b.onClick}
-                title={b.key === 'mute' ? (muted ? 'Unmute' : 'Mute') : b.key === 'end' ? 'Leave call' : 'Expand'}
-                className={`absolute left-1/2 top-1/2 -ml-[18px] -mt-[18px] w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md border shadow-lg ${cls}`}
-              >
-                <Icon size={15} />
-              </motion.button>
-            );
-          })}
-        </AnimatePresence>
-
-        {/* The node: blue radial tick ring + circular avatar (tap = show controls) */}
-        <div
-          onClick={handleNodeTap}
-          role="button"
-          title="Tap for call controls"
-          className="relative w-[88px] h-[88px] flex items-center justify-center cursor-pointer"
-        >
-          {/* Radial tick ring — always alive: slow rotation + gentle breathing,
-              intensifying when speaking. */}
-          <motion.svg
-            width="88" height="88" viewBox="0 0 88 88"
-            className="absolute inset-0 pointer-events-none"
-            animate={{ rotate: 360, scale: speaking ? [1, 1.05, 1] : [1, 1.025, 1] }}
-            transition={{
-              rotate: { duration: speaking ? 8 : 18, repeat: Infinity, ease: 'linear' },
-              scale: { duration: speaking ? 1.1 : 2.4, repeat: Infinity, ease: 'easeInOut' },
-            }}
-            style={{ filter: `drop-shadow(0 0 6px ${ringColor}aa)` }}
-          >
-            {Array.from({ length: TICKS }).map((_, i) => {
-              const a = (i / TICKS) * Math.PI * 2 - Math.PI / 2;
-              const inner = 30, outer = 30 + (6 + (i % 2 === 0 ? 4 : 0));
-              const x1 = 44 + Math.cos(a) * inner, y1 = 44 + Math.sin(a) * inner;
-              const x2 = 44 + Math.cos(a) * outer, y2 = 44 + Math.sin(a) * outer;
-              return (
-                <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
-                  stroke={ringColor} strokeWidth="1.6" strokeLinecap="round"
-                  opacity={(0.35 + 0.5 * Math.abs(Math.sin(i))) * speakingBoost} />
-              );
-            })}
-          </motion.svg>
-
-          {/* Circular avatar */}
-          <div
-            className="relative w-[52px] h-[52px] rounded-full overflow-hidden bg-[#050505] flex items-center justify-center"
-            style={{ boxShadow: `0 0 14px ${ringColor}66, inset 0 0 8px rgba(0,0,0,0.8)` }}
-          >
-            {nodeAvatar ? (
-              <img src={nodeAvatar} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center" style={{ background: `${color}22` }}>
-                <Mic size={18} style={{ color }} />
-              </div>
-            )}
+    <motion.div
+      drag
+      dragMomentum={false}
+      dragConstraints={{
+        left: -(window.innerWidth - 220), right: 20,
+        top: -(window.innerHeight - 160), bottom: 20,
+      }}
+      style={{ x, y }}
+      initial={{ opacity: 0, scale: 0.8, y: -10 }}
+      animate={{ opacity: ghost ? 0.3 : 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.8 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 26, opacity: { duration: 0.4 } }}
+      onHoverStart={() => { setHovered(true); setExpanded(true); }}
+      onHoverEnd={() => { setHovered(false); setExpanded(false); }}
+      className="fixed top-4 right-4 z-[120] flex flex-col items-stretch cursor-grab active:cursor-grabbing pointer-events-auto"
+    >
+      {/* ── Micro-Pill (base state) ── */}
+      <div className="h-10 w-auto rounded-full px-2 py-1 flex items-center gap-2 bg-black/40 backdrop-blur-md border border-white/10 shadow-lg">
+        {/* Active-speaker avatar with pulsing voice ring */}
+        <div className="relative w-6 h-6 shrink-0">
+          <motion.div
+            className="absolute -inset-[3px] rounded-full"
+            style={{ border: `2px solid ${ring}` }}
+            animate={speaking ? { opacity: [0.4, 1, 0.4], scale: [1, 1.12, 1] } : { opacity: 0.5, scale: 1 }}
+            transition={speaking ? { duration: 1.1, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.3 }}
+          />
+          <div className="w-6 h-6 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center">
+            {avatar ? <img src={avatar} alt="" className="w-full h-full object-cover" />
+              : <Mic size={11} className="text-zinc-400" />}
           </div>
         </div>
-
-        {/* Meta pill below the node — call timer · participant count */}
-        <div className="absolute left-1/2 -translate-x-1/2 top-[88px] whitespace-nowrap">
-          <div className="px-2.5 py-0.5 rounded-md bg-black/85 backdrop-blur-md border border-white/10 font-mono text-[10px] text-white/90 flex items-center gap-1.5">
-            <span className="tabular-nums" style={{ color: ringColor }}>{formatTimer(elapsed || call.durationSeconds || 0)}</span>
-            <span className="text-white/30">·</span>
-            <span>{Math.max(participants.length, 1)}</span>
-          </div>
-        </div>
-      </motion.div>
+        {/* Self-mute status — just outside the avatar */}
+        <span className={`shrink-0 ${muted ? 'text-red-500' : 'text-zinc-500'}`}>
+          {muted ? <MicOff size={13} /> : <Mic size={13} />}
+        </span>
+        {/* Participant count dot (still text-free) */}
+        {participants.length > 1 && (
+          <span className="shrink-0 text-[10px] font-mono text-zinc-500 pr-1">{participants.length}</span>
+        )}
       </div>
-    </div>
+
+      {/* ── Tactical Dock (hover / Ctrl+` reveal) ── */}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -8, height: 0 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+            className="mt-1.5 rounded-2xl bg-black/40 backdrop-blur-md border border-white/10 shadow-xl overflow-hidden"
+          >
+            <div className="p-2 flex flex-col gap-2 min-w-[180px]">
+              <div className="flex items-center gap-1.5">
+                <DockBtn active={muted} activeClass="bg-red-500/20 text-red-400 border-red-500/40" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'}>
+                  {muted ? <MicOff size={14} /> : <Mic size={14} />}
+                </DockBtn>
+                <DockBtn active={deafened} activeClass="bg-red-500/20 text-red-400 border-red-500/40" onClick={toggleDeafen} title={deafened ? 'Undeafen' : 'Deafen'}>
+                  <Headphones size={14} />
+                </DockBtn>
+                <DockBtn onClick={handleExpandDeck} title="Expand call">
+                  <Maximize2 size={14} />
+                </DockBtn>
+                <DockBtn active activeClass="bg-red-600 text-white border-red-500" onClick={handleEnd} title="Leave call">
+                  <PhoneOff size={14} />
+                </DockBtn>
+              </div>
+              {/* Volume slider */}
+              <input
+                type="range" min={0} max={100} value={volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full h-1 accent-red-500 cursor-pointer"
+              />
+              {/* Record node */}
+              <button
+                onClick={toggleRecord}
+                className={`w-full rounded-md border font-mono text-[10px] tracking-widest uppercase py-1.5 transition-all ${
+                  recording ? 'bg-red-500 text-white border-red-500' : 'bg-red-600/10 border-red-500/40 text-red-500 hover:bg-red-500 hover:text-white'
+                }`}
+              >
+                <span className="inline-flex items-center gap-1.5 justify-center">
+                  <Circle size={8} className={recording ? 'fill-white' : 'fill-red-500'} />
+                  {recording ? '[ RECORDING… ]' : '[ RECORD_NODE ]'}
+                </span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
 
-function formatTimer(totalSeconds) {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const m = Math.floor(s / 60);
-  const sec = s % 60;
-  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+function DockBtn({ children, onClick, title, active, activeClass = '' }) {
+  return (
+    <motion.button
+      whileTap={{ scale: 0.85 }}
+      onClick={onClick}
+      title={title}
+      className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-all ${
+        active ? activeClass : 'bg-white/5 border-white/10 text-zinc-300 hover:bg-white/10 hover:text-white'
+      }`}
+    >
+      {children}
+    </motion.button>
+  );
 }

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -145,6 +145,112 @@ ipcMain.on('popout:close', () => {
   if (popoutWindow && !popoutWindow.isDestroyed()) popoutWindow.close();
 });
 
-app.whenReady().then(createWindow);
+// ── Spidr Protocol text overlay (Ghost Window) ──────────────────────────────
+// A frameless, transparent, always-on-top HUD that renders the protocol text
+// chat over whatever game is running. By default it ignores mouse events
+// entirely (click-through) so it never steals clicks from the game; a global
+// hotkey (Shift+Enter) toggles "interactive" mode so the user can type, then
+// click-through is restored. The renderer loads the /#/overlay/protocol route.
+let protocolWindow = null;
+let protocolInteractive = false;
+
+function setProtocolInteractive(on) {
+  if (!protocolWindow || protocolWindow.isDestroyed()) return;
+  protocolInteractive = on;
+  if (on) {
+    protocolWindow.setIgnoreMouseEvents(false);
+    protocolWindow.setFocusable(true);
+    protocolWindow.focus();
+  } else {
+    // forward:true lets hover events still reach the page so the anchor node can
+    // be styled, while clicks pass through to the game beneath.
+    protocolWindow.setIgnoreMouseEvents(true, { forward: true });
+    protocolWindow.setFocusable(false);
+  }
+  protocolWindow.webContents.send('protocol:interactive', on);
+}
+
+ipcMain.on('protocol:open', (_evt, params = {}) => {
+  if (protocolWindow && !protocolWindow.isDestroyed()) { protocolWindow.focus(); return; }
+
+  const { screen } = require('electron');
+  const primary = screen.getPrimaryDisplay();
+  const { width: sw, height: sh } = primary.workAreaSize;
+
+  protocolWindow = new BrowserWindow({
+    width: 420,
+    height: 320,
+    x: 24,
+    y: Math.max(24, sh - 360),
+    frame: false,
+    transparent: true,
+    resizable: true,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+    show: false,
+  });
+
+  protocolWindow.setAlwaysOnTop(true, 'screen-saver');
+  // Show on all workspaces / over fullscreen games where supported.
+  if (typeof protocolWindow.setVisibleOnAllWorkspaces === 'function') {
+    protocolWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+
+  protocolWindow.once('ready-to-show', () => {
+    protocolWindow.show();
+    setProtocolInteractive(false); // start click-through
+  });
+
+  const qs = new URLSearchParams(params).toString();
+  const startUrl = process.env.ELECTRON_START_URL;
+  if (startUrl) {
+    protocolWindow.loadURL(`${startUrl}/#/overlay/protocol?${qs}`);
+  } else {
+    const appPath = app.getAppPath();
+    const candidates = [
+      path.join(appPath, 'dist', 'index.html'),
+      path.join(__dirname, '..', 'dist', 'index.html'),
+      path.join(process.resourcesPath, 'app', 'dist', 'index.html'),
+    ];
+    const indexPath = candidates.find(p => fs.existsSync(p));
+    if (indexPath) protocolWindow.loadFile(indexPath, { hash: `/overlay/protocol?${qs}` });
+  }
+
+  protocolWindow.on('closed', () => {
+    protocolWindow = null;
+    protocolInteractive = false;
+    mainWindow?.webContents.send('protocol:closed');
+  });
+});
+
+ipcMain.on('protocol:close', () => {
+  if (protocolWindow && !protocolWindow.isDestroyed()) protocolWindow.close();
+});
+
+// Renderer asks to flip interactive mode (e.g. when the input loses focus, it
+// can hand control back to the game).
+ipcMain.on('protocol:set-interactive', (_evt, on) => setProtocolInteractive(!!on));
+
+app.whenReady().then(() => {
+  createWindow();
+  // Global hotkey: Shift+Enter focuses the overlay for typing (or hands control
+  // back if it's already interactive). Registered app-wide so it works while a
+  // game has focus. Failures (e.g. already taken) are non-fatal.
+  try {
+    globalShortcut.register('Shift+Enter', () => {
+      if (!protocolWindow || protocolWindow.isDestroyed()) return;
+      setProtocolInteractive(!protocolInteractive);
+    });
+  } catch {}
+});
+
+app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch {} });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

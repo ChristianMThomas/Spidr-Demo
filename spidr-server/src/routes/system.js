@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p161',
+    title: 'Patch 1.6.1 is now live',
+    date: '2026-05-31',
+    type: 'FIX',
+    description: 'A polish-and-stability pass on top of 1.6. Voice channels: connected users now drop down a vertical "web thread" to glowing crimson avatar nodes instead of the old branch. The expanded voice deck got a cleaner glass reskin with a soft crimson glow and smooth-cornered participant tiles. Screen share now splits into a proper Main Stage (with a > LIVE_FEED tag) plus a vertical glass sidebar of compact, audio-reactive user pills you can collapse for full-screen. The minimized call is now a tiny "Micro-Tactical HUD" pill that fades out when idle and expands on hover into mute / deafen / volume / record controls. New: an out-of-app "Spidr Protocol" transparent overlay (desktop) so you can read and send chat over a game without leaving it — with click-through and a Shift+Enter typing hotkey. Fixes: group chats no longer render blank (a media-only message could crash them); DM/group voice calls no longer show duplicate users when someone joins; the clean no-lines message feed; and the top-right profile widget no longer overlaps content.',
+  },
+  {
     id: 'p16',
     title: 'Patch 1.6 is now live',
     date: '2026-05-31',

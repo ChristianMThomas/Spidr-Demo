@@ -291,8 +291,11 @@ export default function SpidrShell() {
         {voiceSession && (
           <div
             className={voiceDeckExpanded && !isCallMinimized
-              ? 'fixed inset-0 z-[150] bg-[#0a0a0a] flex flex-col'
+              ? 'fixed inset-0 z-[150] flex flex-col backdrop-blur-2xl'
               : 'hidden'}
+            style={voiceDeckExpanded && !isCallMinimized ? {
+              background: 'radial-gradient(120% 90% at 50% 30%, rgba(120,20,28,0.32) 0%, rgba(30,8,10,0.6) 42%, rgba(8,5,6,0.95) 100%), #060405',
+            } : undefined}
             aria-hidden={!(voiceDeckExpanded && !isCallMinimized)}
           >
             <VoiceChannel

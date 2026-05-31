@@ -400,7 +400,8 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   let lastText = '';
 
   [...messages].reverse().forEach((msg, index) => {
-    if (msg.content === lastText && msg.content.length < 10) {
+    const content = msg.content || '';
+    if (content && content === lastText && content.length < 10) {
       comboCounter++;
       if (comboCounter === 3) {
         groupedMessages.pop();
@@ -423,7 +424,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
       }
     } else {
       comboCounter = 1;
-      lastText = msg.content;
+      lastText = content;
       groupedMessages.push({
         ...msg,
         type: msg.sender_id === currentUser?.id ? 'outgoing' : 'incoming'

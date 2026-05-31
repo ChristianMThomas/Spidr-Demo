@@ -329,8 +329,14 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       window.dispatchEvent(new CustomEvent('spidr-ghost-activate', {
         detail: { conversationName: `#${selectedChannel ? (server.channels?.find(c => c.id === selectedChannel)?.name || 'channel') : 'server'} · ${server.name}` },
       }));
+      // In the desktop app, also spawn the real OS-level transparent overlay
+      // (frameless, always-on-top, click-through) bound to this channel.
+      if (window.electronAPI?.isElectron) {
+        window.electronAPI.openProtocol?.({ serverId: server.id, channelId: selectedChannel || '' });
+      }
     } else {
       window.dispatchEvent(new Event('spidr-ghost-deactivate'));
+      if (window.electronAPI?.isElectron) window.electronAPI.closeProtocol?.();
     }
   }, [ghostMode, server.id, server.name, selectedChannel]);
   // ── Socket.io: instant message delivery ─────────────────────────────────────
@@ -1340,19 +1346,27 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     <span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)] shrink-0" />
                   )}
                 </button>
-                {/* Connected users hang on the web thread beneath the channel */}
+                {/* Connected users drop down the web thread beneath the channel.
+                    A single vertical strand runs down the column; each user has
+                    a short drop-thread to their glowing crimson avatar node. */}
                 {live && (
-                  <div className="relative flex flex-wrap pl-3 ml-6 mr-2 mb-1 border-l border-[#FF3333]/20">
+                  <div className="relative ml-8 mt-2 mb-1">
+                    {/* Main vertical web thread running down through all users */}
+                    {channelUsers.length > 1 && (
+                      <div className="absolute w-[1px] bg-red-600/40 left-[15px] top-0 bottom-4" />
+                    )}
                     {channelUsers.map((u, idx) => (
                       <div key={u.user_id || u.id || idx}
-                        className="flex items-center gap-1.5 pl-2 py-1 w-full"
+                        className="relative flex items-center mt-2 first:mt-0"
                         title={u.user_name || 'Spider'}>
-                        <span className="w-3 h-px bg-[#FF3333]/30 shrink-0" />
-                        <Avatar className="w-5 h-5 shrink-0">
+                        {/* Drop-thread: vertical line into the top of the avatar */}
+                        <div className="absolute w-[1px] h-4 bg-red-600/70 left-[15px] -top-3 -translate-x-1/2" />
+                        {/* Glowing avatar node (the spider) */}
+                        <Avatar className="w-8 h-8 shrink-0 rounded-full border border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)] z-10">
                           <AvatarImage src={u.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.user_id || u.user_name}`} />
-                          <AvatarFallback className="bg-red-900 text-white text-[8px]">{(u.user_name || '?').charAt(0).toUpperCase()}</AvatarFallback>
+                          <AvatarFallback className="bg-red-900 text-white text-[10px]">{(u.user_name || '?').charAt(0).toUpperCase()}</AvatarFallback>
                         </Avatar>
-                        <span className="text-xs text-neutral-400 truncate">{u.user_name || 'Spider'}</span>
+                        <span className="ml-3 text-gray-300 text-sm font-medium truncate">{u.user_name || 'Spider'}</span>
                         {u.is_muted && <MicOff className="w-3 h-3 text-red-400 shrink-0 ml-auto" />}
                       </div>
                     ))}

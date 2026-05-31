@@ -145,6 +145,26 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
   const mySession = voiceSessions.find(s => s.user_id === currentUser?.id);
   const aiSession = voiceSessions.find(s => s.is_spidr_ai);
 
+  // Dedupe by user_id so a user never appears twice in the deck even if two
+  // VoiceSession rows briefly exist (join/leave races, multiple tabs, or the
+  // synthetic 'dm'/'group' server id sharing rows across conversations). Keep
+  // the most-recently-updated row per user.
+  const uniqueSessions = React.useMemo(() => {
+    const byUser = new Map();
+    for (const s of voiceSessions) {
+      const key = s.is_spidr_ai ? 'spidr-ai' : (s.user_id || s.id);
+      const prev = byUser.get(key);
+      if (!prev) { byUser.set(key, s); continue; }
+      const t = (x) => new Date(x.updated_at || x.updatedAt || x.created_date || 0).getTime();
+      if (t(s) >= t(prev)) byUser.set(key, s);
+    }
+    return Array.from(byUser.values());
+  }, [voiceSessions]);
+
+  // Screen-share split-stage active when anyone (you or a peer) is sharing.
+  const screenActive = (isSharing && !!screenStream) || Object.keys(rtc.screenStreams || {}).length > 0;
+  const [shareSidebarCollapsed, setShareSidebarCollapsed] = useState(false);
+
   const hasJoinedRef = useRef(false);
 
   useEffect(() => {
@@ -304,7 +324,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
   const isAdmin = isOwner || server?.members?.find(m => m.user_id === currentUser?.id)?.role === 'admin';
 
   return (
-    <div className="flex-1 flex flex-col bg-[#111] relative overflow-hidden">
+    <div className="flex-1 flex flex-col bg-transparent relative overflow-hidden">
       {/* Cinema Stage for streams */}
       <AnimatePresence>
         {aiSession?.stream_url && showCinema && (
@@ -312,7 +332,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
             streamUrl={aiSession.stream_url}
             streamType={aiSession.stream_url?.includes('twitch') ? 'twitch' : 'youtube'}
             onClose={() => setShowCinema(false)}
-            voiceSessions={voiceSessions}
+            voiceSessions={uniqueSessions}
           />
         )}
       </AnimatePresence>
@@ -414,7 +434,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
             </div>
           )}
 
-          {voiceSessions.length === 0 ? (
+          {uniqueSessions.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-4 text-center">
               <div className="w-20 h-20 rounded-2xl bg-zinc-800/60 border border-white/5 flex items-center justify-center">
                 <Volume2 className="w-10 h-10 text-zinc-600" />
@@ -434,18 +454,39 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
             <div className={`bg-[#0a0a0a]/40 backdrop-blur-md border border-white/10 rounded-2xl p-4 shadow-2xl ${
               viewMode === 'spider' ? 'max-w-md ml-auto' : 'w-full'
             }`}>
-              <div
+              {screenActive && !shareSidebarCollapsed && (
+                <button
+                  onClick={() => setShareSidebarCollapsed(true)}
+                  className="absolute top-20 right-8 z-30 text-zinc-400 hover:text-white font-mono text-xs bg-black/60 backdrop-blur-md border border-white/10 rounded-lg px-2 py-1"
+                  title="Collapse participants (full-screen stream)"
+                >[ &gt; ]</button>
+              )}
+              {screenActive && shareSidebarCollapsed && (
+                <button
+                  onClick={() => setShareSidebarCollapsed(false)}
+                  className="absolute top-20 right-8 z-30 text-zinc-400 hover:text-white font-mono text-xs bg-black/60 backdrop-blur-md border border-white/10 rounded-lg px-2 py-1"
+                  title="Show participants"
+                >[ &lt; ]</button>
+              )}
+              <motion.div
+                layout
                 className="grid gap-3 content-start"
                 style={{
-                  gridTemplateColumns: viewMode === 'spider'
-                    ? 'repeat(auto-fit, minmax(150px, 1fr))'
-                    : 'repeat(auto-fit, minmax(280px, 1fr))',
+                  gridTemplateColumns: screenActive
+                    ? (shareSidebarCollapsed ? '1fr' : 'minmax(0,4fr) minmax(200px,1fr)')
+                    : undefined,
+                  ...(screenActive ? {} : {
+                    gridTemplateColumns: viewMode === 'spider'
+                      ? 'repeat(auto-fit, minmax(150px, 1fr))'
+                      : 'repeat(auto-fit, minmax(280px, 1fr))',
+                  }),
                 }}
               >
                 {/* Screen share preview */}
                 {isSharing && screenStream && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                    className="col-span-full aspect-video rounded-2xl overflow-hidden border-2 border-[#FF3333] bg-black relative">
+                  <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    style={screenActive ? { gridColumn: 1, gridRow: 1 } : undefined}
+                    className={`${screenActive ? '' : 'col-span-full'} aspect-video rounded-xl overflow-hidden border border-white/5 shadow-[0_0_50px_rgba(0,0,0,0.8)] bg-black relative`}>
                   <video ref={v => { if (v && screenStream) v.srcObject = screenStream; }} autoPlay muted
                     className="w-full h-full object-contain" />
                   {/* APEX Symbiote HUD over your own stream */}
@@ -457,8 +498,9 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
                       apexFrameStyle={currentProfile?.apex_features?.apexFrameStyle || currentProfile?.apexFrameStyle || 'symbiote-tear'}
                     />
                   )}
-                  <div className="absolute top-3 left-3 bg-[#FF3333] text-white text-[10px] font-black px-2.5 py-1 rounded-full animate-pulse">
-                    🔴 STREAMING
+                  {/* Terminal LIVE_FEED tag */}
+                  <div className="absolute top-0 left-0 text-red-500 bg-black/60 backdrop-blur-md px-3 py-1 rounded-br-lg font-mono text-xs">
+                    &gt; LIVE_FEED: {currentUser?.full_name?.split(' ')[0] || 'You'}
                   </div>
                   <button onClick={handleStopStream}
                     className="absolute top-3 right-3 bg-black/80 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-red-600 transition-colors font-bold">
@@ -482,8 +524,9 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
                   : null;
                 const peerIsApex = peerProfile?.apex_tier === 'apex';
                 return (
-                <motion.div key={`screen-${sid}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                  className="col-span-full aspect-video rounded-2xl overflow-hidden border-2 border-blue-500 bg-black relative">
+                <motion.div layout key={`screen-${sid}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  style={screenActive ? { gridColumn: 1 } : undefined}
+                  className={`${screenActive ? '' : 'col-span-full'} aspect-video rounded-xl overflow-hidden border border-white/5 shadow-[0_0_50px_rgba(0,0,0,0.8)] bg-black relative`}>
                   <video
                     ref={v => { if (v && stream && v.srcObject !== stream) { v.srcObject = stream; v.play?.().catch(() => {}); } }}
                     autoPlay playsInline muted
@@ -496,16 +539,17 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
                       apexFrameStyle={peerProfile?.apex_features?.apexFrameStyle || peerProfile?.apexFrameStyle || 'symbiote-tear'}
                     />
                   )}
-                  <div className="absolute top-3 left-3 bg-blue-600 text-white text-[10px] font-black px-2.5 py-1 rounded-full">
-                    🖥️ SCREEN SHARE
+                  <div className="absolute top-0 left-0 text-red-500 bg-black/60 backdrop-blur-md px-3 py-1 rounded-br-lg font-mono text-xs">
+                    &gt; LIVE_FEED: {peerSession?.user_name || 'Spider'}
                   </div>
                 </motion.div>
                 );
               })}
 
               {/* Your local video when camera on */}
-              {rtc.isVideoOn && rtc.localStream && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              {rtc.isVideoOn && rtc.localStream && !(screenActive && shareSidebarCollapsed) && (
+                <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  style={screenActive ? { gridColumn: 2 } : undefined}
                   className="relative aspect-video rounded-2xl overflow-hidden border-2 border-[#FF3333]/60 bg-black">
                   <video ref={localVideoRef} autoPlay muted className="w-full h-full object-cover" />
                   <div className="absolute bottom-0 inset-x-0 px-2.5 py-1.5 bg-gradient-to-t from-black/80 to-transparent">
@@ -515,7 +559,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
               )}
 
               <AnimatePresence>
-                {voiceSessions.map((session) => {
+                {uniqueSessions.map((session) => {
                   const sessionProfile = profiles.find(p => p.user_id === session.user_id);
                   const isApexSess = sessionProfile?.apex_tier === 'apex';
                   const isSelf = session.user_id === currentUser?.id;
@@ -531,7 +575,28 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
                   const peerSocketId = isSelf ? null : Object.keys(rtc.remoteStreams || {})
                     .find(sid => rtc.remoteStreams[sid] === peerStream);
 
+                  // During screen share, participants compress into compact
+                  // horizontal status pills in the right sidebar (hidden if the
+                  // sidebar is collapsed for full-screen viewing).
+                  if (screenActive) {
+                    if (shareSidebarCollapsed) return null;
+                    return (
+                      <div key={session.id} style={{ gridColumn: 2 }} className="border-l border-white/[0.02] pl-3 -ml-px">
+                        <VoiceStatusPill
+                          session={session}
+                          isSelf={isSelf}
+                          isMutedLocally={isSelf ? rtc.isMuted : !!session.is_muted}
+                          apexColor={sessionProfile?.apex_features?.thread_skin_color || sessionProfile?.accent_color || '#FF3333'}
+                          stream={peerStream}
+                          spidrAISpeaking={spidrVoice.isSpeaking}
+                          onClick={() => setSelectedProfileUserId?.(session.user_id)}
+                        />
+                      </div>
+                    );
+                  }
+
                   return (
+                    <div key={session.id} className="contents">
                     <VoiceTile
                       key={session.id}
                       session={session}
@@ -574,10 +639,11 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
                       moveChannels={(server.channels || []).filter(c => c.type === 'voice' && c.id !== channel.id).map(c => ({ id: c.id, name: c.name }))}
                       onMoveTo={(chId) => updateMutation.mutate({ id: session.id, data: { channel_id: chId } })}
                     />
+                    </div>
                   );
                 })}
               </AnimatePresence>
-              </div>
+              </motion.div>
             </div>
           )}
         </div>
@@ -706,6 +772,58 @@ function VoiceBtn({ children, onClick, title, className = '' }) {
 }
 
 /**
+ * VoiceStatusPill — compact horizontal participant pill shown in the right
+ * sidebar during a screen share (avatar · name · mute/deafen status). Reacts to
+ * speaking with a crimson border + glow. Glass material per the spec.
+ */
+function VoiceStatusPill({ session, isSelf, isMutedLocally, apexColor = '#FF3333', stream = null, spidrAISpeaking = false, onClick }) {
+  const name = session.is_spidr_ai ? 'Spidr AI' : (session.user_name || 'Spider');
+  const muted = isMutedLocally || session.is_muted;
+  const deafened = session.is_deafened;
+  // Audio-reactive: same detector the full tile uses, so the pill glows crimson
+  // when this user is actually speaking (suppressed while muted).
+  const detected = useSpeakingDetector(stream, { enabled: !muted && !!stream });
+  const speaking = session.is_spidr_ai ? spidrAISpeaking : detected;
+  return (
+    <motion.button
+      layout
+      onClick={onClick}
+      initial={{ opacity: 0, x: 12 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 12 }}
+      className="w-full flex items-center gap-2.5 rounded-xl p-3 bg-white/[0.02] backdrop-blur-xl border transition-all text-left"
+      style={{
+        borderColor: speaking ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.05)',
+        boxShadow: speaking ? '0 0 16px rgba(239,68,68,0.35)' : 'none',
+      }}
+    >
+      <div className="relative w-8 h-8 shrink-0">
+        {speaking && (
+          <motion.span
+            className="absolute -inset-[3px] rounded-full"
+            style={{ border: `2px solid ${apexColor}` }}
+            animate={{ opacity: [0.4, 1, 0.4], scale: [1, 1.12, 1] }}
+            transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}
+          />
+        )}
+        <div className="w-8 h-8 rounded-full overflow-hidden bg-zinc-800 flex items-center justify-center">
+          {session.user_avatar
+            ? <img src={session.user_avatar} alt="" className="w-full h-full object-cover" />
+            : <span className="text-[10px] text-zinc-400">{name.charAt(0).toUpperCase()}</span>}
+        </div>
+      </div>
+      <span className="flex-1 min-w-0 truncate text-sm text-white font-medium">
+        {name}{isSelf && <span className="text-[#FF3333] text-[10px] ml-1">(you)</span>}
+      </span>
+      <span className="shrink-0 flex items-center gap-1.5">
+        {muted && <MicOff size={13} className="text-red-400" />}
+        {deafened && <Headphones size={13} className="text-red-400" />}
+      </span>
+    </motion.button>
+  );
+}
+
+/**
  * VoiceTile — a single member tile inside a voice channel. Renders the
  * avatar, name, status icons, and (the new bit) animates a green pulsing
  * ring around the avatar when the member is actively speaking.
@@ -766,13 +884,13 @@ function VoiceTile({
         setMenuPos({ x: e.clientX, y: e.clientY });
         setMenuOpen(true);
       }}
-      className={`relative aspect-video rounded-2xl overflow-hidden border-2 group transition-all
-        ${showSpeakingRing ? 'border-green-500' : isSelf ? 'border-[#FF3333]/60' : 'border-white/10 hover:border-[#FF3333]/40'}`}
+      className={`relative aspect-video rounded-3xl overflow-hidden border group transition-all backdrop-blur-xl
+        ${showSpeakingRing ? 'border-green-500/70' : isSelf ? 'border-[#FF3333]/50' : 'border-white/10 hover:border-[#FF3333]/40'}`}
       style={{
-        background: 'linear-gradient(to bottom right, #121212, #050505)',
+        background: 'linear-gradient(to bottom right, rgba(28,18,20,0.55), rgba(10,6,7,0.65))',
         boxShadow: showSpeakingRing
-          ? '0 0 18px rgba(34,197,94,0.45), inset 0 0 30px rgba(220,38,38,0.08)'
-          : 'none',
+          ? '0 0 18px rgba(34,197,94,0.45), inset 0 1px 0 rgba(255,255,255,0.05)'
+          : 'inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.35)',
       }}
     >
       {session.is_spidr_ai ? (
