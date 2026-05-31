@@ -62,6 +62,7 @@ const GlobalReports = lazy(() => import('@/pages/GlobalReports'));
 const RadarPage     = lazy(() => import('@/pages/Radar'));
 const BiomassPage   = lazy(() => import('@/pages/Biomass'));
 const PopoutCall    = lazy(() => import('@/pages/PopoutCall'));
+const ProtocolOverlay = lazy(() => import('@/pages/ProtocolOverlay'));
 
 function AppRoutes() {
   const { isLoadingAuth, isAuthenticated } = useAuth();
@@ -111,6 +112,8 @@ function AppRoutes() {
         <>
         {/* Standalone pop-out call window (Electron child window). No shell. */}
         <Route path="/popout/call" element={<PopoutCall />} />
+        {/* Spidr Protocol text overlay (Electron transparent ghost window). No shell. */}
+        <Route path="/overlay/protocol" element={<ProtocolOverlay />} />
         <Route element={<AppShellProvider><MediaProvider><SpidrShell /></MediaProvider></AppShellProvider>}>
           <Route path="/home"            element={<HomeDashboard />} />
           <Route path="/friends"         element={<FriendsPage />} />

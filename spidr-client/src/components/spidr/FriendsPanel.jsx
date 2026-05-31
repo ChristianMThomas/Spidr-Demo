@@ -14,6 +14,7 @@ import { togglePin, getPins, isPinned } from '@/lib/spidrWebPins';
 import HolographicProfile from './HolographicProfile';
 import DirectMessages from './DirectMessages';
 import KineticChat from './KineticChat';
+import ErrorBoundary from './ErrorBoundary';
 import CreateGroupChatModal from './CreateGroupChatModal';
 import QuickHeads from './QuickHeads';
 import { toast } from 'sonner';
@@ -257,14 +258,16 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
 
   if (activeGroup) {
     return (
-      <KineticChat
-        groupId={activeGroup}
-        currentUser={currentUser}
-        onBack={() => setActiveGroup(null)}
-        onVoiceJoin={onVoiceJoin}
-        onVoiceLeave={onVoiceLeave}
-        onMinimizeCall={onMinimizeCall}
-      />
+      <ErrorBoundary>
+        <KineticChat
+          groupId={activeGroup}
+          currentUser={currentUser}
+          onBack={() => setActiveGroup(null)}
+          onVoiceJoin={onVoiceJoin}
+          onVoiceLeave={onVoiceLeave}
+          onMinimizeCall={onMinimizeCall}
+        />
+      </ErrorBoundary>
     );
   }
 

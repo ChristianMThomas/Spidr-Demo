@@ -3183,3 +3183,296 @@ Verified by build, not a live session. The widget itself wasn't moved (you
 didn't ask to relocate it) — instead the panels now reserve space so it no
 longer covers their content. If you'd rather the widget sit inside a top bar
 than float, that's a small follow-up.
+
+---
+
+## 78. Expanded voice deck — glass reskin + DM/group duplicate-user fix
+
+### Glassy expanded deck (background + tiles only)
+- Expanded deck background: `bg-[#0a0a0a]` → a glassy deep-black base with a soft
+  crimson radial glow at the top (`radial-gradient(...rgba(120,20,28,...))`) plus
+  `backdrop-blur-2xl`, matching the reference.
+- VoiceChannel root made `bg-transparent` so the new background shows through.
+- Participant tiles: glassmorphic — translucent gradient fill
+  (`rgba(28,18,20,0.55)→rgba(10,6,7,0.65)`), `backdrop-blur-xl`, single subtle
+  border, smoother `rounded-3xl` corners, soft inner highlight + drop shadow.
+- Nothing else changed — controls, layout, orbs, behavior untouched.
+
+### DM/group duplicate users on join
+Root cause: the per-user cleanup-before-join filtered by `{server_id, user_id}`,
+and DM/group calls share a synthetic `server_id` of `'dm'`/`'group'`, so
+join/leave races (or multiple tabs) could leave two VoiceSession rows for one
+user — both rendered as duplicate tiles. Fix: derive `uniqueSessions` (deduped
+by `user_id`, keeping the most-recently-updated row) and use it for the tile
+grid, the empty-state check, and the CinemaStage, so each user shows exactly
+once regardless of stray rows.
+
+### Files
+Modified: `components/SpidrShell.jsx`, `components/spidr/VoiceChannel.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+deck look rendered offline vs the reference; mojibake-free.
+
+### Honest note
+Verified by build + offline render, not a live session. The dedupe is a robust
+client-side guarantee (one tile per user even if duplicate DB rows briefly
+exist); the underlying rows still get cleaned up on leave as before.
+
+---
+
+## 79. Micro-Tactical HUD (minimized) + screen-share split-stage
+
+### Micro-Tactical HUD — MinimizedWebNode rewritten (preserves shell contract)
+- **Base micro-pill:** tiny `h-10` horizontal glass pill (`bg-black/40
+  backdrop-blur-md border-white/10`) showing ONLY the active-speaker avatar
+  (`w-6 h-6`) wrapped in the pulsing voice ring + a tiny self-mute mic icon just
+  outside it. No terminal text in the base state.
+- **Ghost mode:** after 3s with no hover and no one speaking, the whole pill
+  fades to `opacity-30`; snaps back to 100% on hover or when speaking.
+- **Draggable** anywhere (constrained to the viewport).
+- **Hover/Ctrl+` expansion:** hovering (or the Ctrl+` hotkey) fluidly expands a
+  tactical dock below the pill with the real controls — Mute, Deafen, a volume
+  slider, an Expand button, Leave, and a `[ RECORD_NODE ]` toggle — same glass
+  styling. Auto-collapses when the mouse leaves.
+- Still uses the shell's prop contract (`call`, `apexColor`, `speaking`,
+  `onExpand`, `onEnd`) and dispatches the same mute/deafen events, so shell
+  wiring is unchanged.
+
+### Screen-share split-stage (VoiceChannel)
+- When anyone is sharing (`screenActive`), the participant grid switches to a
+  5-column split: the shared screen becomes the **Main Stage** (`col-span-4`,
+  polished `rounded-xl shadow-[0_0_50px...] border-white/5`) with a terminal
+  `> LIVE_FEED: <name>` tag top-left in crimson; participant tiles compress into
+  the narrow right column (`col-span-1`). Uses framer `layout` so cards slide/
+  shrink into place rather than snap-cutting. Reverts to the normal grid when
+  sharing stops.
+
+### Files
+Modified: `components/spidr/MinimizedWebNode.jsx` (full rewrite),
+`components/spidr/VoiceChannel.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+both layouts rendered offline vs the task specs; mojibake-free.
+
+### Honest status / deviations
+- Verified by build + offline render, not a live session.
+- Screen-share split: implemented as a 5-col grid split (≈80/20) with the
+  `layout` slide animation, rather than two separate `ScreenShareStage` /
+  `VoiceSidebarMatrix` components — it reuses the existing, working video/tile
+  renderers to avoid a risky rewrite of the live call surface. The sidebar
+  collapse-chevron (pure full-screen toggle) is NOT added yet; say the word and
+  I'll add a collapse toggle as a small follow-up.
+- The micro-pill's volume slider and `[ RECORD_NODE ]` are local UI state
+  (record is a visual toggle); wiring record to an actual MediaRecorder capture
+  would be a separate backend/permissions task.
+
+---
+
+## 80. Screen-share split-stage — proper vertical sidebar (redo of §79)
+
+You re-sent the screen-share spec because §79's version was a flat grid-split, not
+the spec's true Main Stage + vertical glass sidebar. Reworked it to match:
+
+- **Main Stage (~80%):** the shared screen now fills the wide left region
+  (`minmax(0,4fr)`) in a polished panel (`rounded-xl shadow-[0_0_50px...]
+  border-white/5`) with the `> LIVE_FEED: <name>` crimson terminal tag top-left.
+- **Vertical Node Sidebar (~20%):** participants compress out of the big square
+  tiles into a right-hand column with a faint floating left border
+  (`border-l border-white/[0.02]`) — no solid background, so it floats over the
+  deck's radial gradient.
+- **Compact status pills:** each participant is now a horizontal pill —
+  avatar left, username middle, mute/deafen icons far right —
+  (`bg-white/[0.02] backdrop-blur-xl border border-white/[0.05] rounded-xl p-3`).
+- **Audio-reactive:** the sidebar pills are now wired to the same
+  `useSpeakingDetector` the full tiles use, so a speaking user's pill shifts to
+  `border-red-500/50` with a crimson drop-shadow + a pulsing voice ring on the
+  avatar (previously the sidebar couldn't react — speaking was hardcoded false).
+- **Framer layout transition:** cards use the `layout` prop so on toggle they
+  visibly shrink/slide from the grid into the vertical list while the stage
+  expands to fill the space.
+- **Collapse toggle:** a `[ > ]` / `[ < ]` chevron at the top collapses the
+  sidebar entirely for pure full-screen viewing (pills return on expand).
+
+The Micro-Tactical HUD (minimized micro-pill, §79) already matched its spec and
+is unchanged — re-verified: h-10 glass pill, ghost-fade, Ctrl+` reveal, draggable,
+RECORD_NODE.
+
+### Files
+Modified: `components/spidr/VoiceChannel.jsx` (split-stage + VoiceStatusPill made
+audio-reactive + sidebar border).
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+split + sidebar rendered offline vs the spec; mojibake-free.
+
+### Honest status / deviations
+- Verified by build + offline render, not a live session.
+- The split uses a 2-column CSS grid (`4fr / 1fr`) with the sidebar pills in
+  column 2 + a left border, rather than two separately-named files
+  (`ScreenShareStage.jsx` / `VoiceSidebarMatrix.jsx`). It reuses the existing,
+  working video/stream renderers on purpose — splitting them into new components
+  would mean re-plumbing the live `<video>` refs and stream routing, which is
+  exactly the fragile call-surface rewrite I want to avoid. The visual result
+  (80/20 Main Stage + floating glass sidebar of compact reactive pills +
+  collapse chevron) matches the spec.
+- The pills' speaking detection inherits the existing mesh's per-socket stream
+  mapping (approximate for 3+ peers, like the main tiles) — a per-user stream
+  map in useWebRTC remains the deeper follow-up noted earlier.
+
+---
+
+## 81. Out-of-app "Spidr Protocol" text overlay (Electron ghost window)
+
+A frameless, transparent, always-on-top OS overlay that renders the protocol
+text chat over a running game — zero-friction typing without leaving the game.
+
+### Part 1 — Desktop architecture (electron/main.js + preload.js)
+- New `protocol:open` spawns a Ghost Window: `frame:false`, `transparent:true`,
+  `alwaysOnTop:true` (screen-saver level), `skipTaskbar`, no shadow, positioned
+  bottom-left of the primary display; loads the `/#/overlay/protocol` route
+  (mirrors the existing pop-out pattern; packaged-path resolution reused).
+- **Click-through physics:** the window starts with
+  `setIgnoreMouseEvents(true, { forward: true })` so all clicks pass through to
+  the game. A global **Shift+Enter** shortcut (registered app-wide via
+  `globalShortcut`) flips interactive mode — re-enabling mouse + focus so the
+  user can type — and flips back to click-through when done. `protocol:closed`
+  notifies the main window; shortcuts are unregistered on quit.
+- preload exposes `openProtocol / closeProtocol / setProtocolInteractive /
+  onProtocolInteractive / onProtocolClosed`.
+
+### Part 2 + 3 — Ghost UI (pages/ProtocolOverlay.jsx, new route)
+- **Zero-background canvas:** fully transparent; only text renders.
+- **Message decay:** the stream shows at 100% and smoothly fades to 0% after 6s
+  of inactivity; any new message (or entering interactive mode) snaps it back.
+- **Anchor node:** a 10px glowing-red pulsing node, bottom-left, that never
+  fades and is the drag handle (`-webkit-app-region: drag`).
+- **High-contrast text:** `font-mono` white with `text-shadow 0 0 4px/8px #000`;
+  author tags rendered as `<Name> : message`, the name in crimson or toxic
+  purple (stable per-author).
+- **Injection terminal:** invisible until the hotkey; then a glass bar slides up
+  (`bg-black/80 backdrop-blur-md border-l-2 border-red-500 px-4 py-2`) with a
+  `message...` placeholder + crimson caret. Enter sends, Esc/blur hands control
+  back to the game.
+- **Profile pics + custom usernames preserved:** each row shows the sender's
+  avatar (`author_avatar`/`user_avatar`) and their display name
+  (`author_name`/`user_name`, which already carries nicknames). Messages load
+  via `entities.Message.filter` and live-update over the `message:new` socket.
+- Launch: the existing "Spidr Protocol — Gaming Overlay" (Ghost) button in the
+  server chat header now also opens/closes the real OS overlay when running in
+  the desktop app, bound to the current server+channel.
+
+### Files
+New: `src/pages/ProtocolOverlay.jsx`. Modified: `electron/main.js`,
+`electron/preload.js`, `src/App.jsx` (route), `components/spidr/ServersPanel.jsx`
+(launch wiring).
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+`node --check` on both electron files; overlay rendered offline over a busy
+background (legible); mojibake-free.
+
+### Honest status / deviations
+- Verified by build + offline render, NOT by running the packaged Electron app
+  (no desktop/Electron runtime here). The transparent/click-through/always-on-top
+  flags and the global Shift+Enter hotkey are standard Electron APIs and are
+  syntactically valid, but you should confirm behavior in a real `electron .`
+  run — especially click-through over a fullscreen game (exclusive-fullscreen
+  games on Windows sometimes need borderless-window mode to show any overlay).
+- The overlay honors profile pics + display names (incl. nicknames baked into
+  the stored message). It does NOT pull live per-server role colors/effects into
+  the overlay (it colors authors crimson/purple instead) — deliberate, both for
+  legibility over chaotic game art and because the separate window doesn't have
+  the server/profile context loaded. Say the word if you want role colors piped
+  through and I'll pass them along with the message payload.
+- Sending posts via the normal Message API, so messages appear in the in-app
+  channel too (same conversation), as intended.
+
+---
+
+## 82. Voice participant redesign — vertical web thread + glowing avatar nodes
+
+Replaced the §73 L-branch roster (faint red left-border + horizontal `w-3 h-px`
+connector strands) under each occupied voice channel with the spec's vertical
+"web thread" design. The parent voice channel pill is unchanged.
+
+- **Drop thread:** each connected user now has a literal vertical line dropping
+  from the channel pill into the top-center of their avatar
+  (`w-[1px] h-4 bg-red-600/70`, centered on the avatar).
+- **Avatar node (the spider):** the avatar is a glowing crimson node —
+  `rounded-full border border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]`,
+  bumped to `w-8 h-8` and sitting at the bottom tip of the thread.
+- **Layout:** users are indented beneath the pill (`ml-8`), username in
+  `text-gray-300 text-sm font-medium` beside the node, mute icon on the right.
+- **Multiple users:** a single continuous vertical strand
+  (`bg-red-600/40 left-[15px]`) runs down through all avatars, with each user's
+  short drop-thread chaining off it, so they stack cleanly down the web.
+
+### Files
+Modified: `components/spidr/ServersPanel.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+layout rendered offline vs the spec; mojibake-free. Nothing else changed.
+
+### Honest note
+Verified by build + offline render, not a live session. Thread alignment is
+pixel-tuned to the `w-8` avatar (center ≈15px); if you change the avatar size
+the `left-[15px]` offsets would need a matching nudge.
+
+---
+
+## 83. Fix group chats rendering blank
+
+### Root cause (reproduced)
+KineticChat's combo-detection loop did `msg.content === lastText &&
+msg.content.length < 10`. When a message had no text — i.e. an attachment-only
+post, a shared image/media, or a system message — `msg.content` was null and
+`.length` threw `Cannot read properties of null (reading 'length')`, which
+crashed the whole component → blank screen. Group chats hit this readily
+(back-to-back media posts), which is why groups blanked while DMs usually
+didn't. Reproduced the exact error in an isolated test, then confirmed the fix
+clears it.
+
+### Fix
+- Guard the content access: use a local `const content = msg.content || ''` and
+  test `content && content === lastText && content.length < 10`, and store the
+  guarded value in `lastText`. Null/attachment-only messages now group safely.
+- Belt-and-braces: wrapped the group `KineticChat` render in the existing
+  `ErrorBoundary` in FriendsPanel, so any future unexpected runtime error shows
+  a visible diagnostic (error + stack) instead of a silent blank screen. Group
+  chat otherwise renders exactly as before (same DM-like layout).
+
+### Files
+Modified: `components/spidr/KineticChat.jsx`, `components/spidr/FriendsPanel.jsx`.
+
+Verified: crash reproduced + fixed in an isolated logic test; full esbuild bundle
+(working copy + merged tree) zero warnings/errors; mojibake-free.
+
+### Honest note
+Verified by build + an isolated repro of the exact null-content crash, not a
+live session. The null-content combo crash is a concrete, confirmed cause of the
+blank; if a group still blanks after rebuild, the ErrorBoundary will now surface
+the actual error message — send me that text and I'll fix the next layer.
+
+---
+
+## 84. Spidr System — "Patch 1.6.1" patch notes
+
+Added a Patch 1.6.1 entry (id `p161`, dated 2026-05-31, type FIX) to the top of
+both the client mock list (`SpidrSystem.jsx`) and the server NEWS source
+(`routes/system.js`), above the 1.6 entry. Summarizes §77–§83 in user-facing
+language:
+- Voice participants now drop down a vertical web thread to glowing avatar nodes
+- Expanded voice deck glass reskin (crimson glow + smooth-cornered tiles)
+- Screen-share split: Main Stage + collapsible vertical glass sidebar of
+  audio-reactive user pills
+- Minimized call → Micro-Tactical HUD pill (idle-fade + hover-expand controls)
+- New out-of-app "Spidr Protocol" transparent desktop overlay (click-through +
+  Shift+Enter typing)
+- Fixes: group chats no longer render blank (media-only message crash), DM/group
+  voice no longer duplicates users on join, clean no-lines message feed,
+  top-right profile widget no longer overlaps content
+
+### Files
+Modified: `spidr-client/src/components/spidr/SpidrSystem.jsx`,
+`spidr-server/src/routes/system.js`.
+
+Verified: client full bundle + server `node --check` clean (working copy and
+merged tree); mojibake-free.

@@ -30,4 +30,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('window:focus', handler);
     return () => ipcRenderer.removeListener('window:focus', handler);
   },
+
+  // Spidr Protocol text overlay (Ghost Window). openProtocol spawns the
+  // transparent, click-through, always-on-top HUD. setProtocolInteractive lets
+  // the overlay hand mouse/keyboard control back to the game when done typing.
+  // onProtocolInteractive notifies the overlay when the global hotkey toggles
+  // interactive mode so it can reveal/hide the input bar.
+  openProtocol:  (params) => ipcRenderer.send('protocol:open', params),
+  closeProtocol: () => ipcRenderer.send('protocol:close'),
+  setProtocolInteractive: (on) => ipcRenderer.send('protocol:set-interactive', on),
+  onProtocolInteractive: (cb) => {
+    const handler = (_e, on) => cb(on);
+    ipcRenderer.on('protocol:interactive', handler);
+    return () => ipcRenderer.removeListener('protocol:interactive', handler);
+  },
+  onProtocolClosed: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on('protocol:closed', handler);
+    return () => ipcRenderer.removeListener('protocol:closed', handler);
+  },
 });
