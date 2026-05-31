@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Search, Plus, Users, Hash, Volume2, Settings, ChevronDown, Send, Smile, ImagePlus, MoreHorizontal, Edit2, Trash2, Ghost, Pin, Archive, Shield, UserPlus, CornerUpLeft, X } from 'lucide-react';
+import { Search, Plus, Users, Hash, Volume2, Settings, ChevronDown, Send, Smile, ImagePlus, MoreHorizontal, Edit2, Trash2, Ghost, Pin, Archive, Shield, UserPlus, CornerUpLeft, X, MicOff } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ServerSettingsModal from './ServerSettingsModal';
@@ -43,8 +43,8 @@ import ErrorBoundary from './ErrorBoundary';
 
 // Is the current user a member of (or the owner of) this server?
 function isServerMember(server, currentUser) {
-  if (!server || !currentUser) return false;
-  if (server.owner_id === currentUser.id) return true;
+  if (!server || !currentUser?.id) return false;
+  if (server.owner_id && server.owner_id === currentUser.id) return true;
   return Array.isArray(server.members) &&
     server.members.some(m => (m?.user_id || m?.id || m) === currentUser.id);
 }
@@ -164,14 +164,15 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
   const selectedServer = servers.find(s => s.id === selectedServerId) || directServer;
 
   return (
-    <div className="flex-1 flex bg-zinc-900 min-w-0 overflow-hidden">
+    <div className="flex-1 flex bg-[#080505] min-w-0 overflow-hidden">
       {/* Server List — desktop: always visible as a 240px column.
           Mobile: visible only when no server is selected; once a server is
           chosen, the list hides and the chat takes the full width. A back
           button inside ServerContent brings the user back to the list. */}
       <div className={`${
         selectedServer ? 'hidden md:flex' : 'flex'
-      } w-full md:w-60 shrink-0 bg-zinc-900 border-r border-red-900/20 flex-col`}>
+      } w-full md:w-60 shrink-0 border-r border-red-900/30 flex-col`}
+        style={{ background: 'linear-gradient(180deg, #0d0708 0%, #080505 100%)' }}>
         <div className="p-3 border-b border-red-900/20">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -735,9 +736,16 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     { id: 'voice', name: 'Voice Chat', type: 'voice' }
   ];
 
-  const isAdmin = server.owner_id === currentUser?.id || 
-    server.members?.find(m => m.user_id === currentUser?.id)?.role === 'admin' ||
-    server.members?.find(m => m.user_id === currentUser?.id)?.role === 'mod';
+  // Permissions: only the actual owner, or a member whose role is admin/mod
+  // (case-insensitive), is an admin. Guard against undefined === undefined
+  // (which previously made EVERYONE an admin when ids hadn't loaded).
+  const _meId = currentUser?.id;
+  const _myMember = _meId ? server.members?.find(m => m.user_id === _meId) : null;
+  const _myRole = (_myMember?.role || '').toLowerCase();
+  const isAdmin = Boolean(_meId) && (
+    (Boolean(server.owner_id) && server.owner_id === _meId) ||
+    _myRole === 'admin' || _myRole === 'mod' || _myRole === 'moderator' || _myRole === 'owner'
+  );
 
   // Airlock: check if user is unverified
   const currentMember = server.members?.find(m => m.user_id === currentUser?.id);
@@ -1113,7 +1121,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
 
   if (needsAgeGate) {
     return (
-      <div className="flex-1 relative bg-zinc-900">
+      <div className="flex-1 relative bg-[#0a0607]">
         <AgeGateModal
           onVerify={() => {
             localStorage.setItem(`age_verified_${server.id}`, '1');
@@ -1163,10 +1171,11 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           visible only when mobileView === 'channels'. */}
       <div className={`${
         mobileView === 'channels' ? 'flex' : 'hidden md:flex'
-      } w-full md:w-56 shrink-0 bg-zinc-800/50 flex-col`}>
+      } w-full md:w-56 shrink-0 flex-col`}
+        style={{ background: 'linear-gradient(180deg, #0d0708 0%, #080505 100%)' }}>
         {/* Server Header */}
         <div
-          className="h-12 px-4 flex items-center justify-between border-b border-red-900/20 bg-zinc-900/50 cursor-pointer hover:bg-zinc-800/50 transition-colors"
+          className="h-12 px-4 flex items-center justify-between border-b border-red-900/30 bg-[#0a0506]/80 cursor-pointer hover:bg-[#140a0b]/60 transition-colors"
           onContextMenu={(e) => triggerMenu(e, 'server', { id: server.id, name: server.name })}
           onClick={() => {/* could toggle server dropdown */}}
         >
@@ -1307,8 +1316,8 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               const live = channelUsers.length > 0;
               const active = activeVoiceChannel?.id === channel.id;
               return (
+                <div key={channel.id}>
                 <button
-                  key={channel.id}
                   onContextMenu={(e) => triggerMenu(e, 'channel_voice', { id: channel.id, name: channel.name, server_id: server.id })}
                   onMouseEnter={() => playSound('hover')}
                   onClick={() => {
@@ -1331,6 +1340,25 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     <span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)] shrink-0" />
                   )}
                 </button>
+                {/* Connected users hang on the web thread beneath the channel */}
+                {live && (
+                  <div className="relative flex flex-wrap pl-3 ml-6 mr-2 mb-1 border-l border-[#FF3333]/20">
+                    {channelUsers.map((u, idx) => (
+                      <div key={u.user_id || u.id || idx}
+                        className="flex items-center gap-1.5 pl-2 py-1 w-full"
+                        title={u.user_name || 'Spider'}>
+                        <span className="w-3 h-px bg-[#FF3333]/30 shrink-0" />
+                        <Avatar className="w-5 h-5 shrink-0">
+                          <AvatarImage src={u.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.user_id || u.user_name}`} />
+                          <AvatarFallback className="bg-red-900 text-white text-[8px]">{(u.user_name || '?').charAt(0).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <span className="text-xs text-neutral-400 truncate">{u.user_name || 'Spider'}</span>
+                        {u.is_muted && <MicOff className="w-3 h-3 text-red-400 shrink-0 ml-auto" />}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                </div>
               );
             })}
           </div>
@@ -1342,7 +1370,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       {(
       <div className={`${
         mobileView === 'chat' ? 'flex' : 'hidden md:flex'
-      } flex-1 flex-col bg-zinc-900 min-w-0`}>
+      } flex-1 flex-col bg-[#0a0607] min-w-0`}>
         {/* Airlock Notice */}
         {isAirlocked && (
           <div className="px-4 py-2 bg-yellow-500/10 border-b border-yellow-500/20 flex items-center gap-2">
@@ -1361,8 +1389,9 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           >
             ←
           </button>
-          <Hash className="w-5 h-5 text-zinc-500" />
-          <span className="font-semibold text-white truncate">{currentChannelObj?.name || selectedChannel}</span>
+          <Hash className="w-5 h-5 text-red-500 shrink-0" />
+          <span className="font-bold text-white truncate">{currentChannelObj?.name || selectedChannel}</span>
+          <span className="hidden sm:inline text-neutral-500 text-sm shrink-0">· connected to the web</span>
           <div className="ml-auto flex items-center gap-1">
             <SignalTracker
               placeholder="Search server..."
@@ -1470,31 +1499,35 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               <div 
                 key={msg.id} 
                 data-msg-id={msg.id}
-                className={`flex gap-3 group hover:bg-zinc-800/30 p-2 rounded-lg -mx-2 relative select-none md:select-auto ${
+                className={`flex gap-3 group hover:bg-white/[0.02] px-2 py-3 border-b border-white/5 relative select-none md:select-auto ${
                   msg.content?.includes(`@${currentUser?.full_name?.split(' ')[0]}`) 
-                    ? 'bg-[#FF3333]/5 border-l-2 border-[#FF3333]' 
+                    ? 'bg-[#FF3333]/5 border-l-2 border-l-[#FF3333]' 
                     : ''
                 }`}
                 style={{ WebkitTouchCallout: 'none' }}
                 onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, author_id: msg.author_id, author_name: msg.author_name, author_avatar: msg.author_avatar, attachments: msg.attachments })}
                 {...bindLongPress('message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, author_id: msg.author_id, author_name: msg.author_name, author_avatar: msg.author_avatar, attachments: msg.attachments })}
                 >
-                <Avatar 
-                  className="w-10 h-10 shrink-0 cursor-pointer"
-                  onClick={() => {
-                    if (msg.author_id === 'spidr-ai' || msg.user_id === 'spidr-ai') {
-                      setShowSpidrAIProfile(true);
-                    } else {
-                      setSelectedUserId(msg.author_id || msg.user_id);
-                    }
-                  }}
-                  onContextMenu={(e) => triggerMenu(e, 'user', { id: msg.author_id || msg.user_id, name: msg.author_name || msg.user_name })}
-                >
-                  <AvatarImage src={msg.author_avatar || msg.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.author_id || msg.user_id}`} />
-                  <AvatarFallback className="bg-red-900 text-white">
-                    {(msg.author_name || msg.user_name || '?').charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
+                <div className="relative shrink-0 self-start">
+                  <Avatar 
+                    className="w-10 h-10 shrink-0 cursor-pointer"
+                    onClick={() => {
+                      if (msg.author_id === 'spidr-ai' || msg.user_id === 'spidr-ai') {
+                        setShowSpidrAIProfile(true);
+                      } else {
+                        setSelectedUserId(msg.author_id || msg.user_id);
+                      }
+                    }}
+                    onContextMenu={(e) => triggerMenu(e, 'user', { id: msg.author_id || msg.user_id, name: msg.author_name || msg.user_name })}
+                  >
+                    <AvatarImage src={msg.author_avatar || msg.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.author_id || msg.user_id}`} />
+                    <AvatarFallback className="bg-red-900 text-white">
+                      {(msg.author_name || msg.user_name || '?').charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  {/* Online status dot — just outside the avatar's bounding box */}
+                  <span className="absolute -bottom-0.5 -left-0.5 w-1.5 h-1.5 bg-green-500 rounded-full ring-2 ring-[#0a0607]" />
+                </div>
                 <div className="flex-1 min-w-0">
                   {/* Reply preview card — themed in spidr red, mirrors the SPIDR_AI card shape */}
                   {msg.reply_to && (() => {
@@ -1578,11 +1611,11 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                                 <img src={resolved.roleIcon} alt="" className="w-3.5 h-3.5 rounded object-cover" />
                               )}
                               <span
-                                className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
+                                className="text-[10px] px-1.5 py-0.5 rounded-[3px] font-bold uppercase tracking-wider"
                                 style={{
-                                  backgroundColor: resolved.roleColor + '20',
+                                  backgroundColor: resolved.roleColor + '1a',
                                   color: resolved.roleColor,
-                                  border: `1px solid ${resolved.roleColor}40`,
+                                  border: `1px solid ${resolved.roleColor}80`,
                                 }}
                               >
                                 {resolved.roleTag || resolved.roleName}
@@ -1610,7 +1643,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                         <span className="ml-2 text-[10px] bg-red-900/40 text-red-400 border border-red-700 px-1 rounded uppercase font-bold inline-flex items-center gap-1">🔇 Silenced</span>
                       )}
                       {(server.timeouts || []).some(t => (t.user_id === (msg.author_id || msg.user_id)) && new Date(t.until).getTime() > Date.now()) && (
-                        <span className="ml-2 text-[10px] bg-amber-900/40 text-amber-400 border border-amber-700 px-1 rounded uppercase font-bold inline-flex items-center gap-1">â³ Timeout</span>
+                        <span className="ml-2 text-[10px] bg-amber-900/40 text-amber-400 border border-amber-700 px-1 rounded uppercase font-bold inline-flex items-center gap-1">⏳ Timeout</span>
                       )}
                     </span>
                   </div>
@@ -1622,7 +1655,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     )}
                   </div>
                   {msg.attachments?.length > 0 && (
-                    <div className="flex gap-2 flex-wrap mt-2">
+                    <div className="flex gap-2 flex-wrap mt-2 p-2 rounded-xl bg-[#1a0f0f] border border-red-900/30 w-fit max-w-full">
                       {msg.attachments.map((url, i) => {
                         const isAudio = /voice-message-/i.test(url) || /\.(mp3|wav|ogg|m4a|aac|webm|weba|opus)(\?|$)/i.test(url);
                         if (isAudio) {
@@ -1833,6 +1866,20 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         isOpen={showStickyWeb}
         onClose={() => setShowStickyWeb(false)}
         pinnedMessages={messages.filter(m => m.is_webbed)}
+        onJump={(messageId) => {
+          setShowStickyWeb(false);
+          // Wait for the web to close, then scroll the message into view + flash.
+          setTimeout(() => {
+            const el = document.querySelector(`[data-msg-id="${messageId}"]`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              el.classList.add('msg-flash');
+              setTimeout(() => el.classList.remove('msg-flash'), 1200);
+            } else {
+              toast.info('Message not in the current view');
+            }
+          }, 280);
+        }}
       />
 
       {/* Spidr AI Profile */}

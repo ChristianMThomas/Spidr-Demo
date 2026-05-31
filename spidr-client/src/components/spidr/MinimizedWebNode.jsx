@@ -35,6 +35,7 @@ export default function MinimizedWebNode({
   onExpand, onEnd, onMuteToggle, onDeafenToggle,
 }) {
   const [hovered, setHovered] = useState(false);
+  const [active, setActive] = useState(false);
   const [muted, setMuted] = useState(false);
   const [deafened, setDeafened] = useState(false);
   const [fetchedColor, setFetchedColor] = useState(null);
@@ -81,6 +82,13 @@ export default function MinimizedWebNode({
 
   const handleExpand = () => { onExpand?.(); };
 
+  // Tapping the node body toggles the orbital controls (works on touch, where
+  // there's no hover). The explicit Expand button restores the full deck.
+  const handleNodeTap = (e) => {
+    e.stopPropagation();
+    setActive((v) => !v);
+  };
+
   const handleMute = (e) => {
     e.stopPropagation();
     const next = !muted; setMuted(next); onMuteToggle?.(next);
@@ -108,7 +116,7 @@ export default function MinimizedWebNode({
     { key: 'end',    icon: PhoneOff,                         onClick: handleDisconnect, angle: 135,  variant: 'danger' },
     { key: 'expand', icon: Maximize2,                        onClick: handleMaximize,   angle: 45,   variant: 'accent' },
   ];
-  const R = 58; // orbital distance from node center
+  const R = 64; // orbital distance from node center (wider = fewer mis-clicks)
 
   // Blue radial visualizer ticks around the avatar — discrete short lines that
   // radiate outward and brighten with speaking/amplitude, matching the video.
@@ -137,13 +145,17 @@ export default function MinimizedWebNode({
           dragConstraints={{ left: -(window.innerWidth / 2) + 90, right: (window.innerWidth / 2) - 90, top: 0, bottom: window.innerHeight - 200 }}
           dragElastic={0.08}
           style={{ x, y }}
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.6 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 24 }}
           onHoverStart={() => setHovered(true)}
           onHoverEnd={() => setHovered(false)}
           className="absolute left-1/2 -translate-x-1/2 top-[56px] pointer-events-auto"
         >
-        {/* Orbital action buttons — pop outward on hover with a spring */}
+        {/* Orbital action buttons — visible on hover (desktop) or tap (touch) */}
         <AnimatePresence>
-          {hovered && orbital.map((b) => {
+          {(hovered || active) && orbital.map((b) => {
             const rad = (b.angle * Math.PI) / 180;
             const bx = Math.cos(rad) * R, by = Math.sin(rad) * R;
             const Icon = b.icon;
@@ -157,29 +169,36 @@ export default function MinimizedWebNode({
                 initial={{ x: 0, y: 0, opacity: 0, scale: 0.4 }}
                 animate={{ x: bx, y: by, opacity: 1, scale: 1 }}
                 exit={{ x: 0, y: 0, opacity: 0, scale: 0.4 }}
+                whileHover={{ scale: 1.15 }}
+                whileTap={{ scale: 0.85 }}
                 transition={{ type: 'spring', stiffness: 320, damping: 22 }}
                 onClick={b.onClick}
-                className={`absolute left-1/2 top-1/2 -ml-4 -mt-4 w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-md border ${cls}`}
+                title={b.key === 'mute' ? (muted ? 'Unmute' : 'Mute') : b.key === 'end' ? 'Leave call' : 'Expand'}
+                className={`absolute left-1/2 top-1/2 -ml-[18px] -mt-[18px] w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md border shadow-lg ${cls}`}
               >
-                <Icon size={14} />
+                <Icon size={15} />
               </motion.button>
             );
           })}
         </AnimatePresence>
 
-        {/* The node: blue radial tick ring + circular avatar (click = expand) */}
+        {/* The node: blue radial tick ring + circular avatar (tap = show controls) */}
         <div
-          onClick={handleExpand}
+          onClick={handleNodeTap}
           role="button"
-          title="Return to call"
+          title="Tap for call controls"
           className="relative w-[88px] h-[88px] flex items-center justify-center cursor-pointer"
         >
-          {/* Radial tick ring */}
+          {/* Radial tick ring — always alive: slow rotation + gentle breathing,
+              intensifying when speaking. */}
           <motion.svg
             width="88" height="88" viewBox="0 0 88 88"
             className="absolute inset-0 pointer-events-none"
-            animate={{ scale: speaking ? [1, 1.04, 1] : 1 }}
-            transition={{ duration: 1.2, repeat: speaking ? Infinity : 0, ease: 'easeInOut' }}
+            animate={{ rotate: 360, scale: speaking ? [1, 1.05, 1] : [1, 1.025, 1] }}
+            transition={{
+              rotate: { duration: speaking ? 8 : 18, repeat: Infinity, ease: 'linear' },
+              scale: { duration: speaking ? 1.1 : 2.4, repeat: Infinity, ease: 'easeInOut' },
+            }}
             style={{ filter: `drop-shadow(0 0 6px ${ringColor}aa)` }}
           >
             {Array.from({ length: TICKS }).map((_, i) => {

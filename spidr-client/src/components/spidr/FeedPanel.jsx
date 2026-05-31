@@ -125,7 +125,7 @@ export default function FeedPanel({ currentUser }) {
   ];
 
   return (
-    <div className="flex-1 flex bg-gradient-to-br from-zinc-950 via-black to-red-950/20">
+    <div className="flex-1 flex bg-black/40">
       <div className="flex-1 flex flex-col relative overflow-hidden">
 
         {/* Tab bar */}

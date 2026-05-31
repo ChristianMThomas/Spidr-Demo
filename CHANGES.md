@@ -2891,3 +2891,266 @@ pill/node styling from the image. True multi-category grouping (custom category
 names per channel group) would need a `category` field on the channel model +
 admin UI to assign it — a separate backend change. Verified by build, not a live
 session.
+
+---
+
+## 71. Minimized voice node — animation + reliable controls (from recording)
+
+Diagnosed from Recording_2026-05-30_214823.mp4 (extracted frames).
+
+- **"Not animated":** the ring only animated when `speaking` was true, but the
+  shell hardcodes `speaking={false}` — so the node was always static. Fixed: the
+  tick-ring now ALWAYS animates (slow 18s rotation + gentle breathing pulse) and
+  intensifies when speaking (8s rotation + stronger pulse). The node also gets a
+  spring entrance/exit (scale+fade) instead of popping in/out.
+- **"Buttons don't work properly":** the orbital mute/leave/expand buttons were
+  hover-only AND animated outward from center, so on desktop the hover state
+  flickered as you moved to click (the button slid out from under the cursor),
+  and on touch there was no hover at all → unreachable. Fixed: tapping the node
+  now TOGGLES the controls (works on touch), buttons show on hover OR tap, are
+  larger (w-9) with a wider orbit (R=64) and `whileHover`/`whileTap` feedback +
+  titles, so they're stable and easy to hit.
+- **"Disappears after clicking":** the node body's click used to immediately
+  expand, and with the flaky hover buttons a mis-click could hit Leave and end
+  the call. Now the body tap reveals controls (doesn't auto-expand), and Leave is
+  a deliberate, well-separated button — so an accidental tap no longer drops the
+  call.
+
+### Files
+Modified: `components/spidr/MinimizedWebNode.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+node geometry rendered offline; mojibake-free.
+
+### Honest status
+- Verified by build + offline render, not a live session (no browser here).
+  Worth checking on a rebuild: the node visibly spins/breathes at rest; tapping
+  it reveals 3 stable buttons; mute and expand work; Leave only fires on its own
+  button; nothing vanishes on an accidental tap.
+- One thing I could NOT fully fix blind: in the recording the EXPANDED deck
+  sometimes showed a lone centered avatar with no participant-tile frame (vs the
+  proper bordered tile at other times). That's a transient runtime-state issue in
+  VoiceChannel's grid I can't reproduce without a live session; the deck layout
+  itself is correct when sessions are present. If it persists after rebuild, a
+  console log of `voiceSessions` at that moment would let me pin it precisely.
+
+---
+
+## 72. Server palette fix + chat feed/message-node overhaul
+
+### The "gray background" fix
+The §70 pill styling WAS applied, but the panels behind the pills were still
+gray (`bg-zinc-800/50`, `bg-zinc-900`). Replaced with the deep black-crimson
+palette from the reference:
+- Channel column + server-list column → `linear-gradient(180deg,#0d0708,#080505)`.
+- ServersPanel root → `bg-[#080505]`; chat/message area → `bg-[#0a0607]`.
+- Server header bar → `bg-[#0a0506]/80`, red-900/30 borders.
+
+### Chat feed & message node (server channels only — DMs untouched)
+Server messages render inline in ServersPanel (not the shared MessageItem), so
+these changes are scoped to servers exactly as the task asked.
+- **Header:** crimson `#` (`text-red-500`) + white bold channel name + muted
+  "· connected to the web" subtext, with the existing bottom divider.
+- **Message rows:** now `border-b border-white/5 py-3` distinct rows with a
+  subtle hover, replacing the floating rounded blocks.
+- **Online status dot:** a `w-1.5 h-1.5 bg-green-500` dot ringed against the bg,
+  positioned just outside the avatar's bounding box.
+- **Role badges:** tightened to the reference spec — `rounded-[3px] text-[10px]
+  uppercase` bordered boxes (uses each server's role color, so MOD reads red /
+  DEV-style roles read their configured color).
+- **Reactions:** `ReactionBar` pills are now `rounded-full`; selected state is
+  the glowing red `border-red-500/40 bg-red-500/10`.
+- **Media embeds:** attachment groups are wrapped in the dark reddish-brown
+  embed container (`bg-[#1a0f0f] border border-red-900/30`).
+- Fixed a latent mojibake hourglass (`â³` → ⏳) on the Timeout badge.
+
+### Files
+Modified: `components/spidr/ServersPanel.jsx`, `components/spidr/ReactionBar.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+feed layout rendered offline vs the reference (close match); mojibake-free.
+
+### Honest status / deferred
+- Part 4's true **thread branching** (SVG L-curve from the avatar column into a
+  "X replies in thread →" pill with overlapping mini-avatars) is NOT built:
+  server messages use a flat reply-preview model, not a threaded data model, so
+  real thread branches would need a threading schema change. The reply-preview
+  card (themed in spidr red) already shows what a message is replying to.
+- Role badges use the server's dynamic role colors rather than hardcoded
+  MOD-red/DEV-purple, since the app already has a per-server role-color system —
+  the badge STYLE matches the reference; the colors come from each role.
+- Verified by build + offline render, not a live session.
+
+---
+
+## 73. Bug-fix pass: pins, deafen, permissions, memory-web jump, voice roster
+
+**1. "Pin to Web" in Friends did nothing visible.** The pin actually saved
+(localStorage + profile via `spidrWebPins`), but the Friends page (FriendsPanel)
+never showed the result — only the separate DMsSidebar reads the pins — so it
+looked broken. Added a toast confirmation ("Pinned/Unpinned from Spidr Web") and
+wired `is_pinned` into the friend right-click menu so it correctly toggles
+label/state. (A full pinned-section inside FriendsPanel is a larger follow-up.)
+
+**2. Deafen == mute / deafening others.** The per-participant voice menu had both
+"Mute User" and "Deafen User", but deafen is a SELF state (you stop hearing
+everyone) — "deafen user" was just a second local-mute, hence redundant. Removed
+"Deafen User" from the per-participant menu (VoiceDeckContextMenu); you can no
+longer "deafen" another person in DMs/groups/servers. Self-mute (your mic) and
+self-deafen (mute all incoming) remain distinct.
+
+**3. Server permissions — everyone looked like admin.** Root cause: the admin
+check was `server.owner_id === currentUser?.id`, and when both were `undefined`
+(ids not yet loaded, or a server doc missing `owner_id`), `undefined ===
+undefined` is `true` → EVERYONE became admin. Fixed `isAdmin` and
+`isServerMember` to require a truthy current-user id AND a truthy `owner_id`
+before matching, and made the role check case-insensitive (admin/mod/moderator/
+owner) since new members are stored with role `'Member'`. Mirrored the
+case-insensitive fix on the server (`routes/servers.js`).
+
+**4. "Memory Web" messages weren't clickable.** `StickyWeb`'s message cocoons
+had `cursor-pointer` but no click handler. Added an `onJump(messageId)` that
+closes the web, scrolls the message into view, and flashes it (reusing the
+existing reply-jump pattern).
+
+**5. Voice channels didn't show who joined.** §70's pill redesign dropped the
+old `VoiceWeb` connected-users roster. Restored a compact "hanging users" thread
+beneath each occupied voice pill (avatar + name on a red web-strand, with a
+mute indicator), so joining a voice channel is visible again.
+
+### Files
+Modified: `spidr-client/src/components/spidr/FriendsPanel.jsx`,
+`VoiceDeckContextMenu.jsx`, `ServersPanel.jsx`, `StickyWeb.jsx`;
+`spidr-server/src/routes/servers.js`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+server `node --check` clean; mojibake-free.
+
+### Honest notes
+- Verified by build, not a live session.
+- Permissions: the undefined-equality fix is the concrete "everyone is admin"
+  cause. If after rebuild some non-owners still see admin actions, it'd be
+  because their stored member `role` is literally an admin/mod role — check the
+  member list in Server Settings; the gate itself is now correct.
+- Pin: friends now confirm via toast and the menu toggles correctly; surfacing a
+  dedicated pinned-friends list inside the Friends page itself (like DMsSidebar
+  does) can be a follow-up if you want them shown there too.
+
+---
+
+## 74. Custom background — apply app-wide + smoother rendering
+
+The custom background (ThemeStudio "image" theme) was set on the shell root, but
+every page and the sidebar painted their OWN opaque backgrounds on top of it, so
+the background only showed on /home. Also the ThemeStudio preview always stacked
+a flat 40% black scrim, so it looked muddy ("not smooth") even at full opacity.
+
+- **Show through everywhere the user asked:** made these surfaces translucent
+  (`bg-black/40`) so the shell's custom background shows through —
+  - THE WEB feed (`FeedPanel`, was `bg-gradient … zinc-950/black/red-950`),
+  - Signal Radar (`pages/Radar.jsx`, was `bg-black`),
+  - Settings (`SettingsPanel`, was `bg-zinc-900`).
+  With no custom background the shell root is black, so these read identically to
+  before (no regression); with a custom image they now reveal it.
+- **Sidebar:** the shell now passes `isGlass` to `Sidebar` whenever an image
+  theme is active, switching it to the translucent `bg-black/30 backdrop-blur-xl`
+  so the background flows behind it too (solid `#050505` when no custom bg).
+- **No more double-dim:** since pages now carry their own light scrim, the
+  shell's off-home dim was cut from 0.45 → 0.15 and off-home blur 2px → 1px, so
+  the background isn't darkened into mud on every non-home page.
+- **Smoother ThemeStudio preview:** the live preview now actually applies the
+  blur slider (with a slight scale to hide blurred edges) and uses a SINGLE
+  opacity-tracked scrim instead of stacking a fixed 40% black over the dim — at
+  100% opacity the preview is ~15% dark (background clearly visible) vs the old
+  ~40% washed-out look. The preview now matches what you'll actually see.
+
+### Files
+Modified: `components/SpidrShell.jsx`, `components/spidr/FeedPanel.jsx`,
+`pages/Radar.jsx`, `components/spidr/SettingsPanel.jsx`,
+`components/spidr/ThemeStudio.jsx`.
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+dim math checked offline (no double-dim); mojibake-free.
+
+### Honest notes
+- Verified by build, not a live session. Worth checking: set an image background
+  in ThemeStudio → it should appear behind the home feed, THE WEB, Signal Radar,
+  Settings, and softly behind the main sidebar, with text still readable.
+- The server channel view keeps its deep crimson palette (§72) rather than going
+  translucent, since that was a specific earlier request and wasn't in this list.
+  If you want the custom background behind server chat too, say so and I'll make
+  those panels translucent as well.
+- Readability scrim is a fixed `bg-black/40` on pages; if a busy/bright image
+  makes text hard to read on a specific page, the per-user opacity slider in
+  ThemeStudio still adds more dim on top via the shell layer.
+
+---
+
+## 75. Bot Laboratory reskin (Spidr terminal/symbiote aesthetic)
+
+Reskinned `components/spidr/BotLaboratory.jsx` to the terminal aesthetic; page
+name retained.
+
+- **Header:** title terminalized to `> BOT_LABORATORY` (monospace bold white) +
+  `Build, import, and deploy bots for your servers.` subtext (neutral-500).
+  Panel made translucent so the custom background shows through (§74).
+- **Tabs:** flat red block → pill nav matching the channel sidebar. Active =
+  `bg-red-950/40 border-red-900/50` + 2px left crimson accent line; inactive =
+  `bg-[#0a0a0a] border-white/5` muted. Labels bracketed/caps:
+  `[ BOT_STORE ] [ MY_BOTS ] [ CREATE ] [ IMPORT ]`.
+- **Search:** terminal injection point — `bg-black/60 border-white/10 rounded-md`
+  monospace, placeholder replaced with `> SEARCH_BOTS: _` (blinking underscore
+  via a new `.spidr-blink` CSS keyframe), focus glows crimson
+  (`focus:border-red-500 focus:shadow-[0_0_10px_#ef4444]`).
+- **Category headers:** shield/music icons → glowing concentric node (red ring +
+  glowing core); text → `> GUARDIANS` / `> ENTERTAINERS` in
+  `font-mono text-xs tracking-[0.15em] text-cyan-600/80 uppercase`.
+- **Cards:** flat gray box → Spidr glass (`bg-[#0a0a0a]/80 backdrop-blur-md
+  border-white/5 rounded-xl p-5`), hover shifts border to `red-900/50` + crimson
+  glow. 3D emoji → flat glowing icon node. OFFICIAL badge → purple terminal box
+  (`border-purple-500/50 bg-purple-500/10 text-purple-400 rounded-[3px]`).
+  Feature checkmarks → crimson `>` arrows. Install button → outlined action
+  trigger `[ INSTALL_TO_SERVER ]` (`bg-red-600/10 border-red-500/40 text-red-500`
+  → fills red on hover).
+
+### Files
+Modified: `components/spidr/BotLaboratory.jsx`, `index.css` (blink keyframe).
+
+Verified: full esbuild bundle (working copy + merged tree) zero warnings/errors;
+layout rendered offline vs the reference (close match); mojibake-free.
+
+### Honest notes
+- Verified by build + offline render, not a live session.
+- Only the BOT STORE tab was reskinned to the reference (it's the screen shown).
+  The MY_BOTS / CREATE / IMPORT tab bodies keep their existing styling under the
+  new terminal header/tabs; say the word if you want those inner panels
+  terminalized too.
+- Bot icons still use each bot's `icon_emoji` inside the new glowing node frame
+  (rather than hand-drawn vector glyphs), so existing bot data renders unchanged.
+
+---
+
+## 76. Spidr System — "Patch 1.6" patch notes
+
+Added a Patch 1.6 entry to the Spidr System news feed (both the client mock list
+and the server NEWS source so it shows whether or not the API is reached),
+summarizing everything shipped from §64 through §75 in user-facing language:
+- Voice node animation + reliable controls (no more vanishing calls)
+- Mobile responsiveness (no cut-off sidebars) + long-press context menus
+- Tap-to-expand image lightbox + rich GIF/image comments
+- THE WEB: The Pulse trending pulse, The Weaver filters + terminal caption,
+  precision scrubber, external audio grafting, scroll auto-play
+- Pill-node channel sidebar + server chat crimson reskin
+- Custom backgrounds applied app-wide + smoother rendering
+- Bot Laboratory terminal reskin
+- Fixes: server permissions (no more everyone-is-admin), deafen vs mute,
+  Pin-to-Web confirmation, Memory Web jump-to-message, voice-channel rosters
+
+Entry id `p16`, dated 2026-05-31, type UPDATE, placed at the top of both lists.
+
+### Files
+Modified: `spidr-client/src/components/spidr/SpidrSystem.jsx`,
+`spidr-server/src/routes/system.js`.
+
+Verified: client full bundle + server `node --check` clean (working copy and
+merged tree); mojibake-free.

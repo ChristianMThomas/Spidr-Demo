@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Pin, X, Eye } from 'lucide-react';
 
-export default function StickyWeb({ isOpen, onClose, pinnedMessages = [] }) {
+export default function StickyWeb({ isOpen, onClose, pinnedMessages = [], onJump }) {
   if (!isOpen) return null;
 
   return (
@@ -36,7 +36,7 @@ export default function StickyWeb({ isOpen, onClose, pinnedMessages = [] }) {
             </div>
           ) : (
             pinnedMessages.map((item, index) => (
-              <StickyCocoon key={item.id} item={item} index={index} />
+              <StickyCocoon key={item.id} item={item} index={index} onJump={onJump} />
             ))
           )}
         </div>
@@ -51,7 +51,7 @@ export default function StickyWeb({ isOpen, onClose, pinnedMessages = [] }) {
   );
 }
 
-function StickyCocoon({ item, index }) {
+function StickyCocoon({ item, index, onJump }) {
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -61,6 +61,7 @@ function StickyCocoon({ item, index }) {
       transition={{ delay: index * 0.1 }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onClick={() => onJump?.(item.id)}
       className="relative cursor-pointer group"
     >
       {/* 1. THE SILK WRAPPING (Visual Overlay) */}

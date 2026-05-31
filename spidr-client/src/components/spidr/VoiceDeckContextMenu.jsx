@@ -86,7 +86,6 @@ export default function VoiceDeckContextMenu({
       {!isSelf && (
         <>
           <Item icon={MicOff} label="Mute User" active={localMuted} onClick={onLocalMute} />
-          <Item icon={Headphones} label="Deafen User" active={localDeafened} onClick={onLocalDeafen} />
 
           {/* Custom volume slider — glowing thread purple→red */}
           <div className="px-3 py-2">

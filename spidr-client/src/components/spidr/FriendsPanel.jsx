@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useMenu } from '@/components/MenuContext';
-import { togglePin } from '@/lib/spidrWebPins';
+import { togglePin, getPins, isPinned } from '@/lib/spidrWebPins';
 import HolographicProfile from './HolographicProfile';
 import DirectMessages from './DirectMessages';
 import KineticChat from './KineticChat';
@@ -115,12 +115,14 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
       // rows maps to the Spidr Web priority section (NOT the legacy in-tab group
       // pin, which has its own dedicated button).
       if (action === 'pin-web' || action === 'pin-group') {
+        const wasPinned = isPinned(data.id);
         togglePin({
           kind: type === 'web_group' ? 'group' : 'dm',
           id: data.id,
           name: data.name || data.friend_name || data.username || 'Conversation',
           avatar: data.avatar || data.friend_avatar || data.avatar_url || '',
         });
+        toast.success(wasPinned ? 'Unpinned from Spidr Web' : 'Pinned to Spidr Web');
       } else if (type === 'web_group' && action === 'open-group') {
         handleOpenGroup(data.id);
       }
@@ -656,6 +658,7 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
           user_id: friend.friend_id,
           name: displayName,
           avatar: friend.friend_avatar,
+          is_pinned: isPinned(friend.friend_id),
         })}
       >
         <div className="relative">

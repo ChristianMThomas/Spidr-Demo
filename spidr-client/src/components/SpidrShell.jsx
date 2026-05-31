@@ -201,13 +201,14 @@ export default function SpidrShell() {
           const isHome = location.pathname === '/home' || location.pathname === '/' || location.pathname.toLowerCase() === '/home';
           const userBlur = appTheme.blur || 0;
           const userDim = (100 - (appTheme.opacity ?? 100)) / 100;
-          // Effective blur: honor the user's setting; otherwise a gentle 2px
+          // Effective blur: honor the user's setting; otherwise a gentle 1px
           // off-home blur to soften busy backgrounds behind text.
-          const effectiveBlur = userBlur > 0 ? userBlur : (isHome ? 0 : 2);
-          // Effective dim: respect explicit user opacity, else 0 on home and
-          // ~45% elsewhere.
+          const effectiveBlur = userBlur > 0 ? userBlur : (isHome ? 0 : 1);
+          // Effective dim: respect explicit user opacity. Pages now carry their
+          // own translucent scrim (bg-black/40), so the shell only adds a light
+          // wash off-home to avoid double-dimming into mud.
           const hasUserOpacity = appTheme.opacity !== undefined && appTheme.opacity < 100;
-          const effectiveDim = (userBlur > 0 || hasUserOpacity) ? userDim : (isHome ? 0 : 0.45);
+          const effectiveDim = (userBlur > 0 || hasUserOpacity) ? userDim : (isHome ? 0 : 0.15);
           return (
             <div
               className="absolute inset-0 pointer-events-none transition-[background,backdrop-filter] duration-500"
@@ -240,6 +241,7 @@ export default function SpidrShell() {
             setActiveTab={(tab) => { setActiveTab(tab); setMobileSidebarOpen(false); }}
             onCreateServer={() => { setShowCreateServer(true); setMobileSidebarOpen(false); }}
             orientation={(sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'horizontal' : 'vertical'}
+            isGlass={appTheme?.type === 'image' && !!appTheme?.backgroundImage}
           />
         </div>
         {/* Mobile scrim — taps anywhere outside the drawer close it */}

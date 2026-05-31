@@ -188,11 +188,19 @@ export default function ThemeStudio({ open, onClose, currentTheme, onSave }) {
           <div>
             <Label className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2 block">Live Preview</Label>
             <div className="relative h-28 rounded-xl overflow-hidden border border-white/5">
-              <div className="absolute inset-0" style={preview()} />
-              {theme.type === 'image' && (
-                <div className="absolute inset-0 bg-black" style={{ opacity: (100 - theme.opacity) / 100 }} />
-              )}
-              <div className="absolute inset-0 bg-black/40" />
+              <div
+                className="absolute inset-0"
+                style={{
+                  ...preview(),
+                  filter: theme.type === 'image' && theme.blur ? `blur(${theme.blur}px)` : undefined,
+                  transform: theme.type === 'image' && theme.blur ? 'scale(1.06)' : undefined, // hide blurred edges
+                }}
+              />
+              {/* Single readability scrim that tracks the user's opacity setting. */}
+              <div
+                className="absolute inset-0 bg-black transition-opacity"
+                style={{ opacity: theme.type === 'image' ? Math.max(0.15, (100 - (theme.opacity ?? 100)) / 100) : 0.35 }}
+              />
               <div className="absolute inset-0 flex items-center justify-center gap-4">
                 <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20" />
                 <div className="space-y-1.5">

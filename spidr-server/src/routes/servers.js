@@ -148,7 +148,7 @@ router.put('/:serverId/roles/reorder', authMiddleware, async (req, res) => {
 
     const userId = req.user?.id || req.user?._id?.toString();
     const isOwner = server.owner_id === userId;
-    const isAdmin = isOwner || (server.members || []).some(m => (m.user_id === userId) && (m.role === 'admin'));
+    const isAdmin = isOwner || (server.members || []).some(m => (m.user_id === userId) && (['admin','mod','moderator','owner'].includes(String(m.role||'').toLowerCase())));
     if (!isAdmin) return res.status(403).json({ error: 'Admin permission required' });
 
     const posById = new Map(order.map(o => [String(o.roleId), Number(o.position)]));
@@ -175,7 +175,7 @@ router.patch('/:serverId/roles/:roleId', authMiddleware, async (req, res) => {
 
     const userId = req.user?.id || req.user?._id?.toString();
     const isOwner = server.owner_id === userId;
-    const isAdmin = isOwner || (server.members || []).some(m => (m.user_id === userId) && (m.role === 'admin'));
+    const isAdmin = isOwner || (server.members || []).some(m => (m.user_id === userId) && (['admin','mod','moderator','owner'].includes(String(m.role||'').toLowerCase())));
     if (!isAdmin) return res.status(403).json({ error: 'Admin permission required' });
 
     let found = false;
