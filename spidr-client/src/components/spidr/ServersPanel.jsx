@@ -1252,45 +1252,85 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           )}
 
           <div className="mb-4">
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 mb-1">Text Channels</p>
-            {channels.filter(c => c.type === 'text').map((channel) => (
+            {/* Category header — glowing concentric node + cyan mono caps */}
+            <div className="flex items-center gap-2.5 px-3 mb-2 mt-1">
+              <span className="relative flex items-center justify-center w-3.5 h-3.5 rounded-full border border-red-500/30 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]" />
+              </span>
+              <span className="font-mono text-[11px] tracking-[0.15em] text-cyan-600/80 uppercase flex-1">Main Web</span>
+              <ChevronDown className="w-3.5 h-3.5 text-zinc-600" />
+            </div>
+            {channels.filter(c => c.type === 'text').map((channel) => {
+              const active = selectedChannel === channel.id;
+              const unread = unreadChannels[channel.id] && !active;
+              return (
               <button
                 key={channel.id}
                 onClick={() => { setSelectedChannel(channel.id); setMobileView('chat'); setUnreadChannels(prev => { if (!prev[channel.id]) return prev; const n = { ...prev }; delete n[channel.id]; return n; }); }}
                 onContextMenu={(e) => triggerMenu(e, 'channel_text', { id: channel.id, name: channel.name, server_id: server.id })}
                 onMouseEnter={() => playSound('hover')}
-                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors ${
-                  selectedChannel === channel.id 
-                    ? 'bg-red-600/20 text-white' 
-                    : 'text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-200'
+                className={`relative w-auto flex items-center gap-2.5 px-4 py-2 mx-2 my-1.5 rounded-full border text-sm transition-all ${
+                  active
+                    ? 'bg-red-950/40 border-red-900/50 text-white'
+                    : 'bg-[#0a0a0a] border-white/5 text-neutral-400 hover:border-white/10 hover:text-neutral-200'
                 }`}
+                style={{ width: 'calc(100% - 16px)' }}
               >
-                <Hash className="w-4 h-4 text-zinc-500" />
-                <span className={`truncate flex-1 text-left ${unreadChannels[channel.id] && selectedChannel !== channel.id ? 'font-bold text-white' : ''}`}>{channel.name}</span>
-                {/* 3.5 — unread indicator dot */}
-                {unreadChannels[channel.id] && selectedChannel !== channel.id && (
-                  <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)] shrink-0" />
+                {/* Active crimson accent line on the inner-left edge */}
+                {active && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-[60%] bg-red-500 rounded-r-full" />
+                )}
+                <Hash className={`w-4 h-4 shrink-0 ${active ? 'text-white' : 'text-neutral-500'}`} />
+                <span className={`truncate flex-1 text-left font-medium ${active ? 'text-white' : ''}`}>{channel.name}</span>
+                {/* Unread ping badge — far right inside the pill */}
+                {unread && (
+                  <span className="bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 shadow-[0_0_8px_rgba(239,68,68,0.6)]">
+                    {typeof unreadChannels[channel.id] === 'number' ? unreadChannels[channel.id] : ''}
+                  </span>
                 )}
               </button>
-            ))}
+              );
+            })}
           </div>
           
           <div>
-            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider px-2 mb-1">Voice Channels</p>
+            {/* Category header — Voice Webs */}
+            <div className="flex items-center gap-2.5 px-3 mb-2 mt-1">
+              <span className="relative flex items-center justify-center w-3.5 h-3.5 rounded-full border border-red-500/30 shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]" />
+              </span>
+              <span className="font-mono text-[11px] tracking-[0.15em] text-cyan-600/80 uppercase flex-1">Voice Webs</span>
+              <ChevronDown className="w-3.5 h-3.5 text-zinc-600" />
+            </div>
             {channels.filter(c => c.type === 'voice').map((channel) => {
               const channelUsers = voiceSessions.filter(s => s.channel_id === channel.id);
+              const live = channelUsers.length > 0;
+              const active = activeVoiceChannel?.id === channel.id;
               return (
-                <div key={channel.id} onContextMenu={(e) => triggerMenu(e, 'channel_voice', { id: channel.id, name: channel.name, server_id: server.id })}>
-                  <VoiceWeb
-                    channelName={channel.name}
-                    users={channelUsers}
-                    onJoin={() => {
-                      setActiveVoiceChannel(channel);
-                      startVoiceSession({ server, channel, currentUser });
-                      if (onVoiceJoin) onVoiceJoin(server, channel);
-                    }}
-                  />
-                </div>
+                <button
+                  key={channel.id}
+                  onContextMenu={(e) => triggerMenu(e, 'channel_voice', { id: channel.id, name: channel.name, server_id: server.id })}
+                  onMouseEnter={() => playSound('hover')}
+                  onClick={() => {
+                    setActiveVoiceChannel(channel);
+                    startVoiceSession({ server, channel, currentUser });
+                    if (onVoiceJoin) onVoiceJoin(server, channel);
+                  }}
+                  className={`relative flex items-center gap-2.5 px-4 py-2 mx-2 my-1.5 rounded-full border text-sm transition-all ${
+                    active
+                      ? 'bg-red-950/40 border-red-900/50 text-white'
+                      : 'bg-[#0a0a0a] border-white/5 text-neutral-400 hover:border-white/10 hover:text-neutral-200'
+                  }`}
+                  style={{ width: 'calc(100% - 16px)' }}
+                >
+                  {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-[60%] bg-red-500 rounded-r-full" />}
+                  <Volume2 className={`w-4 h-4 shrink-0 ${active ? 'text-white' : 'text-neutral-500'}`} />
+                  <span className={`truncate flex-1 text-left font-medium ${active ? 'text-white' : ''}`}>{channel.name}</span>
+                  {/* Active voice session → bright green dot (same slot as the unread badge) */}
+                  {live && (
+                    <span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)] shrink-0" />
+                  )}
+                </button>
               );
             })}
           </div>

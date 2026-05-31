@@ -13,6 +13,8 @@ import ContentBlockedModal from './ContentBlockedModal';
 import SpidrCropper from './SpidrCropper';
 import { Crop, Move } from 'lucide-react';
 import AudioDatabase from '../feed/AudioDatabase';
+import VideoScrubber from './VideoScrubber';
+import AudioUplinkInput from './AudioUplinkInput';
 
 // ── Visual filters ────────────────────────────────────────────────────────────
 const FILTERS = [
@@ -57,6 +59,7 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
   const [isTyping, setIsTyping] = useState(false);
   const [activeTool, setActiveTool] = useState(null);
   const [selectedAudio, setSelectedAudio] = useState(null);
+  const [graftedAudio, setGraftedAudio] = useState(null);
   const [showAudioDB, setShowAudioDB] = useState(false);
   const [caption, setCaption] = useState('');
   const [hashtagInput, setHashtagInput] = useState('');
@@ -87,6 +90,7 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
     setActiveTool(null); setCaption(''); setHashtags([]); setAiHashtags([]);
     setTrimStart(0); setTrimEnd(100); setIsPlaying(true);
     setThumbnails([]); setSelectedThumb(0); setTextOverlay('');
+    setGraftedAudio(null);
     setSelectedAudio(null);
     if (videoFile) {
       const url = URL.createObjectURL(videoFile);
@@ -275,6 +279,14 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
         shares_count:  initialClip?.shares_count || 0,
         views:         initialClip?.views || 0,
         audio_id:      selectedAudio?.id || initialClip?.audio_id || '',
+        grafted_audio: graftedAudio ? {
+          provider:  graftedAudio.provider,
+          title:     graftedAudio.title,
+          author:    graftedAudio.author,
+          thumbnail: graftedAudio.thumbnail,
+          sourceUrl: graftedAudio.sourceUrl,
+          previewUrl: graftedAudio.previewUrl || '',
+        } : (initialClip?.grafted_audio || null),
         ...(selectedServerId ? (() => {
           const srv = myServers.find(s => s.id === selectedServerId);
           return {
@@ -391,9 +403,29 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
           <AnimatePresence>
             {activeTool === 'trim' && (
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden bg-[#0a0a0a] border-t border-white/5">
-                <TrimPanel duration={duration} trimStart={trimStart} trimEnd={trimEnd} currentTime={currentTime}
-                  onStart={setTrimStart} onEnd={setTrimEnd} />
+                className="overflow-hidden bg-[#0a0a0a] border-t border-white/5 p-3">
+                <VideoScrubber duration={duration} trimStart={trimStart} trimEnd={trimEnd} currentTime={currentTime}
+                  thumbnails={thumbnails} apexColor="#FF3333"
+                  onStart={setTrimStart} onEnd={setTrimEnd}
+                  onSeek={(pct) => { const v = videoRef.current; if (v && duration) { v.currentTime = (pct / 100) * duration; } }} />
+
+                {/* Synced grafted-audio track (Patch 2.12 Part 3) */}
+                {graftedAudio && (
+                  <div className="mt-2 flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg h-12 px-2 overflow-hidden">
+                    {graftedAudio.thumbnail
+                      ? <img src={graftedAudio.thumbnail} alt="" className="w-8 h-8 rounded-md object-cover shrink-0" />
+                      : <div className="w-8 h-8 rounded-md bg-zinc-800 shrink-0" />}
+                    {/* synthetic waveform */}
+                    <div className="flex items-center gap-[2px] flex-1 h-full overflow-hidden">
+                      {Array.from({ length: 48 }).map((_, i) => (
+                        <div key={i} className="flex-1 rounded-full" style={{ height: `${20 + Math.abs(Math.sin(i * 0.9)) * 60}%`, background: '#FF3333', opacity: 0.45, minWidth: 1 }} />
+                      ))}
+                    </div>
+                    <div className="font-mono text-[9px] text-zinc-500 shrink-0 max-w-[40%] truncate">
+                      &gt; {graftedAudio.title} // {String(graftedAudio.provider || '').replace('_', ' ')}_API
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -530,6 +562,12 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
                     {loadingAI ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />} AI Hashtags
                   </button>
                 </div>
+              </div>
+
+              {/* Audio Uplink — graft external Spotify/YouTube/Apple Music (Patch 2.12) */}
+              <div>
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 block">&gt; Audio Uplink</label>
+                <AudioUplinkInput grafted={graftedAudio} onGraft={setGraftedAudio} onClear={() => setGraftedAudio(null)} />
               </div>
 
               {/* Hashtags */}
