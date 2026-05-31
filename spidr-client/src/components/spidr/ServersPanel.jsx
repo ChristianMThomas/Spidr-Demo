@@ -1392,7 +1392,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           <Hash className="w-5 h-5 text-red-500 shrink-0" />
           <span className="font-bold text-white truncate">{currentChannelObj?.name || selectedChannel}</span>
           <span className="hidden sm:inline text-neutral-500 text-sm shrink-0">· connected to the web</span>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1 lg:mr-0 mr-[150px]">
             <SignalTracker
               placeholder="Search server..."
               messages={messages}
@@ -1499,7 +1499,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               <div 
                 key={msg.id} 
                 data-msg-id={msg.id}
-                className={`flex gap-3 group hover:bg-white/[0.02] px-2 py-3 border-b border-white/5 relative select-none md:select-auto ${
+                className={`flex gap-3 group hover:bg-white/[0.02] px-2 py-2 rounded-lg relative select-none md:select-auto ${
                   msg.content?.includes(`@${currentUser?.full_name?.split(' ')[0]}`) 
                     ? 'bg-[#FF3333]/5 border-l-2 border-l-[#FF3333]' 
                     : ''
