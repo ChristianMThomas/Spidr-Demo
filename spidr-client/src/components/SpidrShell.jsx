@@ -11,6 +11,7 @@ import SpidrMenu from '@/components/ui/SpidrMenu';
 import HolographicProfile from '@/components/spidr/HolographicProfile';
 import GlobalGhostOverlay from '@/components/spidr/GlobalGhostOverlay';
 import MobileBottomBar from '@/components/spidr/MobileBottomBar';
+import MobileMenuPanel from '@/components/spidr/MobileMenuPanel';
 import MinimizedWebNode from '@/components/spidr/MinimizedWebNode';
 import SpidrBackground from '@/components/spidr/SpidrBackground';
 import VoiceChannel from '@/components/spidr/VoiceChannel';
@@ -18,7 +19,7 @@ import SymbioteInfectionOverlay from '@/components/spidr/SymbioteInfectionOverla
 import ImageLightboxOverlay from '@/components/spidr/ImageLightboxOverlay';
 import BiomassBalancePill from '@/components/spidr/BiomassBalancePill';
 import UserStatusChip from '@/components/spidr/UserStatusChip';
-import { NotificationProvider } from '@/components/spidr/NotificationCenter';
+import { NotificationProvider, NotificationBell } from '@/components/spidr/NotificationCenter';
 import IncomingCallBanner from '@/components/spidr/IncomingCallBanner';
 import LevelUpToast from '@/components/spidr/LevelUpToast';
 import ApexEntrance from '@/components/spidr/ApexEntrance';
@@ -227,11 +228,12 @@ export default function SpidrShell() {
           );
         })()}
 
-        {/* Persistent Sidebar — position controlled by user preference
-            (left / right / top / bottom / hidden). On mobile it always slides
-            in as a left drawer regardless of the desktop position. */}
-        <div className={`fixed md:relative inset-y-0 left-0 z-40 md:z-30 flex-shrink-0 transform transition-transform duration-200 md:transition-none
-          ${mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        {/* Persistent Sidebar — desktop only. Position controlled by user
+            preference (left / right / top / bottom / hidden).
+            Hidden on mobile (<md): the mobile drawer is the new
+            MobileMenuPanel (rendered below) which shows a different set of
+            destinations sized for one-thumb reach. */}
+        <div className={`hidden md:flex md:relative inset-y-0 left-0 md:z-30 flex-shrink-0 md:transition-none
           ${sidebarPosition === 'hidden' ? 'md:hidden' : ''}
           ${sidebarPosition === 'right' ? 'md:order-2' : ''}
           ${sidebarPosition === 'bottom' ? 'md:order-2 md:inset-y-auto md:bottom-0' : ''}
@@ -239,23 +241,26 @@ export default function SpidrShell() {
         `} style={{ opacity: sidebarOpacity / 100 }}>
           <Sidebar
             activeTab={activeTab}
-            setActiveTab={(tab) => { setActiveTab(tab); setMobileSidebarOpen(false); }}
-            onCreateServer={() => { setShowCreateServer(true); setMobileSidebarOpen(false); }}
+            setActiveTab={setActiveTab}
+            onCreateServer={() => setShowCreateServer(true)}
             orientation={(sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'horizontal' : 'vertical'}
             isGlass={appTheme?.type === 'image' && !!appTheme?.backgroundImage}
           />
         </div>
-        {/* Mobile scrim — taps anywhere outside the drawer close it */}
-        {mobileSidebarOpen && (
-          <div
-            className="md:hidden fixed inset-0 z-30 bg-black/50"
-            onClick={() => setMobileSidebarOpen(false)}
-          />
-        )}
+
+        {/* Mobile drawer — the new menu panel with profile/biomass/signals at
+            the top and the off-bottom-bar destinations below. */}
+        <MobileMenuPanel
+          open={mobileSidebarOpen}
+          onClose={() => setMobileSidebarOpen(false)}
+          currentUser={currentUser}
+          activeTab={activeTab}
+        />
 
         {/* Per-page content. Reserve room at the bottom on mobile so the
-            bottom nav doesn't cover content. */}
-        <main className="flex-1 min-w-0 min-h-0 flex flex-col relative z-20 pb-16 md:pb-0">
+            bottom nav (now ~64px tall + safe-area inset) doesn't cover
+            content. */}
+        <main className="flex-1 min-w-0 min-h-0 flex flex-col relative z-20 pb-20 md:pb-0">
           <React.Suspense fallback={
             <div className="flex-1 flex items-center justify-center">
               <div className="w-8 h-8 border-4 border-zinc-700 border-t-red-500 rounded-full animate-spin" />
@@ -265,10 +270,18 @@ export default function SpidrShell() {
           </React.Suspense>
         </main>
 
-        {/* Top-right cluster — biomass balance + redesigned profile chip
-            (Discord-style status card matching the reference mockups). */}
+        {/* Top-right cluster — notifications + biomass balance + profile chip.
+            Grouped here so the three floaters never overlap each other; page
+            headers must reserve right-side space (see pr-[200px] on affected
+            page headers) so this cluster doesn't cover their content.
+            top-[10px] vertically centers the 36px items inside a 56px (h-14)
+            page header — matches the visual centerline of those headers'
+            buttons and search inputs.
+            Hidden on mobile (<md): on small screens these controls live inside
+            the MobileMenuPanel drawer instead, so they don't crowd the top. */}
         {currentUser && (
-          <div className="fixed top-4 right-4 z-40 flex items-center gap-2">
+          <div className="fixed top-[10px] right-4 z-40 hidden md:flex items-center gap-2">
+            <NotificationBell />
             <BiomassBalancePill />
             <UserStatusChip />
           </div>
@@ -277,12 +290,15 @@ export default function SpidrShell() {
         {/* Floating dock removed — the left sidebar + mobile bottom bar
             now cover all navigation. */}
 
-        {/* Mobile bottom nav — visible at <md only */}
+        {/* Mobile bottom nav — visible at <md only. Menu button toggles the
+            MobileMenuPanel drawer so a second tap closes it. */}
         <MobileBottomBar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
-          onOpenSidebar={() => setMobileSidebarOpen(true)}
+          onToggleSidebar={() => setMobileSidebarOpen((o) => !o)}
+          menuOpen={mobileSidebarOpen}
         />
+
 
         {/* Patch 2.6: the ONE persistent voice deck. Mounted here at the shell
             (outside <Outlet/>) so it never unmounts on navigation — the WebRTC

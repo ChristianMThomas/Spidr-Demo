@@ -8,8 +8,8 @@ import SpiderLogo from '@/components/spidr/SpiderLogo';
 import DiscoverUsers from '@/components/spidr/DiscoverUsers';
 import EnhancedFeed from '@/components/spidr/EnhancedFeed';
 import EngagementHub from '@/components/spidr/EngagementHub';
-import SpidrSystem from '@/components/spidr/SpidrSystem';
 import TensionBar from '@/components/spidr/TensionBar';
+import SpidrSystem from '@/components/spidr/SpidrSystem';
 
 /**
  * /home — the landing dashboard.

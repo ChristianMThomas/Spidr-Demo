@@ -546,9 +546,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           as the shared MinimizedWebNode at the shell, and the full deck is the
           VoiceChannel overlay above.) */}
       
-      {/* Neural Header */}
-      <div 
-        className="h-14 flex items-center justify-between px-4 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-20 flex-shrink-0 transition-all duration-500"
+      {/* Neural Header — pr-[200px] reserves space for the shell's top-right
+          cluster (notifications + biomass pill + status chip) so the search
+          and action icons don't slide under it. */}
+      <div
+        className="h-14 flex items-center justify-between px-4 pr-[200px] border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-20 flex-shrink-0 transition-all duration-500"
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {onBack && (

@@ -287,8 +287,10 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
 
   return (
     <div className="flex-1 flex flex-col bg-zinc-900">
-      {/* Header */}
-      <div className="h-14 border-b border-red-900/20 flex items-center px-4 gap-4">
+      {/* Header — pr-[200px] reserves space for the shell's top-right cluster
+          (notifications + biomass pill + status chip) so the search input
+          doesn't get covered. */}
+      <div className="h-14 border-b border-red-900/20 flex items-center px-4 pr-[200px] gap-4">
         <h2 className="font-semibold text-white">Friends</h2>
         <div className="flex-1" />
         <Button 

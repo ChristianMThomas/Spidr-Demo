@@ -122,22 +122,8 @@ export function NotificationProvider({ currentUser, children }) {
   };
 
   return (
-    <NotificationContext.Provider value={{ pushNotification, items, unread }}>
+    <NotificationContext.Provider value={{ pushNotification, items, unread, open, setOpen, markAllRead }}>
       {children}
-
-      {/* Bell trigger — mount this wherever; here it's a fixed top-bar button. */}
-      <button
-        onClick={() => { setOpen((v) => !v); if (!open) markAllRead(); }}
-        className="fixed top-4 right-[8.5rem] z-40 w-9 h-9 rounded-full bg-black/60 backdrop-blur-sm border border-white/10 hover:border-red-500/40 flex items-center justify-center transition-colors"
-        title="Signals"
-      >
-        <Bell className="w-4 h-4 text-zinc-300" />
-        {unread > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center border border-black">
-            {unread > 9 ? '9+' : unread}
-          </span>
-        )}
-      </button>
 
       {/* Slide-in panel */}
       <AnimatePresence>
@@ -232,6 +218,31 @@ export function NotificationProvider({ currentUser, children }) {
         </AnimatePresence>
       </div>
     </NotificationContext.Provider>
+  );
+}
+
+/**
+ * NotificationBell — the trigger button. Rendered inline by the shell so it
+ * sits alongside the biomass pill and status chip in the top-right cluster.
+ * Must be mounted inside a <NotificationProvider>.
+ */
+export function NotificationBell() {
+  const ctx = useContext(NotificationContext);
+  if (!ctx) return null;
+  const { open, setOpen, unread, markAllRead } = ctx;
+  return (
+    <button
+      onClick={() => { setOpen((v) => !v); if (!open) markAllRead(); }}
+      className="relative w-9 h-9 rounded-full bg-black/60 backdrop-blur-sm border border-white/10 hover:border-red-500/40 flex items-center justify-center transition-colors"
+      title="Signals"
+    >
+      <Bell className="w-4 h-4 text-zinc-300" />
+      {unread > 0 && (
+        <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center border border-black">
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
+    </button>
   );
 }
 

@@ -128,8 +128,9 @@ export default function FeedPanel({ currentUser }) {
     <div className="flex-1 flex bg-black/40">
       <div className="flex-1 flex flex-col relative overflow-hidden">
 
-        {/* Tab bar */}
-        <div className="border-b border-zinc-800 px-4 flex-shrink-0 flex items-center gap-2">
+        {/* Tab bar — pr-[200px] reserves space for the shell's top-right
+            cluster so the last tab (COCOONS) doesn't get covered. */}
+        <div className="border-b border-zinc-800 px-4 pr-[200px] flex-shrink-0 flex items-center gap-2">
           <div className="flex flex-1 h-12 items-end gap-1">
             {TABS.map(({ val, Icon, label }) => (
               <button

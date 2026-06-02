@@ -276,7 +276,10 @@ export default function NerveCenter({ currentUser }) {
   return (
     <div className="flex-1 flex flex-col bg-black overflow-hidden">
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
-      <div className="px-8 py-6 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+      {/* pr-[200px] reserves space for the shell's top-right cluster
+          (notifications + biomass pill + status chip). py-4 (was py-6) keeps
+          the H1 vertical center aligned with the cluster centerline (y≈28). */}
+      <div className="px-8 pr-[200px] py-4 border-b border-white/5 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <Activity className="text-[#FF3333]" size={32} strokeWidth={2.5} />
           <div>

@@ -14,7 +14,6 @@ import MessageItem from './MessageItem';
 import CatchMeUpBar from './CatchMeUpBar';
 import HolographicProfile from './HolographicProfile';
 import CommunityPanel from './CommunityPanel';
-import GroupChatMembers from './GroupChatMembers';
 import GroupChatSettings from './GroupChatSettings';
 import CallAVControls from './CallAVControls';
 import CallOverlay from './CallOverlay';
@@ -584,9 +583,13 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
 
 
 
-      {/* Neural Header */}
-      <div 
-        className="h-14 flex items-center justify-between px-4 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-20 flex-shrink-0 transition-all duration-500"
+      {/* Neural Header — pr-[200px] reserves space for the shell's top-right
+          cluster (notifications + biomass pill + status chip). On lg+ the
+          group members panel is the right sibling column (~260px wide) and
+          the cluster floats over IT, not the chat header — so we cancel the
+          right padding back to pr-4. */}
+      <div
+        className="h-14 flex items-center justify-between px-4 pr-[200px] lg:pr-4 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-20 flex-shrink-0 transition-all duration-500"
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <Button size="icon" variant="ghost" onClick={onBack} className="text-zinc-500 hover:text-white shrink-0 w-8 h-8">
@@ -796,30 +799,6 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
         />
       </div>
 
-      {/* Patch 2.7: group-chat member list (right sidebar). Reuses CommunityPanel
-          in flat 'group' mode — fills the right column so there's no gray void.
-          Group members may be stored as plain user-id strings or as objects, so
-          we normalize to { user_id, user_name } and enrich the name from fetched
-          profiles where available. */}
-      <div className="hidden lg:block h-full shrink-0">
-      <CommunityPanel
-        chatType="group"
-        server={{ id: 'group', name: group?.name || 'Group Chat', owner_id: group?.owner_id, created_by: group?.created_by, members: (group?.members || []) }}
-        members={(group?.members || []).map((m) => {
-          const uid = typeof m === 'string' ? m : (m?.user_id || m?.id);
-          const prof = profilesByUserId?.[uid];
-          return {
-            user_id: uid,
-            user_name: (typeof m === 'object' && (m.user_name || m.full_name)) || prof?.display_name || prof?.user_name || 'Spider',
-            nickname: (typeof m === 'object' && m.nickname) || undefined,
-            role: 'member',
-          };
-        })}
-        currentUser={currentUser}
-        onSelectUser={(id) => setSelectedProfileUserId(id)}
-      />
-      </div>
-
       {/* Spidr Protocol overlay renders globally (GlobalGhostOverlay at the
           shell); we dispatch activate/message/deactivate events to it below. */}
 
@@ -831,10 +810,31 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
       />
       </div>
 
-      <GroupChatMembers 
-        group={group}
-        onProfileClick={(userId) => setSelectedProfileUserId(userId)}
-      />
+      {/* Right column — group member list, visible on lg+ only. CommunityPanel
+          in flat 'group' mode replaces the older GroupChatMembers component.
+          Sits as a sibling of the chat column so it forms a proper right
+          sidebar (NOT nested inside the chat — that would stack vertically
+          and leave a gray void). The shell's top-right cluster floats over
+          this panel's top-right area; CommunityPanel's existing pt-16 keeps
+          its header content clear of the cluster. */}
+      <div className="hidden lg:block h-full shrink-0">
+        <CommunityPanel
+          chatType="group"
+          server={{ id: 'group', name: group?.name || 'Group Chat', owner_id: group?.owner_id, created_by: group?.created_by, members: (group?.members || []) }}
+          members={(group?.members || []).map((m) => {
+            const uid = typeof m === 'string' ? m : (m?.user_id || m?.id);
+            const prof = profilesByUserId?.[uid];
+            return {
+              user_id: uid,
+              user_name: (typeof m === 'object' && (m.user_name || m.full_name)) || prof?.display_name || prof?.user_name || 'Spider',
+              nickname: (typeof m === 'object' && m.nickname) || undefined,
+              role: 'member',
+            };
+          })}
+          currentUser={currentUser}
+          onSelectUser={(id) => setSelectedProfileUserId(id)}
+        />
+      </div>
 
       <GroupChatSettings
         open={showSettings}
