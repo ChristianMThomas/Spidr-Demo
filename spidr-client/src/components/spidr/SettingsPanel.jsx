@@ -203,8 +203,10 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
   return (
     <div className="flex-1 flex flex-col bg-black/40 relative min-h-0">
       <Tabs defaultValue="profile" className="flex flex-col flex-1 min-h-0">
-        {/* Top Tab Navigation */}
-        <div className="bg-zinc-800/50 border-b border-red-900/20 px-4 py-3 overflow-x-auto">
+        {/* Top Tab Navigation — pr-[200px] reserves space for the shell's
+            top-right cluster so the last tab (Widgets/APEX) doesn't get
+            covered by the floating notification + biomass + status group. */}
+        <div className="bg-zinc-800/50 border-b border-red-900/20 px-4 pr-[200px] py-3 overflow-x-auto">
           <div className="flex items-center gap-4 min-w-max">
             <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider shrink-0">User Settings</p>
             <TabsList className="flex bg-transparent gap-1">

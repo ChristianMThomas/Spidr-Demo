@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Server, Settings, MessageCircle, Plus, Network, Radio, Shield, Blocks, Activity } from 'lucide-react';
+import { Users, Server, Settings, MessageCircle, Plus, Network, Radio, Shield, Blocks, Activity, Home } from 'lucide-react';
 import SpiderLogo from './SpiderLogo';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket } from '@/api/apiClient';
@@ -108,16 +108,23 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
           ? 'w-full h-[64px] flex flex-row items-center px-4 border-b'
           : 'w-[72px] flex flex-col items-center py-4 border-r h-[100dvh]'
         } z-50 relative transition-all ${isGlass ? "bg-black/30 backdrop-blur-xl border-white/10" : "bg-[#050505] border-white/5"}`}>
-      {/* Logo */}
-      <motion.div 
-        className={`${horizontal ? 'mr-6' : 'mb-6'} w-12 h-12 flex items-center justify-center cursor-pointer transition-all flex-shrink-0`}
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.95 }}
+      {/* Home — top-of-sidebar button that returns to /home. Replaces the
+          old SpiderLogo home button with a literal Home icon. */}
+      <motion.button
         onClick={() => setActiveTab('home')}
+        whileHover={{ scale: 1.08 }}
+        whileTap={{ scale: 0.94 }}
+        className={`${horizontal ? 'mr-3' : 'mb-4'} w-12 h-12 rounded-xl flex items-center justify-center transition-colors flex-shrink-0 ${
+          activeTab === 'home'
+            ? 'bg-red-600/20 text-red-400 border border-red-500/40'
+            : 'bg-[#0a0a0a] text-zinc-400 border border-white/5 hover:text-white hover:border-white/15'
+        }`}
+        aria-label="Home"
+        title="Home"
       >
-        <SpiderLogo size={36} />
-      </motion.div>
-      
+        <Home size={20} strokeWidth={activeTab === 'home' ? 3 : 2} />
+      </motion.button>
+
       {/* Navigation */}
       <div className={`${horizontal ? 'flex flex-row gap-2 flex-1 items-center overflow-x-auto' : 'flex flex-col gap-4 flex-1 w-full px-2 overflow-y-auto overflow-x-hidden pb-4 scrollbar-thin min-h-0'}`}>
         {navItems.map((item) => {

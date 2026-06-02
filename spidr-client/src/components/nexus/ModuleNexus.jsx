@@ -93,8 +93,10 @@ export default function ModuleNexus({ currentUser }) {
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#020202] text-white overflow-hidden">
-      {/* Header */}
-      <div className="px-8 py-5 border-b border-white/5 bg-[#0a0a0a] relative overflow-hidden shrink-0">
+      {/* Header — pr-[200px] reserves space for the shell's top-right cluster
+          (notifications + biomass pill + status chip). py-3 (was py-5) keeps
+          the H1 vertical center aligned with the cluster centerline (y≈28). */}
+      <div className="px-8 pr-[200px] py-3 border-b border-white/5 bg-[#0a0a0a] relative overflow-hidden shrink-0">
         <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 to-transparent pointer-events-none" />
         <div className="relative z-10 flex items-center justify-between">
           <div>

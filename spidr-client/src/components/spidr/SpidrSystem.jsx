@@ -56,6 +56,14 @@ export default function SpidrSystem() {
     setHasUnread(seen !== newestId);
   }, [news]);
 
+  // External open trigger — any component can fire `spidr-system-open` to
+  // pop the terminal open (e.g. the MobileMenuPanel row).
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener('spidr-system-open', handler);
+    return () => window.removeEventListener('spidr-system-open', handler);
+  }, []);
+
   // Typewriter the newest note's description when the terminal opens.
   useEffect(() => {
     clearInterval(typeTimer.current);
@@ -76,7 +84,7 @@ export default function SpidrSystem() {
   const latest = news[0];
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
+    <div className="fixed bottom-20 md:bottom-4 right-4 z-50">
       <AnimatePresence mode="wait">
         {open ? (
           <motion.div

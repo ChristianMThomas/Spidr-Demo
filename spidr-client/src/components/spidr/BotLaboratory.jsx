@@ -114,21 +114,30 @@ export default function BotLaboratory({ currentUser }) {
 
   return (
     <div className="flex-1 flex flex-col bg-black/40">
-      {/* Header */}
-      <div className="p-6 border-b border-red-900/20 bg-black/30 backdrop-blur-xl">
-        <h2 className="text-2xl md:text-3xl font-mono font-bold text-white mb-2 flex items-center gap-2">
-          <span className="text-red-500">&gt;</span> BOT_LABORATORY
-        </h2>
-        <p className="text-neutral-500 font-mono text-sm">Build, import, and deploy bots for your servers.</p>
+      {/* Header — responsive layout with explicit breakpoints so the tabs
+          never wrap into an ugly 3+1 or 1+2+1 split:
+            <sm  : title stacked above a 2×2 grid of tabs
+            sm-lg: title stacked above a 1×4 row of tabs
+            lg+  : single row — title left, tabs centered, lg:pr-[200px]
+                   reserves room for the shell's top-right cluster.
+          On lg+, lg:min-h-14 keeps the row centered at y=28 to match the
+          cluster centerline. */}
+      <div className="px-4 sm:px-6 lg:pr-[200px] py-3 lg:py-2 lg:min-h-14 border-b border-red-900/20 bg-black/30 backdrop-blur-xl flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-6">
+        <div className="shrink-0">
+          <h2 className="text-xl font-mono font-bold text-white flex items-center gap-2 leading-none">
+            <span className="text-red-500">&gt;</span> BOT_LABORATORY
+          </h2>
+          <p className="text-neutral-500 font-mono text-[10px] mt-1 leading-none">Build, import, and deploy bots for your servers.</p>
+        </div>
 
-        <div className="flex flex-wrap gap-2 mt-4">
+        <div className="lg:flex-1 grid grid-cols-2 sm:grid-cols-4 lg:flex lg:justify-center gap-2">
           {TABS.map(tab => {
             const active = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`relative flex items-center gap-2 px-4 py-2 rounded-full border font-mono text-xs tracking-widest uppercase transition-all ${
+                className={`relative flex items-center justify-center gap-2 px-4 py-2 rounded-full border font-mono text-xs tracking-widest uppercase transition-all ${
                   active
                     ? 'bg-red-950/40 border-red-900/50 text-white'
                     : 'bg-[#0a0a0a] border-white/5 text-neutral-400 hover:border-white/10 hover:text-neutral-200'

@@ -28,8 +28,12 @@ export default function ServersPage() {
       selectedServerId={serverId || selectedServerId}
       onSelectServer={(id) => {
         setSelectedServerId(id);
-        // Reflect into URL so the server is deep-linkable
+        // Reflect into URL so the server is deep-linkable.
+        // Critical: when id is null (the mobile back button), we MUST navigate
+        // away from /servers/:id, otherwise the useEffect above re-syncs
+        // selectedServerId from the URL and the back action gets undone.
         if (id && id !== serverId) navigate(`/servers/${id}`, { replace: true });
+        else if (!id && serverId) navigate('/servers', { replace: true });
       }}
       onVoiceJoin={(server, channel) => {
         setActiveCall({

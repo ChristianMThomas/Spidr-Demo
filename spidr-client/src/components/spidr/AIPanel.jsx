@@ -34,7 +34,7 @@ export default function AIPanel({ currentUser }) {
         <div className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0">
           <SpiderLogo size={28} />
         </div>
-        <div>
+        <div className="flex flex-col justify-center">
           <p className="text-sm font-semibold text-white leading-none">Spidr AI</p>
           <p className="text-[10px] text-zinc-500 leading-none mt-0.5">Your intelligent assistant</p>
         </div>

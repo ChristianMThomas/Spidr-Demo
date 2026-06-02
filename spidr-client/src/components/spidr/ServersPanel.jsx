@@ -1185,11 +1185,12 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           onContextMenu={(e) => triggerMenu(e, 'server', { id: server.id, name: server.name })}
           onClick={() => {/* could toggle server dropdown */}}
         >
-          {/* Mobile back arrow — return to server list */}
+          {/* Mobile back arrow — return to server list. Padded hitbox so
+              the tap target clears iOS HIG 44px guidance. */}
           {onBackToServerList && (
             <button
               onClick={(e) => { e.stopPropagation(); onBackToServerList(); }}
-              className="md:hidden mr-2 text-zinc-400 hover:text-white"
+              className="md:hidden -ml-3 mr-1 w-12 h-12 flex items-center justify-center rounded-lg text-lg leading-none text-zinc-400 hover:text-white active:bg-white/5 touch-manipulation"
               aria-label="Back to servers"
             >
               ←
@@ -1393,12 +1394,15 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           </div>
         )}
 
-        {/* Channel Header */}
-        <div className="h-12 px-4 flex items-center gap-2 border-b border-red-900/20" onContextMenu={(e) => triggerMenu(e, 'server', { id: server.id, name: server.name })}>
-          {/* Mobile back arrow — return to channels rail */}
+        {/* Channel Header — pr-[200px] reserves space for the shell's
+            top-right cluster (notifications + biomass pill + status chip)
+            so the server-search input doesn't slide under it. */}
+        <div className="h-12 px-4 pr-[200px] flex items-center gap-2 border-b border-red-900/20" onContextMenu={(e) => triggerMenu(e, 'server', { id: server.id, name: server.name })}>
+          {/* Mobile back arrow — return to channels rail. Padded hitbox so
+              the tap target clears iOS HIG 44px guidance. */}
           <button
             onClick={() => setMobileView('channels')}
-            className="md:hidden text-zinc-400 hover:text-white pr-1"
+            className="md:hidden -ml-2 mr-1 w-10 h-10 flex items-center justify-center rounded-lg text-zinc-400 hover:text-white active:bg-white/5 touch-manipulation"
             aria-label="Back to channels"
           >
             ←
@@ -1406,7 +1410,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           <Hash className="w-5 h-5 text-red-500 shrink-0" />
           <span className="font-bold text-white truncate">{currentChannelObj?.name || selectedChannel}</span>
           <span className="hidden sm:inline text-neutral-500 text-sm shrink-0">· connected to the web</span>
-          <div className="ml-auto flex items-center gap-1 lg:mr-0 mr-[150px]">
+          <div className="ml-auto flex items-center gap-1">
             <SignalTracker
               placeholder="Search server..."
               messages={messages}

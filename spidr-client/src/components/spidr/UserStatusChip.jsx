@@ -82,15 +82,17 @@ export default function UserStatusChip() {
     setOpen(false);
   };
 
-  const Avatar = ({ size = 44, ring = false }) => (
+  const Avatar = ({ size = 44, ring = false, ringInset = 3 }) => (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       {/* In-call gets the animated red conic ring; otherwise a status-colored
           glow ring (matching the reference: a thin colored halo around the
-          circular avatar). */}
+          circular avatar). ringInset is configurable so the small collapsed
+          chip can use a tighter halo without dominating the cluster. */}
       {inCall ? (
         <span
-          className="absolute inset-[-4px] rounded-full"
+          className="absolute rounded-full"
           style={{
+            inset: -(ringInset + 1),
             background: 'conic-gradient(from 0deg, #ef4444, #f97316, #ef4444)',
             animation: 'spidr-ring-spin 3s linear infinite',
             filter: 'blur(1px)',
@@ -99,11 +101,12 @@ export default function UserStatusChip() {
         />
       ) : ring && (
         <span
-          className="absolute inset-[-3px] rounded-full"
+          className="absolute rounded-full"
           style={{
+            inset: -ringInset,
             background: statusColor,
             opacity: 0.9,
-            boxShadow: `0 0 12px ${statusColor}aa`,
+            boxShadow: `0 0 ${ringInset * 4}px ${statusColor}aa`,
           }}
         />
       )}
@@ -145,7 +148,9 @@ export default function UserStatusChip() {
         whileTap={{ scale: 0.94 }}
         title={displayName}
       >
-        <Avatar size={40} ring />
+        {/* size=32 + ringInset=2 → 36px total, matches the bell button so the
+            cluster row reads as one even strip. */}
+        <Avatar size={32} ring ringInset={2} />
       </motion.button>
 
       {/* Expanded card unfurls beneath the avatar on hover */}

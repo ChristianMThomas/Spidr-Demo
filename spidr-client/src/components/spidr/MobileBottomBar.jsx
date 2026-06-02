@@ -12,8 +12,12 @@ import SpiderLogo from './SpiderLogo';
  *
  * Active state is driven by `activeTab` (same tokens the desktop sidebar uses)
  * so highlighting stays consistent across both navs.
+ *
+ * `onToggleSidebar` toggles the mobile menu drawer — tapping Menu while it's
+ * open closes it (and vice versa). `menuOpen` drives the active styling so
+ * the Menu button reads as "on" while the drawer is showing.
  */
-export default function MobileBottomBar({ activeTab, setActiveTab, onOpenSidebar }) {
+export default function MobileBottomBar({ activeTab, setActiveTab, onToggleSidebar, menuOpen = false }) {
   const items = [
     { id: 'home',     icon: Home,     label: 'Home' },
     { id: 'friends',  icon: Users,    label: 'Friends' },
@@ -27,7 +31,12 @@ export default function MobileBottomBar({ activeTab, setActiveTab, onOpenSidebar
       className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-black/85 backdrop-blur-xl border-t border-white/10"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
     >
-      <div className="flex items-center justify-around px-1 py-1.5">
+      {/* Each button uses flex-1 so the row's full width is divided evenly
+          between hit targets — no gaps between them. py-2.5 gives a ≥48px
+          tall target (icon 20 + gap 4 + label 12 + 20px padding) which
+          comfortably clears iOS HIG (44px) and Material 3 (48px) guidance.
+          touch-manipulation disables the 300ms tap delay on iOS. */}
+      <div className="flex items-stretch px-1 py-1">
         {items.map((it) => {
           const Icon = it.icon;
           const active = activeTab === it.id;
@@ -35,8 +44,8 @@ export default function MobileBottomBar({ activeTab, setActiveTab, onOpenSidebar
             <button
               key={it.id}
               onClick={() => setActiveTab(it.id)}
-              className={`flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-lg min-w-[52px] transition-colors ${
-                active ? 'text-red-500' : 'text-zinc-500 hover:text-white'
+              className={`flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2.5 rounded-lg touch-manipulation transition-colors ${
+                active ? 'text-red-500' : 'text-zinc-500 hover:text-white active:bg-white/5'
               }`}
             >
               <Icon className="w-5 h-5" />
@@ -44,11 +53,14 @@ export default function MobileBottomBar({ activeTab, setActiveTab, onOpenSidebar
             </button>
           );
         })}
-        {onOpenSidebar && (
+        {onToggleSidebar && (
           <button
-            onClick={onOpenSidebar}
-            className="flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-lg min-w-[52px] text-zinc-500 hover:text-white transition-colors"
-            aria-label="Open menu"
+            onClick={onToggleSidebar}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 px-1 py-2.5 rounded-lg touch-manipulation transition-colors ${
+              menuOpen ? 'text-red-500' : 'text-zinc-500 hover:text-white active:bg-white/5'
+            }`}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
           >
             <Menu className="w-5 h-5" />
             <span className="text-[9px] font-bold uppercase tracking-wide">Menu</span>
