@@ -135,7 +135,7 @@ export default function ApexCommand({ isOpen, onClose, currentTier = 'free', cur
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl bg-[#050505] border-[#FF3333]/20 p-0 overflow-hidden max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl bg-[#050505] border-[#FF3333]/20 p-0 overflow-hidden max-h-[90vh] overflow-y-auto z-[500]" overlayClassName="z-[499]">
 
         {/* Header */}
         <div className="sticky top-0 z-50 bg-[#0a0a0a]/95 backdrop-blur-xl border-b border-white/5 px-5 py-3.5 flex items-center justify-between">
@@ -341,7 +341,7 @@ export default function ApexCommand({ isOpen, onClose, currentTier = 'free', cur
 
         {/* Cancel confirmation */}
         <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
-          <DialogContent className="bg-[#0a0a0a] border-red-500/30 max-w-sm">
+          <DialogContent className="bg-[#0a0a0a] border-red-500/30 max-w-sm z-[600]" overlayClassName="z-[599]">
             <DialogHeader>
               <DialogTitle className="text-white flex items-center gap-2">
                 <AlertTriangle className="text-red-500" size={18} /> Confirm Cancellation

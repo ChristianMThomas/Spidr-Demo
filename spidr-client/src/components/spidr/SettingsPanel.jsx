@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
@@ -29,6 +30,7 @@ import { toast } from 'sonner';
 export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) {
   const { logout } = useAuth();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   
   const { data: profile } = useQuery({
     queryKey: ['userProfile', currentUser?.id],
@@ -202,7 +204,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
 
   return (
     <div className="flex-1 flex flex-col bg-black/40 relative min-h-0">
-      <Tabs defaultValue="profile" className="flex flex-col flex-1 min-h-0">
+      <Tabs defaultValue={searchParams.get('tab') || 'profile'} className="flex flex-col flex-1 min-h-0">
         {/* Top Tab Navigation — pr-[200px] reserves space for the shell's
             top-right cluster so the last tab (Widgets/APEX) doesn't get
             covered by the floating notification + biomass + status group. */}
