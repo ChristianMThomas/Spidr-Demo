@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities, moduleActions } from '@/api/apiClient';
 import { Blocks, Search, Plus, Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import ModuleCard from './ModuleCard';
@@ -19,8 +19,8 @@ export default function ModuleNexus({ currentUser }) {
     queryFn: () => entities.Module.list('-install_count', 200),
   });
 
-  // Show public modules (approved or newly published)
-  const approvedModules = modules.filter(m => m.is_public !== false);
+  // Only show modules that are public AND approved (hides flagged/rejected)
+  const approvedModules = modules.filter(m => m.is_public !== false && m.status === 'approved');
 
   const { data: installed = [] } = useQuery({
     queryKey: ['installed-modules', currentUser?.id],
@@ -31,12 +31,10 @@ export default function ModuleNexus({ currentUser }) {
 
   const installMutation = useMutation({
     mutationFn: async (moduleId) => {
-      // Prevent duplicate installs
       if (installedIds.includes(moduleId)) return;
       setInstallingId(moduleId);
-      await entities.InstalledModule.create({ user_id: currentUser.id, module_id: moduleId });
-      const mod = modules.find(m => m.id === moduleId);
-      if (mod) await entities.Module.update(moduleId, { install_count: (mod.install_count || 0) + 1 });
+      await entities.InstalledModule.create({ user_id: currentUser?.id, module_id: moduleId });
+      await moduleActions.install(moduleId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['installed-modules', currentUser?.id] });
@@ -45,15 +43,17 @@ export default function ModuleNexus({ currentUser }) {
       toast.success('Module installed!');
       setInstallingId(null);
     },
-    onError: () => setInstallingId(null),
+    onError: () => {
+      setInstallingId(null);
+      toast.error('Failed to install module');
+    },
   });
 
   const uninstallMutation = useMutation({
     mutationFn: async (moduleId) => {
       const record = installed.find(i => i.module_id === moduleId);
       if (record) await entities.InstalledModule.delete(record.id);
-      const mod = modules.find(m => m.id === moduleId);
-      if (mod) await entities.Module.update(moduleId, { install_count: Math.max(0, (mod.install_count || 1) - 1) });
+      await moduleActions.uninstall(moduleId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['installed-modules', currentUser?.id] });
@@ -61,21 +61,20 @@ export default function ModuleNexus({ currentUser }) {
       queryClient.invalidateQueries({ queryKey: ['profile-modules'] });
       toast.success('Module removed');
     },
+    onError: () => toast.error('Failed to remove module'),
   });
 
   const reportMutation = useMutation({
     mutationFn: async ({ moduleId, reason }) => {
-      const mod = modules.find(m => m.id === moduleId);
-      const existing = mod?.reports || [];
-      const newReports = [...existing, { reporter_id: currentUser.id, reason, date: new Date().toISOString() }];
-      const update = { reports: newReports };
-      // Auto-flag if 3+ reports
-      if (newReports.length >= 3) update.status = 'flagged';
-      await entities.Module.update(moduleId, update);
+      await moduleActions.report(moduleId, reason);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['modules'] });
       toast.success('Report submitted — thank you for keeping Spidr safe.');
+    },
+    onError: (err) => {
+      if (err?.status === 409) toast.error('You already reported this module');
+      else toast.error('Failed to submit report');
     },
   });
 

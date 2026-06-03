@@ -120,8 +120,14 @@
       "electron/preload.js",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "src/assets/spidr-app-desktop.png",
+        "to": "spidr-app-desktop.png"
+      }
+    ],
     "win": {
-      "icon": "public/favicon.ico",
+      "icon": "src/assets/spidr-app-desktop.png",
       "artifactName": "${productName}Setup-${version}.${ext}",
       "target": [
         {
