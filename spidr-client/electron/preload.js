@@ -49,4 +49,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('protocol:closed', handler);
     return () => ipcRenderer.removeListener('protocol:closed', handler);
   },
+
+  // Game detection — emitted whenever a known game starts or stops
+  onGamingStatus: (cb) => {
+    const handler = (_e, status) => cb(status);
+    ipcRenderer.on('gaming:status', handler);
+    return () => ipcRenderer.removeListener('gaming:status', handler);
+  },
+  // Ask the main process for the current status immediately (returns a promise)
+  requestGamingStatus: () => ipcRenderer.invoke('gaming:request-status'),
+  // Extract the native .exe icon for unrecognised games — returns a base64 data URL or null
+  getGameIcon: (exePath) => ipcRenderer.invoke('game:get-icon', exePath),
 });

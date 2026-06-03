@@ -192,6 +192,15 @@ export default function SpidrShell() {
         }`}
         style={getBackgroundStyle()}
       >
+        {/* Electron drag strip — sits above all content so the user can
+            always grab the top edge to move the window. 24px is tall enough
+            to grab easily without hiding useful content. */}
+        {window.electronAPI?.isElectron && (
+          <div
+            className="absolute top-0 left-0 right-0 z-[9998]"
+            style={{ height: '24px', WebkitAppRegion: 'drag' }}
+          />
+        )}
         {/* App background integration layer.
             The user's custom background sits behind everything. This layer
             blends it into the app with: (1) any user-configured blur, (2) a
@@ -238,7 +247,7 @@ export default function SpidrShell() {
           ${sidebarPosition === 'right' ? 'md:order-2' : ''}
           ${sidebarPosition === 'bottom' ? 'md:order-2 md:inset-y-auto md:bottom-0' : ''}
           ${(sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'md:w-full md:h-auto md:inset-x-0' : ''}
-        `} style={{ opacity: sidebarOpacity / 100 }}>
+        `} style={{ opacity: sidebarOpacity / 100, WebkitAppRegion: 'no-drag' }}>
           <Sidebar
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -260,7 +269,7 @@ export default function SpidrShell() {
         {/* Per-page content. Reserve room at the bottom on mobile so the
             bottom nav (now ~64px tall + safe-area inset) doesn't cover
             content. */}
-        <main className="flex-1 min-w-0 min-h-0 flex flex-col relative z-20 pb-20 md:pb-0">
+        <main className="flex-1 min-w-0 min-h-0 flex flex-col relative z-20 pb-20 md:pb-0" style={{ WebkitAppRegion: 'no-drag' }}>
           <React.Suspense fallback={
             <div className="flex-1 flex items-center justify-center">
               <div className="w-8 h-8 border-4 border-zinc-700 border-t-red-500 rounded-full animate-spin" />

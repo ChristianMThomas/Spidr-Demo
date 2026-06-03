@@ -132,6 +132,8 @@ app.use('/follows',            require('./routes/follows'));
 app.use('/feed-comments',      require('./routes/feedComments'));
 app.use('/system',             require('./routes/system'));
 app.use('/weaver',             require('./routes/weaver'));
+app.use('/spotify',            require('./routes/spotify'));
+app.use('/support',            require('./routes/support'));
 app.use('/uploads',            require('express').static(path.join(__dirname, '../uploads')));
 
 // WebRTC ICE config (STUN+TURN) for voice channels

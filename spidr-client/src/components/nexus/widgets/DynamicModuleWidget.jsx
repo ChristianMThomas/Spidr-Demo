@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Blocks, Globe, Radio, FileText, Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -12,9 +12,12 @@ export default function DynamicModuleWidget({ mod }) {
   const type = mod.type || 'static_text';
   const payload = parsePayload(mod.payload);
 
-  // Special handling for weather modules
+  // Special-cased modules
   if (payload.service === 'weather' || mod.name?.toLowerCase().includes('weather')) {
     return <WeatherWidget mod={mod} />;
+  }
+  if (payload.timezone || mod.name?.toLowerCase().includes('clock') || mod.name?.toLowerCase().includes('timezone')) {
+    return <ClockWidget mod={mod} />;
   }
 
   switch (type) {
@@ -102,7 +105,6 @@ function ApiSyncWidget({ mod }) {
     queryFn: async () => {
       const res = await integrations.Core.InvokeLLM({
         prompt: `You are a data widget. ${query}. Return a concise JSON response with a "title" string, "content" string (2-3 sentences max), and optionally a "stats" object with 2-3 key/value pairs.`,
-        add_context_from_internet: true,
         response_json_schema: {
           type: "object",
           properties: {
@@ -114,8 +116,8 @@ function ApiSyncWidget({ mod }) {
       });
       return res;
     },
-    staleTime: 300000, // 5 min cache
-    refetchInterval: 600000, // refresh every 10 min
+    staleTime: 300000,
+    refetchInterval: 600000,
   });
 
   return (
@@ -143,7 +145,7 @@ function ApiSyncWidget({ mod }) {
       ) : (
         <p className="text-sm text-gray-500 mt-3">No data available.</p>
       )}
-      <div className="absolute top-3 right-3 w-2 h-2 rounded-full bg-blue-500 animate-pulse" title="Live sync" />
+      <div className="absolute top-3 right-3 text-[8px] text-blue-500/50 font-mono">AI</div>
     </div>
   );
 }
@@ -161,7 +163,6 @@ function LiveFeedWidget({ mod }) {
       const prompt = data.query || data.prompt || `Generate 5 recent feed items about: ${mod.name}`;
       const res = await integrations.Core.InvokeLLM({
         prompt: `${prompt}. Return JSON with an "items" array where each item has "title" (string) and "detail" (short string).`,
-        add_context_from_internet: true,
         response_json_schema: {
           type: "object",
           properties: {
@@ -189,10 +190,7 @@ function LiveFeedWidget({ mod }) {
   return (
     <div className="bg-[#0a0a0a] border border-purple-500/20 rounded-xl p-5 relative overflow-hidden">
       <WidgetHeader mod={mod} icon={Radio} color="text-purple-400" />
-      <div className="absolute top-3 right-3 flex items-center gap-1">
-        <div className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
-        <span className="text-[8px] text-purple-500 font-mono">LIVE</span>
-      </div>
+      <div className="absolute top-3 right-3 text-[8px] text-purple-500/50 font-mono">AI</div>
       {isLoading ? (
         <div className="flex items-center justify-center py-6 text-zinc-500">
           <Loader2 size={18} className="animate-spin mr-2" /> Loading feed...
@@ -228,8 +226,7 @@ function WeatherWidget({ mod }) {
     queryKey: ['module-weather', mod.id],
     queryFn: async () => {
       const res = await integrations.Core.InvokeLLM({
-        prompt: `Get the current weather conditions. Return JSON with: "location" (city name), "temperature" (number in celsius), "condition" (one of: sunny, cloudy, rainy, snowy, stormy, windy, foggy, partly_cloudy, clear_night), "humidity" (number %), "wind_speed" (number km/h), "feels_like" (number in celsius). Use a major city's real current weather.`,
-        add_context_from_internet: true,
+        prompt: `Generate a realistic weather sample for a major city. Return JSON with: "location" (city name), "temperature" (number in celsius), "condition" (one of: sunny, cloudy, rainy, snowy, stormy, windy, foggy, partly_cloudy, clear_night), "humidity" (number %), "wind_speed" (number km/h), "feels_like" (number in celsius).`,
         response_json_schema: {
           type: "object",
           properties: {
@@ -299,9 +296,41 @@ function WeatherWidget({ mod }) {
       ) : (
         <p className="text-sm text-gray-500 mt-3">No weather data available.</p>
       )}
-      <div className="absolute top-3 right-3 flex items-center gap-1">
-        <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
-        <span className="text-[8px] text-cyan-500 font-mono">LIVE</span>
+      <div className="absolute top-3 right-3 text-[8px] text-cyan-500/50 font-mono">AI</div>
+    </div>
+  );
+}
+
+// --- CLOCK: Live local time display ---
+function ClockWidget({ mod }) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const data = parsePayload(mod.payload);
+  const tz = data.timezone === 'auto' || !data.timezone ? undefined : data.timezone;
+
+  const timeStr = now.toLocaleTimeString(undefined, {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    timeZone: tz,
+    hour12: true,
+  });
+  const dateStr = now.toLocaleDateString(undefined, {
+    weekday: 'short', month: 'short', day: 'numeric',
+    timeZone: tz,
+  });
+  const tzLabel = tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  return (
+    <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-5 relative overflow-hidden">
+      <WidgetHeader mod={mod} icon={Globe} color="text-cyan-400" />
+      <div className="mt-4 text-center">
+        <div className="text-3xl font-black text-white tracking-tighter font-mono">{timeStr}</div>
+        <div className="text-[11px] text-gray-400 mt-1">{dateStr}</div>
+        <div className="text-[9px] text-gray-600 font-mono mt-1 uppercase tracking-widest">{tzLabel}</div>
       </div>
     </div>
   );

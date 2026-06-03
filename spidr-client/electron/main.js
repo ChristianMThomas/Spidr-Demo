@@ -1,16 +1,24 @@
 const { app, BrowserWindow, ipcMain, shell, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { exec } = require('child_process');
+const https = require('https');
 
 let mainWindow;
 
 function createWindow() {
+  const appIcon = app.isPackaged
+    ? path.join(process.resourcesPath, 'spidr-app-desktop.png')
+    : path.join(__dirname, '../src/assets/spidr-app-desktop.png');
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 940,
     minHeight: 600,
     frame: false,
+    icon: appIcon,
     backgroundColor: '#0a0a0a',
     webPreferences: {
       nodeIntegration:  false,
@@ -238,6 +246,362 @@ ipcMain.on('protocol:close', () => {
 // can hand control back to the game).
 ipcMain.on('protocol:set-interactive', (_evt, on) => setProtocolInteractive(!!on));
 
+// ── Game detection ───────────────────────────────────────────────────────────
+//
+// PRIMARY method: PowerShell enumerates every window and checks if its rect
+// covers the primary display. Any non-system fullscreen window is treated as
+// a game — even games we've never heard of.
+//
+// FALLBACK (process list): known process names are used to detect lobby/client
+// states (e.g. League client open but not in an active game). Extend this list
+// to improve named recognition for the fallback, but the primary path catches
+// everything regardless of what's in this map.
+
+// ProcessName (no .exe) → display name. Used for:
+//   1. Labelling known fullscreen procs with a clean name
+//   2. Detecting lobby/background state when nothing is fullscreen
+const KNOWN_GAMES_WIN = {
+  'LeagueClient':                  'League of Legends',
+  'LeagueClientUx':                'League of Legends',
+  'League of Legends':             'League of Legends',
+  'VALORANT-Win64-Shipping':       'VALORANT',
+  'VALORANT':                      'VALORANT',
+  'TFT':                           'Teamfight Tactics',
+  'FortniteClient-Win64-Shipping': 'Fortnite',
+  'r5apex':                        'Apex Legends',
+  'cs2':                           'CS2',
+  'csgo':                          'CS2',
+  'Overwatch':                     'Overwatch 2',
+  'WorldOfWarcraft':               'World of Warcraft',
+  'Wow':                           'World of Warcraft',
+  'DiabloIV':                      'Diablo IV',
+  'EscapeFromTarkov':              'Escape from Tarkov',
+  'Destiny2':                      'Destiny 2',
+  'RocketLeague':                  'Rocket League',
+  'GenshinImpact':                 'Genshin Impact',
+  'Warframe.x64':                  'Warframe',
+  'MonsterHunterWilds':            'Monster Hunter Wilds',
+  'MonsterHunterWorld':            'Monster Hunter World',
+  'Minecraft.Windows':             'Minecraft',
+  'BlackOps6':                     'Call of Duty: Black Ops 6',
+  'javaw':                         null,  // too generic — skip
+  'REPO':                          'R.E.P.O.',
+  'repo':                          'R.E.P.O.',
+  'Palworld':                      'Palworld',
+  'Helldivers2':                   'Helldivers 2',
+  'BaldursGate3':                  "Baldur's Gate 3",
+  'bg3':                           "Baldur's Gate 3",
+  'DeltaForce':                    'Delta Force',
+  'MarvelRivals':                  'Marvel Rivals',
+  'MarvelRivals-Win64-Shipping':   'Marvel Rivals',
+  'ShooterGame-Win64-Shipping':    null,  // generic UE launcher name — skip
+};
+
+const KNOWN_GAMES_MAC = {
+  'LeagueofLegends': 'League of Legends',
+  'VALORANT':        'VALORANT',
+  'Fortnite':        'Fortnite',
+  'r5apex':          'Apex Legends',
+  'cs2':             'CS2',
+  'RocketLeague':    'Rocket League',
+  'GenshinImpact':   'Genshin Impact',
+  'WorldOfWarcraft': 'World of Warcraft',
+  'Warframe':        'Warframe',
+};
+
+const GAME_MODE_LABELS = {
+  CLASSIC:       'Normal',
+  ARAM:          'ARAM',
+  SWIFTPLAY:     'Swiftplay',
+  CHERRY:        'Arena',
+  URF:           'URF',
+  ULTBOOK:       'Ult Spellbook',
+  PRACTICETOOL:  'Practice',
+  DOOMBOTSTEEMO: 'Doom Bots',
+  ONEFORALL:     'One for All',
+};
+
+// Windows/system processes excluded from fullscreen detection
+const FULLSCREEN_EXCLUDE = [
+  'explorer', 'SearchHost', 'ShellExperienceHost', 'StartMenuExperienceHost',
+  'LockApp', 'ApplicationFrameHost', 'SystemSettings', 'Taskmgr', 'dwm',
+  'winlogon', 'svchost', 'spidr', 'Spidr', 'electron', 'TextInputHost',
+  'ctfmon', 'WUDFHost', 'RuntimeBroker', 'taskhostw', 'conhost', 'dllhost',
+  'sihost', 'fontdrvhost', 'audiodg', 'chrome', 'firefox', 'msedge', 'opera',
+  'brave', 'Code', 'WindowsTerminal', 'cmd', 'powershell', 'pwsh', 'notepad',
+  'mspaint', 'SnippingTool',
+  // Recording / clip tools
+  'Medal', 'MedalTV',
+  // Chat / voice
+  'Discord', 'discord', 'DiscordPTB', 'DiscordCanary',
+  // Music
+  'Spotify',
+  // Streaming / capture
+  'obs64', 'obs32', 'obs', 'OBS',
+  // Game launchers (not games themselves)
+  'steam', 'Steam',
+  'EpicGamesLauncher',
+  'RiotClientServices', 'RiotClientUx',
+  'GalaxyClient',
+  'Playnite.FullscreenApp',
+  // Windows overlays
+  'GameBar',
+];
+
+// Written once per app session; reused on every 10s scan tick
+const PS_SCRIPT_PATH = path.join(os.tmpdir(), 'spidr_game_scan.ps1');
+
+// R.E.P.O. log parsing — tracks read position so we only parse new bytes each tick
+const REPO_LOG_PATH = path.join(os.homedir(), 'AppData', 'LocalLow', 'Semiwork', 'REPO', 'Player.log');
+let repoLogPos   = 0;
+let repoGameStats = null; // { level: number|null, lobbySize: number|null }
+
+function writeFullscreenScript() {
+  const excludeArr = FULLSCREEN_EXCLUDE.map(p => `'${p}'`).join(',');
+  // IMPORTANT: PowerShell here-string closing marker ('@ ) must be at column 0
+  const lines = [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    '$sw = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width',
+    '$sh = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height',
+    "Add-Type @'",
+    'using System; using System.Runtime.InteropServices;',
+    'public class SpidrWinAPI {',
+    '    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);',
+    '    public struct RECT { public int L,T,R,B; }',
+    '}',
+    "'@",
+    `$ex = @(${excludeArr})`,
+    '$procs = Get-Process -ErrorAction SilentlyContinue',
+    '$procs | ForEach-Object { Write-Output "PROC:$($_.ProcessName)|$($_.Path)" }',
+    '$procs | Where-Object { $_.MainWindowHandle -ne 0 -and $ex -notcontains $_.ProcessName } | ForEach-Object {',
+    '    $r = New-Object SpidrWinAPI+RECT',
+    '    if ([SpidrWinAPI]::GetWindowRect($_.MainWindowHandle, [ref]$r)) {',
+    '        $w = $r.R - $r.L; $h = $r.B - $r.T',
+    '        if ($w -ge ($sw - 4) -and $h -ge ($sh - 4)) {',
+    '            Write-Output "FULLSCREEN:$($_.ProcessName)|$($_.Path)"',
+    '        }',
+    '    }',
+    '}',
+  ];
+  fs.writeFileSync(PS_SCRIPT_PATH, lines.join('\r\n'), 'utf8');
+}
+
+// Fast tasklist scan — used when PowerShell is unavailable or times out
+function scanProcessesFast() {
+  return new Promise((resolve) => {
+    exec('tasklist /fo csv /nh', { timeout: 5000 }, (err, stdout) => {
+      if (err) return resolve({ active: false, game: null, character: null, inSession: false });
+      for (const line of stdout.split('\n')) {
+        const m = line.match(/^"([^"]+)"/);
+        if (!m) continue;
+        const name = m[1].replace(/\.exe$/i, '');
+        const game = KNOWN_GAMES_WIN[name];
+        if (game) return resolve({ active: true, inSession: false, game, character: null });
+      }
+      resolve({ active: false, game: null, character: null, inSession: false });
+    });
+  });
+}
+
+// Turn an unknown process name into something readable enough to display
+function readableProcName(name) {
+  return name.replace(/[-_]/g, ' ').replace(/\.exe$/i, '').trim() || name;
+}
+
+let currentGamingStatus = { active: false, game: null, character: null, inSession: false };
+let gameDetectionInterval = null;
+
+// Riot Live Client Data API — only responds during an active in-game session
+function riotFetch(endpoint) {
+  return new Promise((resolve) => {
+    const req = https.get(
+      `https://127.0.0.1:2999/liveclientdata/${endpoint}`,
+      { rejectUnauthorized: false },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => { data += c; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); } catch { resolve(null); }
+        });
+      }
+    );
+    req.setTimeout(800, () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
+}
+
+async function getRiotGameData() {
+  const [player, stats] = await Promise.all([
+    riotFetch('activeplayer'),
+    riotFetch('gamestats'),
+  ]);
+  const championName = player?.championName ?? null;
+  const rawMode      = stats?.gameMode ?? null;
+  const gameMode     = rawMode ? (GAME_MODE_LABELS[rawMode] || rawMode) : null;
+  const gameTime     = typeof stats?.gameTime === 'number' ? stats.gameTime : null;
+  // Convert elapsed seconds → absolute timestamp so the widget timer survives remounts
+  const sessionStart = gameTime != null ? Date.now() - Math.floor(gameTime * 1000) : null;
+  return { championName, gameMode, sessionStart };
+}
+
+// R.E.P.O. log parsing — reads only new bytes appended since the last tick
+function parseRepoLog() {
+  try {
+    if (!fs.existsSync(REPO_LOG_PATH)) return;
+    const stat = fs.statSync(REPO_LOG_PATH);
+    if (stat.size <= repoLogPos) return;
+    const fd    = fs.openSync(REPO_LOG_PATH, 'r');
+    const chunk = Buffer.allocUnsafe(stat.size - repoLogPos);
+    fs.readSync(fd, chunk, 0, chunk.length, repoLogPos);
+    fs.closeSync(fd);
+    repoLogPos = stat.size;
+    const lines = chunk.toString('utf8').split('\n');
+    for (const line of lines) {
+      // Unity scene load: "Scene 'Level_1' loaded" or "Loading scene: Level 2"
+      const lvlMatch = line.match(/(?:Scene\s+['"]?|Loading\s+scene[:\s]+['"]?)Level[_\s](\d+)/i);
+      if (lvlMatch) {
+        repoGameStats = { ...(repoGameStats || { level: null, lobbySize: null }), level: parseInt(lvlMatch[1], 10) };
+      }
+      // Photon room player count: "X players" or "Players in room: X" or "Player count: X"
+      const lobbyMatch = line.match(/(?:Players?\s+(?:in\s+room|count)[:\s]+(\d+)|Joined\s+room.*?with\s+(\d+)\s+player|Room\s+player\s+count[:\s]+(\d+))/i);
+      if (lobbyMatch) {
+        const size = parseInt(lobbyMatch[1] || lobbyMatch[2] || lobbyMatch[3], 10);
+        if (!isNaN(size)) repoGameStats = { ...(repoGameStats || { level: null, lobbySize: null }), lobbySize: size };
+      }
+    }
+  } catch { /* non-fatal — log may not exist or be locked */ }
+}
+
+function resetRepoLog() {
+  repoLogPos    = 0;
+  repoGameStats = null;
+}
+
+// Enrich a status object with session timer + R.E.P.O. game stats.
+// Mutates and returns newStatus — call before emitting or storing.
+function enrichStatus(newStatus) {
+  if (newStatus.inSession) {
+    if (newStatus.game === currentGamingStatus.game && currentGamingStatus.sessionStart) {
+      // Same active session — preserve existing timestamp (League overrides via Riot API)
+      if (!newStatus.sessionStart) newStatus.sessionStart = currentGamingStatus.sessionStart;
+    } else if (!newStatus.sessionStart) {
+      // New session or new game — stamp now
+      newStatus.sessionStart = Date.now();
+    }
+    if (newStatus.game === 'R.E.P.O.') {
+      parseRepoLog();
+      if (repoGameStats) newStatus.gameStats = { ...repoGameStats };
+    }
+  } else {
+    // Session ended
+    if (currentGamingStatus.game === 'R.E.P.O.') resetRepoLog();
+  }
+  return newStatus;
+}
+
+async function scanProcesses() {
+  // ── macOS / Linux: ps-based scan for known games ──────────────────────────
+  if (process.platform !== 'win32') {
+    return new Promise((resolve) => {
+      exec('ps -ax -o comm=', { timeout: 5000 }, async (err, stdout) => {
+        if (err) return resolve(currentGamingStatus);
+        for (const [proc, name] of Object.entries(KNOWN_GAMES_MAC)) {
+          if (stdout.includes(proc)) {
+            const newStatus = enrichStatus({ active: true, inSession: true, game: name, character: null });
+            const changed = JSON.stringify(newStatus) !== JSON.stringify(currentGamingStatus);
+            if (changed) { currentGamingStatus = newStatus; mainWindow?.webContents.send('gaming:status', newStatus); }
+            return resolve(newStatus);
+          }
+        }
+        const empty = enrichStatus({ active: false, game: null, character: null, inSession: false });
+        const changed = JSON.stringify(empty) !== JSON.stringify(currentGamingStatus);
+        if (changed) { currentGamingStatus = empty; mainWindow?.webContents.send('gaming:status', empty); }
+        return resolve(empty);
+      });
+    });
+  }
+
+  // ── Windows: fullscreen detection via PowerShell ──────────────────────────
+  return new Promise((resolve) => {
+    exec(
+      `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${PS_SCRIPT_PATH}"`,
+      { timeout: 8000 },
+      async (err, stdout) => {
+        if (err) {
+          // PowerShell unavailable — fall back to fast tasklist scan
+          const fallback = enrichStatus(await scanProcessesFast());
+          const changed = JSON.stringify(fallback) !== JSON.stringify(currentGamingStatus);
+          if (changed) { currentGamingStatus = fallback; mainWindow?.webContents.send('gaming:status', fallback); }
+          return resolve(fallback);
+        }
+
+        const lines          = stdout.split('\n').map(l => l.trim()).filter(Boolean);
+        const fullscreenProcs = lines.filter(l => l.startsWith('FULLSCREEN:')).map(l => l.slice(11));
+        const allProcs        = lines.filter(l => l.startsWith('PROC:')).map(l => l.slice(5));
+
+        let newStatus;
+
+        if (fullscreenProcs.length > 0) {
+          // PRIMARY: fullscreen window found — any game, known or not
+          // Each entry is "ProcessName|C:\path\to\game.exe"
+          const [proc, exePath = null] = fullscreenProcs[0].split('|');
+          const gameName = KNOWN_GAMES_WIN[proc] !== undefined
+            ? KNOWN_GAMES_WIN[proc]   // may be null (e.g. javaw) → skip below
+            : readableProcName(proc);
+
+          if (gameName) {
+            let character = null;
+            let gameMode  = null;
+            let sessionStart = null;
+            if (gameName === 'League of Legends') {
+              const riotData = await getRiotGameData();
+              character    = riotData.championName;
+              gameMode     = riotData.gameMode;
+              sessionStart = riotData.sessionStart;
+            }
+            newStatus = enrichStatus({ active: true, inSession: true, game: gameName, character, exePath, gameMode, sessionStart });
+          }
+        }
+
+        if (!newStatus) {
+          // FALLBACK: known client/lobby process running in background
+          const knownEntry = allProcs.find(p => KNOWN_GAMES_WIN[p.split('|')[0]]);
+          if (knownEntry) {
+            const [procName, exePath = null] = knownEntry.split('|');
+            const game = KNOWN_GAMES_WIN[procName];
+            newStatus = enrichStatus({ active: true, inSession: false, game, character: null, exePath: exePath || null });
+          } else {
+            newStatus = enrichStatus({ active: false, game: null, character: null, inSession: false });
+          }
+        }
+
+        const changed = JSON.stringify(newStatus) !== JSON.stringify(currentGamingStatus);
+        if (changed) {
+          currentGamingStatus = newStatus;
+          mainWindow?.webContents.send('gaming:status', newStatus);
+        }
+        resolve(newStatus);
+      }
+    );
+  });
+}
+
+// Renderer can request the current status immediately (e.g. on widget mount)
+ipcMain.handle('gaming:request-status', async () => {
+  return await scanProcesses();
+});
+
+// Extract the native icon from a game's .exe — used for unknown/unrecognised games
+ipcMain.handle('game:get-icon', async (_evt, exePath) => {
+  if (!exePath) return null;
+  try {
+    const icon = await app.getFileIcon(exePath, { size: 'large' });
+    return icon.toDataURL(); // base64 data URL, safe to send over IPC
+  } catch {
+    return null;
+  }
+});
+
 app.whenReady().then(() => {
   createWindow();
   // Global hotkey: Shift+Enter focuses the overlay for typing (or hands control
@@ -249,8 +613,16 @@ app.whenReady().then(() => {
       setProtocolInteractive(!protocolInteractive);
     });
   } catch {}
+
+  // Write the fullscreen detection script once, then start scanning
+  writeFullscreenScript();
+  scanProcesses();
+  gameDetectionInterval = setInterval(scanProcesses, 10000);
 });
 
-app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch {} });
+app.on('will-quit', () => {
+  try { globalShortcut.unregisterAll(); } catch {}
+  if (gameDetectionInterval) clearInterval(gameDetectionInterval);
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

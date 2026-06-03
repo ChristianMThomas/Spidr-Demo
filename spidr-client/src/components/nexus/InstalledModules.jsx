@@ -5,6 +5,7 @@ import SymbiotePet from './widgets/SymbiotePet';
 import AudioResonance from './widgets/AudioResonance';
 import GamingUplink from './widgets/GamingUplink';
 import PCSpecsFlex from './widgets/PCSpecsFlex';
+import SpotifyNowPlaying from './widgets/SpotifyNowPlaying';
 import DynamicModuleWidget from './widgets/DynamicModuleWidget';
 
 // Built-in hardcoded widgets for specific module names
@@ -13,7 +14,30 @@ const BUILTIN_WIDGETS = {
   'Audio Resonance Player': AudioResonance,
   'Gaming Uplink Card': GamingUplink,
   'PC Specs Flex': PCSpecsFlex,
+  'Spotify Now Playing': SpotifyNowPlaying,
 };
+
+// Modules that are fully live — everything else gets a construction overlay
+const LIVE_MODULES = new Set([
+  'Gaming Uplink Card',
+  'Spotify Now Playing',
+  'Symbiote Entity Pet',
+]);
+
+function isLive(modName = '') {
+  if (LIVE_MODULES.has(modName)) return true;
+  // Also pass custom quote boxes through
+  return modName.toLowerCase().includes('quote');
+}
+
+function ConstructionOverlay() {
+  return (
+    <div className="absolute inset-0 z-10 rounded-xl flex flex-col items-center justify-center gap-2 backdrop-blur-[2px] bg-black/60">
+      <span className="text-xs font-bold text-yellow-400 uppercase tracking-widest">Under Construction</span>
+      <span className="text-[9px] text-zinc-500 font-mono">Coming soon</span>
+    </div>
+  );
+}
 
 export default function InstalledModules({ modules, installedIds, onUninstall, onNavigateDiscover, currentUserId }) {
   const installed = modules.filter(m => installedIds.includes(m.id));
@@ -36,9 +60,10 @@ export default function InstalledModules({ modules, installedIds, onUninstall, o
     );
   }
 
-  // Separate built-in interactive widgets from dynamic user-created modules
-  const builtinModules = installed.filter(m => BUILTIN_WIDGETS[m.name]);
-  const dynamicModules = installed.filter(m => !BUILTIN_WIDGETS[m.name]);
+  // Only use built-in renderer for official Spidr modules — prevents a user
+  // publishing a module named "Symbiote Entity Pet" from hijacking the renderer
+  const builtinModules = installed.filter(m => BUILTIN_WIDGETS[m.name] && m.author_id === 'spidr-official');
+  const dynamicModules = installed.filter(m => !(BUILTIN_WIDGETS[m.name] && m.author_id === 'spidr-official'));
 
   return (
     <div className="space-y-8">
@@ -51,13 +76,17 @@ export default function InstalledModules({ modules, installedIds, onUninstall, o
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {builtinModules.map(mod => {
               const Widget = BUILTIN_WIDGETS[mod.name];
+              const live = isLive(mod.name);
               return (
                 <motion.div key={mod.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
                   <div className="flex items-center justify-between px-1">
                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{mod.name}</span>
                     <button onClick={() => onUninstall(mod.id)} className="text-gray-600 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
                   </div>
-                  <Widget userId={currentUserId} isOwnProfile={true} />
+                  <div className={`relative rounded-xl ${!live ? 'opacity-40' : ''}`}>
+                    {!live && <ConstructionOverlay />}
+                    <Widget userId={currentUserId} isOwnProfile={true} />
+                  </div>
                 </motion.div>
               );
             })}
@@ -88,7 +117,10 @@ export default function InstalledModules({ modules, installedIds, onUninstall, o
                   </div>
                   <button onClick={() => onUninstall(mod.id)} className="text-gray-600 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
                 </div>
-                <DynamicModuleWidget mod={mod} />
+                <div className={`relative rounded-xl ${!isLive(mod.name) ? 'opacity-40' : ''}`}>
+                  {!isLive(mod.name) && <ConstructionOverlay />}
+                  <DynamicModuleWidget mod={mod} />
+                </div>
               </motion.div>
             ))}
           </div>

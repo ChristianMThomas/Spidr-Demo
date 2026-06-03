@@ -101,4 +101,37 @@ async function sendOTPEmail(toEmail, otp, type = 'verify') {
   }
 }
 
-module.exports = { sendOTPEmail };
+async function sendSupportEmail({ email, issue, launcher, description }) {
+  const html = `
+    <div style="background:#0a0a0a;color:#fff;padding:48px 40px;font-family:'Segoe UI',sans-serif;max-width:520px;margin:0 auto;border-radius:16px;border:1px solid #1a1a1a;">
+      <div style="text-align:center;margin-bottom:32px;">
+        <h1 style="font-size:36px;font-weight:900;letter-spacing:-2px;margin:0;">
+          SPID<span style="color:#ef4444;">R</span>
+        </h1>
+        <p style="color:#666;font-size:11px;letter-spacing:4px;text-transform:uppercase;margin-top:4px;">Game Support Report</p>
+      </div>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="padding:10px 0;color:#888;font-size:13px;width:120px;">From</td><td style="padding:10px 0;color:#fff;font-size:13px;">${email}</td></tr>
+        <tr><td style="padding:10px 0;color:#888;font-size:13px;">Issue</td><td style="padding:10px 0;color:#ef4444;font-size:13px;font-weight:600;">${issue}</td></tr>
+        <tr><td style="padding:10px 0;color:#888;font-size:13px;">Launcher</td><td style="padding:10px 0;color:#fff;font-size:13px;">${launcher}</td></tr>
+        ${description ? `<tr><td style="padding:10px 0;color:#888;font-size:13px;vertical-align:top;">Description</td><td style="padding:10px 0;color:#ccc;font-size:13px;">${description}</td></tr>` : ''}
+      </table>
+    </div>
+  `;
+
+  const transporter = getProductionTransporter() || await getDevTransporter();
+  if (!transporter) {
+    console.log(`[Support report] ${JSON.stringify({ email, issue, launcher, description })}`);
+    return;
+  }
+
+  await transporter.sendMail({
+    from: `"Spidr Network" <${process.env.EMAIL_USER || 'noreply@spidr.app'}>`,
+    to: 'support@spidrapp.com',
+    replyTo: email,
+    subject: `[Game Support] ${issue} — ${launcher}`,
+    html,
+  });
+}
+
+module.exports = { sendOTPEmail, sendSupportEmail };

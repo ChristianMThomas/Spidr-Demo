@@ -203,6 +203,13 @@ export const auth = {
   redirectToLogin: () => { localStorage.removeItem('spidr_token'); window.location.reload(); },
 };
 
+// ─── Module actions (dedicated endpoints, bypass ownerField on CRUD) ─────────
+export const moduleActions = {
+  install:   (moduleId)         => api.post(`/modules/${moduleId}/install`, {}),
+  uninstall: (moduleId)         => api.post(`/modules/${moduleId}/uninstall`, {}),
+  report:    (moduleId, reason) => api.post(`/modules/${moduleId}/report`, { reason }),
+};
+
 // ─── Integrations ────────────────────────────────────────────────────────────
 export const integrations = {
   Core: {
