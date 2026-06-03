@@ -1,21 +1,8 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Blocks, Trash2, Search } from 'lucide-react';
-import SymbiotePet from './widgets/SymbiotePet';
-import AudioResonance from './widgets/AudioResonance';
-import GamingUplink from './widgets/GamingUplink';
-import PCSpecsFlex from './widgets/PCSpecsFlex';
-import SpotifyNowPlaying from './widgets/SpotifyNowPlaying';
 import DynamicModuleWidget from './widgets/DynamicModuleWidget';
-
-// Built-in hardcoded widgets for specific module names
-const BUILTIN_WIDGETS = {
-  'Symbiote Entity Pet': SymbiotePet,
-  'Audio Resonance Player': AudioResonance,
-  'Gaming Uplink Card': GamingUplink,
-  'PC Specs Flex': PCSpecsFlex,
-  'Spotify Now Playing': SpotifyNowPlaying,
-};
+import { BUILTIN_WIDGETS, getBuiltinWidget } from './widgets/builtinWidgets';
 
 // Modules that are fully live — everything else gets a construction overlay
 const LIVE_MODULES = new Set([
@@ -60,10 +47,12 @@ export default function InstalledModules({ modules, installedIds, onUninstall, o
     );
   }
 
-  // Only use built-in renderer for official Spidr modules — prevents a user
-  // publishing a module named "Symbiote Entity Pet" from hijacking the renderer
-  const builtinModules = installed.filter(m => BUILTIN_WIDGETS[m.name] && m.author_id === 'spidr-official');
-  const dynamicModules = installed.filter(m => !(BUILTIN_WIDGETS[m.name] && m.author_id === 'spidr-official'));
+  // Partition: official builtins (rendered by their hardcoded component) vs
+  // everything else (rendered by DynamicModuleWidget). getBuiltinWidget()
+  // returns null when the author_id isn't 'spidr-official', so user-published
+  // modules with builtin names still fall to the dynamic side.
+  const builtinModules = installed.filter(m => getBuiltinWidget(m));
+  const dynamicModules = installed.filter(m => !getBuiltinWidget(m));
 
   return (
     <div className="space-y-8">
@@ -75,7 +64,7 @@ export default function InstalledModules({ modules, installedIds, onUninstall, o
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {builtinModules.map(mod => {
-              const Widget = BUILTIN_WIDGETS[mod.name];
+              const Widget = getBuiltinWidget(mod);
               const live = isLive(mod.name);
               return (
                 <motion.div key={mod.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
