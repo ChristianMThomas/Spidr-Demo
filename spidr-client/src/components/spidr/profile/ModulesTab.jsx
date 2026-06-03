@@ -4,17 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { Blocks, Loader2 } from 'lucide-react';
 import DynamicModuleWidget from '@/components/nexus/widgets/DynamicModuleWidget';
-import SymbiotePet from '@/components/nexus/widgets/SymbiotePet';
-import AudioResonance from '@/components/nexus/widgets/AudioResonance';
-import GamingUplink from '@/components/nexus/widgets/GamingUplink';
-import PCSpecsFlex from '@/components/nexus/widgets/PCSpecsFlex';
-
-const BUILTIN_WIDGETS = {
-  'Symbiote Entity Pet': SymbiotePet,
-  'Audio Resonance Player': AudioResonance,
-  'Gaming Uplink Card': GamingUplink,
-  'PC Specs Flex': PCSpecsFlex,
-};
+import { getBuiltinWidget } from '@/components/nexus/widgets/builtinWidgets';
 
 export default function ModulesTab({ userId, isOwnProfile }) {
   const { data: installed = [], isLoading: loadingInstalled } = useQuery({
@@ -54,7 +44,7 @@ export default function ModulesTab({ userId, isOwnProfile }) {
     <motion.div key="modules" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="space-y-3">
       {modules.map((mod) => {
-        const BuiltinWidget = BUILTIN_WIDGETS[mod.name];
+        const BuiltinWidget = getBuiltinWidget(mod);
         return (
           <div key={mod.id} className="transform scale-[0.85] origin-top-left w-[118%]">
             {BuiltinWidget ? <BuiltinWidget userId={userId} isOwnProfile={isOwnProfile} /> : <DynamicModuleWidget mod={mod} />}
