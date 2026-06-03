@@ -74,6 +74,9 @@ const s = new Schema({
   // PC widget
   pc_specs:       { type: Schema.Types.Mixed, default: {} },
   neural_links:   { type: Schema.Types.Mixed, default: {} },
+  // Gaming Uplink — set by Electron process scanner or manually
+  // Shape: { active: bool, game: string|null, character: string|null }
+  gaming_status:  { type: Schema.Types.Mixed, default: null },
   // Notification preferences (3.4 of Patch 1.2) — persisted toggle state.
   notification_prefs: { type: Schema.Types.Mixed, default: null },
   // "Spidr Web" pinned conversations (Patch 1.4 §3.1) — array of refs like

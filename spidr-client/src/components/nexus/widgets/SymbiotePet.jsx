@@ -1,19 +1,57 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Skull } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { entities } from '@/api/apiClient';
 
-export default function SymbiotePet() {
+// Derive a display mood from the persisted last-action + timestamp
+function computeMood(symbiote) {
+  if (!symbiote?.last_action_at) return 'idle';
+  const elapsed = Date.now() - new Date(symbiote.last_action_at).getTime();
+  if (symbiote.last_action === 'feed' && elapsed < 5 * 60 * 1000) return 'happy';
+  if (symbiote.last_action === 'poke' && elapsed < 60 * 1000) return 'angry';
+  return 'idle';
+}
+
+export default function SymbiotePet({ userId, isOwnProfile }) {
+  const queryClient = useQueryClient();
   const [mood, setMood] = useState('idle');
+  const [moodTimer, setMoodTimer] = useState(null);
 
-  const pokePet = () => {
-    setMood('angry');
-    setTimeout(() => setMood('idle'), 1000);
+  const { data: profile } = useQuery({
+    queryKey: ['user-profile', userId],
+    queryFn: async () => {
+      const results = await entities.UserProfile.filter({ user_id: userId });
+      return results?.[0] ?? null;
+    },
+    enabled: !!userId,
+  });
+
+  // Sync mood from backend on profile load
+  useEffect(() => {
+    if (!profile) return;
+    setMood(computeMood(profile.neural_links?.symbiote));
+  }, [profile?.neural_links?.symbiote?.last_action_at]);
+
+  const persistAction = async (action) => {
+    if (!profile?.id) return;
+    const symbiote = { last_action: action, last_action_at: new Date().toISOString() };
+    await entities.UserProfile.update(profile.id, {
+      neural_links: { ...(profile.neural_links || {}), symbiote },
+    });
+    queryClient.invalidateQueries({ queryKey: ['user-profile', userId] });
   };
 
-  const feedPet = () => {
-    setMood('happy');
-    setTimeout(() => setMood('idle'), 2000);
+  const triggerMood = (newMood, duration, action) => {
+    if (moodTimer) clearTimeout(moodTimer);
+    setMood(newMood);
+    if (isOwnProfile) persistAction(action);
+    const t = setTimeout(() => setMood('idle'), duration);
+    setMoodTimer(t);
   };
+
+  const pokePet  = () => triggerMood('angry', 1000, 'poke');
+  const feedPet  = () => triggerMood('happy', 2000, 'feed');
 
   return (
     <div className="bg-[#0a0a0a] border border-purple-500/30 rounded-xl p-4 relative overflow-hidden flex flex-col items-center justify-center min-h-[160px] group">

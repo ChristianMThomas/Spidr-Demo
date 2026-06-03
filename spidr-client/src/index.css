@@ -86,6 +86,16 @@
     @apply bg-background text-foreground;
   }
 }
+/* ─── Electron window dragging ─────────────────────────────────────────────
+ * The shell root has -webkit-app-region: drag so the whole window is
+ * grabbable. Every interactive element opts back out so clicks still work. */
+button, a, input, textarea, select, label,
+[role="button"], [role="tab"], [role="menuitem"], [role="slider"],
+[role="listbox"], [role="option"], [role="checkbox"], [role="switch"],
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
 /* ─── Global animations ────────────────────────────────────────────────────
  * Previously these lived inside Layout.jsx's inline <style>. After the
  * routing migration Layout no longer mounts, so we lift them up to the

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { entities, integrations } from '@/api/apiClient';
 import { ShieldCheck, Terminal, CheckCircle, AlertTriangle, Code, Loader2, Upload, Eye } from 'lucide-react';
@@ -143,22 +143,45 @@ export default function ModuleFabricator({ currentUser, onPublished }) {
     author_name: currentUser?.display_name || currentUser?.full_name || currentUser?.username || 'You',
   }), [name, description, type, builtPayload, iconPreview, currentUser]);
 
-  // ── Icon upload ─────────────────────────────────────────────────────────────
+  // ── Icon upload — revoke previous blob URL before creating a new one ────────
+  const iconPreviewRef = useRef('');
   const handleIconChange = (file) => {
     if (!file) return;
+    if (iconPreviewRef.current) URL.revokeObjectURL(iconPreviewRef.current);
+    const url = URL.createObjectURL(file);
+    iconPreviewRef.current = url;
     setIconFile(file);
-    setIconPreview(URL.createObjectURL(file));
+    setIconPreview(url);
   };
+
+  useEffect(() => {
+    return () => { if (iconPreviewRef.current) URL.revokeObjectURL(iconPreviewRef.current); };
+  }, []);
 
   // ── Scan ────────────────────────────────────────────────────────────────────
   const runScan = async () => {
     if (!name.trim()) { toast.error('Module name is required'); return; }
     if (!description.trim()) { toast.error('Description is required'); return; }
+    if (type === 'display_widget') {
+      const keys = displayStats.map(s => s.key.trim()).filter(Boolean);
+      if (new Set(keys).size !== keys.length) { toast.error('Stat labels must be unique'); return; }
+    }
 
-    // Validate raw JSON if in raw mode
+    // Validate raw JSON if in raw mode — check syntax + type-specific required fields
     if (rawMode && rawPayload.trim()) {
-      try { JSON.parse(rawPayload); }
+      let parsed;
+      try { parsed = JSON.parse(rawPayload); }
       catch { toast.error('Invalid JSON in raw payload'); return; }
+
+      if (type === 'static_text' && !parsed.content && !parsed.text) {
+        toast.error('Static text payload must have a "content" or "text" field'); return;
+      }
+      if (type === 'live_feed' && !Array.isArray(parsed.items) && !parsed.query) {
+        toast.error('Live feed payload must have an "items" array or a "query" string'); return;
+      }
+      if (type === 'api_sync' && !parsed.query && !parsed.prompt) {
+        toast.error('API sync payload must have a "query" or "prompt" string'); return;
+      }
     }
 
     setScanState('scanning');
@@ -312,7 +335,7 @@ export default function ModuleFabricator({ currentUser, onPublished }) {
                 {typeInfo.label} Settings
               </h3>
               <button
-                onClick={() => setRawMode(!rawMode)}
+                onClick={() => { setRawMode(!rawMode); setScanState('idle'); }}
                 className="text-[10px] text-gray-500 hover:text-white flex items-center gap-1 font-mono"
               >
                 <Code size={11} /> {rawMode ? 'Use form' : 'Raw JSON'}
@@ -380,7 +403,9 @@ export default function ModuleFabricator({ currentUser, onPublished }) {
                 </FormField>
                 <FormField label="Stats (up to 3)">
                   <div className="space-y-2">
-                    {displayStats.map((stat, idx) => (
+                    {displayStats.map((stat, idx) => {
+                      const isDuplicate = stat.key.trim() && displayStats.some((s, i) => i !== idx && s.key.trim() === stat.key.trim());
+                      return (
                       <div key={idx} className="flex gap-2">
                         <input
                           type="text" value={stat.key}
@@ -388,7 +413,7 @@ export default function ModuleFabricator({ currentUser, onPublished }) {
                             const next = [...displayStats]; next[idx].key = e.target.value; setDisplayStats(next);
                           }}
                           placeholder="Label (e.g., Rank)"
-                          className="flex-1 bg-[#111] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-[#FF3333] outline-none"
+                          className={`flex-1 bg-[#111] border rounded-lg px-3 py-2 text-xs text-white focus:border-[#FF3333] outline-none ${isDuplicate ? 'border-red-500/60' : 'border-white/10'}`}
                         />
                         <input
                           type="text" value={stat.val}
@@ -409,7 +434,8 @@ export default function ModuleFabricator({ currentUser, onPublished }) {
                           className="px-2 text-zinc-500 hover:text-red-400 text-xs"
                         >×</button>
                       </div>
-                    ))}
+                      );
+                    })}
                     {displayStats.length < 3 && (
                       <button
                         onClick={() => setDisplayStats([...displayStats, { key: '', val: '' }])}
