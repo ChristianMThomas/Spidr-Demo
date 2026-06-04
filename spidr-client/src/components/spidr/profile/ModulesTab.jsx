@@ -47,7 +47,7 @@ export default function ModulesTab({ userId, isOwnProfile }) {
         const BuiltinWidget = getBuiltinWidget(mod);
         return (
           <div key={mod.id} className="transform scale-[0.85] origin-top-left w-[118%]">
-            {BuiltinWidget ? <BuiltinWidget userId={userId} isOwnProfile={isOwnProfile} /> : <DynamicModuleWidget mod={mod} />}
+            {BuiltinWidget ? <BuiltinWidget userId={userId} isOwnProfile={isOwnProfile} /> : <DynamicModuleWidget mod={mod} userId={userId} />}
           </div>
         );
       })}
