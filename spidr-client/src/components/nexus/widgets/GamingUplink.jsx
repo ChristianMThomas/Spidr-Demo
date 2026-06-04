@@ -76,6 +76,11 @@ export default function GamingUplink({ userId, isOwnProfile }) {
   const [reportForm, setReportForm] = useState({ email: '', issue: '', launcher: '', description: '' });
   const [reportStatus, setReportStatus] = useState(null);
 
+  const RATE_KEY = 'spidr_game_report_at';
+  const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+  const lastSubmit = parseInt(localStorage.getItem(RATE_KEY) || '0', 10);
+  const reportCoolingDown = Date.now() - lastSubmit < COOLDOWN_MS;
+
   const { data: profile } = useQuery({
     queryKey: ['user-profile', userId],
     queryFn: async () => {
@@ -160,20 +165,25 @@ export default function GamingUplink({ userId, isOwnProfile }) {
       });
       if (!res.ok) throw new Error();
       setReportStatus('sent');
+      localStorage.setItem(RATE_KEY, String(Date.now()));
     } catch {
       setReportStatus('error');
     }
   };
 
-  const reportLink = (
-    <button
-      onClick={() => setShowReport(true)}
-      className="mt-2 text-left text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors leading-relaxed"
-    >
-      Don't see your game? Icon not working?{' '}
-      <span className="underline underline-offset-2">Fill out this form</span>
-    </button>
-  );
+  const reportLink = isOwnProfile ? (
+    reportCoolingDown ? (
+      <p className="mt-2 text-[10px] text-zinc-700 leading-relaxed">Report already submitted — check back in 24h.</p>
+    ) : (
+      <button
+        onClick={() => setShowReport(true)}
+        className="mt-2 text-left text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors leading-relaxed"
+      >
+        Don't see your game? Icon not working?{' '}
+        <span className="underline underline-offset-2">Fill out this form</span>
+      </button>
+    )
+  ) : null;
 
   const reportModal = showReport && createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" onClick={closeReport}>

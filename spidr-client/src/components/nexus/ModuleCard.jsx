@@ -21,21 +21,21 @@ export default function ModuleCard({ mod, isInstalled, onInstall, onUninstall, o
   };
 
   return (
-    <motion.div whileHover={{ y: -2 }} className="p-5 bg-[#111] border border-white/5 rounded-2xl hover:border-white/20 transition-all group relative overflow-hidden">
+    <motion.div whileHover={{ y: -2 }} className="p-6 bg-[#111] border border-white/5 rounded-2xl hover:border-white/20 transition-all group relative overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 to-blue-500/0 group-hover:from-blue-500/5 group-hover:to-transparent transition-colors" />
 
       <div className="relative z-10">
         <div className="flex justify-between items-start mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-black border border-white/10 rounded-xl flex items-center justify-center overflow-hidden shrink-0">
+            <div className="w-14 h-14 bg-black border border-white/10 rounded-xl flex items-center justify-center overflow-hidden shrink-0">
               {mod.icon_url ? (
                 <img src={mod.icon_url} alt="" className="w-full h-full object-cover" />
               ) : (
-                <Blocks className="text-blue-500" size={20} />
+                <Blocks className="text-blue-500" size={22} />
               )}
             </div>
             <div className="min-w-0">
-              <h3 className="text-sm font-bold text-white truncate">{mod.name}</h3>
+              <h3 className="text-base font-bold text-white truncate">{mod.name}</h3>
               <div className="text-[10px] text-gray-500 font-mono">By @{mod.author_name || 'Unknown'}</div>
             </div>
           </div>
