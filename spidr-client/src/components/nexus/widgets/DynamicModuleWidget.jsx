@@ -8,7 +8,7 @@ import { entities, auth, integrations } from '@/api/apiClient';
  * Dynamically renders any user-created module based on its type and payload.
  * This is the core widget that makes ALL modules actually functional.
  */
-export default function DynamicModuleWidget({ mod }) {
+export default function DynamicModuleWidget({ mod, userId }) {
   const type = mod.type || 'static_text';
   const payload = parsePayload(mod.payload);
 
@@ -18,6 +18,9 @@ export default function DynamicModuleWidget({ mod }) {
   }
   if (payload.timezone || mod.name?.toLowerCase().includes('clock') || mod.name?.toLowerCase().includes('timezone')) {
     return <ClockWidget mod={mod} />;
+  }
+  if (mod.tags?.includes('streak') || mod.name?.toLowerCase().includes('streak')) {
+    return <StreakWidget mod={mod} userId={userId} />;
   }
 
   switch (type) {
@@ -332,6 +335,67 @@ function ClockWidget({ mod }) {
         <div className="text-[11px] text-gray-400 mt-1">{dateStr}</div>
         <div className="text-[9px] text-gray-600 font-mono mt-1 uppercase tracking-widest">{tzLabel}</div>
       </div>
+    </div>
+  );
+}
+
+// --- STREAK: Real consecutive-day activity streak ---
+function buildDailyBuckets(items, days) {
+  const buckets = new Array(days).fill(0);
+  const now = Date.now();
+  items.forEach(item => {
+    const created = new Date(item.created_date || item.sent_at || item.created_at).getTime();
+    const daysAgo = Math.floor((now - created) / 86400000);
+    if (daysAgo >= 0 && daysAgo < days) buckets[days - 1 - daysAgo]++;
+  });
+  return buckets;
+}
+
+function calcStreak(buckets) {
+  let streak = 0;
+  for (let i = buckets.length - 1; i >= 0; i--) {
+    if (buckets[i] > 0) streak++;
+    else break;
+  }
+  return streak;
+}
+
+function StreakWidget({ mod, userId }) {
+  const { data: msgs = [] } = useQuery({
+    queryKey: ['streak-msgs', userId],
+    queryFn: () => entities.Message.filter({ author_id: userId }),
+    enabled: !!userId,
+    staleTime: 60000,
+  });
+  const { data: dms = [] } = useQuery({
+    queryKey: ['streak-dms', userId],
+    queryFn: () => entities.DirectMessage.filter({ sender_id: userId }),
+    enabled: !!userId,
+    staleTime: 60000,
+  });
+
+  const DAYS = 30;
+  const msgBuckets = buildDailyBuckets(msgs, DAYS);
+  const dmBuckets  = buildDailyBuckets(dms, DAYS);
+  const combined   = msgBuckets.map((v, i) => v + (dmBuckets[i] || 0));
+  const current    = calcStreak(combined);
+  const best       = Math.max(...combined.map((_, i) => calcStreak(combined.slice(0, i + 1))));
+  const total      = combined.filter(v => v > 0).length;
+
+  return (
+    <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-5 relative overflow-hidden">
+      <WidgetHeader mod={mod} icon={Radio} color="text-amber-400" />
+      <div className="grid grid-cols-3 gap-2 mt-4">
+        {[['Current', current, 'text-amber-400'], ['Best', best, 'text-white'], ['Active Days', total, 'text-gray-400']].map(([label, val, cls]) => (
+          <div key={label} className="bg-black/50 border border-white/5 rounded-lg p-2 text-center">
+            <div className={`text-lg font-black ${cls}`}>{val}</div>
+            <div className="text-[8px] text-gray-500 uppercase font-bold">{label}</div>
+          </div>
+        ))}
+      </div>
+      {current > 0 && (
+        <p className="text-[9px] text-amber-400/60 font-mono uppercase tracking-widest mt-3 text-center">keep it going!</p>
+      )}
     </div>
   );
 }
