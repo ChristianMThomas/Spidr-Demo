@@ -20,7 +20,7 @@ const SCOPES = [
 ].join(' ');
 
 function redirectUri() {
-  const base = process.env.SERVER_URL || 'http://localhost:4000';
+  const base = process.env.SERVER_URL || 'http://127.0.0.1:4000';
   return `${base}/spotify/auth/callback`;
 }
 
@@ -39,7 +39,7 @@ router.get('/auth/start', (req, res) => {
     scope:         SCOPES,
     redirect_uri:  redirectUri(),
     state:         userId,
-    show_dialog:   'false',
+    show_dialog:   'true',
   });
   res.redirect(`https://accounts.spotify.com/authorize?${params}`);
 });
@@ -114,9 +114,9 @@ function trackShape(item, progressMs, isPlaying) {
   return {
     id:       item.id,
     name:     item.name,
-    artist:   item.artists.map(a => a.name).join(', '),
-    album:    item.album.name,
-    albumArt: item.album.images?.[0]?.url || null,
+    artist:   item.artists?.map(a => a.name).join(', ') || item.show?.name || 'Unknown',
+    album:    item.album?.name || item.show?.name || '',
+    albumArt: item.album?.images?.[0]?.url || item.images?.[0]?.url || null,
     duration: item.duration_ms,
     progress: progressMs || 0,
     url:      item.external_urls?.spotify || null,
@@ -124,47 +124,85 @@ function trackShape(item, progressMs, isPlaying) {
   };
 }
 
-// ── GET /spotify/now-playing (JWT required) ───────────────────────────────────
-router.get('/now-playing', authMW, async (req, res) => {
-  const userId = req.user.id;
-
-  const profile = await UserProfile.findOne({ user_id: userId }).lean();
-  if (!profile?.neural_links?.spotify_connected) {
-    return res.json({ connected: false });
-  }
-
-  let token   = profile.neural_links.spotify_access_token;
-  const exp   = profile.neural_links.spotify_token_expires || 0;
-  const refTok = profile.neural_links.spotify_refresh_token;
-
-  // Proactively refresh if within 60s of expiry
-  if (Date.now() > exp - 60_000) {
-    try { token = await refreshToken(userId, refTok); }
-    catch { return res.json({ connected: true, playing: false, error: 'token_expired' }); }
-  }
-
-  // Current track
+async function fetchNowPlaying(token) {
   const cpRes = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
     headers: { Authorization: `Bearer ${token}` },
   });
+  return cpRes;
+}
 
-  if (cpRes.status === 204 || !cpRes.ok) {
-    // Nothing playing — fall back to last played track
-    const rpRes = await fetch('https://api.spotify.com/v1/me/player/recently-played?limit=1', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (rpRes.ok) {
-      const rp   = await rpRes.json();
-      const item = rp.items?.[0]?.track;
-      if (item) return res.json({ connected: true, playing: false, track: trackShape(item, 0, false) });
+// ── GET /spotify/now-playing (JWT required) ───────────────────────────────────
+router.get('/now-playing', authMW, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const userId = req.user.id;
+
+    const profile = await UserProfile.findOne({ user_id: userId }).lean();
+    const connected = !!profile?.neural_links?.spotify_connected;
+    const exp = profile?.neural_links?.spotify_token_expires || 0;
+    console.log(`[spotify] userId=${userId} connected=${connected} tokenExpiry=${new Date(exp).toISOString()}`);
+    if (!connected) {
+      return res.json({ connected: false });
     }
-    return res.json({ connected: true, playing: false, track: null });
+
+    let token    = profile.neural_links.spotify_access_token;
+    const refTok = profile.neural_links.spotify_refresh_token;
+
+    // Proactively refresh if within 60s of expiry
+    if (Date.now() > exp - 60_000) {
+      try { token = await refreshToken(userId, refTok); }
+      catch (err) {
+        console.log(`[spotify] proactive refresh failed: ${err.message}`);
+        return res.json({ connected: true, playing: false, error: 'token_expired' });
+      }
+    }
+
+    let cpRes = await fetchNowPlaying(token);
+    console.log(`[spotify] currentlyPlaying status=${cpRes.status}`);
+
+    // Retry once with a fresh token if Spotify rejects (token revoked / clock skew)
+    if (cpRes.status === 401 && refTok) {
+      try {
+        token = await refreshToken(userId, refTok);
+        cpRes = await fetchNowPlaying(token);
+        console.log(`[spotify] 401 retry status=${cpRes.status}`);
+      } catch (err) {
+        console.log(`[spotify] 401 refresh retry failed: ${err.message}`);
+        return res.json({ connected: true, playing: false, error: 'token_expired' });
+      }
+    }
+
+    if (cpRes.status === 403) {
+      console.log('[spotify] 403 — app lacks Extended Access quota (playback APIs restricted in dev mode)');
+      return res.json({ connected: true, playing: false, error: 'quota_exceeded' });
+    }
+
+    if (cpRes.status === 204 || !cpRes.ok) {
+      console.log(`[spotify] no active player (status=${cpRes.status}), trying recently-played`);
+      const rpRes = await fetch('https://api.spotify.com/v1/me/player/recently-played?limit=1', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (rpRes.ok) {
+        const rp   = await rpRes.json();
+        const item = rp.items?.[0]?.track;
+        console.log(`[spotify] recently-played: ${item?.name ?? 'null'}`);
+        if (item) return res.json({ connected: true, playing: false, track: trackShape(item, 0, false) });
+      }
+      return res.json({ connected: true, playing: false, track: null });
+    }
+
+    const data = await cpRes.json();
+    if (!data?.item || data.currently_playing_type === 'ad') {
+      console.log(`[spotify] skipping ad or no item (type=${data?.currently_playing_type})`);
+      return res.json({ connected: true, playing: false, track: null });
+    }
+
+    console.log(`[spotify] playing: ${data.item.name} by ${data.item.artists?.[0]?.name}`);
+    res.json({ connected: true, playing: data.is_playing, track: trackShape(data.item, data.progress_ms, data.is_playing) });
+  } catch (err) {
+    console.error('[spotify] now-playing error:', err.message);
+    res.status(500).json({ connected: true, playing: false, error: 'internal' });
   }
-
-  const data = await cpRes.json();
-  if (!data?.item) return res.json({ connected: true, playing: false, track: null });
-
-  res.json({ connected: true, playing: data.is_playing, track: trackShape(data.item, data.progress_ms, data.is_playing) });
 });
 
 // ── DELETE /spotify/auth/disconnect (JWT required) ───────────────────────────
