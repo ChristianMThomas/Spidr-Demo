@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { FRAME_OPTIONS, getFrameComponent } from './FrameRegistry';
 import UserNameplate from './UserNameplate';
+import BubbleThemePicker from './BubbleThemePicker';
 
 const THEME_COLORS = ['#ffffff', '#FF3333', '#a855f7', '#3b82f6', '#10b981', '#eab308', '#ec4899', '#f97316'];
 
@@ -236,6 +237,13 @@ export default function ApexVisuals({ formData, updateFormData }) {
           })}
         </div>
       </div>
+
+      {/* 4.5 BUBBLE THEME — curated gradients for outgoing DM bubbles. The
+          picker is intentionally a fixed set (no free-form color picker) so
+          a user can't choose a hue that breaks the dark Spidr aesthetic for
+          the people they're messaging. See lib/bubbleGradients.js for the
+          rationale and how to add new entries. */}
+      <BubbleThemePicker formData={formData} updateFormData={updateFormData} />
 
       {/* 5. AVATAR FRAME + NAMEPLATE (4.1) */}
       <div className="space-y-4">

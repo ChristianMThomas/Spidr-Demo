@@ -50,6 +50,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('protocol:closed', handler);
   },
 
+  // Pin Spidr Protocol anywhere on the user's computer. The window's bounds
+  // are persisted in userData and restored on next open (with off-screen
+  // validation), so dragging it where you want it is enough.
+  //   setProtocolPreset    — 'top-left' | 'top-right' | 'bottom-left' |
+  //                          'bottom-right' | 'center' (picks the display
+  //                          under the user's cursor)
+  //   setProtocolBounds    — explicit { x, y, width?, height? } for fine control
+  //   resetProtocolPosition — forget saved bounds, snap back to default
+  //   getProtocolBounds    — current bounds (or saved/default if not open)
+  setProtocolPreset:     (preset) => ipcRenderer.send('protocol:set-preset', preset),
+  setProtocolBounds:     (bounds) => ipcRenderer.send('protocol:set-bounds', bounds),
+  resetProtocolPosition: ()       => ipcRenderer.send('protocol:reset-position'),
+  getProtocolBounds:     ()       => ipcRenderer.invoke('protocol:get-bounds'),
+
   // Game detection — emitted whenever a known game starts or stops
   onGamingStatus: (cb) => {
     const handler = (_e, status) => cb(status);

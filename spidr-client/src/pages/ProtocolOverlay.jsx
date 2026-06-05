@@ -147,6 +147,40 @@ export default function ProtocolOverlay() {
 
   return (
     <div className="fixed inset-0 overflow-hidden select-none" style={{ background: 'transparent' }}>
+      {/* Top drag rail — invisible (yet draggable) when ambient so it never
+          gets in the way; reveals a thin red glow + ⋮⋮ grip the moment the
+          user enters interactive mode, so they have an obvious thing to grab
+          and pin the overlay wherever they want on their desktop. The whole
+          rail is a single -webkit-app-region: drag zone, so the user has the
+          full width of the window as a drag target. */}
+      <div
+        className="absolute top-0 left-0 right-0 h-7 flex items-center justify-center"
+        style={{
+          WebkitAppRegion: 'drag',
+          pointerEvents: 'auto',
+          cursor: interactive ? 'grab' : 'default',
+          transition: 'opacity 200ms ease',
+          opacity: interactive ? 1 : 0,
+        }}
+        title="Spidr Protocol — drag to pin anywhere"
+      >
+        <div
+          className="flex items-center gap-2 px-3 py-1 rounded-b-md"
+          style={{
+            background: 'linear-gradient(180deg, rgba(239,68,68,0.18) 0%, rgba(0,0,0,0) 100%)',
+            borderTop: '1px solid rgba(239,68,68,0.6)',
+            boxShadow: '0 0 12px rgba(239,68,68,0.35)',
+          }}
+        >
+          <span
+            className="font-mono text-[10px] tracking-[0.2em] uppercase"
+            style={{ color: '#ef4444', textShadow: '0 0 6px rgba(239,68,68,0.6)' }}
+          >
+            ⋮⋮  Spidr Protocol  ⋮⋮
+          </span>
+        </div>
+      </div>
+
       {/* Message stream — fades as a whole after 6s of silence. */}
       <motion.div
         className="absolute left-3 right-3 bottom-12 flex flex-col gap-1 justify-end"
