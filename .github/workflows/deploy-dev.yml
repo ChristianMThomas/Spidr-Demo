@@ -32,3 +32,5 @@ jobs:
           password: ${{ secrets.HOSTINGER_FTP_PASSWORD_DEV }}
           local-dir: spidr-client/dist/
           server-dir: /public_html/
+          protocol: ftps
+          port: 21
