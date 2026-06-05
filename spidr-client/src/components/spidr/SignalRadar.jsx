@@ -1,18 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Slider } from '@/components/ui/slider';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { X, Users, Radio, Wifi } from 'lucide-react';
 import { toast } from 'sonner';
+
+/**
+ * SignalRadar — Holographic Server Discovery HUD
+ *
+ * Aesthetic: pure black canvases with glowing red borders, translucent glass
+ * panels, and red monochromatic projections of server icons. The whole panel
+ * reads like a HUD beamed onto the screen, not a flat UI.
+ *
+ * Key design choices (from the spec):
+ *   • Search bar — pure black with a thin red glowing border; brightens on focus.
+ *   • Tabs — hollow glowing pill for the active tab (no solid red block).
+ *   • Frequency timeline — 1px laser beam with heavy box-shadow glow; a
+ *     hollow circle node with a pulsing center snaps to the active category.
+ *   • Server cards — angled clip-path corners, heavily blurred translucent
+ *     canvas, server icons projected with mix-blend-luminosity + red overlay
+ *     + faint scanlines so they look like holograms.
+ *   • Buttons — hollow red outlines that fill on hover.
+ */
 
 const CATEGORIES = ['All Signals', 'Gaming', 'Social', 'Tech', 'Creative', 'Study', 'Other'];
 
 export default function SignalRadar({ open, onClose, currentUser }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [frequencyIndex, setFrequencyIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(CATEGORIES[0]);
@@ -32,7 +47,7 @@ export default function SignalRadar({ open, onClose, currentUser }) {
   const friendIds = React.useMemo(() => new Set(friends.map(f => f.friend_id)), [friends]);
 
   const friendServers = React.useMemo(() => {
-    return servers.filter(server => 
+    return servers.filter(server =>
       server.members?.some(m => friendIds.has(m.user_id))
     ).map(server => ({
       ...server,
@@ -40,22 +55,25 @@ export default function SignalRadar({ open, onClose, currentUser }) {
     }));
   }, [servers, friendIds]);
 
-  const handleFrequencyChange = (value) => {
-    const newIndex = value[0];
-    if (newIndex !== frequencyIndex) {
-      setIsTransitioning(true);
-      setFrequencyIndex(newIndex);
-      setSelectedCategory(CATEGORIES[newIndex]);
-      setTimeout(() => setIsTransitioning(false), 300);
-    }
+  // Tune the frequency by tapping a category label or by clicking anywhere
+  // along the laser line. Cancels the previous transition if you flick through.
+  const transitionTimer = useRef(null);
+  const tuneTo = (newIndex) => {
+    if (newIndex === frequencyIndex) return;
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    setIsTransitioning(true);
+    setFrequencyIndex(newIndex);
+    setSelectedCategory(CATEGORIES[newIndex]);
+    transitionTimer.current = setTimeout(() => setIsTransitioning(false), 260);
   };
+  useEffect(() => () => { if (transitionTimer.current) clearTimeout(transitionTimer.current); }, []);
 
   const filteredServers = servers.filter(server => {
-    const matchesSearch = !searchTerm || 
+    const matchesSearch = !searchTerm ||
       server.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       server.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       server.tags?.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesCategory = selectedCategory === 'All Signals' || 
+    const matchesCategory = selectedCategory === 'All Signals' ||
       server.category?.toLowerCase() === selectedCategory.toLowerCase() ||
       server.description?.toLowerCase().includes(selectedCategory.toLowerCase());
     return matchesSearch && matchesCategory && server.is_public !== false;
@@ -70,250 +88,429 @@ export default function SignalRadar({ open, onClose, currentUser }) {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 flex items-center justify-center"
-        style={{ backdropFilter: 'blur(20px)' }}
+        style={{ backdropFilter: 'blur(24px)' }}
       >
-        {/* Blurred Background */}
-        <div className="absolute inset-0 bg-black/80" />
+        {/* Ambient background — deep black with a soft red bleed */}
+        <div className="absolute inset-0 bg-black/90" />
+        <div
+          className="absolute inset-0 pointer-events-none opacity-60"
+          style={{
+            background:
+              'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(220,38,38,0.10), transparent 60%),' +
+              'radial-gradient(ellipse 60% 40% at 50% 100%, rgba(220,38,38,0.06), transparent 60%)',
+          }}
+        />
+        {/* Faint scanline grain across the whole viewport */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-[0.06]"
+          style={{
+            backgroundImage:
+              'repeating-linear-gradient(0deg, transparent 0px, transparent 2px, rgba(255,255,255,0.5) 2px, rgba(255,255,255,0.5) 3px)',
+          }}
+        />
 
-        {/* HUD Container */}
+        {/* HUD frame */}
         <motion.div
-          initial={{ scale: 0.8, opacity: 0 }}
+          initial={{ scale: 0.94, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.8, opacity: 0 }}
-          className="relative w-full h-full max-w-7xl max-h-[90vh] m-8"
+          exit={{ scale: 0.94, opacity: 0 }}
+          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          className="relative w-full h-full max-w-7xl max-h-[92vh] m-6 flex flex-col"
         >
-          {/* HUD Frame */}
-          <div className="relative w-full h-full bg-zinc-950/90 border-2 border-red-600/50 rounded-lg shadow-2xl overflow-hidden">
-            {/* Corner Accents */}
-            <div className="absolute top-0 left-0 w-16 h-16 border-t-4 border-l-4 border-red-500" />
-            <div className="absolute top-0 right-0 w-16 h-16 border-t-4 border-r-4 border-red-500" />
-            <div className="absolute bottom-0 left-0 w-16 h-16 border-b-4 border-l-4 border-red-500" />
-            <div className="absolute bottom-0 right-0 w-16 h-16 border-b-4 border-r-4 border-red-500" />
+          {/* Header — Sonar icon + title + close button */}
+          <Header onClose={onClose} />
 
-            {/* Header */}
-            <div className="relative z-10 border-b-2 border-red-900/50 p-6 bg-zinc-900/50">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <SonarIcon />
-                  <div>
-                    <h2 className="text-2xl font-bold text-red-500 tracking-wider">SIGNAL RADAR</h2>
-                    <p className="text-zinc-500 text-sm">Scanning for active communities...</p>
-                  </div>
+          {/* Search bar */}
+          <SearchBar
+            value={searchTerm}
+            onChange={setSearchTerm}
+            focused={searchFocused}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+          />
+
+          {/* Hollow glowing tabs */}
+          <TabRow
+            value={radarTab}
+            onChange={setRadarTab}
+            friendCount={friendServers.length}
+          />
+
+          {radarTab === 'discover' ? (
+            <>
+              {/* Frequency laser timeline */}
+              <FrequencyLaser
+                categories={CATEGORIES}
+                index={frequencyIndex}
+                onTune={tuneTo}
+              />
+
+              {/* Server grid */}
+              <div className="flex-1 overflow-y-auto pt-6 pr-1 -mr-1 spidr-radar-scroll">
+                <AnimatePresence mode="wait">
+                  {isTransitioning ? (
+                    <FrequencyJam key="jam" />
+                  ) : (
+                    <motion.div
+                      key={selectedCategory}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.25 }}
+                      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pb-2"
+                    >
+                      {filteredServers.length === 0 ? (
+                        <EmptyState />
+                      ) : (
+                        filteredServers.map((server, i) => (
+                          <ServerHologram
+                            key={server.id}
+                            server={server}
+                            currentUser={currentUser}
+                            index={i}
+                          />
+                        ))
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 overflow-y-auto pt-6 spidr-radar-scroll">
+              {friendServers.length === 0 ? (
+                <div className="text-center py-20">
+                  <Users className="w-12 h-12 text-red-900/50 mx-auto mb-3" />
+                  <p className="text-red-400/70 font-mono tracking-wider text-sm">NO FRIEND SIGNALS DETECTED</p>
+                  <p className="text-zinc-600 text-xs mt-2 font-mono">your network is silent on this frequency</p>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={onClose}
-                  className="text-red-500 hover:bg-red-950/50"
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pb-2"
                 >
-                  <X className="w-6 h-6" />
-                </Button>
-              </div>
-
-              {/* Search */}
-              <div className="mt-4">
-                <Input
-                  placeholder="Search signals..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="bg-zinc-800 border-red-900/50 text-white placeholder:text-zinc-600"
-                />
-              </div>
-            </div>
-
-            {/* Tabs: Discover / Friends' Servers */}
-            <div className="relative z-10 px-6 pt-4 border-b-2 border-red-900/50 bg-zinc-900/30">
-              <Tabs value={radarTab} onValueChange={setRadarTab}>
-                <TabsList className="bg-zinc-800/50 border border-red-900/20">
-                  <TabsTrigger value="discover" className="data-[state=active]:bg-red-600 font-mono text-xs tracking-wider">
-                    <Radio className="w-3 h-3 mr-1.5" /> DISCOVER
-                  </TabsTrigger>
-                  <TabsTrigger value="friends" className="data-[state=active]:bg-red-600 font-mono text-xs tracking-wider">
-                    <Users className="w-3 h-3 mr-1.5" /> FRIENDS' SERVERS
-                    {friendServers.length > 0 && (
-                      <span className="ml-1.5 bg-red-500/80 text-white text-[9px] px-1.5 py-0.5 rounded-full">{friendServers.length}</span>
-                    )}
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
-
-            {radarTab === 'discover' && (
-              <>
-                {/* Frequency Tuner */}
-                <div className="relative z-10 p-6 border-b-2 border-red-900/50 bg-zinc-900/30">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="text-red-400 font-mono text-sm tracking-wider">
-                        FREQUENCY: {selectedCategory.toUpperCase()}
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <Radio className="w-4 h-4 text-green-500 animate-pulse" />
-                        <span className="text-green-500 text-xs font-mono">ONLINE</span>
-                      </div>
-                    </div>
-                    <Slider
-                      value={[frequencyIndex]}
-                      onValueChange={handleFrequencyChange}
-                      max={CATEGORIES.length - 1}
-                      step={1}
-                      className="cursor-pointer"
+                  {friendServers.map((server, i) => (
+                    <ServerHologram
+                      key={server.id}
+                      server={server}
+                      currentUser={currentUser}
+                      friendsInServer={server._friendsInServer}
+                      index={i}
                     />
-                    <div className="flex justify-between text-xs text-zinc-600 font-mono">
-                      {CATEGORIES.map((cat, i) => (
-                        <span 
-                          key={i} 
-                          className={i === frequencyIndex ? 'text-red-400' : ''}
-                        >
-                          {cat}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Server Grid */}
-                <div className="relative z-10 p-6 overflow-y-auto" style={{ height: 'calc(100% - 330px)' }}>
-                  <AnimatePresence mode="wait">
-                    {isTransitioning ? (
-                      <TVStaticTransition key="transition" />
-                    ) : (
-                      <motion.div
-                        key={selectedCategory}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-                      >
-                        {filteredServers.length === 0 ? (
-                          <div className="col-span-full text-center py-12">
-                            <Radio className="w-16 h-16 text-zinc-700 mx-auto mb-4" />
-                            <p className="text-zinc-500">No signals detected on this frequency...</p>
-                          </div>
-                        ) : (
-                          filteredServers.map((server) => (
-                            <ServerDataPacket 
-                              key={server.id} 
-                              server={server} 
-                              currentUser={currentUser} 
-                            />
-                          ))
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </>
-            )}
-
-            {radarTab === 'friends' && (
-              <div className="relative z-10 p-6 overflow-y-auto" style={{ height: 'calc(100% - 220px)' }}>
-                {friendServers.length === 0 ? (
-                  <div className="text-center py-16">
-                    <Users className="w-16 h-16 text-zinc-700 mx-auto mb-4" />
-                    <p className="text-zinc-500 font-mono">No friend signals detected...</p>
-                    <p className="text-zinc-600 text-sm mt-1">Your friends haven't joined any servers yet.</p>
-                  </div>
-                ) : (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-                  >
-                    {friendServers.map((server) => (
-                      <ServerDataPacket 
-                        key={server.id} 
-                        server={server} 
-                        currentUser={currentUser}
-                        friendsInServer={server._friendsInServer}
-                      />
-                    ))}
-                  </motion.div>
-                )}
-              </div>
-            )}
-          </div>
+                  ))}
+                </motion.div>
+              )}
+            </div>
+          )}
         </motion.div>
+
+        {/* Local style — the styles below are scoped via unique class names
+            so they don't leak into the rest of the app. */}
+        <style>{`
+          @keyframes spidr-scanline {
+            0%   { transform: translateY(-100%); }
+            100% { transform: translateY(200%); }
+          }
+          @keyframes spidr-pulse-dot {
+            0%, 100% { transform: scale(1);   opacity: 1;   }
+            50%      { transform: scale(0.5); opacity: 0.5; }
+          }
+          @keyframes spidr-sonar-ping {
+            0%   { transform: scale(1);   opacity: 0.8; }
+            100% { transform: scale(2.4); opacity: 0;   }
+          }
+          @keyframes spidr-static {
+            0%   { background-position: 0 0; }
+            100% { background-position: 0 8px; }
+          }
+          .spidr-radar-scroll::-webkit-scrollbar { width: 6px; }
+          .spidr-radar-scroll::-webkit-scrollbar-track { background: transparent; }
+          .spidr-radar-scroll::-webkit-scrollbar-thumb {
+            background: rgba(220, 38, 38, 0.25);
+            border-radius: 3px;
+          }
+          .spidr-radar-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(220, 38, 38, 0.5);
+          }
+        `}</style>
       </motion.div>
     </AnimatePresence>
+  );
+}
+
+// ── Header ──────────────────────────────────────────────────────────────────
+function Header({ onClose }) {
+  return (
+    <div className="flex items-start justify-between mb-5">
+      <div className="flex items-center gap-4">
+        <SonarIcon />
+        <div>
+          <h2
+            className="text-2xl font-bold tracking-[0.25em] text-red-500"
+            style={{ textShadow: '0 0 14px rgba(220,38,38,0.45)' }}
+          >
+            SIGNAL RADAR
+          </h2>
+          <p className="text-red-900 text-[10px] font-mono tracking-[0.3em] uppercase mt-1">
+            Scanning active frequencies...
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={onClose}
+        aria-label="Close Signal Radar"
+        className="w-9 h-9 flex items-center justify-center text-red-500/70 border border-red-500/20 rounded-md hover:bg-red-500/10 hover:border-red-500 hover:text-red-400 hover:shadow-[0_0_15px_rgba(220,38,38,0.3)] transition-all"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
   );
 }
 
 function SonarIcon() {
   return (
     <div className="relative w-12 h-12 flex items-center justify-center">
-      {/* Pulsing Rings */}
-      <motion.div
-        animate={{
-          scale: [1, 2, 2],
-          opacity: [0.5, 0.2, 0],
-        }}
-        transition={{
-          duration: 2,
-          repeat: Infinity,
-          ease: "easeOut"
-        }}
-        className="absolute inset-0 rounded-full border-2 border-red-500"
+      <span
+        className="absolute inset-0 rounded-full border border-red-500/70"
+        style={{ animation: 'spidr-sonar-ping 2s ease-out infinite' }}
       />
-      <motion.div
-        animate={{
-          scale: [1, 2, 2],
-          opacity: [0.5, 0.2, 0],
-        }}
-        transition={{
-          duration: 2,
-          repeat: Infinity,
-          delay: 0.5,
-          ease: "easeOut"
-        }}
-        className="absolute inset-0 rounded-full border-2 border-red-500"
+      <span
+        className="absolute inset-0 rounded-full border border-red-500/70"
+        style={{ animation: 'spidr-sonar-ping 2s ease-out 0.7s infinite' }}
       />
-      {/* Center Dot */}
-      <div className="w-3 h-3 bg-red-500 rounded-full shadow-lg shadow-red-500/50" />
+      <span
+        className="block w-2.5 h-2.5 rounded-full bg-red-500"
+        style={{ boxShadow: '0 0 8px rgba(220,38,38,0.9), 0 0 16px rgba(220,38,38,0.5)' }}
+      />
     </div>
   );
 }
 
-function TVStaticTransition() {
+// ── Search bar ──────────────────────────────────────────────────────────────
+function SearchBar({ value, onChange, focused, onFocus, onBlur }) {
+  return (
+    <div className="mb-4">
+      <div
+        className="relative bg-black rounded-md transition-all duration-200"
+        style={{
+          border: '1px solid',
+          borderColor: focused ? 'rgba(220, 38, 38, 0.8)' : 'rgba(220, 38, 38, 0.2)',
+          boxShadow: focused
+            ? '0 0 20px rgba(220, 38, 38, 0.25), inset 0 0 12px rgba(220, 38, 38, 0.05)'
+            : 'inset 0 0 8px rgba(220, 38, 38, 0.04)',
+        }}
+      >
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          placeholder="Locate signals..."
+          className="w-full bg-transparent px-4 py-3 text-red-100 placeholder:text-red-900 placeholder:tracking-wider placeholder:font-mono placeholder:text-sm font-mono text-sm outline-none caret-red-500"
+        />
+        {/* Tiny corner ticks — pure ornament so the field reads as a HUD field */}
+        <span className="absolute -top-px left-2 w-2 h-px bg-red-500/60" />
+        <span className="absolute -top-px right-2 w-2 h-px bg-red-500/60" />
+        <span className="absolute -bottom-px left-2 w-2 h-px bg-red-500/60" />
+        <span className="absolute -bottom-px right-2 w-2 h-px bg-red-500/60" />
+      </div>
+    </div>
+  );
+}
+
+// ── Tab row ─────────────────────────────────────────────────────────────────
+function TabRow({ value, onChange, friendCount }) {
+  const tabs = [
+    { id: 'discover', label: 'DISCOVER',         icon: Radio },
+    { id: 'friends',  label: 'FRIENDS',          icon: Users, badge: friendCount },
+  ];
+  return (
+    <div className="flex items-center gap-3 mb-5">
+      {tabs.map((tab) => {
+        const Active = value === tab.id;
+        const Icon = tab.icon;
+        return (
+          <button
+            key={tab.id}
+            onClick={() => onChange(tab.id)}
+            className={`group relative px-5 py-2 font-mono text-xs tracking-[0.25em] transition-all duration-200 rounded-md ${
+              Active
+                ? 'bg-red-500/10 border border-red-500 text-red-400 shadow-[0_0_15px_rgba(220,38,38,0.25)]'
+                : 'border border-red-500/15 text-red-900 hover:text-red-500/80 hover:border-red-500/40'
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <Icon className="w-3 h-3" />
+              {tab.label}
+              {tab.badge > 0 && (
+                <span className={`ml-1 px-1.5 py-0.5 text-[9px] rounded-sm font-bold ${
+                  Active ? 'bg-red-500/30 text-red-200' : 'bg-red-900/60 text-red-500/70'
+                }`}>
+                  {tab.badge}
+                </span>
+              )}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Frequency laser timeline ────────────────────────────────────────────────
+function FrequencyLaser({ categories, index, onTune }) {
+  // Position of each category marker along the line, evenly spaced
+  const stops = categories.length;
+  const stepPct = stops > 1 ? 100 / (stops - 1) : 0;
+  const activeLeftPct = index * stepPct;
+
+  return (
+    <div className="mb-2 select-none">
+      {/* Top label row */}
+      <div className="flex items-center justify-between mb-3">
+        <span className="font-mono text-[10px] tracking-[0.3em] uppercase text-red-500/70">
+          Frequency Lock: <span className="text-red-400">{categories[index]}</span>
+        </span>
+        <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.3em] uppercase text-emerald-400/80">
+          <span className="relative flex w-1.5 h-1.5">
+            <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
+            <span className="relative rounded-full bg-emerald-400 w-1.5 h-1.5" />
+          </span>
+          Online
+        </span>
+      </div>
+
+      {/* The 1px laser beam */}
+      <div
+        className="relative h-6 flex items-center cursor-pointer"
+        role="slider"
+        aria-valuemin={0}
+        aria-valuemax={stops - 1}
+        aria-valuenow={index}
+        aria-label="Tune frequency"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft')  onTune(Math.max(0, index - 1));
+          if (e.key === 'ArrowRight') onTune(Math.min(stops - 1, index + 1));
+        }}
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const pct = Math.max(0, Math.min(1, x / rect.width));
+          onTune(Math.round(pct * (stops - 1)));
+        }}
+      >
+        {/* The thin laser line */}
+        <div
+          className="absolute left-0 right-0"
+          style={{
+            height: '1px',
+            background: 'linear-gradient(90deg, rgba(220,38,38,0.15) 0%, rgba(220,38,38,0.55) 50%, rgba(220,38,38,0.15) 100%)',
+            boxShadow: '0 0 8px rgba(220,38,38,0.55), 0 0 16px rgba(220,38,38,0.35), 0 0 24px rgba(220,38,38,0.15)',
+          }}
+        />
+        {/* Category tick marks under the line */}
+        {categories.map((_, i) => (
+          <div
+            key={i}
+            className="absolute top-1/2"
+            style={{
+              left: `${i * stepPct}%`,
+              transform: 'translate(-50%, -50%)',
+              width: i === index ? '1px' : '1px',
+              height: i === index ? '8px' : '4px',
+              background: i === index ? '#ef4444' : 'rgba(220,38,38,0.35)',
+              boxShadow: i === index ? '0 0 6px rgba(220,38,38,0.8)' : 'none',
+            }}
+          />
+        ))}
+        {/* The hollow circle node — snaps to the active category */}
+        <motion.div
+          animate={{ left: `${activeLeftPct}%` }}
+          transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+          className="absolute top-1/2 pointer-events-none"
+          style={{ transform: 'translate(-50%, -50%)' }}
+        >
+          <div
+            className="relative w-4 h-4 rounded-full border-2 border-red-500 bg-black flex items-center justify-center"
+            style={{ boxShadow: '0 0 10px rgba(220,38,38,0.6), 0 0 18px rgba(220,38,38,0.3)' }}
+          >
+            <span
+              className="block w-1.5 h-1.5 rounded-full bg-red-500"
+              style={{ animation: 'spidr-pulse-dot 1.4s ease-in-out infinite' }}
+            />
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Category labels — clickable tuning anchors */}
+      <div className="flex justify-between mt-2 font-mono text-[10px] tracking-[0.2em] uppercase">
+        {categories.map((cat, i) => (
+          <button
+            key={cat}
+            onClick={() => onTune(i)}
+            className={`transition-colors duration-150 ${
+              i === index ? 'text-red-400' : 'text-red-900 hover:text-red-500/70'
+            }`}
+            style={{ textShadow: i === index ? '0 0 8px rgba(220,38,38,0.45)' : 'none' }}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Transition jam (frequency switch) ───────────────────────────────────────
+function FrequencyJam() {
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="absolute inset-0 flex items-center justify-center"
+      className="flex items-center justify-center py-20"
     >
-      <div 
-        className="w-full h-full"
+      <div
+        className="w-full h-32 relative overflow-hidden rounded-md"
         style={{
-          background: `repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 2px,
-            rgba(255, 255, 255, 0.03) 2px,
-            rgba(255, 255, 255, 0.03) 4px
-          )`,
-          animation: 'static 0.1s infinite'
+          background: 'repeating-linear-gradient(0deg, transparent 0 2px, rgba(220,38,38,0.06) 2px 4px)',
+          animation: 'spidr-static 0.16s steps(2) infinite',
+          border: '1px solid rgba(220,38,38,0.15)',
         }}
-      />
-      <style>{`
-        @keyframes static {
-          0% { background-position: 0 0; }
-          100% { background-position: 0 100%; }
-        }
-      `}</style>
+      >
+        <div className="absolute inset-0 flex items-center justify-center font-mono text-[10px] tracking-[0.4em] text-red-500/60">
+          ▓░  TUNING  ░▓
+        </div>
+      </div>
     </motion.div>
   );
 }
 
-function ServerDataPacket({ server, currentUser, friendsInServer }) {
+// ── Empty state ─────────────────────────────────────────────────────────────
+function EmptyState() {
+  return (
+    <div className="col-span-full text-center py-16">
+      <div className="inline-block relative mb-4">
+        <Radio className="w-12 h-12 text-red-900/60 mx-auto" />
+      </div>
+      <p className="text-red-400/70 font-mono tracking-wider text-sm">NO SIGNALS ON THIS FREQUENCY</p>
+      <p className="text-zinc-600 text-xs mt-2 font-mono">dial somewhere else on the band</p>
+    </div>
+  );
+}
+
+// ── Server Hologram (the projected server card) ─────────────────────────────
+function ServerHologram({ server, currentUser, friendsInServer, index = 0 }) {
   const memberCount = server.members?.length || 0;
   const signalStrength = Math.min(Math.floor(memberCount / 5) + 1, 5);
-  const isActive = memberCount > 10;
 
   const handleJoin = async () => {
     try {
       if (server.members?.some(m => m.user_id === currentUser?.id)) {
-        toast.error('You are already a member of this server');
+        toast.error('Uplink already established with this signal');
         return;
       }
       const isAirlockEnabled = server.airlock?.enabled;
@@ -328,138 +525,262 @@ function ServerDataPacket({ server, currentUser, friendsInServer }) {
         }
       ];
       await entities.Server.update(server.id, { members: updatedMembers });
-      toast.success(isAirlockEnabled 
-        ? 'Joined server — awaiting verification from admins.' 
-        : 'Signal acquired! Joined server.');
+      toast.success(isAirlockEnabled
+        ? 'Uplink pending — awaiting verification.'
+        : 'Uplink established. Signal locked.');
     } catch (error) {
-      toast.error('Failed to join server');
+      toast.error('Uplink failed');
     }
   };
 
+  // 8-sided clip-path so all four corners are angled
+  const clipPath = 'polygon(8% 0%, 92% 0%, 100% 8%, 100% 92%, 92% 100%, 8% 100%, 0% 92%, 0% 8%)';
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ scale: 1.02 }}
+      transition={{ duration: 0.35, delay: Math.min(index * 0.04, 0.3), ease: 'easeOut' }}
+      whileHover={{ y: -2 }}
       className="group relative"
     >
-      {/* Hexagonal Card */}
-      <div 
-        className="relative bg-gradient-to-br from-zinc-900 to-zinc-950 border-2 border-red-900/30 p-4 overflow-hidden"
+      {/* Outer projection plate — the translucent angled canvas */}
+      <div
+        className="relative p-4 overflow-hidden"
         style={{
-          clipPath: 'polygon(10% 0%, 90% 0%, 100% 10%, 100% 90%, 90% 100%, 10% 100%, 0% 90%, 0% 10%)'
+          clipPath,
+          background: 'rgba(5, 5, 5, 0.8)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
         }}
       >
-        {/* Scanline Effect */}
-        <div className="absolute inset-0 opacity-10 pointer-events-none">
-          <div className="w-full h-px bg-red-500 animate-pulse" style={{ animation: 'scanline 2s linear infinite' }} />
-        </div>
-
-        {/* Icon */}
-        {server.icon_url ? (
-          <img 
-            src={server.icon_url} 
-            alt={server.name}
-            className="w-16 h-16 rounded-lg mb-3 border border-red-900/50"
-          />
-        ) : (
-          <div className="w-16 h-16 rounded-lg mb-3 bg-red-950/50 border border-red-900/50 flex items-center justify-center">
-            <Wifi className="w-8 h-8 text-red-500" />
-          </div>
-        )}
-
-        {/* Name & Badges */}
-        <div className="flex items-center gap-2 mb-1">
-          <h3 className="text-white font-bold truncate">{server.name}</h3>
-          {server.verified && (
-            <div className="px-1.5 py-0.5 bg-blue-600 rounded text-[10px] font-bold text-white">✓</div>
-          )}
-          {server.boost_level > 0 && (
-            <div className="px-1.5 py-0.5 bg-purple-600 rounded text-[10px] font-bold text-white">
-              ⚡{server.boost_level}
-            </div>
-          )}
-        </div>
-        <p className="text-zinc-500 text-sm mb-2 line-clamp-2 h-10">
-          {server.description || 'No description available'}
-        </p>
-
-        {/* Tags */}
-        {server.tags && server.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {server.tags.slice(0, 3).map((tag, i) => (
-              <span key={i} className="px-2 py-0.5 bg-zinc-800 rounded-full text-[10px] text-zinc-400">
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Signal Strength */}
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs text-zinc-600 font-mono">SIGNAL STRENGTH</span>
-            <span className="text-xs text-green-500 font-mono">{memberCount} ACTIVE</span>
-          </div>
-          <div className="flex gap-1">
-            {[...Array(5)].map((_, i) => (
-              <div
-                key={i}
-                className={`h-2 flex-1 rounded-full ${
-                  i < signalStrength 
-                    ? isActive ? 'bg-green-500' : 'bg-yellow-500'
-                    : 'bg-zinc-800'
-                }`}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Friends in server badge */}
-        {friendsInServer && friendsInServer.length > 0 && (
-          <div className="flex items-center gap-2 mb-3 px-2 py-1.5 bg-purple-950/40 border border-purple-500/30 rounded-lg">
-            <Users className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-            <div className="flex -space-x-2 shrink-0">
-              {friendsInServer.slice(0, 4).map((m, i) => (
-                m.user_avatar ? (
-                  <img key={i} src={m.user_avatar} className="w-5 h-5 rounded-full border border-zinc-900 object-cover" />
-                ) : (
-                  <div key={i} className="w-5 h-5 rounded-full border border-zinc-900 bg-purple-800 flex items-center justify-center text-[8px] text-white font-bold">
-                    {m.user_name?.charAt(0)}
-                  </div>
-                )
-              ))}
-            </div>
-            <span className="text-purple-300 text-[10px] font-mono truncate">
-              {friendsInServer.length} friend{friendsInServer.length !== 1 ? 's' : ''} here
-            </span>
-          </div>
-        )}
-
-        {/* Join Button */}
-        <Button
-          onClick={handleJoin}
-          className="w-full bg-red-600 hover:bg-red-700 text-white font-mono tracking-wider"
-          size="sm"
-        >
-          <Radio className="w-4 h-4 mr-2" />
-          CONNECT
-        </Button>
-
-        {/* Hover Glow */}
-        <div className="absolute inset-0 border-2 border-red-500/0 group-hover:border-red-500/50 transition-all pointer-events-none"
+        {/* Inner border drawn as an overlay so it follows the clip-path. The
+            border lives ON the clipped edge instead of getting cut off. */}
+        <div
+          className="absolute inset-0 pointer-events-none transition-all duration-300 group-hover:opacity-100"
           style={{
-            clipPath: 'polygon(10% 0%, 90% 0%, 100% 10%, 100% 90%, 90% 100%, 10% 100%, 0% 90%, 0% 10%)'
+            clipPath,
+            background: `
+              linear-gradient(rgba(220,38,38,0.4), rgba(220,38,38,0.4)) top/100% 1px no-repeat,
+              linear-gradient(rgba(220,38,38,0.4), rgba(220,38,38,0.4)) bottom/100% 1px no-repeat,
+              linear-gradient(rgba(220,38,38,0.4), rgba(220,38,38,0.4)) left/1px 100% no-repeat,
+              linear-gradient(rgba(220,38,38,0.4), rgba(220,38,38,0.4)) right/1px 100% no-repeat
+            `,
+            // The trick: we draw the border with an inset box-shadow that
+            // respects the clip-path, since regular borders square the corners.
+            boxShadow: 'inset 0 0 0 1px rgba(220,38,38,0.2)',
           }}
         />
-      </div>
+        {/* Subtle inner glow on hover */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+          style={{
+            clipPath,
+            boxShadow: 'inset 0 0 30px rgba(220, 38, 38, 0.15)',
+          }}
+        />
 
-      <style>{`
-        @keyframes scanline {
-          0% { transform: translateY(0); }
-          100% { transform: translateY(100%); }
-        }
-      `}</style>
+        {/* Roaming scanline — visible always but faint */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ clipPath }}>
+          <div
+            className="absolute left-0 right-0 h-px"
+            style={{
+              background: 'linear-gradient(90deg, transparent, rgba(220,38,38,0.6), transparent)',
+              boxShadow: '0 0 8px rgba(220,38,38,0.6)',
+              animation: 'spidr-scanline 4s linear infinite',
+              animationDelay: `${(index % 3) * 0.6}s`,
+            }}
+          />
+        </div>
+
+        {/* Faint horizontal scanline grid baked into the whole card */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-30"
+          style={{
+            clipPath,
+            backgroundImage:
+              'repeating-linear-gradient(0deg, transparent 0px, transparent 3px, rgba(220,38,38,0.04) 3px, rgba(220,38,38,0.04) 4px)',
+          }}
+        />
+
+        {/* === Content === */}
+        <div className="relative z-10">
+          {/* Top row — projected server icon + name */}
+          <div className="flex items-start gap-3 mb-3">
+            <ServerIconProjection
+              src={server.icon_url}
+              alt={server.name}
+              fallbackIcon={<Wifi className="w-6 h-6 text-red-500" />}
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <h3 className="text-white font-bold text-sm truncate">{server.name}</h3>
+                {server.verified && (
+                  <span className="shrink-0 px-1 py-0.5 border border-red-500/60 rounded-sm text-[8px] font-bold text-red-400 leading-none">
+                    VERIFIED
+                  </span>
+                )}
+                {server.boost_level > 0 && (
+                  <span className="shrink-0 px-1 py-0.5 border border-red-500/40 rounded-sm text-[8px] font-bold text-red-400 leading-none">
+                    ⚡{server.boost_level}
+                  </span>
+                )}
+              </div>
+              <p className="text-zinc-500 text-xs line-clamp-2 leading-snug">
+                {server.description || 'No telemetry available'}
+              </p>
+            </div>
+          </div>
+
+          {/* Tags */}
+          {server.tags && server.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-3">
+              {server.tags.slice(0, 3).map((tag, i) => (
+                <span
+                  key={i}
+                  className="px-2 py-0.5 border border-red-500/15 rounded-sm text-[9px] text-red-500/70 font-mono tracking-wider uppercase"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Signal strength */}
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-mono text-[9px] tracking-[0.25em] uppercase text-red-500/60">
+                Signal Strength
+              </span>
+              <span className="font-mono text-[9px] tracking-[0.25em] uppercase text-emerald-400/80">
+                {memberCount} Active
+              </span>
+            </div>
+            <div className="flex gap-0.5">
+              {[...Array(5)].map((_, i) => {
+                const lit = i < signalStrength;
+                return (
+                  <div
+                    key={i}
+                    className="h-1 flex-1 rounded-[1px]"
+                    style={{
+                      background: lit
+                        ? 'linear-gradient(90deg, rgba(220,38,38,0.9), rgba(220,38,38,0.5))'
+                        : 'rgba(220,38,38,0.12)',
+                      boxShadow: lit ? '0 0 4px rgba(220,38,38,0.6)' : 'none',
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Friends present (only on the Friends tab) */}
+          {friendsInServer && friendsInServer.length > 0 && (
+            <div className="flex items-center gap-2 mb-3 px-2 py-1.5 border border-red-500/20 rounded-sm bg-red-950/20">
+              <Users className="w-3 h-3 text-red-400 shrink-0" />
+              <div className="flex -space-x-1.5 shrink-0">
+                {friendsInServer.slice(0, 4).map((m, i) => (
+                  m.user_avatar ? (
+                    <img
+                      key={i}
+                      src={m.user_avatar}
+                      className="w-4 h-4 rounded-full border border-black object-cover"
+                      style={{ filter: 'grayscale(0.4)' }}
+                    />
+                  ) : (
+                    <div
+                      key={i}
+                      className="w-4 h-4 rounded-full border border-black bg-red-900/60 flex items-center justify-center text-[7px] text-red-200 font-bold"
+                    >
+                      {m.user_name?.charAt(0)}
+                    </div>
+                  )
+                ))}
+              </div>
+              <span className="text-red-400/80 text-[9px] font-mono tracking-wider uppercase truncate">
+                {friendsInServer.length} friend{friendsInServer.length !== 1 ? 's' : ''} on-air
+              </span>
+            </div>
+          )}
+
+          {/* Hollow Establish Uplink button */}
+          <button
+            onClick={handleJoin}
+            className="w-full py-2 border border-red-500 text-red-500 hover:bg-red-500 hover:text-white hover:shadow-[0_0_18px_rgba(220,38,38,0.5)] transition-all duration-300 font-mono text-[10px] tracking-[0.3em] uppercase"
+          >
+            Establish Uplink
+          </button>
+        </div>
+      </div>
     </motion.div>
+  );
+}
+
+// ── Server icon, projected as a red hologram ────────────────────────────────
+// The icon is rendered with mix-blend-luminosity then tinted red via an
+// overlay. This makes any photo look like a monochrome 3D projection, no
+// matter what the user uploaded.
+function ServerIconProjection({ src, alt, fallbackIcon }) {
+  if (!src) {
+    return (
+      <div
+        className="relative w-14 h-14 border border-red-500/30 bg-red-950/30 flex items-center justify-center overflow-hidden shrink-0"
+        style={{
+          clipPath: 'polygon(15% 0, 100% 0, 100% 85%, 85% 100%, 0 100%, 0 15%)',
+        }}
+      >
+        {fallbackIcon}
+        {/* Corner accent */}
+        <span className="absolute top-0 right-0 w-2 h-px bg-red-500" />
+        <span className="absolute top-0 right-0 w-px h-2 bg-red-500" />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="relative w-14 h-14 overflow-hidden shrink-0 border border-red-500/30"
+      style={{
+        clipPath: 'polygon(15% 0, 100% 0, 100% 85%, 85% 100%, 0 100%, 0 15%)',
+      }}
+    >
+      <img
+        src={src}
+        alt={alt}
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{ mixBlendMode: 'luminosity', filter: 'contrast(1.2) brightness(0.85)' }}
+      />
+      {/* Red tint overlay — this is what turns the photo into a red projection */}
+      <div
+        className="absolute inset-0"
+        style={{ background: 'rgba(220, 38, 38, 0.55)', mixBlendMode: 'multiply' }}
+      />
+      {/* Subtle additive glow on top */}
+      <div
+        className="absolute inset-0"
+        style={{ background: 'rgba(239, 68, 68, 0.15)', mixBlendMode: 'screen' }}
+      />
+      {/* Scanlines baked into the icon */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-60"
+        style={{
+          backgroundImage:
+            'repeating-linear-gradient(0deg, transparent 0px, transparent 1px, rgba(0,0,0,0.4) 1px, rgba(0,0,0,0.4) 2px)',
+        }}
+      />
+      {/* Roaming scanline highlight */}
+      <div
+        className="absolute left-0 right-0 h-px pointer-events-none"
+        style={{
+          background: 'linear-gradient(90deg, transparent, rgba(255,180,180,0.7), transparent)',
+          animation: 'spidr-scanline 3s linear infinite',
+        }}
+      />
+      {/* Corner tick marks */}
+      <span className="absolute top-0 right-0 w-2 h-px bg-red-300" />
+      <span className="absolute top-0 right-0 w-px h-2 bg-red-300" />
+      <span className="absolute bottom-0 left-0 w-2 h-px bg-red-300" />
+      <span className="absolute bottom-0 left-0 w-px h-2 bg-red-300" />
+    </div>
   );
 }
