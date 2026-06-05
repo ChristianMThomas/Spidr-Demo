@@ -7,6 +7,76 @@ const https = require('https');
 
 let mainWindow;
 
+// ── Spidr Protocol overlay — persistent bounds ──────────────────────────────
+// The protocol overlay is a separate OS-level frameless transparent window
+// that floats over whatever is on screen. To let users "pin it anywhere on
+// their computer", we persist its bounds (x, y, width, height) across sessions
+// and validate them against the current display layout on each open so it
+// never restores to a position that's offscreen after a monitor change.
+const OVERLAY_BOUNDS_PATH = () => path.join(app.getPath('userData'), 'spidr-protocol-bounds.json');
+const OVERLAY_DEFAULT_SIZE = { width: 420, height: 320 };
+
+function loadOverlayBounds() {
+  try {
+    const raw = fs.readFileSync(OVERLAY_BOUNDS_PATH(), 'utf8');
+    const b = JSON.parse(raw);
+    if (typeof b?.x === 'number' && typeof b?.y === 'number') return b;
+  } catch { /* file may not exist on first run */ }
+  return null;
+}
+
+function saveOverlayBounds(b) {
+  try { fs.writeFileSync(OVERLAY_BOUNDS_PATH(), JSON.stringify(b)); } catch {}
+}
+
+// Make sure the rect we're about to restore is still visible on SOME display.
+// Without this check, a saved position on a now-disconnected monitor would
+// leave the overlay invisible.
+function isBoundsVisible(b) {
+  if (!b) return false;
+  const { screen } = require('electron');
+  const displays = screen.getAllDisplays();
+  // Consider it visible if at least a 60×60 corner is inside any display
+  return displays.some(d => {
+    const dx = d.bounds.x, dy = d.bounds.y, dw = d.bounds.width, dh = d.bounds.height;
+    const overlapX = Math.max(0, Math.min(b.x + (b.width || 60), dx + dw) - Math.max(b.x, dx));
+    const overlapY = Math.max(0, Math.min(b.y + (b.height || 60), dy + dh) - Math.max(b.y, dy));
+    return overlapX >= 60 && overlapY >= 60;
+  });
+}
+
+// Default position: bottom-left of the primary display.
+function defaultOverlayBounds() {
+  const { screen } = require('electron');
+  const primary = screen.getPrimaryDisplay();
+  const { width: sw, height: sh } = primary.workAreaSize;
+  return {
+    x: primary.workArea.x + 24,
+    y: primary.workArea.y + Math.max(24, sh - 360),
+    width: OVERLAY_DEFAULT_SIZE.width,
+    height: OVERLAY_DEFAULT_SIZE.height,
+  };
+}
+
+// Compute a preset position on the display the cursor is currently on (so
+// "top-right" puts the overlay on the monitor the user is actually looking at).
+function presetOverlayBounds(preset) {
+  const { screen } = require('electron');
+  const cursorPt = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursorPt) || screen.getPrimaryDisplay();
+  const { x: dx, y: dy, width: dw, height: dh } = display.workArea;
+  const w = OVERLAY_DEFAULT_SIZE.width, h = OVERLAY_DEFAULT_SIZE.height, m = 24;
+  const positions = {
+    'top-left':     { x: dx + m,             y: dy + m },
+    'top-right':    { x: dx + dw - w - m,    y: dy + m },
+    'bottom-left':  { x: dx + m,             y: dy + dh - h - m },
+    'bottom-right': { x: dx + dw - w - m,    y: dy + dh - h - m },
+    'center':       { x: dx + Math.floor((dw - w) / 2), y: dy + Math.floor((dh - h) / 2) },
+  };
+  const p = positions[preset] || positions['bottom-left'];
+  return { x: Math.floor(p.x), y: Math.floor(p.y), width: w, height: h };
+}
+
 function createWindow() {
   const appIcon = app.isPackaged
     ? path.join(process.resourcesPath, 'spidr-app-desktop.png')
@@ -181,15 +251,18 @@ function setProtocolInteractive(on) {
 ipcMain.on('protocol:open', (_evt, params = {}) => {
   if (protocolWindow && !protocolWindow.isDestroyed()) { protocolWindow.focus(); return; }
 
-  const { screen } = require('electron');
-  const primary = screen.getPrimaryDisplay();
-  const { width: sw, height: sh } = primary.workAreaSize;
+  // Restore the user's last-pinned bounds if they're still on a visible
+  // display, otherwise fall back to the default bottom-left position.
+  const saved = loadOverlayBounds();
+  const bounds = isBoundsVisible(saved) ? saved : defaultOverlayBounds();
 
   protocolWindow = new BrowserWindow({
-    width: 420,
-    height: 320,
-    x: 24,
-    y: Math.max(24, sh - 360),
+    width:  Math.max(280, Math.min(bounds.width  || OVERLAY_DEFAULT_SIZE.width,  2400)),
+    height: Math.max(180, Math.min(bounds.height || OVERLAY_DEFAULT_SIZE.height, 1800)),
+    x: bounds.x,
+    y: bounds.y,
+    minWidth: 280,
+    minHeight: 180,
     frame: false,
     transparent: true,
     resizable: true,
@@ -210,6 +283,23 @@ ipcMain.on('protocol:open', (_evt, params = {}) => {
   if (typeof protocolWindow.setVisibleOnAllWorkspaces === 'function') {
     protocolWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   }
+
+  // Persist position/size as the user drags or resizes — debounced so we
+  // don't hammer the disk during a long drag.
+  let saveTimer = null;
+  const persistBounds = () => {
+    if (!protocolWindow || protocolWindow.isDestroyed()) return;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      if (protocolWindow && !protocolWindow.isDestroyed()) {
+        saveOverlayBounds(protocolWindow.getBounds());
+      }
+    }, 250);
+  };
+  protocolWindow.on('move',    persistBounds);
+  protocolWindow.on('resize',  persistBounds);
+  protocolWindow.on('moved',   persistBounds);  // macOS final position
+  protocolWindow.on('resized', persistBounds);  // macOS final size
 
   protocolWindow.once('ready-to-show', () => {
     protocolWindow.show();
@@ -245,6 +335,55 @@ ipcMain.on('protocol:close', () => {
 // Renderer asks to flip interactive mode (e.g. when the input loses focus, it
 // can hand control back to the game).
 ipcMain.on('protocol:set-interactive', (_evt, on) => setProtocolInteractive(!!on));
+
+// ── Pin Spidr Protocol anywhere ──────────────────────────────────────────────
+// Three ways the renderer can move the overlay:
+//   1. protocol:set-preset — snap to a named corner/center of the user's
+//      current display (handy for one-tap repositioning from settings)
+//   2. protocol:set-bounds — explicit { x, y, width?, height? } for fine
+//      placement (e.g. typed coords or programmatic positioning)
+//   3. protocol:reset-position — forget the saved bounds and restore default
+// All three save the resulting bounds so they survive an app restart.
+// protocol:get-bounds returns the current rect so the UI can display it.
+
+ipcMain.on('protocol:set-preset', (_evt, preset) => {
+  const b = presetOverlayBounds(preset);
+  if (protocolWindow && !protocolWindow.isDestroyed()) {
+    protocolWindow.setBounds(b);
+  }
+  saveOverlayBounds(b);
+});
+
+ipcMain.on('protocol:set-bounds', (_evt, partial = {}) => {
+  if (!protocolWindow || protocolWindow.isDestroyed()) {
+    // No window open yet — just persist so the next open picks it up.
+    const current = loadOverlayBounds() || defaultOverlayBounds();
+    saveOverlayBounds({ ...current, ...partial });
+    return;
+  }
+  const current = protocolWindow.getBounds();
+  const next = {
+    x: typeof partial.x === 'number' ? Math.floor(partial.x) : current.x,
+    y: typeof partial.y === 'number' ? Math.floor(partial.y) : current.y,
+    width:  Math.max(280, Math.min(typeof partial.width  === 'number' ? Math.floor(partial.width)  : current.width,  2400)),
+    height: Math.max(180, Math.min(typeof partial.height === 'number' ? Math.floor(partial.height) : current.height, 1800)),
+  };
+  protocolWindow.setBounds(next);
+  saveOverlayBounds(next);
+});
+
+ipcMain.on('protocol:reset-position', () => {
+  const def = defaultOverlayBounds();
+  if (protocolWindow && !protocolWindow.isDestroyed()) {
+    protocolWindow.setBounds(def);
+  }
+  try { fs.unlinkSync(OVERLAY_BOUNDS_PATH()); } catch {}
+});
+
+ipcMain.handle('protocol:get-bounds', () => {
+  if (protocolWindow && !protocolWindow.isDestroyed()) return protocolWindow.getBounds();
+  return loadOverlayBounds() || defaultOverlayBounds();
+});
 
 // ── Game detection ───────────────────────────────────────────────────────────
 //
