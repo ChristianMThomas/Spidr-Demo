@@ -3,6 +3,43 @@
 let ctx = null;
 let noiseBuffer = null;
 
+// ── Do-Not-Disturb status tracker ────────────────────────────────────────
+// Notification-class sounds (incoming messages, calls, joins, etc.) are
+// silenced when the user's status is 'dnd' / 'busy'. UI feedback sounds
+// (hover, toggle, click) are USER-INITIATED and still play — they're not
+// surprise interruptions.
+//
+// We listen for the `spidr-profile-updated` event UserStatusChip dispatches
+// whenever the user changes their status. We also hydrate from localStorage
+// on first import so the gate works before any status change occurs (e.g.
+// the user reloads while busy).
+let _currentStatus = 'online';
+try {
+  if (typeof window !== 'undefined') {
+    const cached = window.localStorage?.getItem('spidr_user_status');
+    if (cached) _currentStatus = cached;
+    window.addEventListener('spidr-profile-updated', (e) => {
+      const s = e?.detail?.profile?.status;
+      if (typeof s === 'string') {
+        _currentStatus = s;
+        try { window.localStorage.setItem('spidr_user_status', s); } catch {}
+      }
+    });
+  }
+} catch { /* SSR-safe: any listener failure leaves the default 'online' status */ }
+
+// Set of sound types that should be SILENCED when the user is busy. UI
+// chrome sounds (hover, click, toggle, error) still play because the user
+// triggered them directly.
+const NOTIFICATION_SOUND_TYPES = new Set([
+  'message',     // incoming chat message
+  'notification',// generic notification
+  'join',        // someone joined a voice channel
+  'mention',     // someone @-mentioned the user
+  'call',        // incoming call ring
+  'ping',        // generic ping
+]);
+
 const initAudio = () => {
   if (!ctx) {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -24,6 +61,10 @@ const createNoiseBuffer = () => {
 };
 
 export const playSound = (type) => {
+  // Gate notification sounds on user status. dnd = Do Not Disturb = "busy".
+  if (_currentStatus === 'dnd' && NOTIFICATION_SOUND_TYPES.has(type)) {
+    return;
+  }
   try {
     initAudio();
     if (!ctx) {

@@ -66,7 +66,7 @@ function deriveTab(pathname) {
 }
 
 export default function SpidrShell() {
-  const { currentUser, userLoaded, appTheme, activeCall, isCallMinimized, setActiveCall, setIsCallMinimized, voiceSession, voiceDeckExpanded, setVoiceDeckExpanded, endVoiceSession } = useAppShell();
+  const { currentUser, userLoaded, appTheme, activeCall, isCallMinimized, setActiveCall, setIsCallMinimized, voiceSession, voiceDeckExpanded, setVoiceDeckExpanded, endVoiceSession, callStartedAt } = useAppShell();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -345,6 +345,7 @@ export default function SpidrShell() {
               call={activeCall || {}}
               apexColor={activeCall?.apexThreadColor || '#3f3f46'}
               speaking={false}
+              callStartedAt={callStartedAt}
               onExpand={() => {
                 // The deck is mounted at the shell, so just un-hide it. No route
                 // change and no re-mount → the call is never interrupted.

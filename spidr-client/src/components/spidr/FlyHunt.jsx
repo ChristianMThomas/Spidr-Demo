@@ -48,11 +48,18 @@ export default function FlyHunt({ onCatch, userName }) {
             transition={{ duration: 5, ease: 'linear' }}
             onAnimationComplete={() => setFly(null)}
             onClick={handleCatch}
-            className="absolute w-8 h-8 pointer-events-auto cursor-crosshair group"
-            style={{ top: 0, left: 0 }}
+            // Fix: enlarge the tap target for mobile. The visible fly stays
+            // 32×32, but the button now has 12px padding on every side,
+            // giving a 56×56 hit area (above the iOS HIG 44px minimum). The
+            // padded zone is transparent so the fly looks the same.
+            // `touch-action: manipulation` strips the 300ms tap delay on
+            // mobile so the catch feels instant.
+            className="absolute pointer-events-auto cursor-crosshair group p-3 -m-3 touch-manipulation"
+            style={{ top: 0, left: 0, WebkitTapHighlightColor: 'transparent' }}
+            aria-label="Catch the fly"
           >
-            <div className="w-full h-full relative animate-bounce">
-              <div className="absolute inset-0 bg-black rounded-full border border-white/20 shadow-[0_0_10px_#00ff00] group-hover:shadow-[0_0_15px_#FF3333] transition-shadow"></div>
+            <div className="w-8 h-8 relative animate-bounce">
+              <div className="absolute inset-0 bg-black rounded-full border border-white/20 shadow-[0_0_10px_#00ff00] group-hover:shadow-[0_0_15px_#FF3333] group-active:shadow-[0_0_18px_#FF3333] transition-shadow"></div>
               <div className="absolute -top-2 -left-2 w-4 h-4 bg-white/50 rounded-full animate-pulse" />
               <div className="absolute -top-2 -right-2 w-4 h-4 bg-white/50 rounded-full animate-pulse" style={{ animationDelay: '75ms' }} />
               <div className="absolute top-1 left-1 w-2 h-2 bg-[#FF3333] rounded-full" />

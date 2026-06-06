@@ -262,9 +262,42 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
     };
   }, [rtc, mySession]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toggleVideo = () => {
-    rtc.toggleVideo();
-    if (mySession) updateMutation.mutate({ id: mySession.id, data: { is_video_on: !rtc.isVideoOn } });
+  // ── Broadcast state to listeners (MinimizedWebNode, etc.) ────────────────
+  // Whenever mute/deafen/share state changes — from ANY source (the dock
+  // here, the minimized pill, a hotkey, an admin server-mute) — fire a
+  // single canonical event so every listener can resync. Without this the
+  // minimized pill's local `muted` state could diverge from rtc.isMuted,
+  // making subsequent toggles feel like no-ops.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('spidr-call-state', {
+      detail: {
+        muted: rtc.isMuted,
+        deafened: !!mySession?.is_deafened,
+        sharing: !!isSharing,
+        videoOn: !!rtc.isVideoOn,
+      },
+    }));
+  }, [rtc.isMuted, rtc.isVideoOn, isSharing, mySession?.is_deafened]);
+
+  // ── Camera toggle (hardened) ─────────────────────────────────────────────
+  // The previous toggleVideo could leave the user "kicked out" if
+  // getUserMedia rejected (denied permissions, hardware busy, etc.) — the
+  // unhandled rejection inside useWebRTC's toggleVideo bubbled up and the
+  // call would teardown. Wrap it so a camera failure NEVER tears down the
+  // voice connection. Toast a clear error and leave the call intact.
+  const toggleVideo = async () => {
+    try {
+      await rtc.toggleVideo();
+      // Read the post-toggle state by inverting the pre-toggle value the
+      // hook saw — same as before, just inside try/catch.
+      if (mySession) {
+        updateMutation.mutate({ id: mySession.id, data: { is_video_on: !rtc.isVideoOn } });
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Camera toggle failed:', err);
+      try { toast.error("Couldn't access camera. Check permissions in your browser settings."); } catch {}
+    }
   };
 
   const handleStartStream = async (sourceId) => {
@@ -1065,31 +1098,56 @@ function VoiceTile({
           <SpidrVoiceVisualizer isSpeaking={spidrAISpeaking} />
         </div>
       ) : (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <motion.div
-            className="rounded-full"
-            animate={showSpeakingRing ? { scale: [1, 1.06, 1] } : { scale: 1 }}
-            transition={{ repeat: Infinity, duration: 1.1, ease: 'easeInOut' }}
-            style={{
-              boxShadow: showSpeakingRing
-                ? '0 0 24px rgba(239, 68, 68, 0.55), 0 0 60px rgba(239, 68, 68, 0.18)'
-                : '0 0 18px rgba(0, 0, 0, 0.5)',
-              borderRadius: '9999px',
-            }}
-          >
-            {session.user_avatar ? (
-              <img
-                src={session.user_avatar}
-                className="w-24 h-24 rounded-full object-cover border-2 border-[#FF3333]/60"
-                alt={session.user_name}
-              />
-            ) : (
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#FF3333]/40 to-[#FF3333]/10 border-2 border-[#FF3333] flex items-center justify-center text-white text-3xl font-black">
-                {(session.user_name || '?').charAt(0).toUpperCase()}
-              </div>
-            )}
-          </motion.div>
-        </div>
+        <>
+          {/* Peer / local camera video — when session.is_video_on AND the
+              stream actually has a video track, render the video over the
+              pane (covering the avatar). For local self we mute the
+              element so we don't echo our own audio; remote peers' audio
+              comes through the hidden <audio> elements rendered at the
+              VoiceChannel root, so the video element here is muted too. */}
+          {session.is_video_on && stream && stream.getVideoTracks && stream.getVideoTracks().length > 0 ? (
+            <video
+              autoPlay
+              playsInline
+              muted
+              ref={(el) => {
+                if (!el) return;
+                if (el.srcObject !== stream) {
+                  el.srcObject = stream;
+                  el.play?.().catch(() => { /* autoplay can fail silently — user-gesture unlock at parent handles it */ });
+                }
+              }}
+              className="absolute inset-0 w-full h-full object-cover"
+              aria-label={`${session.user_name || 'Spider'} video`}
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <motion.div
+                className="rounded-full"
+                animate={showSpeakingRing ? { scale: [1, 1.06, 1] } : { scale: 1 }}
+                transition={{ repeat: Infinity, duration: 1.1, ease: 'easeInOut' }}
+                style={{
+                  boxShadow: showSpeakingRing
+                    ? '0 0 24px rgba(239, 68, 68, 0.55), 0 0 60px rgba(239, 68, 68, 0.18)'
+                    : '0 0 18px rgba(0, 0, 0, 0.5)',
+                  borderRadius: '9999px',
+                }}
+              >
+                {session.user_avatar ? (
+                  <img
+                    src={session.user_avatar}
+                    className="w-24 h-24 rounded-full object-cover border-2 border-[#FF3333]/60"
+                    alt={session.user_name}
+                  />
+                ) : (
+                  <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#FF3333]/40 to-[#FF3333]/10 border-2 border-[#FF3333] flex items-center justify-center text-white text-3xl font-black">
+                    {(session.user_name || '?').charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Status icons — top-right (muted / deafened / screen-sharing). Moved
