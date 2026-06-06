@@ -123,8 +123,19 @@ export default function ModuleNexus({ currentUser }) {
         ))}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-8">
+      {/* Content — deep black canvas with a faint global radial glow that
+          gives the holographic glass cards something subtle to sit over. */}
+      <div className="flex-1 overflow-y-auto p-8 relative">
+        {/* Ambient radial bleed — top-center bluish wash, mirrored bottom red */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-60"
+          style={{
+            background:
+              'radial-gradient(ellipse 60% 40% at 50% 0%, rgba(59, 130, 246, 0.06), transparent 70%),' +
+              'radial-gradient(ellipse 70% 40% at 50% 100%, rgba(239, 68, 68, 0.04), transparent 70%)',
+          }}
+        />
+        <div className="relative">
         <AnimatePresence mode="wait">
           {activeTab === 'discover' && (
             <motion.div key="discover" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
@@ -135,7 +146,7 @@ export default function ModuleNexus({ currentUser }) {
                   {searchQuery ? 'No modules match your search.' : 'No modules yet. Be the first to fabricate one!'}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-7">
                   {filtered.map(mod => (
                     <ModuleCard
                       key={mod.id}
@@ -170,6 +181,7 @@ export default function ModuleNexus({ currentUser }) {
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </div>
     </div>
   );
