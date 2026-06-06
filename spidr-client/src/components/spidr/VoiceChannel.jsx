@@ -356,11 +356,13 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
         )}
       </AnimatePresence>
 
-      {/* ── HEADER ── */}
+      {/* ── HUD HEADER ── system-uplink channel label on the left; all
+          right-side controls collapsed into ONE cohesive glass pill so they
+          stop looking like a row of floating stickers. */}
       <div className="h-12 px-4 flex items-center justify-between border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2.5">
-          <Volume2 className="w-4 h-4 text-green-400" />
-          <span className="font-bold text-white text-sm">{channel.name}</span>
+          <Volume2 className="w-4 h-4 text-[#FF3333]" />
+          <span className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">{channel.name}</span>
           {rtc.isConnected && (
             <span className="text-[9px] font-black text-green-400 bg-green-400/10 border border-green-400/20 px-2 py-0.5 rounded-full">
               LIVE
@@ -372,50 +374,69 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {/* Multi-task layout toggle: Focus (center stage) / Spider (compact) */}
-          <div className="flex items-center gap-0.5 bg-white/5 rounded-lg p-0.5">
-            <button onClick={() => setViewModePersist('focus')}
-              className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${viewMode === 'focus' ? 'bg-[#FF3333] text-white' : 'text-zinc-400 hover:text-white'}`}
-              title="Focus Mode — center stage">
-              Focus
-            </button>
-            <button onClick={() => setViewModePersist('spider')}
-              className={`px-2.5 py-1 rounded-md text-[10px] font-bold transition-colors ${viewMode === 'spider' ? 'bg-[#FF3333] text-white' : 'text-zinc-400 hover:text-white'}`}
-              title="Spider View — compact docked grid">
-              Spider
-            </button>
-          </div>
+        <div className="flex items-center bg-black/40 backdrop-blur-xl border border-white/10 rounded-full p-1 gap-0.5">
+          {/* Multi-task layout toggle: Focus (center stage) / Spidr (compact) */}
+          <button onClick={() => setViewModePersist('focus')}
+            className={`px-3 py-1 rounded-full text-[11px] font-bold transition-colors ${viewMode === 'focus' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70'}`}
+            title="Focus Mode — center stage">
+            Focus
+          </button>
+          <button onClick={() => setViewModePersist('spider')}
+            className={`px-3 py-1 rounded-full text-[11px] font-bold transition-colors ${viewMode === 'spider' ? 'bg-[#FF3333] text-white shadow-[0_0_12px_rgba(239,68,68,0.5)]' : 'text-white/40 hover:text-white/70'}`}
+            title="Spidr View — compact docked grid">
+            Spidr
+          </button>
           {aiSession?.stream_url && !showCinema && (
-            <button onClick={() => setShowCinema(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#FF3333]/10 text-[#FF3333] border border-[#FF3333]/20 rounded-lg text-xs font-bold hover:bg-[#FF3333]/20 transition-colors">
-              Open Stream
-            </button>
+            <>
+              <span className="w-px h-4 bg-white/10 mx-0.5" />
+              <button onClick={() => setShowCinema(true)}
+                className="px-3 py-1 rounded-full text-[11px] font-bold text-[#FF3333] hover:bg-[#FF3333]/10 transition-colors">
+                Open Stream
+              </button>
+            </>
           )}
+          <span className="w-px h-4 bg-white/10 mx-0.5" />
           <button onClick={() => setShowAIPanel(!showAIPanel)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${showAIPanel ? 'bg-[#FF3333] text-white' : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'}`}>
-            <SpiderLogo size={14} /> Spidr AI
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold transition-colors ${showAIPanel ? 'bg-[#FF3333] text-white shadow-[0_0_12px_rgba(239,68,68,0.5)]' : 'text-white/40 hover:text-white/70'}`}>
+            <span className="relative flex items-center justify-center w-1.5 h-1.5">
+              <span className={`absolute inset-0 rounded-full ${showAIPanel ? 'bg-white' : 'bg-[#FF3333]'}`} />
+            </span>
+            Spidr AI
           </button>
           {/* Pop out the call into a separate always-on-top window (Electron). */}
           {typeof window !== 'undefined' && window.electronAPI?.openPopout && (
-            <button
-              onClick={() => window.electronAPI.openPopout({
-                serverId: server?.id || '',
-                channelId: channel?.id || '',
-              })}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-              title="Pop out call to a separate window">
-              <ExternalLink size={14} /> Pop Out
-            </button>
+            <>
+              <span className="w-px h-4 bg-white/10 mx-0.5" />
+              <button
+                onClick={() => window.electronAPI.openPopout({
+                  serverId: server?.id || '',
+                  channelId: channel?.id || '',
+                })}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold text-white/40 hover:text-white/70 transition-colors"
+                title="Pop out call to a separate window">
+                <ExternalLink size={12} /> Pop Out
+              </button>
+            </>
           )}
         </div>
       </div>
 
       <StreamSelector isOpen={showStreamSelector} onClose={() => setShowStreamSelector(false)} onStartStream={handleStartStream} />
 
-      {/* ── MAIN ── */}
-      <div className="flex-1 flex overflow-hidden min-h-0">
-        <div className="flex-1 p-4 overflow-y-auto">
+      {/* ── MAIN STAGE ── center-stage flexbox with a red radial bleed
+          behind the tiles. Bottom padding clears the floating tactical dock. */}
+      <div className="flex-1 flex overflow-hidden min-h-0 relative">
+        {/* Ambient red bleed — draws the eye to the center, doesn't compete
+            with the geometric matrix background underneath. */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(ellipse 60% 50% at 50% 45%, rgba(239, 68, 68, 0.10), transparent 70%),' +
+              'radial-gradient(ellipse 30% 25% at 50% 50%, rgba(239, 68, 68, 0.05), transparent 70%)',
+          }}
+        />
+        <div className="flex-1 relative overflow-y-auto px-6 pt-6 pb-28 flex items-center justify-center">
           {/* Remote audio elements (hidden, for audio output) */}
           {Object.entries(rtc.remoteStreams).map(([socketId, stream]) => (
             <audio
@@ -454,7 +475,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
           )}
 
           {uniqueSessions.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center gap-4 text-center">
+            <div className="flex flex-col items-center justify-center gap-4 text-center">
               <div className="w-20 h-20 rounded-2xl bg-zinc-800/60 border border-white/5 flex items-center justify-center">
                 <Volume2 className="w-10 h-10 text-zinc-600" />
               </div>
@@ -470,8 +491,8 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
               )}
             </div>
           ) : (
-            <div className={`bg-[#0a0a0a]/40 backdrop-blur-md border border-white/10 rounded-2xl p-4 shadow-2xl ${
-              viewMode === 'spider' ? 'max-w-md ml-auto' : 'w-full'
+            <div className={`w-full ${
+              viewMode === 'spider' ? 'max-w-md ml-auto' : 'max-w-[1280px] mx-auto'
             }`}>
               {screenActive && !shareSidebarCollapsed && (
                 <button
@@ -489,7 +510,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
               )}
               <motion.div
                 layout
-                className="grid gap-3 content-start"
+                className="grid gap-5 content-start"
                 style={{
                   gridTemplateColumns: screenActive
                     ? (shareSidebarCollapsed ? '1fr' : 'minmax(0,4fr) minmax(200px,1fr)')
@@ -711,42 +732,102 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
         </AnimatePresence>
       </div>
 
-      {/* ── CONTROLS (hanging web dock — tethered to the panel's bottom edge) ── */}
-      <div className="h-16 px-4 flex items-center justify-center gap-2 border-t border-white/10 bg-[#0a0a0a]/70 backdrop-blur-md flex-shrink-0">
-        <VoiceBtn active={!rtc.isMuted} onClick={toggleMute} title={rtc.isMuted ? 'Unmute' : 'Mute'}
-          className={`${!rtc.isMuted ? 'bg-green-600' : 'bg-zinc-800'}`}>
-          {rtc.isMuted ? <MicOff size={18} className="text-red-400" /> : <Mic size={18} className="text-white" />}
-        </VoiceBtn>
-        <VoiceBtn onClick={toggleVideo} title="Toggle Camera"
-          className={rtc.isVideoOn ? 'bg-blue-600' : 'bg-zinc-800'}>
-          {rtc.isVideoOn ? <Video size={18} className="text-white" /> : <VideoOff size={18} className="text-zinc-400" />}
-        </VoiceBtn>
-        <VoiceBtn onClick={() => isSharing ? handleStopStream() : setShowStreamSelector(true)} title="Screen Share"
-          className={isSharing ? 'bg-purple-600' : 'bg-zinc-800'}>
-          <MonitorUp size={18} className={isSharing ? 'text-white' : 'text-zinc-400'} />
-        </VoiceBtn>
-        <VoiceBtn onClick={() => setShowAVControls(!showAVControls)} title="Audio Settings" className="bg-zinc-800">
-          <Settings size={18} className="text-zinc-400" />
-        </VoiceBtn>
-        <VoiceBtn onClick={() => setShowSoundboard(!showSoundboard)} title="Soundboard"
-          className={showSoundboard ? 'bg-[#FF3333]' : 'bg-zinc-800'}>
-          <Music size={18} className={showSoundboard ? 'text-white' : 'text-zinc-400'} />
-        </VoiceBtn>
-        {isApexUser && (
-          <VoiceBtn onClick={() => setSquadOverclock(!squadOverclock)} title="Squad Overclock"
-            className={squadOverclock ? 'bg-yellow-500' : 'bg-zinc-800'}>
-            <Zap size={18} className={squadOverclock ? 'text-black' : 'text-zinc-400'} />
-          </VoiceBtn>
-        )}
-        <div className="w-px h-8 bg-zinc-700 mx-1" />
-        {onMinimize && (
-          <VoiceBtn onClick={onMinimize} title="Minimize (stay connected)" className="bg-zinc-800 hover:bg-zinc-700">
-            <ChevronDown size={18} className="text-zinc-300" />
-          </VoiceBtn>
-        )}
-        <VoiceBtn onClick={handleLeave} title="Leave" className="bg-red-600/90 hover:bg-red-500">
-          <PhoneOff size={18} className="text-white" />
-        </VoiceBtn>
+      {/* ── TACTICAL DOCK ── floats over the stage so it doesn't slice the
+          screen in half. Glass pill at bottom-center, terminate button
+          separated from the safe controls by a divider. */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+        <div className="flex items-center gap-1 px-2 py-1.5 rounded-full"
+          style={{
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.10)',
+            boxShadow: '0 18px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.02)',
+          }}
+        >
+          <DockBtn
+            active={!rtc.isMuted}
+            onClick={toggleMute}
+            title={rtc.isMuted ? 'Unmute' : 'Mute'}
+            activeTint="#22c55e"
+          >
+            {rtc.isMuted ? <MicOff size={18} className="text-red-400" /> : <Mic size={18} className="text-emerald-300" />}
+          </DockBtn>
+          <DockBtn
+            active={rtc.isVideoOn}
+            onClick={toggleVideo}
+            title="Toggle Camera"
+            activeTint="#3b82f6"
+          >
+            {rtc.isVideoOn ? <Video size={18} className="text-blue-300" /> : <VideoOff size={18} className="text-white/40" />}
+          </DockBtn>
+          <DockBtn
+            active={isSharing}
+            onClick={() => isSharing ? handleStopStream() : setShowStreamSelector(true)}
+            title="Screen Share"
+            activeTint="#a855f7"
+          >
+            <MonitorUp size={18} className={isSharing ? 'text-purple-300' : 'text-white/40'} />
+          </DockBtn>
+          <DockBtn
+            onClick={() => setShowAVControls(!showAVControls)}
+            title="Audio Settings"
+          >
+            <Settings size={18} className="text-white/40" />
+          </DockBtn>
+          <DockBtn
+            active={showSoundboard}
+            onClick={() => setShowSoundboard(!showSoundboard)}
+            title="Soundboard"
+            activeTint="#FF3333"
+          >
+            <Music size={18} className={showSoundboard ? 'text-red-300' : 'text-white/40'} />
+          </DockBtn>
+          {isApexUser && (
+            <DockBtn
+              active={squadOverclock}
+              onClick={() => setSquadOverclock(!squadOverclock)}
+              title="Squad Overclock"
+              activeTint="#eab308"
+            >
+              <Zap size={18} className={squadOverclock ? 'text-yellow-300' : 'text-white/40'} />
+            </DockBtn>
+          )}
+          {onMinimize && (
+            <DockBtn onClick={onMinimize} title="Minimize (stay connected)">
+              <ChevronDown size={18} className="text-white/40" />
+            </DockBtn>
+          )}
+
+          {/* Safe-controls / terminate divider */}
+          <span className="w-px h-6 bg-white/10 mx-1" />
+
+          {/* Terminate button — visually separated, danger red. */}
+          <button
+            onClick={handleLeave}
+            title="Disconnect"
+            className="flex items-center gap-2 h-10 px-4 rounded-full font-bold text-[11px] tracking-[0.18em] uppercase transition-all"
+            style={{
+              background: 'rgba(239, 68, 68, 0.15)',
+              border: '1px solid rgba(239, 68, 68, 0.5)',
+              color: '#fca5a5',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.9)';
+              e.currentTarget.style.borderColor = '#ef4444';
+              e.currentTarget.style.color = '#ffffff';
+              e.currentTarget.style.boxShadow = '0 0 22px rgba(239, 68, 68, 0.55)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+              e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+              e.currentTarget.style.color = '#fca5a5';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            <PhoneOff size={14} /> Disconnect
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -786,6 +867,49 @@ function VoiceBtn({ children, onClick, title, className = '' }) {
   return (
     <button onClick={onClick} title={title}
       className={`w-10 h-10 rounded-full flex items-center justify-center transition-all hover:scale-105 active:scale-95 ${className}`}>
+      {children}
+    </button>
+  );
+}
+
+/**
+ * DockBtn — hollow glowing trigger used inside the floating tactical dock.
+ * When `active`, the button gets a tinted soft inner glow in the supplied
+ * `activeTint` color (mic on → green, video on → blue, sharing → purple, etc.).
+ * Idle state is dim and recessed so the user's eye lands on the call content,
+ * not the control bar.
+ */
+function DockBtn({ children, onClick, title, active = false, activeTint = '#22c55e' }) {
+  const [hover, setHover] = useState(false);
+  // Inline rgba so we can interpolate the tint cleanly.
+  const tintRgb = (() => {
+    const h = (activeTint || '').replace('#', '');
+    if (h.length !== 6) return '34, 197, 94';
+    const n = parseInt(h, 16);
+    return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+  })();
+  const style = active ? {
+    background: `rgba(${tintRgb}, 0.12)`,
+    borderColor: `rgba(${tintRgb}, 0.45)`,
+    boxShadow: `inset 0 0 12px rgba(${tintRgb}, 0.25), 0 0 14px rgba(${tintRgb}, 0.2)`,
+  } : (hover ? {
+    background: 'rgba(255, 255, 255, 0.07)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    boxShadow: 'none',
+  } : {
+    background: 'rgba(255, 255, 255, 0.02)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    boxShadow: 'none',
+  });
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="w-10 h-10 rounded-full border flex items-center justify-center transition-all active:scale-95"
+      style={style}
+    >
       {children}
     </button>
   );
@@ -897,83 +1021,143 @@ function VoiceTile({
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.9, y: 10 }}
+      initial={{ opacity: 0, scale: 0.94, y: 12 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.9 }}
+      exit={{ opacity: 0, scale: 0.94 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 28 }}
       onContextMenu={(e) => {
         if (session.is_spidr_ai) return; // AI tile has its own click action
         e.preventDefault();
         setMenuPos({ x: e.clientX, y: e.clientY });
         setMenuOpen(true);
       }}
-      className={`relative aspect-video rounded-3xl overflow-hidden border group transition-all backdrop-blur-sm
-        ${showSpeakingRing ? 'border-green-500/70' : isSelf ? 'border-[#FF3333]/50' : 'border-white/10 hover:border-[#FF3333]/40'}`}
+      // ── Holographic User Pane ─────────────────────────────────────────
+      // Frosted-glass container. Border + shadow glow softly in Spidr red
+      // when the user is speaking (no Discord-green flash). Status icons
+      // (muted / deafened / screen-share) live in the top-right so the
+      // bottom rail is free for the identity pill (left) + the live voice
+      // equalizer (right) — both at the SAME height for visual balance.
+      className="relative aspect-video rounded-3xl overflow-hidden border group transition-all duration-300"
       style={{
-        background: 'linear-gradient(to bottom right, rgba(40,24,28,0.45), rgba(12,7,9,0.55))',
+        background: 'rgba(10, 10, 10, 0.80)',
+        backdropFilter: 'blur(40px)',
+        WebkitBackdropFilter: 'blur(40px)',
+        borderColor: showSpeakingRing
+          ? 'rgba(239, 68, 68, 0.50)'
+          : isSelf ? 'rgba(239, 68, 68, 0.18)' : 'rgba(255, 255, 255, 0.05)',
         boxShadow: showSpeakingRing
-          ? '0 0 18px rgba(34,197,94,0.45), inset 0 1px 0 rgba(255,255,255,0.06)'
-          : 'inset 0 1px 0 rgba(255,255,255,0.06), 0 8px 24px rgba(0,0,0,0.35)',
+          ? '0 0 30px rgba(239, 68, 68, 0.15), inset 0 0 40px rgba(239, 68, 68, 0.03)'
+          : 'inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 32px rgba(0, 0, 0, 0.4)',
       }}
     >
+      {/* Centered avatar canvas — absolute so the bottom rail can overlay
+          cleanly without affecting vertical centering. */}
       {session.is_spidr_ai ? (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-2"
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 cursor-pointer"
           onClick={onSpidrAIClick}>
           <div
             className="rounded-full transition-shadow"
-            style={{ boxShadow: showSpeakingRing ? '0 0 15px rgba(220,38,38,0.6)' : 'none' }}
+            style={{ boxShadow: showSpeakingRing ? '0 0 24px rgba(239, 68, 68, 0.6)' : 'none' }}
           >
-            <img src={SPIDR_AI_AVATAR} className="w-14 h-14 rounded-full border-2 border-[#FF3333] object-cover" alt="Spidr AI" />
+            <img src={SPIDR_AI_AVATAR} className="w-20 h-20 rounded-full border-2 border-[#FF3333] object-cover" alt="Spidr AI" />
           </div>
+          {/* Spidr AI uses its OWN visualizer (unchanged) */}
           <SpidrVoiceVisualizer isSpeaking={spidrAISpeaking} />
         </div>
       ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-          {/* Glowing identity ring — pulses while speaking */}
+        <div className="absolute inset-0 flex items-center justify-center">
           <motion.div
             className="rounded-full"
             animate={showSpeakingRing ? { scale: [1, 1.06, 1] } : { scale: 1 }}
             transition={{ repeat: Infinity, duration: 1.1, ease: 'easeInOut' }}
-            style={{ boxShadow: showSpeakingRing ? '0 0 15px rgba(220,38,38,0.6)' : 'none', borderRadius: '9999px' }}
+            style={{
+              boxShadow: showSpeakingRing
+                ? '0 0 24px rgba(239, 68, 68, 0.55), 0 0 60px rgba(239, 68, 68, 0.18)'
+                : '0 0 18px rgba(0, 0, 0, 0.5)',
+              borderRadius: '9999px',
+            }}
           >
             {session.user_avatar ? (
-              <img src={session.user_avatar} className="w-16 h-16 rounded-full object-cover border-2 border-[#FF3333]/70" alt={session.user_name} />
+              <img
+                src={session.user_avatar}
+                className="w-24 h-24 rounded-full object-cover border-2 border-[#FF3333]/60"
+                alt={session.user_name}
+              />
             ) : (
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#FF3333]/40 to-[#FF3333]/10 border-2 border-[#FF3333] flex items-center justify-center text-white text-2xl font-black">
+              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#FF3333]/40 to-[#FF3333]/10 border-2 border-[#FF3333] flex items-center justify-center text-white text-3xl font-black">
                 {(session.user_name || '?').charAt(0).toUpperCase()}
               </div>
             )}
           </motion.div>
-          {/* Real-time gradient equalizer under the avatar while speaking */}
-          {showSpeakingRing && <VoiceEqualizer stream={stream} active />}
         </div>
       )}
 
-      {/* Bottom bar */}
-      <div className="absolute bottom-0 inset-x-0 px-2.5 py-1.5 bg-gradient-to-t from-black/80 to-transparent flex items-center justify-between">
-        <span className="text-white text-xs font-bold truncate flex items-center gap-1">
-          {(session.user_name || 'Unknown').split('@')[0]}
-          {isApexSess && <Crown className="w-3 h-3 text-yellow-400" />}
-          {isSelf && <span className="text-[#FF3333] text-[9px]">(you)</span>}
-        </span>
-        <div className="flex gap-1">
-          {session.is_muted && <MicOff className="w-3.5 h-3.5 text-red-400" />}
-          {session.is_deafened && <VolumeX className="w-3.5 h-3.5 text-red-400" />}
-          {session.is_screen_sharing && <Monitor className="w-3.5 h-3.5 text-blue-400" />}
-        </div>
+      {/* Status icons — top-right (muted / deafened / screen-sharing). Moved
+          out of the bottom rail so they don't crowd the identity pill or
+          the equalizer. */}
+      <div className="absolute top-3 right-3 flex items-center gap-1.5 pointer-events-none">
+        {session.is_muted && (
+          <div className="w-6 h-6 rounded-full bg-black/60 backdrop-blur-md border border-red-500/40 flex items-center justify-center">
+            <MicOff className="w-3 h-3 text-red-400" />
+          </div>
+        )}
+        {session.is_deafened && (
+          <div className="w-6 h-6 rounded-full bg-black/60 backdrop-blur-md border border-red-500/40 flex items-center justify-center">
+            <VolumeX className="w-3 h-3 text-red-400" />
+          </div>
+        )}
+        {session.is_screen_sharing && (
+          <div className="w-6 h-6 rounded-full bg-black/60 backdrop-blur-md border border-blue-500/40 flex items-center justify-center">
+            <Monitor className="w-3 h-3 text-blue-400" />
+          </div>
+        )}
       </div>
 
-      {/* Admin controls */}
+      {/* Bottom rail — identity pill (left) + equalizer (right) */}
+      <div className="absolute bottom-3 inset-x-3 flex items-center justify-between pointer-events-none">
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg pointer-events-auto"
+          style={{
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255, 255, 255, 0.06)',
+          }}
+        >
+          <span className="text-white text-sm font-bold truncate max-w-[140px]">
+            {(session.user_name || 'Unknown').split('@')[0]}
+          </span>
+          {isApexSess && (
+            <Crown className="w-3.5 h-3.5 text-yellow-400 shrink-0"
+              style={{ filter: 'drop-shadow(0 0 4px rgba(250, 204, 21, 0.6))' }}
+            />
+          )}
+          {isSelf && (
+            <span className="text-white/40 text-[10px] font-mono tracking-wider uppercase">(you)</span>
+          )}
+        </div>
+
+        {/* Live wavelength equalizer (unchanged component — same animation as
+            Spidr AI's voice viz). Only shown while the speaker is talking. */}
+        {showSpeakingRing && !session.is_spidr_ai && (
+          <div className="pointer-events-none">
+            <VoiceEqualizer stream={stream} active />
+          </div>
+        )}
+      </div>
+
+      {/* Admin controls — top-left so they don't conflict with status icons. */}
       {isAdmin && !isSelf && !session.is_spidr_ai && (
-        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+        <div className="absolute top-3 left-3 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
           <button onClick={onAdminMuteToggle}
-            className="w-6 h-6 bg-black/70 rounded-lg flex items-center justify-center text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors"
+            className="w-7 h-7 bg-black/70 backdrop-blur-md rounded-lg flex items-center justify-center text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors"
             title={session.is_muted ? 'Unmute' : 'Server Mute'}>
-            {session.is_muted ? <Mic size={10} /> : <MicOff size={10} />}
+            {session.is_muted ? <Mic size={11} /> : <MicOff size={11} />}
           </button>
           <button onClick={onAdminKick}
-            className="w-6 h-6 bg-black/70 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-600 hover:text-white transition-colors"
+            className="w-7 h-7 bg-black/70 backdrop-blur-md rounded-lg flex items-center justify-center text-red-400 hover:bg-red-600 hover:text-white transition-colors"
             title="Disconnect">
-            <X size={10} />
+            <X size={11} />
           </button>
         </div>
       )}
