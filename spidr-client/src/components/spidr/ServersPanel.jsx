@@ -1560,8 +1560,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                       {(msg.author_name || msg.user_name || '?').charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  {/* Online status dot — just outside the avatar's bounding box */}
-                  <span className="absolute -bottom-0.5 -left-0.5 w-1.5 h-1.5 bg-green-500 rounded-full ring-2 ring-[#0a0607]" />
                 </div>
                 <div className="flex-1 min-w-0">
                   {/* Reply preview card — themed in spidr red, mirrors the SPIDR_AI card shape */}

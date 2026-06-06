@@ -53,6 +53,11 @@ export function AppShellProvider({ children }) {
   // the user moves around the app. Shape: { server, channel, currentUser } or null.
   const [voiceSession, setVoiceSession] = useState(null);
   const [voiceDeckExpanded, setVoiceDeckExpanded] = useState(false);
+  // Fix: monotonically-increasing call start timestamp. The minimized pill
+  // computes its elapsed timer from (now - callStartedAt), so the duration
+  // never resets when the pill unmounts/remounts during minimize↔expand
+  // transitions. Set once on startVoiceSession, cleared on endVoiceSession.
+  const [callStartedAt, setCallStartedAt] = useState(null);
 
   // Start (or switch to) a voice session at the shell. Expanded by default,
   // exactly like clicking into a server voice channel.
@@ -60,6 +65,7 @@ export function AppShellProvider({ children }) {
     setVoiceSession(sessionProps);
     setVoiceDeckExpanded(true);
     setIsCallMinimized(false);
+    setCallStartedAt(Date.now());
   }, []);
 
   // End the active voice session entirely (real disconnect).
@@ -68,6 +74,7 @@ export function AppShellProvider({ children }) {
     setVoiceDeckExpanded(false);
     setIsCallMinimized(false);
     setActiveCall(null);
+    setCallStartedAt(null);
   }, []);
 
   // Cross-page hand-off state
@@ -196,6 +203,7 @@ export function AppShellProvider({ children }) {
     setVoiceDeckExpanded,
     startVoiceSession,
     endVoiceSession,
+    callStartedAt,
     selectedServerId,
     setSelectedServerId,
     pendingDM,
