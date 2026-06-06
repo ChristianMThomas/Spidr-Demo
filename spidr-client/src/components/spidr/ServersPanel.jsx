@@ -28,6 +28,7 @@ import MessageInputBar from './MessageInputBar';
 import CatchMeUpBar from './CatchMeUpBar';
 import FlyHunt from './FlyHunt';
 import MentionParser from './MentionParser';
+import VoiceMessageCapsule from './VoiceMessageCapsule';
 import EventModal from './EventModal';
 import KineticText from './KineticText';
 import AgeGateModal from './AgeGateModal';
@@ -1693,10 +1694,12 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                         const isAudio = /voice-message-/i.test(url) || /\.(mp3|wav|ogg|m4a|aac|webm|weba|opus)(\?|$)/i.test(url);
                         if (isAudio) {
                           return (
-                            <div key={i} className="flex items-center gap-2 bg-black/40 border border-white/10 rounded-xl px-3 py-2 max-w-[260px]">
-                              <span className="text-[#FF3333] text-xs font-bold uppercase tracking-wider shrink-0">Voice</span>
-                              <audio src={url} controls className="h-8 max-w-[180px]" />
-                            </div>
+                            <VoiceMessageCapsule
+                              key={i}
+                              url={url}
+                              isSelf={msg.author_id === currentUser?.id || msg.user_id === currentUser?.id}
+                              transcription={msg.voice_transcription || null}
+                            />
                           );
                         }
                         const isVideo = /\.(mp4|mov|m4v)(\?|$)/i.test(url);
