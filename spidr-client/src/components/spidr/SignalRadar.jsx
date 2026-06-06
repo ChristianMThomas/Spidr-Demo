@@ -76,7 +76,7 @@ export default function SignalRadar({ open, onClose, currentUser }) {
     const matchesCategory = selectedCategory === 'All Signals' ||
       server.category?.toLowerCase() === selectedCategory.toLowerCase() ||
       server.description?.toLowerCase().includes(selectedCategory.toLowerCase());
-    return matchesSearch && matchesCategory && server.is_public !== false;
+    return matchesSearch && matchesCategory;
   });
 
   if (!open) return null;
@@ -506,10 +506,15 @@ function EmptyState() {
 function ServerHologram({ server, currentUser, friendsInServer, index = 0 }) {
   const memberCount = server.members?.length || 0;
   const signalStrength = Math.min(Math.floor(memberCount / 5) + 1, 5);
+  // Private / invite-only servers: members can't just walk in. Show a
+  // "Request Invite" affordance instead of the standard "Establish Uplink".
+  const isPrivate = server.is_public === false;
+  const isAlreadyMember = server.members?.some(m => m.user_id === currentUser?.id);
+  const hasPendingRequest = (server.join_requests || []).some(r => r.user_id === currentUser?.id);
 
   const handleJoin = async () => {
     try {
-      if (server.members?.some(m => m.user_id === currentUser?.id)) {
+      if (isAlreadyMember) {
         toast.error('Uplink already established with this signal');
         return;
       }
@@ -530,6 +535,37 @@ function ServerHologram({ server, currentUser, friendsInServer, index = 0 }) {
         : 'Uplink established. Signal locked.');
     } catch (error) {
       toast.error('Uplink failed');
+    }
+  };
+
+  // Best-effort invite-request: append a pending request to the server's
+  // join_requests array. Server admins can review/approve in their settings.
+  // No backend changes required — uses the same Server.update endpoint as
+  // membership.
+  const handleRequestInvite = async () => {
+    if (isAlreadyMember) {
+      toast.error('You already have an uplink to this signal');
+      return;
+    }
+    if (hasPendingRequest) {
+      toast.info('Invite request already pending — the host will review it.');
+      return;
+    }
+    try {
+      const updatedRequests = [
+        ...(server.join_requests || []),
+        {
+          user_id: currentUser?.id,
+          user_name: currentUser?.full_name,
+          user_avatar: currentUser?.avatar_url,
+          requested_at: new Date().toISOString(),
+          status: 'pending',
+        },
+      ];
+      await entities.Server.update(server.id, { join_requests: updatedRequests });
+      toast.success('Invite request sent — awaiting host approval.');
+    } catch {
+      toast.error('Could not send invite request');
     }
   };
 
@@ -704,13 +740,32 @@ function ServerHologram({ server, currentUser, friendsInServer, index = 0 }) {
             </div>
           )}
 
-          {/* Hollow Establish Uplink button */}
-          <button
-            onClick={handleJoin}
-            className="w-full py-2 border border-red-500 text-red-500 hover:bg-red-500 hover:text-white hover:shadow-[0_0_18px_rgba(220,38,38,0.5)] transition-all duration-300 font-mono text-[10px] tracking-[0.3em] uppercase"
-          >
-            Establish Uplink
-          </button>
+          {/* Action button — public servers get "Establish Uplink"; private
+              ones get a "Request Invite" affordance with a pending-state
+              fallback so a user can't double-fire requests. */}
+          {isPrivate ? (
+            <button
+              onClick={handleRequestInvite}
+              disabled={hasPendingRequest || isAlreadyMember}
+              className={`w-full py-2 border transition-all duration-300 font-mono text-[10px] tracking-[0.3em] uppercase ${
+                hasPendingRequest
+                  ? 'border-yellow-500/50 text-yellow-400 cursor-not-allowed'
+                  : isAlreadyMember
+                    ? 'border-zinc-700 text-zinc-500 cursor-not-allowed'
+                    : 'border-purple-500 text-purple-400 hover:bg-purple-500 hover:text-white hover:shadow-[0_0_18px_rgba(168,85,247,0.5)]'
+              }`}
+              title={isPrivate ? 'This signal is invite-only. Request access from the host.' : ''}
+            >
+              {hasPendingRequest ? 'Request Pending' : isAlreadyMember ? 'Uplinked' : 'Request Invite'}
+            </button>
+          ) : (
+            <button
+              onClick={handleJoin}
+              className="w-full py-2 border border-red-500 text-red-500 hover:bg-red-500 hover:text-white hover:shadow-[0_0_18px_rgba(220,38,38,0.5)] transition-all duration-300 font-mono text-[10px] tracking-[0.3em] uppercase"
+            >
+              Establish Uplink
+            </button>
+          )}
         </div>
       </div>
     </motion.div>

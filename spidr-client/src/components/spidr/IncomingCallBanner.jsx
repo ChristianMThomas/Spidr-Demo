@@ -2,43 +2,57 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getSocket } from '@/api/apiClient';
+import { entities, getSocket } from '@/api/apiClient';
 import { useAppShell } from '@/context/AppShellContext';
 import { Phone, PhoneOff } from 'lucide-react';
 import SpiderLogo from './SpiderLogo';
+import { playSound } from './SoundEngine';
 
 /**
- * IncomingCallBanner — Spidr's themed incoming-call UI for DM calls.
+ * IncomingCallBanner — Spidr's themed incoming-call UI for DM + group calls.
  *
  * Mounted once at the shell level. Listens for the socket `call:incoming`
- * event (relayed by the server when another user starts a DM call) and drops
- * a banner down from the top of the screen — as if the caller is descending
- * on a web thread. The avatar dangles on an animated silk strand with a
- * pulsing web ring; Answer (green) and Deny (red) sit below.
+ * event (relayed by the server when another user starts a DM call, or a
+ * group call invite goes out) and drops a banner down from the top of the
+ * screen — as if the caller is descending on a web thread. The avatar
+ * dangles on an animated silk strand with a pulsing web ring; Answer
+ * (green) and Deny (red) sit below.
  *
- * Answer  → emits `call:accept`, navigates to the DM, and signals the DM view
- *           to auto-join the call via the `spidr-answer-call` window event.
+ * Answer  → starts the voice session via shell context IMMEDIATELY (creates
+ *           the VoiceSession row + mounts VoiceChannel/WebRTC), then
+ *           navigates to the conversation. The call is live before the
+ *           page transition completes, so no race window can drop it.
  * Deny    → emits `call:decline` and dismisses.
  * Caller cancels / no answer in 30s → auto-dismiss.
  *
  * A short web-pluck tone loops while ringing (WebAudio, no asset needed).
+ * The ring is fully idempotent + audio-context-suspended on stop, so it
+ * silences immediately on Answer/Deny even if duplicate `call:incoming`
+ * events arrive.
  */
 export default function IncomingCallBanner() {
   const navigate = useNavigate();
-  const { currentUser, navigateToDM } = useAppShell();
-  const [call, setCall] = useState(null); // { conversationId, caller, callerId }
+  const { currentUser, navigateToDM, startVoiceSession } = useAppShell();
+  const [call, setCall] = useState(null); // { conversationId, caller, callerId, kind?, groupId? }
   const audioCtxRef = useRef(null);
   const ringTimerRef = useRef(null);
   const autoDismissRef = useRef(null);
 
   // ── Ringtone: a short, eerie two-note "web pluck" looped via WebAudio ──────
   const startRing = () => {
+    // Idempotent: ALWAYS tear down any prior ring before starting a new one.
+    // Without this, a duplicate `call:incoming` emit (or a useEffect cleanup
+    // race) would orphan the previous setInterval — the new ref overwrite
+    // makes the old timer untrackable and it rings forever.
+    stopRing();
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
       const ctx = audioCtxRef.current || new Ctx();
       audioCtxRef.current = ctx;
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       const pluck = () => {
+        if (!audioCtxRef.current || audioCtxRef.current !== ctx) return; // bail if torn down
         if (ctx.state === 'suspended') ctx.resume().catch(() => {});
         const t = ctx.currentTime;
         [392, 261.6].forEach((freq, i) => {
@@ -60,6 +74,10 @@ export default function IncomingCallBanner() {
   };
   const stopRing = () => {
     if (ringTimerRef.current) { clearInterval(ringTimerRef.current); ringTimerRef.current = null; }
+    // Suspend the audio context so any in-flight scheduled oscillators go
+    // silent immediately (without this, the last pluck() could still play
+    // for up to ~520ms after stopRing). Best-effort.
+    try { audioCtxRef.current?.suspend?.(); } catch { /* ignore */ }
   };
 
   const dismiss = () => {
@@ -93,26 +111,80 @@ export default function IncomingCallBanner() {
     };
   }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const answer = () => {
+  const answer = async () => {
     if (!call) return;
+    // Stop ringing the moment the user clicks — the ring is what they're
+    // trying to silence by hitting Answer, so we kill it FIRST even if
+    // anything below throws.
+    dismiss();
     try {
       getSocket().emit('call:accept', { callerId: call.callerId, conversationId: call.conversationId });
     } catch { /* non-fatal */ }
     const callerId = call.caller?.id || call.callerId;
     const callerName = call.caller?.name || 'Caller';
-    dismiss();
-    // Open the DM with the caller, then tell the DM view to auto-join.
-    if (navigateToDM) {
+
+    // Drive the join ourselves instead of dispatching an event the DM view
+    // has 400ms to catch (which races route transitions on slow devices).
+    // We create the VoiceSession row + flip on the shell-level voice deck
+    // RIGHT NOW so the WebRTC peer connection starts immediately; the DM
+    // view derives its in-call UI from the shell session, so when it
+    // mounts everything's already wired.
+    try {
+      if (call.kind === 'group' && call.groupId) {
+        startVoiceSession?.({
+          server:  { id: 'group', name: call.groupName || 'Group Call', channels: [], members: [] },
+          channel: { id: call.groupId, name: call.groupName || 'Group Call', type: 'voice' },
+          currentUser,
+        });
+        entities.VoiceSession.create({
+          server_id: 'group',
+          channel_id: call.groupId,
+          user_id: currentUser?.id,
+          user_name: currentUser?.full_name || currentUser?.username,
+          user_avatar: currentUser?.avatar_url || '',
+          is_muted: false,
+          is_video_on: false,
+          is_speaking: false,
+        }).catch(() => { /* non-fatal: the join still works */ });
+      } else if (call.conversationId) {
+        startVoiceSession?.({
+          server:  { id: 'dm', name: `DM — ${callerName}`, channels: [], members: [] },
+          channel: { id: call.conversationId, name: callerName, type: 'voice' },
+          currentUser,
+        });
+        entities.VoiceSession.create({
+          server_id: 'dm',
+          channel_id: call.conversationId,
+          user_id: currentUser?.id,
+          user_name: currentUser?.full_name || currentUser?.username,
+          user_avatar: currentUser?.avatar_url || '',
+          is_muted: false,
+          is_video_on: false,
+          is_speaking: false,
+        }).catch(() => { /* non-fatal */ });
+      }
+      playSound('join');
+    } catch { /* non-fatal */ }
+
+    // Navigate to the conversation so the user has the chat open while in
+    // the call. The call itself is already live regardless of when (or if)
+    // this navigation completes.
+    if (call.kind === 'group' && call.groupId) {
+      navigate(`/friends/groups/${call.groupId}`);
+    } else if (navigateToDM) {
       navigateToDM(callerId, call.conversationId);
     } else {
       navigate('/friends/dms');
     }
-    // Slight delay so the DM view has mounted before it auto-joins.
+
+    // Keep the legacy event for any other listeners that still depend on
+    // it (no-op for the DM/group page, since they derive in-call state
+    // from the shell now).
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent('spidr-answer-call', {
         detail: { conversationId: call.conversationId, callerId, callerName },
       }));
-    }, 400);
+    }, 100);
   };
 
   const deny = () => {

@@ -38,8 +38,17 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const [showProfile, setShowProfile] = useState(false);
   const [ghostMode, setGhostMode] = useState(false);
   const [selectedProfileUserId, setSelectedProfileUserId] = useState(null);
-  const { startVoiceSession, endVoiceSession } = useAppShell();
-  const [inCall, setInCall] = useState(false);
+  const { startVoiceSession, endVoiceSession, voiceSession } = useAppShell();
+  const activeConversationId = conversationId || conversation?.conversationId;
+  // Derived: we're "in call" for this conversation whenever the shell-level
+  // voice session is pointing at it. This makes the call state robust to
+  // any entry path — locally started, answered from the IncomingCallBanner,
+  // or restored from a minimized state — instead of depending on a local
+  // setInCall flip that could be skipped on remote-answer flows.
+  const inCall = !!voiceSession
+    && voiceSession.channel?.id === activeConversationId
+    && voiceSession.server?.id === 'dm';
+  const setInCall = () => { /* no-op: inCall is derived; kept for call sites that still poke it */ };
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [showStickyWeb, setShowStickyWeb] = useState(false);
@@ -50,7 +59,6 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const scrollRef = useRef(null);
 
   // Must be declared before the useEffect that references them
-  const activeConversationId = conversationId || conversation?.conversationId;
   const activeRecipientId = recipientId || conversation?.friendId;
   const { report: reportXp } = useTension();
 
@@ -271,8 +279,12 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voice-sessions', activeConversationId],
     queryFn: () => entities.VoiceSession.filter({ channel_id: activeConversationId }),
-    enabled: inCall && !!activeConversationId,
+    // Always-on: a recipient who missed/dismissed the IncomingCallBanner
+    // still needs to discover that a call is in progress on this DM. The
+    // chat header shows a "Join Active Call" affordance based on this.
+    enabled: !!activeConversationId,
     staleTime: 5000,
+    refetchInterval: 8000,
   });
 
   const createSessionMutation = useMutation({
@@ -611,6 +623,31 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           </button>
         </div>
       </div>
+
+      {/* Active-call presence banner — symmetric with KineticChat. Lets a
+          recipient who missed/dismissed the IncomingCallBanner still join
+          if the other party is on the line. Filters out the current user's
+          own session so the banner disappears the instant they join. */}
+      {!inCall && voiceSessions.filter(s => s.user_id !== currentUser?.id).length > 0 && (
+        <button
+          onClick={() => handleStartCall(true /* skipInvite — we're answering, not initiating */)}
+          className="mx-3 mt-2 flex items-center gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-green-600/20 to-emerald-500/10 border border-green-500/40 hover:border-green-500/70 hover:from-green-600/30 transition-all text-left group"
+        >
+          <span className="relative flex items-center justify-center w-8 h-8 rounded-full bg-green-500/20 shrink-0">
+            <Phone size={14} className="text-green-400" />
+            <span className="absolute inset-0 rounded-full border border-green-500/60 animate-ping" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-green-400">/// Live Voice Web</p>
+            <p className="text-xs text-white truncate">
+              <span className="font-bold">{displayName}</span> is on the web — tap to join
+            </p>
+          </div>
+          <span className="font-mono text-[10px] uppercase tracking-widest text-green-400 group-hover:text-green-300">
+            Join →
+          </span>
+        </button>
+      )}
 
       {/* Catch Me Up — AI summary of recent DM messages */}
       <CatchMeUpBar messages={messages} contextLabel={`your DM with ${displayName}`} limit={30} />
