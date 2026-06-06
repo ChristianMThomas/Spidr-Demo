@@ -215,6 +215,10 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
   // these global events let the user mute / deafen / disconnect from anywhere
   // in the app — including while the call is minimized — without unmounting
   // and re-joining (which was the old cause of "minimize disconnects me").
+  // Ref so the screen-share listener always reads the LIVE isSharing instead
+  // of the value captured when the effect ran.
+  const isSharingRef = useRef(isSharing);
+  useEffect(() => { isSharingRef.current = isSharing; }, [isSharing]);
   useEffect(() => {
     const onMute = (e) => {
       const wantMuted = e.detail?.muted;
@@ -233,13 +237,28 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
       if (mySession) updateMutation.mutate({ id: mySession.id, data: { is_deafened: deaf } });
     };
     const onDisconnect = () => { handleLeave(); };
+    // Patch: screen-share toggle from the minimized pill. If we're not
+    // already sharing, opening the stream selector kicks off the normal
+    // handleStartStream flow (the minimized button auto-expands the deck so
+    // the picker is visible). If we are sharing, this stops it.
+    const onScreenShare = (e) => {
+      const wantActive = e?.detail?.active;
+      const currentlySharing = !!isSharingRef.current;
+      if (wantActive && !currentlySharing) {
+        setShowStreamSelector(true);
+      } else if (!wantActive && currentlySharing) {
+        handleStopStream();
+      }
+    };
     window.addEventListener('spidr-call-mute-toggle', onMute);
     window.addEventListener('spidr-call-deafen-toggle', onDeafen);
     window.addEventListener('spidr-call-disconnect', onDisconnect);
+    window.addEventListener('spidr-call-screenshare-toggle', onScreenShare);
     return () => {
       window.removeEventListener('spidr-call-mute-toggle', onMute);
       window.removeEventListener('spidr-call-deafen-toggle', onDeafen);
       window.removeEventListener('spidr-call-disconnect', onDisconnect);
+      window.removeEventListener('spidr-call-screenshare-toggle', onScreenShare);
     };
   }, [rtc, mySession]); // eslint-disable-line react-hooks/exhaustive-deps
 

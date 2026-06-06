@@ -309,11 +309,13 @@ export default function SpidrShell() {
         />
 
 
-        {/* Patch 2.6: the ONE persistent voice deck. Mounted here at the shell
-            (outside <Outlet/>) so it never unmounts on navigation — the WebRTC
-            session + audio survive moving around the app. Shown fullscreen when
-            expanded; kept mounted-but-hidden when minimized so audio keeps
-            playing while the MinimizedWebNode drives controls. */}
+        {/* Patch 2.6 + fix: the ONE persistent voice deck. VoiceChannel must
+            stay mounted across expand/minimize transitions — re-mounting tears
+            down the WebRTC peer connections, drops event listeners mid-click,
+            and (worst) leaves a stale VoiceSession row in the DB that shows
+            the user duplicated in the channel sidebar. So we render it ONCE
+            inside a single wrapper, and only toggle visibility + the
+            `deckHidden` prop when state flips. */}
         {voiceSession && (
           <div
             className={voiceDeckExpanded && !isCallMinimized
@@ -321,26 +323,16 @@ export default function SpidrShell() {
               : 'hidden'}
             aria-hidden={!(voiceDeckExpanded && !isCallMinimized)}
           >
-            {voiceDeckExpanded && !isCallMinimized ? (
-              <SpidrBackground className="flex-1 flex flex-col">
-                <VoiceChannel
-                  server={voiceSession.server}
-                  channel={voiceSession.channel}
-                  currentUser={voiceSession.currentUser || currentUser}
-                  onLeave={() => { endVoiceSession(); }}
-                  onMinimize={() => { setVoiceDeckExpanded(false); setIsCallMinimized(true); }}
-                />
-              </SpidrBackground>
-            ) : (
+            <SpidrBackground className="flex-1 flex flex-col">
               <VoiceChannel
-                deckHidden
+                deckHidden={!(voiceDeckExpanded && !isCallMinimized)}
                 server={voiceSession.server}
                 channel={voiceSession.channel}
                 currentUser={voiceSession.currentUser || currentUser}
                 onLeave={() => { endVoiceSession(); }}
                 onMinimize={() => { setVoiceDeckExpanded(false); setIsCallMinimized(true); }}
               />
-            )}
+            </SpidrBackground>
           </div>
         )}
 

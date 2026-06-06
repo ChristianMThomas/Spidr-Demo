@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Headphones, PhoneOff, Maximize2, Monitor, Scissors, Volume2 } from 'lucide-react';
+import { Mic, MicOff, Headphones, PhoneOff, Maximize2, Monitor, Volume2, Users } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { auth, entities } from '@/api/apiClient';
 
 /**
@@ -15,17 +16,24 @@ import { auth, entities } from '@/api/apiClient';
  *   • Right side stacks: signal bars + monospaced timer on top row, "N nodes
  *     · {name}" beneath it. Everything inside the pill.
  *   • Clicking the pill (or pressing Ctrl+`) reveals a control panel docked
- *     directly beneath it: CHANNEL VOL slider, three round action buttons
- *     (Mute / Share / Clip), and an Expand · Leave row at the bottom.
+ *     directly beneath it: CHANNEL VOL slider, two action buttons (Mute /
+ *     Share), an "On the line" participants strip showing avatars of everyone
+ *     else in the call, and an Expand · Leave row at the bottom.
  *
  * Backward-compatible contract: keeps the props { call, apexColor, speaking,
  * amplitude, onExpand, onEnd, onMuteToggle } the shell already passes, and
  * keeps the existing event channels (spidr-call-mute-toggle,
- * spidr-call-deafen-toggle, spidr-call-disconnect). Two new optional events
- * have been added for parity with the new buttons:
+ * spidr-call-deafen-toggle, spidr-call-disconnect). The Share button
+ * dispatches:
  *   • spidr-call-screenshare-toggle  { active: boolean }
- *   • spidr-call-clip                {} — a fire-and-forget "clip last 30s"
- * VoiceChannel can listen for either when ready; until then they're harmless.
+ * which VoiceChannel listens for; if not currently sharing it opens the
+ * stream selector (auto-expanding the deck so the modal is visible), and if
+ * sharing it stops the share.
+ *
+ * Participants strip: when call.participants isn't passed (e.g. when rendered
+ * from SpidrShell rather than ActiveCallTether), we query VoiceSessions live
+ * from the call's IDs so the user can see who else is on the line without
+ * needing to expand.
  */
 
 const CALL_ACCENT = '#3b82f6'; // electric blue — the default "call active" hue
@@ -41,7 +49,6 @@ export default function MinimizedWebNode({
   const [deafened, setDeafened] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [volume, setVolume] = useState(80);
-  const [clipping, setClipping] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const rootRef = useRef(null);
 
@@ -94,10 +101,59 @@ export default function MinimizedWebNode({
   const resolvedAccent = fetchedColor || (apexColor && apexColor !== '#3f3f46' ? apexColor : null);
   const accent = resolvedAccent || CALL_ACCENT;
 
-  const participants = (call.participants || []);
+  // ── Live participants ────────────────────────────────────────────────────
+  // If the caller passed participants in `call.participants` (e.g. via
+  // ActiveCallTether), use those. Otherwise — the SpidrShell render path —
+  // query VoiceSessions directly from the call's IDs so the "on the line"
+  // strip still has data. Either way, dedupe by user_id (a user may have
+  // multiple stale rows from rapid reconnects) and the current user is
+  // filtered out since the pill already shows them as the avatar/node.
+  const meId = call.currentUserId || call.userId; // best-effort
+  const callType = call.type;
+  const { data: liveSessions = [] } = useQuery({
+    queryKey: ['minweb-sessions', callType, call.serverId, call.channelId, call.groupId, call.conversationId],
+    queryFn: () => {
+      if (callType === 'server' && call.serverId && call.channelId) {
+        return entities.VoiceSession.filter({ server_id: call.serverId, channel_id: call.channelId });
+      }
+      if (callType === 'group' && call.groupId) {
+        return entities.VoiceSession.filter({ group_id: call.groupId });
+      }
+      if (callType === 'dm' && call.conversationId) {
+        return entities.VoiceSession.filter({ conversation_id: call.conversationId });
+      }
+      return [];
+    },
+    enabled: !call.participants && !!callType,
+    staleTime: 8000,
+    refetchOnWindowFocus: false,
+  });
+
+  const rawParticipants = (call.participants && call.participants.length)
+    ? call.participants
+    : liveSessions.map(s => ({
+        userId:   s.user_id,
+        name:     s.user_name,
+        avatar:   s.user_avatar,
+        muted:    !!s.is_muted,
+        deafened: !!s.is_deafened,
+      }));
+
+  // Dedupe by user_id, keeping the freshest entry per person.
+  const deduped = Array.from(
+    rawParticipants.reduce((map, p) => {
+      const k = p.userId || p.user_id || p.name;
+      if (k && !map.has(k)) map.set(k, p);
+      return map;
+    }, new Map()).values()
+  );
+
+  // Anyone other than me, for the "on the line" strip.
+  const others = deduped.filter(p => (p.userId || p.user_id) !== meId);
+  const participants = deduped; // for the existing label/avatar fallback
   const nodeAvatar = participants[0]?.avatar || myAvatar;
   const nodeName = participants[0]?.name || call.recipientName || 'Solo';
-  const nodeCount = Math.max(participants.length, 1);
+  const nodeCount = Math.max(deduped.length, 1);
 
   // ── Button handlers — preserve existing event contract ──────────────────
   const toggleMute = useCallback((e) => {
@@ -126,19 +182,18 @@ export default function MinimizedWebNode({
     e?.stopPropagation();
     setSharing((s) => {
       const next = !s;
+      // Fire the event so VoiceChannel can open its stream selector / stop
+      // sharing. Then auto-expand the deck so the source picker modal is
+      // actually visible to the user (the picker can't be operated from the
+      // tiny minimized pill anyway).
       window.dispatchEvent(new CustomEvent('spidr-call-screenshare-toggle', { detail: { active: next } }));
+      if (next) {
+        setPanelOpen(false);
+        onExpand?.();
+      }
       return next;
     });
-  }, []);
-
-  const handleClip = useCallback((e) => {
-    e?.stopPropagation();
-    setClipping(true);
-    window.dispatchEvent(new CustomEvent('spidr-call-clip', { detail: { at: Date.now() } }));
-    // Brief visual confirmation; the actual clip lifecycle is owned by the
-    // call/recording subsystem.
-    setTimeout(() => setClipping(false), 900);
-  }, []);
+  }, [onExpand]);
 
   const handleEnd = (e) => {
     e?.stopPropagation();
@@ -339,8 +394,10 @@ export default function MinimizedWebNode({
                   />
                 </div>
 
-                {/* Action row — Mute / Share / Clip */}
-                <div className="grid grid-cols-3 gap-2 mb-2">
+                {/* Action row — Mute / Share (Clip removed per UX feedback —
+                    minimized pill shouldn't carry "creative" actions that
+                    don't have a clean affordance from a tiny widget) */}
+                <div className="grid grid-cols-2 gap-2 mb-2">
                   <PanelButton
                     label={muted ? 'Unmute' : 'Mute'}
                     icon={muted ? <MicOff size={16} /> : <Mic size={16} />}
@@ -363,19 +420,12 @@ export default function MinimizedWebNode({
                       color: '#dbeafe',
                     }}
                   />
-                  <PanelButton
-                    label={clipping ? 'Clipped!' : 'Clip last 30s'}
-                    icon={<Scissors size={16} />}
-                    onClick={handleClip}
-                    accent
-                    active={clipping}
-                    activeStyle={{
-                      background: 'rgba(168, 85, 247, 0.85)',
-                      borderColor: 'rgba(216, 180, 254, 0.9)',
-                      color: '#ffffff',
-                    }}
-                  />
                 </div>
+
+                {/* On-the-line participants strip — shows everyone else in the
+                    call so the user doesn't have to expand just to see who's
+                    here. If nobody else, shows a "you're solo" hint. */}
+                <ParticipantsStrip others={others} accentRgb={accentRgb} accent={accent} />
 
                 {/* Expand / Leave row */}
                 <div className="grid grid-cols-2 gap-2">
@@ -537,25 +587,15 @@ function VolumeSlider({ value, onChange, accent, accentRgb }) {
   );
 }
 
-// ── Round panel button with tooltip ───────────────────────────────────────
-// `accent` buttons (Clip) are wider and always show their label inline.
-// Non-accent buttons show only the icon with a tooltip on hover.
-function PanelButton({ icon, label, onClick, active, accent, activeStyle = {} }) {
+// ── Round panel button with hover tooltip ─────────────────────────────────
+function PanelButton({ icon, label, onClick, active, activeStyle = {} }) {
   const [hover, setHover] = useState(false);
-  const base = accent ? {
-    background: 'rgba(168, 85, 247, 0.18)',
-    borderColor: 'rgba(168, 85, 247, 0.45)',
-    color: '#d8b4fe',
-  } : {
+  const base = {
     background: 'rgba(255, 255, 255, 0.04)',
     borderColor: 'rgba(255, 255, 255, 0.1)',
     color: '#d4d4d8',
   };
-  const hoverStyle = accent ? {
-    background: 'rgba(168, 85, 247, 0.3)',
-    borderColor: 'rgba(168, 85, 247, 0.7)',
-    color: '#ffffff',
-  } : {
+  const hoverStyle = {
     background: 'rgba(255, 255, 255, 0.08)',
     borderColor: 'rgba(255, 255, 255, 0.2)',
     color: '#ffffff',
@@ -567,19 +607,13 @@ function PanelButton({ icon, label, onClick, active, accent, activeStyle = {} })
       <button
         onClick={onClick}
         aria-label={label}
-        className="w-full h-10 rounded-lg border flex items-center justify-center gap-1 transition-all"
+        className="w-full h-10 rounded-lg border flex items-center justify-center transition-all"
         style={state}
       >
         {icon}
-        {accent && (
-          <span className="text-[10px] font-mono tracking-[0.18em] uppercase">
-            {active ? 'Done' : 'Clip'}
-          </span>
-        )}
       </button>
-      {/* Non-accent buttons get a tooltip on hover (Clip is self-labeled). */}
       <AnimatePresence>
-        {!accent && hover && (
+        {hover && (
           <motion.div
             initial={{ opacity: 0, y: -2 }}
             animate={{ opacity: 1, y: 0 }}
@@ -600,6 +634,88 @@ function PanelButton({ icon, label, onClick, active, accent, activeStyle = {} })
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Participants strip ────────────────────────────────────────────────────
+// Compact row of avatars showing everyone else on the line. Saves the user
+// from having to expand the deck just to see who's in the call.
+function ParticipantsStrip({ others, accent, accentRgb }) {
+  if (!others || others.length === 0) {
+    return (
+      <div
+        className="my-2 flex items-center gap-2 px-3 py-2 rounded-lg"
+        style={{
+          background: 'rgba(255, 255, 255, 0.02)',
+          border: '1px solid rgba(255, 255, 255, 0.06)',
+        }}
+      >
+        <Users size={12} className="text-zinc-500 shrink-0" />
+        <span className="font-mono text-[10px] text-zinc-500 tracking-wider uppercase">You're solo on this line</span>
+      </div>
+    );
+  }
+  const visible = others.slice(0, 5);
+  const overflow = Math.max(0, others.length - visible.length);
+  return (
+    <div
+      className="my-2 flex items-center gap-2 px-3 py-2 rounded-lg"
+      style={{
+        background: `rgba(${accentRgb}, 0.05)`,
+        border: `1px solid rgba(${accentRgb}, 0.15)`,
+      }}
+    >
+      <Users size={12} style={{ color: accent }} className="shrink-0" />
+      <span className="font-mono text-[10px] tracking-[0.18em] uppercase shrink-0" style={{ color: accent }}>
+        On the line · {others.length}
+      </span>
+      <div className="flex -space-x-1.5 ml-1">
+        {visible.map((p, i) => {
+          const id = p.userId || p.user_id || `${p.name}-${i}`;
+          const muted = p.muted || p.is_muted;
+          return (
+            <div
+              key={id}
+              className="relative w-6 h-6 rounded-full overflow-hidden"
+              style={{
+                boxShadow: muted ? '0 0 0 1px rgba(239, 68, 68, 0.6)' : `0 0 0 1px rgba(${accentRgb}, 0.5)`,
+                background: '#18181b',
+                border: '2px solid rgba(8, 12, 24, 0.95)',
+              }}
+              title={`${p.name || 'Spider'}${muted ? ' (muted)' : ''}`}
+            >
+              {p.avatar ? (
+                <img src={p.avatar} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[9px] font-bold text-zinc-300 uppercase">
+                  {(p.name || '?').charAt(0)}
+                </div>
+              )}
+              {muted && (
+                <div
+                  className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full flex items-center justify-center"
+                  style={{ background: '#ef4444', boxShadow: '0 0 4px rgba(239, 68, 68, 0.7)' }}
+                >
+                  <MicOff size={6} className="text-white" strokeWidth={3} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {overflow > 0 && (
+          <div
+            className="relative w-6 h-6 rounded-full flex items-center justify-center"
+            style={{
+              background: 'rgba(0, 0, 0, 0.6)',
+              border: '2px solid rgba(8, 12, 24, 0.95)',
+              boxShadow: `0 0 0 1px rgba(${accentRgb}, 0.5)`,
+            }}
+          >
+            <span className="text-[8px] font-bold text-zinc-300">+{overflow}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
