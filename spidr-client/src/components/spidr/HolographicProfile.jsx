@@ -1,5 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { useAppShell } from '@/context/AppShellContext';
+import React, { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
@@ -46,22 +45,17 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
     enabled: !!userId && open
   });
 
-  // Symbiote Profile Takeover (Patch 2.0): when an APEX user's profile modal is
-  // open, push their thread color into the global overlay state so it "infects"
-  // the viewport. Reset on close/unmount so the symbiote recedes.
-  const { setActiveApexProfile } = useAppShell();
-  useEffect(() => {
-    const isApex = open && userProfile?.apex_tier === 'apex';
-    if (isApex) {
-      const color = userProfile?.apex_features?.thread_skin_color
-        || userProfile?.accent_color
-        || '#FF3333';
-      setActiveApexProfile({ isApex: true, color });
-    } else {
-      setActiveApexProfile({ isApex: false, color: null });
-    }
-    return () => setActiveApexProfile({ isApex: false, color: null });
-  }, [open, userProfile?.apex_tier, userProfile?.apex_features?.thread_skin_color, userProfile?.accent_color, setActiveApexProfile]);
+  // Symbiote Profile Takeover (removed): the original Patch 2.0 pushed an
+  // APEX user's thread color into the global SymbioteInfectionOverlay state
+  // when their profile modal opened, which painted a full-screen gooey blob
+  // behind the modal. In practice that overlay dominated the screen and made
+  // the profile feel cluttered, so we no longer activate it from this view.
+  // The overlay component remains mounted in the shell and reacts to
+  // `activeApexProfile`; we just don't set it from here. If we want a more
+  // tasteful "presence" cue for APEX profiles later, this is where to wire
+  // a softer, contained effect (e.g. a small accent in the modal corner)
+  // rather than a viewport-wide takeover.
+  // Intentionally no-op.
 
   const { data: friendshipData } = useQuery({
     queryKey: ['friendship', currentUser?.id, userId],
@@ -357,9 +351,18 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
             {/* LAYER 1: Avatar */}
             <div style={{ zIndex: 5 }} className="relative px-10 pt-[140px]">
               <div className="relative w-28 h-28">
+                {/* APEX accent ring — replaces the old pulsing blur halo. A
+                    blurred, animated, double-color gradient behind the
+                    avatar read as a "throbbing blob" and competed with the
+                    avatar itself. A static thin ring gives the same status
+                    cue without the visual noise. */}
                 {isApex && (
-                  <div className="absolute -inset-1 rounded-2xl blur-md animate-pulse opacity-70"
-                    style={{ background: `linear-gradient(135deg, ${accentColor}, #7c3aed)` }} />
+                  <div
+                    className="absolute -inset-[3px] rounded-2xl pointer-events-none"
+                    style={{
+                      boxShadow: `0 0 0 1.5px ${accentColor}, 0 0 18px ${accentColor}55`,
+                    }}
+                  />
                 )}
                 {userProfile?.avatar_url ? (
                   <img 
@@ -401,16 +404,14 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
 
             {/* LAYER 2: Identity — @username#tag */}
             <div style={{ zIndex: 5 }} className="relative px-10 mt-4">
-              {/* APEX nameplate background (4.1) — sits behind the name row. */}
-              {userProfile?.apex_features?.nameplate_url && (
-                <div
-                  className="absolute inset-x-8 -inset-y-1 rounded-xl overflow-hidden pointer-events-none opacity-80"
-                  style={{ zIndex: -1 }}
-                >
-                  <img src={userProfile.apex_features.nameplate_url} alt="" className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a]/70 to-transparent" />
-                </div>
-              )}
+              {/* NB: APEX nameplate_url is NOT rendered here. It's a list-row
+                  personalization (sidebar member list, DM list, group member
+                  list, friends list) — not a profile-view treatment. Inside
+                  the profile, the user's banner + avatar + accent color
+                  already carry their identity; layering the nameplate image
+                  on top makes the header read as a "blurry blob" because
+                  most nameplates are abstract textures meant to be glanced
+                  at behind a tiny username chip. */}
               <div className="flex items-center gap-3">
                 <h2
                   className="text-3xl tracking-tight"
