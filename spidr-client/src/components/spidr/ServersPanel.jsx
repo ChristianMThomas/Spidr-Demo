@@ -1319,7 +1319,24 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               <ChevronDown className="w-3.5 h-3.5 text-zinc-600" />
             </div>
             {channels.filter(c => c.type === 'voice').map((channel) => {
-              const channelUsers = voiceSessions.filter(s => s.channel_id === channel.id);
+              // Dedupe by user_id — a user can have multiple stale VoiceSession
+              // rows (rapid reconnects, multiple tabs, or sessions that didn't
+              // get cleaned up on a previous disconnect). Without this, the
+              // same user shows up twice (or more) under the channel.
+              const channelUsers = Array.from(
+                voiceSessions
+                  .filter(s => s.channel_id === channel.id)
+                  .reduce((map, s) => {
+                    const key = s.user_id || s.id;
+                    // Keep the freshest record per user (latest updated_date wins)
+                    const existing = map.get(key);
+                    if (!existing || new Date(s.updated_date || 0) > new Date(existing.updated_date || 0)) {
+                      map.set(key, s);
+                    }
+                    return map;
+                  }, new Map())
+                  .values()
+              );
               const live = channelUsers.length > 0;
               const active = activeVoiceChannel?.id === channel.id;
               return (
