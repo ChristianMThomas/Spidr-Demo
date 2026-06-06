@@ -14,10 +14,17 @@ import SpidrSystem from '@/components/spidr/SpidrSystem';
 /**
  * /home — the landing dashboard.
  *
- * Quick stats, quick actions, AI discovery, activity feed, and recent
- * servers. This was the body of the old HomeContent inner function from
- * Home.jsx; now it stands on its own as a proper page, with all navigation
- * driven by the router.
+ * Layout (top to bottom):
+ *   - Welcome Banner: mascot + greeting in a wide glass slab
+ *   - Stat Strip: three glass cards (Servers / Friends / GIFs)
+ *   - Web Tension XP bar
+ *   - Quick Actions row
+ *   - Spidr AI Discover Users
+ *   - Activity Feed (CONTAINED in a fixed-height glass box with internal
+ *     scroll + bottom gradient fade — the page no longer stretches when
+ *     the feed grows)
+ *   - Recent Servers grid
+ *   - Right rail: EngagementHub (also contained)
  */
 export default function HomeDashboard() {
   const { currentUser, setSelectedServerId, navigateToDM } = useAppShell();
@@ -44,68 +51,181 @@ export default function HomeDashboard() {
     staleTime: 60000,
   });
 
-  return (
-    <div className="flex-1 bg-gradient-to-br from-zinc-900 via-zinc-900 to-red-950/20 overflow-y-auto">
-      <div className="flex gap-6 p-4 sm:p-6 max-w-[1400px] mx-auto">
-        {/* ── Main column ──────────────────────────────────────────────────── */}
-        <div className="flex-1 min-w-0 space-y-6">
+  // Best-effort first-name extraction for the greeting. Falls back to the
+  // full name, then the username, then "spider".
+  const greetingName =
+    (currentUser?.full_name || '').split(' ')[0] ||
+    currentUser?.username ||
+    'spider';
 
-          {/* Welcome Header */}
+  return (
+    <div className="flex-1 bg-[#050505] overflow-y-auto relative">
+      {/* Custom scrollbar styling for the activity feed containment box.
+          Scoped via `.spidr-feed-scroll` so it doesn't affect the rest of
+          the app's scrollbars. */}
+      <style>{`
+        .spidr-feed-scroll::-webkit-scrollbar { width: 6px; }
+        .spidr-feed-scroll::-webkit-scrollbar-track { background: transparent; }
+        .spidr-feed-scroll::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.04);
+          border-radius: 999px;
+          transition: background 0.15s ease;
+        }
+        .spidr-feed-scroll:hover::-webkit-scrollbar-thumb {
+          background: rgba(255, 255, 255, 0.12);
+        }
+        .spidr-feed-scroll::-webkit-scrollbar-thumb:hover {
+          background: rgba(239, 68, 68, 0.6);
+          box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+        }
+        /* Firefox */
+        .spidr-feed-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent; }
+      `}</style>
+
+      {/* Ambient page glow — faint red bleed top-right + cool blue bleed
+          bottom-left, so the dashboard reads as a Spidr canvas rather than
+          a flat black page. */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-60"
+        style={{
+          background:
+            'radial-gradient(ellipse 50% 35% at 100% 0%, rgba(239, 68, 68, 0.08), transparent 70%),' +
+            'radial-gradient(ellipse 40% 30% at 0% 100%, rgba(59, 130, 246, 0.04), transparent 70%)',
+        }}
+      />
+
+      <div className="relative flex gap-6 p-4 sm:p-6 max-w-[1400px] mx-auto">
+        {/* ── Main column ──────────────────────────────────────────────────── */}
+        <div className="flex-1 min-w-0 space-y-5">
+
+          {/* ── Welcome Banner ──────────────────────────────────────────────
+              Wide glass slab with the spider mascot on the left, a
+              WELCOME_BACK eyebrow, a bold first-name greeting, and a tagline.
+              A faint right-edge red glow gives it presence without
+              overpowering the rest of the dashboard. */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-5"
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+            className="relative overflow-hidden rounded-2xl"
+            style={{
+              background: 'rgba(10, 10, 10, 0.65)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.05)',
+              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4)',
+            }}
           >
-            <motion.div
-              animate={{ rotate: [0, 5, -5, 0], scale: [1, 1.05, 1] }}
-              transition={{ duration: 3, repeat: Infinity, repeatDelay: 2 }}
-            >
-              <SpiderLogo size={64} />
-            </motion.div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">
-                Welcome to <span className="text-red-500">Spidr</span>
-              </h1>
-              <p className="text-zinc-500 text-sm">Connect, chat, and create with your community</p>
+            {/* Right-edge red glow */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background:
+                  'radial-gradient(ellipse 50% 90% at 100% 50%, rgba(239, 68, 68, 0.16), transparent 70%)',
+              }}
+            />
+            {/* Hairline accent at top */}
+            <div
+              className="absolute top-0 inset-x-0 h-px pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(to right, transparent, rgba(239, 68, 68, 0.35), transparent)',
+              }}
+            />
+
+            <div className="relative flex items-center gap-5 p-6">
+              {/* Mascot housing — circular tinted container with subtle
+                  purple→red gradient halo behind the logo. */}
+              <div className="relative shrink-0">
+                <div
+                  className="absolute inset-0 rounded-full blur-md opacity-60"
+                  style={{
+                    background:
+                      'radial-gradient(circle, rgba(168, 85, 247, 0.5), rgba(239, 68, 68, 0.3) 60%, transparent 80%)',
+                  }}
+                />
+                <div
+                  className="relative w-14 h-14 rounded-full flex items-center justify-center overflow-hidden"
+                  style={{
+                    background:
+                      'radial-gradient(circle at 30% 30%, rgba(168, 85, 247, 0.18), rgba(20, 10, 22, 0.95) 70%)',
+                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                    boxShadow:
+                      '0 0 18px rgba(239, 68, 68, 0.35), inset 0 0 14px rgba(168, 85, 247, 0.15)',
+                  }}
+                >
+                  <SpiderLogo size={42} />
+                </div>
+              </div>
+
+              {/* Copy block */}
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-red-400/90 mb-1">
+                  Welcome Back
+                </p>
+                <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">
+                  Hey, <span className="text-red-500">{greetingName}</span>
+                </h1>
+                <p className="text-zinc-500 text-sm mt-0.5">Your web is waiting</p>
+              </div>
             </div>
           </motion.div>
 
-          {/* Quick Stats */}
-          <div className="grid grid-cols-3 gap-3">
-            <motion.button whileHover={{ scale: 1.02 }}
+          {/* ── Stat Strip ──────────────────────────────────────────────────
+              Three glass tiles in a single row. Each is its own tappable
+              shortcut: Servers / Friends / GIFs & Emojis. The number sits
+              big on top, with the label tucked underneath. */}
+          <div className="grid grid-cols-3 gap-4">
+            <StatTile
+              value={servers.length}
+              label="Servers"
               onClick={() => navigate('/servers')}
-              className="bg-zinc-800/50 rounded-xl p-4 border border-red-900/20 text-left hover:border-red-500/50 transition-all">
-              <p className="text-3xl font-bold text-white">{servers.length}</p>
-              <p className="text-zinc-500 text-xs">Servers</p>
-            </motion.button>
-            <motion.button whileHover={{ scale: 1.02 }}
+            />
+            <StatTile
+              value={friends.length}
+              label="Friends"
               onClick={() => navigate('/friends')}
-              className="bg-zinc-800/50 rounded-xl p-4 border border-red-900/20 text-left hover:border-red-500/50 transition-all">
-              <p className="text-3xl font-bold text-white">{friends.length}</p>
-              <p className="text-zinc-500 text-xs">Friends</p>
-            </motion.button>
-            <motion.button whileHover={{ scale: 1.02 }} onClick={() => navigate('/gifs')}
-              className="bg-zinc-800/50 rounded-xl p-4 border border-red-900/20 hover:border-red-500 transition-all text-left">
-              <p className="text-3xl font-bold text-red-500">∞</p>
-              <p className="text-zinc-500 text-xs">GIFs & Emojis</p>
-            </motion.button>
+            />
+            <StatTile
+              value="∞"
+              label="GIFs & Emojis"
+              valueClassName="text-red-500"
+              onClick={() => navigate('/gifs')}
+            />
           </div>
 
           {/* Web Tension (XP / level) */}
           <TensionBar />
 
           {/* Quick Actions */}
-          <div className="grid grid-cols-2 gap-3">
-            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+          <div className="grid grid-cols-2 gap-4">
+            <motion.button
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
               onClick={() => navigate('/friends/add')}
-              className="bg-gradient-to-r from-red-600 to-red-700 rounded-xl p-4 text-left hover:from-red-500 hover:to-red-600 transition-all">
-              <h3 className="text-base font-semibold text-white mb-1">Find Friends</h3>
-              <p className="text-red-200 text-xs">Connect with others</p>
+              className="relative overflow-hidden rounded-2xl p-5 text-left transition-all"
+              style={{
+                background:
+                  'linear-gradient(135deg, rgba(220, 38, 38, 0.85), rgba(127, 29, 29, 0.85))',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                boxShadow: '0 8px 24px rgba(220, 38, 38, 0.2)',
+              }}
+            >
+              <h3 className="text-base font-bold text-white mb-1">Find Friends</h3>
+              <p className="text-red-200 text-xs">Connect with others on the web</p>
             </motion.button>
-            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+            <motion.button
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
               onClick={() => navigate('/ai')}
-              className="bg-gradient-to-r from-zinc-800 to-zinc-700 rounded-xl p-4 text-left border border-red-900/30 hover:border-red-500/50 transition-all">
-              <h3 className="text-base font-semibold text-white mb-1">Try Spidr AI</h3>
+              className="relative overflow-hidden rounded-2xl p-5 text-left transition-all"
+              style={{
+                background: 'rgba(10, 10, 10, 0.60)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.06)',
+              }}
+            >
+              <h3 className="text-base font-bold text-white mb-1">Try Spidr AI</h3>
               <p className="text-zinc-400 text-xs">Create servers & customize</p>
             </motion.button>
           </div>
@@ -113,27 +233,106 @@ export default function HomeDashboard() {
           {/* AI User Discovery */}
           <DiscoverUsers currentUser={currentUser} onNavigateToDM={navigateToDM} />
 
-          {/* Activity Feed */}
-          <div>
-            <h2 className="text-lg font-bold text-white mb-3">Activity Feed</h2>
-            <EnhancedFeed currentUser={currentUser} />
+          {/* ── Activity Feed — CONTAINMENT FIELD ──────────────────────────
+              The feed used to flow into the page's normal block layout,
+              which meant a busy feed could stretch the page indefinitely
+              and bury the top of the dashboard.
+              Now it lives in a strict max-height glass module with its own
+              internal scroll. The bottom gradient masks the scroll-edge so
+              older items appear to fade into the canvas. */}
+          <div
+            className="relative overflow-hidden rounded-2xl"
+            style={{
+              background: 'rgba(10, 10, 10, 0.60)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.05)',
+              boxShadow: '0 8px 28px rgba(0, 0, 0, 0.4)',
+            }}
+          >
+            {/* Header rail — sits OUTSIDE the scroll area so the title
+                never moves as the user scrolls the feed below. */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="relative flex items-center justify-center w-2 h-2">
+                  <span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-60" />
+                  <span className="relative w-2 h-2 rounded-full bg-red-500" />
+                </span>
+                <h2 className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">
+                  Activity Feed
+                </h2>
+              </div>
+              <button
+                onClick={() => navigate('/feed')}
+                className="font-mono text-[10px] uppercase tracking-[0.18em] text-red-400/80 hover:text-red-300 transition-colors"
+              >
+                View All →
+              </button>
+            </div>
+
+            {/* Scroll engine — internal overflow, capped height. The pr-5
+                gives the scrollbar a hair of breathing room from the
+                content. */}
+            <div
+              className="spidr-feed-scroll max-h-[450px] overflow-y-auto px-5 pb-6"
+              style={{ maskImage: undefined }}
+            >
+              <EnhancedFeed currentUser={currentUser} />
+            </div>
+
+            {/* Fade-out mask — absolute, pointer-events-none, sits inside
+                the rounded clip so older feed items vanish smoothly into
+                the dark canvas at the bottom edge. */}
+            <div
+              className="absolute bottom-0 inset-x-0 h-16 pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(to top, rgba(10, 10, 10, 0.95) 0%, rgba(10, 10, 10, 0.6) 50%, transparent 100%)',
+              }}
+            />
           </div>
 
           {/* Recent Servers */}
           {servers.length > 0 && (
-            <div>
-              <h2 className="text-lg font-bold text-white mb-3">Recent Servers</h2>
+            <div
+              className="relative overflow-hidden rounded-2xl p-5"
+              style={{
+                background: 'rgba(10, 10, 10, 0.60)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+              }}
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <span className="w-2 h-2 rounded-full bg-red-500"
+                  style={{ boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)' }} />
+                <h2 className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">
+                  Recent Servers
+                </h2>
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {servers.slice(0, 4).map((server) => (
                   <motion.button
                     key={server.id}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
                     onClick={() => {
                       setSelectedServerId(server.id);
                       navigate(`/servers/${server.id}`);
                     }}
-                    className="bg-zinc-800/50 rounded-xl p-3 text-center border border-red-900/20 hover:border-red-500/50 transition-all"
+                    className="rounded-xl p-3 text-center transition-all"
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid rgba(255, 255, 255, 0.05)',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                      e.currentTarget.style.background = 'rgba(239, 68, 68, 0.05)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
+                    }}
                   >
                     <div className="w-12 h-12 rounded-lg mx-auto mb-2 overflow-hidden">
                       {server.icon_url ? (
@@ -152,33 +351,78 @@ export default function HomeDashboard() {
           )}
         </div>
 
-        {/* ── Right rail ──────────────────────────────────────────────────── */}
+        {/* ── Right rail — Activity / engagement still sticky-contained so
+            it doesn't push the homepage taller when populated. */}
         <div className="w-72 shrink-0 hidden lg:block">
-          <EngagementHub
-            currentUser={currentUser}
-            onNavigate={(tab) => {
-              // A server card sends `server-<id>` — route to the server page.
-              if (typeof tab === 'string' && tab.startsWith('server-')) {
-                const id = tab.slice('server-'.length);
-                setSelectedServerId?.(id);
-                navigate(`/servers/${id}`);
-                return;
-              }
-              // Translate the legacy tab name into a route
-              const routes = {
-                friends: '/friends',
-                servers: '/servers',
-                feed:    '/feed',
-                bots:    '/bots',
-                ai:      '/ai',
-              };
-              navigate(routes[tab] || `/${tab}`);
-            }}
-            onNavigateToDM={navigateToDM}
-          />
+          <div className="sticky top-0 max-h-[calc(100vh-1rem)] overflow-y-auto pr-1 py-1 spidr-feed-scroll">
+            <EngagementHub
+              currentUser={currentUser}
+              onNavigate={(tab) => {
+                if (typeof tab === 'string' && tab.startsWith('server-')) {
+                  const id = tab.slice('server-'.length);
+                  setSelectedServerId?.(id);
+                  navigate(`/servers/${id}`);
+                  return;
+                }
+                const routes = {
+                  friends: '/friends',
+                  servers: '/servers',
+                  feed:    '/feed',
+                  bots:    '/bots',
+                  ai:      '/ai',
+                };
+                navigate(routes[tab] || `/${tab}`);
+              }}
+              onNavigateToDM={navigateToDM}
+            />
+          </div>
         </div>
       </div>
       <SpidrSystem />
     </div>
+  );
+}
+
+// ── Stat tile ───────────────────────────────────────────────────────────────
+// Single-purpose glass card. Big numeric/symbolic value on top, small label
+// underneath. Tappable — used for Servers/Friends/GIFs shortcuts.
+function StatTile({ value, label, onClick, valueClassName = 'text-white' }) {
+  return (
+    <motion.button
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+      onClick={onClick}
+      className="relative overflow-hidden rounded-2xl p-5 text-left transition-all group"
+      style={{
+        background: 'rgba(10, 10, 10, 0.60)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255, 255, 255, 0.05)',
+        boxShadow: '0 6px 20px rgba(0, 0, 0, 0.3)',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.35)';
+        e.currentTarget.style.boxShadow =
+          '0 10px 28px rgba(0, 0, 0, 0.4), 0 0 22px rgba(239, 68, 68, 0.12)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+        e.currentTarget.style.boxShadow = '0 6px 20px rgba(0, 0, 0, 0.3)';
+      }}
+    >
+      {/* Subtle hover bleed — appears on hover via opacity. */}
+      <div
+        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(ellipse 60% 80% at 100% 50%, rgba(239, 68, 68, 0.08), transparent 70%)',
+        }}
+      />
+      <p className={`relative text-3xl font-bold leading-none mb-2 ${valueClassName}`}>
+        {value}
+      </p>
+      <p className="relative text-zinc-500 text-xs">{label}</p>
+    </motion.button>
   );
 }

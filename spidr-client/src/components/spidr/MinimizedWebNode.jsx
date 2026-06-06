@@ -40,7 +40,7 @@ const CALL_ACCENT = '#3b82f6'; // electric blue — the default "call active" hu
 
 export default function MinimizedWebNode({
   call = {}, apexColor = '#3f3f46', speaking = false, amplitude = 0,
-  onExpand, onEnd,
+  onExpand, onEnd, callStartedAt = null,
 }) {
   const [myAvatar, setMyAvatar] = useState(null);
   const [fetchedColor, setFetchedColor] = useState(null);
@@ -67,9 +67,40 @@ export default function MinimizedWebNode({
   }, []);
 
   // ── Live call timer ─────────────────────────────────────────────────────
+  // Compute elapsed from a shell-owned callStartedAt timestamp so the timer
+  // value SURVIVES minimize↔expand cycles (the pill unmounts/remounts on
+  // each transition, but the timestamp lives in AppShellContext). Falls
+  // back to an incrementing counter from mount if no timestamp was supplied
+  // (preserves old behavior for callers that don't pass it yet).
   useEffect(() => {
+    if (callStartedAt) {
+      const tick = () => setElapsed(Math.floor((Date.now() - callStartedAt) / 1000));
+      tick();
+      const id = setInterval(tick, 1000);
+      return () => clearInterval(id);
+    }
     const id = setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => clearInterval(id);
+  }, [callStartedAt]);
+
+  // ── State-sync broadcasts from VoiceChannel ─────────────────────────────
+  // VoiceChannel dispatches `spidr-call-state` events whenever mute/deafen/
+  // share toggle (from ANY source — the expanded deck, the global hotkey,
+  // an admin server-mute, etc.). The pill listens so its button visuals
+  // reflect the live RTC state even when the user toggles them from
+  // somewhere else. Without this, clicking Mute on the pill could dispatch
+  // a "mute me" event that VoiceChannel ignores (because rtc.isMuted was
+  // already true from a prior toggle in the expanded view) — making the
+  // button feel dead.
+  useEffect(() => {
+    const onState = (e) => {
+      const s = e?.detail || {};
+      if (typeof s.muted    === 'boolean') setMuted(s.muted);
+      if (typeof s.deafened === 'boolean') setDeafened(s.deafened);
+      if (typeof s.sharing  === 'boolean') setSharing(s.sharing);
+    };
+    window.addEventListener('spidr-call-state', onState);
+    return () => window.removeEventListener('spidr-call-state', onState);
   }, []);
 
   // ── Ctrl+` toggles the dock; Escape closes it ───────────────────────────

@@ -36,8 +36,14 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const [textEffect, setTextEffect] = useState('normal');
   const [selectedProfileUserId, setSelectedProfileUserId] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-  const { startVoiceSession, endVoiceSession } = useAppShell();
-  const [inCall, setInCall] = useState(false);
+  const { startVoiceSession, endVoiceSession, voiceSession } = useAppShell();
+  // Derived in-call state — true whenever the shell voice deck is pointing
+  // at this group. Robust to any entry path (locally started, joined from
+  // a presence banner, restored from minimize).
+  const inCall = !!voiceSession
+    && voiceSession.channel?.id === groupId
+    && voiceSession.server?.id === 'group';
+  const setInCall = () => { /* no-op: derived from shell session */ };
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [showStickyWeb, setShowStickyWeb] = useState(false);
@@ -245,8 +251,12 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const { data: voiceSessions = [] } = useQuery({
     queryKey: ['voice-sessions', groupId],
     queryFn: () => entities.VoiceSession.filter({ channel_id: groupId }),
-    enabled: inCall && !!groupId,
+    // Always-on so other group members can see when a call is in progress
+    // and join it. Previously gated on inCall, which created a chicken-and-
+    // egg problem: nobody could see the call until they were already in it.
+    enabled: !!groupId,
     staleTime: 1000,
+    refetchInterval: 8000, // periodic refresh as a fallback for missed sockets
   });
 
   const sendMessageMutation = useMutation({
@@ -644,6 +654,34 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           </button>
         </div>
       </div>
+
+      {/* Active-call presence banner — visible when at least one VoiceSession
+          exists for this group but the current user hasn't joined yet. This
+          is how OTHER group members discover that a call is happening (the
+          initiator can't broadcast `call:invite` to every member yet — no
+          server-side group fanout). Once joined, the banner disappears
+          since `inCall` flips true. */}
+      {!inCall && voiceSessions.length > 0 && (
+        <button
+          onClick={handleStartCall}
+          className="mx-3 mt-2 flex items-center gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-green-600/20 to-emerald-500/10 border border-green-500/40 hover:border-green-500/70 hover:from-green-600/30 transition-all text-left group"
+        >
+          <span className="relative flex items-center justify-center w-8 h-8 rounded-full bg-green-500/20 shrink-0">
+            <Phone size={14} className="text-green-400" />
+            <span className="absolute inset-0 rounded-full border border-green-500/60 animate-ping" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-green-400">/// Live Voice Web</p>
+            <p className="text-xs text-white truncate">
+              <span className="font-bold">{voiceSessions.length}</span>
+              {' '}{voiceSessions.length === 1 ? 'member is' : 'members are'} on this web — tap to join
+            </p>
+          </div>
+          <span className="font-mono text-[10px] uppercase tracking-widest text-green-400 group-hover:text-green-300">
+            Join →
+          </span>
+        </button>
+      )}
 
       {/* Catch Me Up — AI summary of recent group messages */}
       <CatchMeUpBar messages={messages} contextLabel={`the group "${group?.name || 'Group Chat'}"`} limit={30} />
