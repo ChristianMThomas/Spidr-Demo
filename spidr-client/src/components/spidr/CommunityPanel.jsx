@@ -4,6 +4,7 @@ import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import UserNameplate from './UserNameplate';
+import NameplateBackground from './NameplateBackground';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Shield, Crown, User, Users, ChevronDown, Pencil, Check, X, UserX, Ban, Volume2, VolumeX, PhoneOff, ArrowRight, Settings, GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -604,12 +605,18 @@ export default function CommunityPanel({ server, currentUser, onSelectUser, chat
                                       }
                                     }}
                                   >
+                                    {/* APEX nameplate background — fully clipped
+                                        by the row's overflow-hidden + rounded-xl.
+                                        Renders nothing for non-APEX users. */}
+                                    {profile?.apex_tier === 'apex' && (
+                                      <NameplateBackground url={profile?.apex_features?.nameplate_url} />
+                                    )}
                                     {/* 1.2 — tension thread to the right edge, fades in on hover */}
                                     <div
-                                      className="absolute top-1/2 right-0 h-px w-10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+                                      className="absolute top-1/2 right-0 h-px w-10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[2]"
                                       style={{ background: `linear-gradient(to left, ${apexColor}, transparent)` }}
                                     />
-                                    <div className="flex items-center gap-3">
+                                    <div className="relative z-[3] flex items-center gap-3">
                                      <div className="relative">
                                        {/* 1.1 — online: APEX-colored border + glow; offline: grayscale, no dot */}
                                        <Avatar

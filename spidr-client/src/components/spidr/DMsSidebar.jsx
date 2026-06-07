@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Search, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getPins } from '@/lib/spidrWebPins';
+import NameplateBackground from './NameplateBackground';
 
 const statusColors = {
   online: 'bg-green-500',
@@ -38,6 +39,29 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
     enabled: !!currentUser?.id
   });
 
+  // Fetch UserProfiles for everyone we have a friendship with, so we can
+  // read apex_tier + apex_features.nameplate_url for the row backgrounds.
+  // One bulk fetch + a local lookup map; cheap relative to per-row queries.
+  const friendIds = React.useMemo(
+    () => friends.map(f => f.friend_id).filter(Boolean),
+    [friends]
+  );
+  const { data: friendProfiles = [] } = useQuery({
+    queryKey: ['dm-friend-profiles', friendIds.join(',')],
+    queryFn: async () => {
+      if (friendIds.length === 0) return [];
+      const all = await entities.UserProfile.list();
+      return all.filter(p => friendIds.includes(p.user_id));
+    },
+    enabled: friendIds.length > 0,
+    staleTime: 60000,
+  });
+  const profileById = React.useMemo(() => {
+    const m = new Map();
+    friendProfiles.forEach(p => m.set(p.user_id, p));
+    return m;
+  }, [friendProfiles]);
+
   // Get all DMs for this user
   const { data: allMessages = [] } = useQuery({
     queryKey: ['all-dms', currentUser?.id],
@@ -58,6 +82,7 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
       if (!conversationMap.has(convId)) {
         const otherUserId = msg.sender_id === currentUser?.id ? msg.recipient_id : msg.sender_id;
         const friend = friends.find(f => f.friend_id === otherUserId);
+        const profile = profileById.get(otherUserId);
         
         conversationMap.set(convId, {
           conversationId: convId,
@@ -65,6 +90,7 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
           friendName: friend?.nickname || friend?.friend_name || 'Unknown',
           friendAvatar: friend?.friend_avatar,
           friendStatus: friend?.status || 'offline',
+          friendProfile: profile, // for nameplate + apex_tier
           lastMessage: msg,
           unreadCount: 0
         });
@@ -78,7 +104,7 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
 
     return Array.from(conversationMap.values())
       .sort((a, b) => new Date(b.lastMessage.created_date) - new Date(a.lastMessage.created_date));
-  }, [allMessages, friends, currentUser?.id]);
+  }, [allMessages, friends, profileById, currentUser?.id]);
 
   const filteredConversations = conversations.filter(conv =>
     conv.friendName.toLowerCase().includes(search.toLowerCase())
@@ -165,17 +191,22 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => onSelectConversation(conv)}
-                className={`w-full p-3 rounded-lg flex items-center gap-3 transition-colors relative ${
+                className={`w-full p-3 rounded-lg flex items-center gap-3 transition-colors relative overflow-hidden ${
                   activeConversationId === conv.conversationId
                     ? 'bg-gradient-to-r from-red-900/20 to-transparent'
                     : 'hover:bg-zinc-800'
                 }`}
               >
+                {/* APEX nameplate artwork — left third stays dark under
+                    avatar + name; artwork shows on the right. */}
+                {conv.friendProfile?.apex_tier === 'apex' && (
+                  <NameplateBackground url={conv.friendProfile?.apex_features?.nameplate_url} />
+                )}
                 {/* Active indicator */}
                 {activeConversationId === conv.conversationId && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-red-600 rounded-r" />
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-red-600 rounded-r z-[2]" />
                 )}
-                <div className="relative flex-shrink-0">
+                <div className="relative z-[2] flex-shrink-0">
                   <Avatar className="w-10 h-10">
                     {conv.friendAvatar ? (
                       <AvatarImage src={conv.friendAvatar} />
@@ -194,7 +225,7 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
                   )}
                 </div>
 
-                <div className="flex-1 min-w-0 text-left">
+                <div className="relative z-[2] flex-1 min-w-0 text-left">
                   <div className="flex items-center justify-between mb-0.5">
                     <p className="text-white font-medium text-sm truncate">{conv.friendName}</p>
                     {conv.unreadCount > 0 && (
