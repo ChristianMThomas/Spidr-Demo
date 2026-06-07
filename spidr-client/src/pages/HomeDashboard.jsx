@@ -58,6 +58,19 @@ export default function HomeDashboard() {
     currentUser?.username ||
     'spider';
 
+  // ── APEX custom background ──────────────────────────────────────────────
+  // Pulls the current user's uploaded `apex_features.custom_bg_url` (set in
+  // ApexVisuals) into the dashboard. Until now this image only painted
+  // inside the HolographicProfile modal — the home page ignored it
+  // entirely, which was the reported bug.
+  // We respect the user's chosen opacity slider (0–100), then layer a
+  // dark-bottom gradient on top so foreground glass cards still read
+  // clearly even against bright artwork.
+  const isApex = currentUser?.apex_tier === 'apex';
+  const apexBgUrl = currentUser?.apex_features?.custom_bg_url;
+  const apexBgOpacity = (currentUser?.apex_features?.custom_bg_opacity ?? 40) / 100;
+  const hasCustomBg = !!(isApex && apexBgUrl);
+
   return (
     <div className="flex-1 bg-[#050505] overflow-y-auto relative">
       {/* Custom scrollbar styling for the activity feed containment box.
@@ -82,19 +95,56 @@ export default function HomeDashboard() {
         .spidr-feed-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.06) transparent; }
       `}</style>
 
+      {/* ── APEX custom background ──────────────────────────────────────
+          A sticky-positioned wrapper keeps the image painted at the top
+          of the visible dashboard area as the user scrolls the content
+          below — so the background reads as the page's canvas, not as
+          something that scrolls away after the first viewport. The two
+          siblings (image + dark gradient) sit inside this wrapper so the
+          legibility mask travels with the image. */}
+      {hasCustomBg && (
+        <div
+          className="sticky top-0 left-0 right-0 h-screen pointer-events-none overflow-hidden -mb-screen"
+          style={{ marginBottom: '-100vh', zIndex: 0 }}
+          aria-hidden="true"
+        >
+          <img
+            src={apexBgUrl}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ opacity: apexBgOpacity, filter: 'saturate(1.15)' }}
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
+          {/* Legibility gradient — slightly darker at the bottom where the
+              activity feed sits, so dense text cards keep their contrast.
+              Top stays lighter so the welcome banner's red glow + the
+              user's artwork breathe together. */}
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'linear-gradient(to bottom, rgba(5,5,5,0.45) 0%, rgba(5,5,5,0.65) 45%, rgba(5,5,5,0.88) 100%)',
+            }}
+          />
+        </div>
+      )}
+
       {/* Ambient page glow — faint red bleed top-right + cool blue bleed
           bottom-left, so the dashboard reads as a Spidr canvas rather than
-          a flat black page. */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-60"
-        style={{
-          background:
-            'radial-gradient(ellipse 50% 35% at 100% 0%, rgba(239, 68, 68, 0.08), transparent 70%),' +
-            'radial-gradient(ellipse 40% 30% at 0% 100%, rgba(59, 130, 246, 0.04), transparent 70%)',
-        }}
-      />
+          a flat black page. Hidden when an APEX custom background is set
+          (the artwork takes the canvas role then). */}
+      {!hasCustomBg && (
+        <div
+          className="absolute inset-0 pointer-events-none opacity-60"
+          style={{
+            background:
+              'radial-gradient(ellipse 50% 35% at 100% 0%, rgba(239, 68, 68, 0.08), transparent 70%),' +
+              'radial-gradient(ellipse 40% 30% at 0% 100%, rgba(59, 130, 246, 0.04), transparent 70%)',
+          }}
+        />
+      )}
 
-      <div className="relative flex gap-6 p-4 sm:p-6 max-w-[1400px] mx-auto">
+      <div className="relative z-10 flex gap-6 p-4 sm:p-6 max-w-[1400px] mx-auto">
         {/* ── Main column ──────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0 space-y-5">
 
