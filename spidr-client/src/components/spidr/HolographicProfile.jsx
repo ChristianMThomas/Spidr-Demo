@@ -351,18 +351,12 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
             {/* LAYER 1: Avatar */}
             <div style={{ zIndex: 5 }} className="relative px-10 pt-[140px]">
               <div className="relative w-28 h-28">
-                {/* APEX accent ring — replaces the old pulsing blur halo. A
-                    blurred, animated, double-color gradient behind the
-                    avatar read as a "throbbing blob" and competed with the
-                    avatar itself. A static thin ring gives the same status
-                    cue without the visual noise. */}
+                {/* APEX avatar halo — pulsing blurred gradient bloom behind
+                    the avatar. Kept; only the screen-wide Symbiote takeover
+                    overlay was removed (that was the "blob" complaint). */}
                 {isApex && (
-                  <div
-                    className="absolute -inset-[3px] rounded-2xl pointer-events-none"
-                    style={{
-                      boxShadow: `0 0 0 1.5px ${accentColor}, 0 0 18px ${accentColor}55`,
-                    }}
-                  />
+                  <div className="absolute -inset-1 rounded-2xl blur-md animate-pulse opacity-70"
+                    style={{ background: `linear-gradient(135deg, ${accentColor}, #7c3aed)` }} />
                 )}
                 {userProfile?.avatar_url ? (
                   <img 

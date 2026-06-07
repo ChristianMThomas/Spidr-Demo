@@ -19,6 +19,7 @@ import CreateGroupChatModal from './CreateGroupChatModal';
 import QuickHeads from './QuickHeads';
 import { toast } from 'sonner';
 import SignalRequests from './SignalRequests';
+import NameplateBackground from './NameplateBackground';
 
 const statusColors = {
   online: 'bg-green-500',
@@ -656,7 +657,7 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
-        className="flex items-center gap-3 p-3 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 transition-colors group cursor-pointer"
+        className="relative flex items-center gap-3 p-3 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 transition-colors group cursor-pointer overflow-hidden"
         onClick={onViewProfile}
         onContextMenu={(e) => triggerMenu(e, 'friend', {
           id: friend.friend_id,
@@ -666,7 +667,11 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
           is_pinned: isPinned(friend.friend_id),
         })}
       >
-        <div className="relative">
+        {/* APEX nameplate — full-row artwork with legibility gradient */}
+        {profile?.apex_tier === 'apex' && (
+          <NameplateBackground url={profile?.apex_features?.nameplate_url} />
+        )}
+        <div className="relative z-[2]">
           <Avatar className="w-10 h-10">
             {friend.friend_avatar ? (
               <AvatarImage src={friend.friend_avatar} />
@@ -685,7 +690,7 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
           )}
         </div>
         
-        <div className="flex-1 min-w-0">
+        <div className="relative z-[2] flex-1 min-w-0">
           {friend.nickname ? (
             <>
               <p className="font-medium text-white truncate">{friend.nickname}</p>
@@ -711,7 +716,7 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
           )}
         </div>
         
-        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[2] flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
           <Button 
             size="icon" 
             variant="ghost" 

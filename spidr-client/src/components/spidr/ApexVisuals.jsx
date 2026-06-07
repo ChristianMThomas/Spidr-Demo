@@ -1,5 +1,5 @@
-import React from 'react';
-import { Crown, Image as ImageIcon, Type, Sparkles } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Crown, Image as ImageIcon, Type, Sparkles, Upload, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { FRAME_OPTIONS, getFrameComponent } from './FrameRegistry';
 import UserNameplate from './UserNameplate';
 import BubbleThemePicker from './BubbleThemePicker';
+import NameplateBackground from './NameplateBackground';
 
 const THEME_COLORS = ['#ffffff', '#FF3333', '#a855f7', '#3b82f6', '#10b981', '#eab308', '#ec4899', '#f97316'];
 
@@ -37,6 +38,23 @@ export default function ApexVisuals({ formData, updateFormData }) {
       const { url } = await integrations.Core.UploadFile({ file });
       if (url) { updateFormData({ apex_features: { ...apexFeatures, [key]: url } }); toast.success(`${label} set!`); }
     } catch { toast.error(`${label} upload failed.`); }
+  };
+
+  // Drag-drop / direct-file variant of the uploader. The APEX Forge's
+  // dropzone hands us a File object directly (no synthetic event), and we
+  // also want a clearer success toast tied to the "forge" verbiage.
+  // Accepts image/* up to 4 MB (nameplates lean larger — banners, GIFs).
+  const handleNameplateFile = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Nameplate must be an image (PNG, JPG, GIF).'); return; }
+    if (file.size > 4 * 1024 * 1024) { toast.error('Nameplate must be under 4 MB.'); return; }
+    try {
+      const { url } = await integrations.Core.UploadFile({ file });
+      if (url) {
+        updateFormData({ apex_features: { ...apexFeatures, nameplate_url: url } });
+        toast.success('Nameplate forged.');
+      }
+    } catch { toast.error('Nameplate forge failed.'); }
   };
 
   return (
@@ -278,24 +296,48 @@ export default function ApexVisuals({ formData, updateFormData }) {
             <p className="text-[9px] text-zinc-600 mt-2">PNG with transparency works best (sits over the avatar).</p>
           </div>
 
-          {/* Nameplate */}
-          <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-            <p className="text-[11px] font-bold text-zinc-300 uppercase tracking-widest mb-2">Nameplate</p>
-            <div className="relative h-10 rounded-lg overflow-hidden border border-white/10 mb-2 flex items-center px-3">
+          {/* ── APEX FORGE: Nameplate ──────────────────────────────────────
+              Replaces the old "Upload" button + thin preview strip. This is
+              the premium upload UX described in the blueprint: a glowing
+              dashed dropzone on the left (drag/drop OR click), a live 1:1
+              preview of the actual sidebar user pill on the right (using
+              the same NameplateBackground component the lists render with,
+              so the preview is pixel-accurate, including the Spidr
+              Legibility Engine gradient mask). */}
+          <div className="rounded-xl border border-purple-500/15 bg-gradient-to-br from-black/40 to-purple-950/10 p-4 col-span-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[11px] font-bold uppercase tracking-widest flex items-center gap-1.5">
+                <Sparkles size={12} className="text-purple-400" />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-300 to-pink-300">
+                  Apex Forge — Nameplate
+                </span>
+              </p>
               {apexFeatures.nameplate_url && (
-                <img src={apexFeatures.nameplate_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                <button
+                  onClick={() => updateFormData({ apex_features: { ...apexFeatures, nameplate_url: '' } })}
+                  className="text-[10px] text-red-400 hover:text-red-300 font-mono uppercase tracking-wider"
+                >
+                  Remove
+                </button>
               )}
-              <span className="relative text-xs font-bold text-white drop-shadow">{formData.display_name || 'Your Name'}</span>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-[11px] font-bold text-white px-2 py-1 rounded-md bg-zinc-700 hover:bg-zinc-600 cursor-pointer transition-colors">
-                Upload
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleAssetUpload(e, 'nameplate_url', 'Nameplate')} />
-              </label>
-              {apexFeatures.nameplate_url && (
-                <button onClick={() => updateFormData({ apex_features: { ...apexFeatures, nameplate_url: '' } })}
-                  className="text-[10px] text-red-400 hover:text-red-300">Remove</button>
-              )}
+            <p className="text-[10px] text-zinc-500 mb-4 font-mono">
+              {'>'} Upload custom artwork — image or GIF. The Spidr Legibility Engine
+              composites a dark gradient so your username always stays readable, no
+              matter what you throw at it.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <NameplateDropzone
+                currentUrl={apexFeatures.nameplate_url}
+                onFile={handleNameplateFile}
+              />
+              <NameplatePreview
+                nameplateUrl={apexFeatures.nameplate_url}
+                avatarUrl={formData.avatar_url}
+                name={formData.display_name || 'Spidr User'}
+                accentColor={accentColor}
+              />
             </div>
           </div>
         </div>
@@ -496,6 +538,203 @@ function BadgeAndNameplate({ formData, updateFormData, accentColor }) {
             <span className="block text-[9px] text-gray-500 uppercase tracking-widest mt-1">{s}</span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── APEX Forge: holographic dropzone ────────────────────────────────────────
+// A dashed purple dropzone that accepts an image (or GIF) via drag-drop OR
+// click-to-pick. When a file is dragged OVER the zone, it pulses a purple
+// glow to confirm the drop target is hot. Falls back to a plain file input
+// for keyboard / a11y users. Note we DON'T render the uploaded image inside
+// the dropzone itself — the live preview on the right is the canonical view
+// of the current nameplate; here we just confirm "image set" so the user
+// knows the upload landed.
+function NameplateDropzone({ currentUrl, onFile }) {
+  const inputRef = useRef(null);
+  const [isDragging, setIsDragging] = useState(false);
+  // Drag counter — `dragenter` fires for every child element the cursor
+  // enters, so a naive setIsDragging(true)/setIsDragging(false) flickers
+  // off as the cursor moves between the zone's children. Counting enter
+  // vs leave keeps the highlight stable until the cursor truly exits.
+  const dragCounterRef = useRef(0);
+
+  const onDragEnter = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    dragCounterRef.current += 1;
+    if (dragCounterRef.current === 1) setIsDragging(true);
+  };
+  const onDragLeave = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) setIsDragging(false);
+  };
+  const onDragOver = (e) => { e.preventDefault(); e.stopPropagation(); };
+  const onDrop = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) onFile(file);
+  };
+  const onPick = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) onFile(file);
+  };
+
+  return (
+    <div
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onClick={() => inputRef.current?.click()}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
+      aria-label="Upload nameplate artwork"
+      className={`relative cursor-pointer rounded-xl transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-purple-400 ${
+        isDragging ? 'border-2 border-dashed border-purple-500' : 'border-2 border-dashed border-purple-500/30 hover:border-purple-500'
+      }`}
+      style={{
+        minHeight: 168,
+        background: isDragging
+          ? 'radial-gradient(ellipse at center, rgba(168, 85, 247, 0.18), rgba(0, 0, 0, 0.4) 70%)'
+          : 'rgba(0, 0, 0, 0.30)',
+        boxShadow: isDragging
+          ? '0 0 24px rgba(168, 85, 247, 0.45), inset 0 0 18px rgba(168, 85, 247, 0.15)'
+          : 'inset 0 0 12px rgba(0, 0, 0, 0.3)',
+      }}
+    >
+      <input ref={inputRef} type="file" accept="image/*,image/gif" className="hidden" onChange={onPick} />
+
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 py-6 pointer-events-none">
+        {/* Icon + animated halo when dragging */}
+        <div className="relative mb-3">
+          {isDragging && (
+            <div
+              className="absolute inset-0 -m-3 rounded-full animate-pulse"
+              style={{ background: 'radial-gradient(circle, rgba(168, 85, 247, 0.4), transparent 70%)' }}
+            />
+          )}
+          <div
+            className={`relative w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+              isDragging ? 'bg-purple-500/30' : 'bg-purple-500/10'
+            }`}
+            style={{ border: `1px solid ${isDragging ? 'rgba(168, 85, 247, 0.7)' : 'rgba(168, 85, 247, 0.3)'}` }}
+          >
+            <Upload size={20} className={isDragging ? 'text-purple-200' : 'text-purple-400'} />
+          </div>
+        </div>
+
+        <p className="text-xs font-bold text-white mb-1">
+          {isDragging ? 'Release to forge' : currentUrl ? 'Replace artwork' : 'Drop artwork here'}
+        </p>
+        <p className="text-[10px] text-zinc-500">
+          {isDragging ? 'Spidr Legibility Engine will engage' : 'or click to browse — PNG, JPG, GIF up to 4 MB'}
+        </p>
+
+        {currentUrl && !isDragging && (
+          <div className="mt-3 flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest text-green-400">
+            <Check size={10} />
+            <span>Current artwork loaded</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── APEX Forge: live telemetry preview ──────────────────────────────────────
+// 1:1 mockup of how the nameplate looks as a sidebar member-list row. Uses
+// the SAME NameplateBackground component the actual lists render with, so
+// what you see here is exactly what other users will see — including the
+// Spidr Legibility Engine gradient mask that keeps your username readable
+// against any uploaded artwork.
+function NameplatePreview({ nameplateUrl, avatarUrl, name, accentColor }) {
+  const initial = (name || '?').charAt(0).toUpperCase();
+  return (
+    <div className="flex flex-col">
+      <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2 flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+        Live Preview · Sidebar Pill
+      </p>
+      {/* The pill itself — matches the row structure used in CommunityPanel,
+          DMsSidebar, and FriendsPanel: relative + overflow-hidden, with
+          NameplateBackground absolutely filling the row and the actual
+          content sitting in a relative wrapper above it. */}
+      <div
+        className="relative overflow-hidden rounded-2xl px-3 py-2.5 flex items-center gap-3"
+        style={{
+          background: 'rgba(10, 10, 10, 0.85)',
+          border: '1px solid rgba(255, 255, 255, 0.06)',
+          minHeight: 56,
+        }}
+      >
+        <NameplateBackground url={nameplateUrl} intensity="strong" />
+
+        {/* Avatar */}
+        <div className="relative shrink-0">
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt=""
+              className="w-9 h-9 rounded-full object-cover border"
+              style={{ borderColor: `${accentColor}55` }}
+              onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex'; }}
+            />
+          ) : null}
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-black"
+            style={{
+              background: `linear-gradient(135deg, ${accentColor}, #7c3aed)`,
+              display: avatarUrl ? 'none' : 'flex',
+            }}
+          >
+            {initial}
+          </div>
+        </div>
+
+        {/* Identity */}
+        <div className="relative min-w-0 flex-1">
+          <p className="text-white font-bold text-sm truncate" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+            {name}
+          </p>
+          <p className="text-zinc-300 text-[10px] font-mono truncate" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+            @{(name || 'user').toLowerCase().replace(/\s+/g, '_')}
+          </p>
+        </div>
+
+        {/* APEX badge — tiny right-side tag to match real rows */}
+        <span
+          className="relative shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest"
+          style={{
+            background: `linear-gradient(135deg, ${accentColor}, #7c3aed)`,
+            color: '#fff',
+            boxShadow: `0 0 8px ${accentColor}66`,
+          }}
+        >
+          APEX
+        </span>
+      </div>
+
+      {/* Legibility annotation under the preview so the user understands
+          the gradient mask is intentional and protecting their name. */}
+      <div className="mt-2 flex items-start gap-2 text-[10px] text-zinc-500 leading-relaxed">
+        <div
+          className="shrink-0 w-3 h-3 mt-0.5 rounded-sm"
+          style={{
+            background: 'linear-gradient(to right, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.50) 50%, rgba(0,0,0,0.00) 100%)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+          }}
+        />
+        <span>
+          <span className="text-zinc-400 font-mono">Legibility Engine:</span>{' '}
+          a dark-to-transparent gradient is composited over your artwork so the
+          left side stays high-contrast for your avatar and username.
+        </span>
       </div>
     </div>
   );
