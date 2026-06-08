@@ -2,9 +2,11 @@
 .env
 .env.*
 spidr-server/.env
+spidr-auth/.env
 spidr-client/.env.development
 spidr-client/.env.production
 spidr-client/.env.local
+spidr-client/.env.staging
 
 # Logs
 logs

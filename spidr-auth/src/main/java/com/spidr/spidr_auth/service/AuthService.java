@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -172,9 +173,12 @@ public class AuthService {
     // ── Forgot Password ───────────────────────────────────────────────────────
 
     public void forgotPassword(ForgotPasswordDTO dto) {
-        users user = userRepo.findByEmail(dto.getEmail().toLowerCase().trim())
-                .orElseThrow(() -> new RuntimeException("No account found for that email."));
+        // Silently no-op for unknown emails — same response either way
+        // to prevent account enumeration via the forgot-password flow.
+        Optional<users> maybeUser = userRepo.findByEmail(dto.getEmail().toLowerCase().trim());
+        if (maybeUser.isEmpty()) return;
 
+        users user = maybeUser.get();
         user.setResetCode(generateVerificationCode());
         user.setResetCodeExpiration(LocalDateTime.now().plusMinutes(15));
         user.setResetVerified(false);
