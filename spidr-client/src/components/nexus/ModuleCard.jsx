@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Download, Flag, CheckCircle, Loader2, Trash2 } from 'lucide-react';
+import { Download, Flag, CheckCircle, Loader2, Trash2, Lock } from 'lucide-react';
 import { getModuleTheme } from './widgets/previews';
+
+const COMING_SOON_MODULES = new Set(['Anime Watchlist', 'Steam Now Playing', 'Daily Streak Counter']);
 
 /**
  * ModuleCard — holographic glass card with a hover-preview crossfade.
@@ -39,6 +41,7 @@ export default function ModuleCard({ mod, isInstalled, onInstall, onUninstall, o
   const Icon = theme.icon;
   const Preview = theme.Preview;
   const accentRgb = theme.accentRgb;
+  const isComingSoon = COMING_SOON_MODULES.has(mod.name);
 
   const handleReport = () => {
     if (!reportReason.trim()) return;
@@ -60,9 +63,9 @@ export default function ModuleCard({ mod, isInstalled, onInstall, onUninstall, o
 
   return (
     <motion.div
-      onHoverStart={() => setHovered(true)}
+      onHoverStart={() => !isComingSoon && setHovered(true)}
       onHoverEnd={()   => setHovered(false)}
-      whileHover={{ y: -4 }}
+      whileHover={isComingSoon ? {} : { y: -4 }}
       transition={{ type: 'spring', stiffness: 380, damping: 28 }}
       className="group relative h-[300px] rounded-2xl overflow-hidden flex flex-col p-5 transition-colors duration-300"
       style={{
@@ -202,7 +205,18 @@ export default function ModuleCard({ mod, isInstalled, onInstall, onUninstall, o
 
       {/* ── FOOTER (FIXED) ───────────────────────────────────────────── */}
       <div className="relative z-10 mt-4 shrink-0">
-        {isInstalled ? (
+        {isComingSoon ? (
+          <div
+            className="w-full py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-[0.18em] flex items-center justify-center gap-2 cursor-not-allowed select-none"
+            style={{
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              color: 'rgba(255,255,255,0.18)',
+            }}
+          >
+            <Lock size={11} className="opacity-50" /> Locked
+          </div>
+        ) : isInstalled ? (
           <div className="flex gap-2">
             {/* Recessed muted "installed" pill — doesn't shout. */}
             <div
@@ -261,6 +275,121 @@ export default function ModuleCard({ mod, isInstalled, onInstall, onUninstall, o
             )}
           </button>
         )}
+      </div>
+
+      {/* ── COMING-SOON overlay: chains + padlock ──────────────────────── */}
+      {isComingSoon && <ComingSoonOverlay accentRgb={accentRgb} accent={theme.accent} />}
+
+    </motion.div>
+  );
+}
+
+// ── Coming Soon overlay ───────────────────────────────────────────────────
+function ChainBand({ angle }) {
+  // Alternating wide (horizontal) and narrow (vertical/edge-on) links
+  const links = Array.from({ length: 18 });
+  return (
+    <div
+      className="absolute pointer-events-none"
+      style={{
+        left: '50%', top: '50%',
+        transform: `translate(-50%, -50%) rotate(${angle}deg)`,
+        display: 'flex', alignItems: 'center',
+        width: '160%',
+        gap: 1,
+        zIndex: 0,
+      }}
+    >
+      {links.map((_, i) => {
+        const wide = i % 2 === 0;
+        return (
+          <div
+            key={i}
+            style={{
+              flexShrink: 0,
+              width:  wide ? 20 : 5,
+              height: wide ? 11 : 17,
+              borderRadius: wide ? 5 : 3,
+              border: '1.8px solid rgba(190,190,220,0.45)',
+              background: wide
+                ? 'linear-gradient(135deg, rgba(40,40,60,0.92), rgba(20,20,35,0.92))'
+                : 'linear-gradient(180deg, rgba(55,55,80,0.92), rgba(30,30,50,0.92))',
+              boxShadow: '0 0 3px rgba(150,150,220,0.25), inset 0 1px 0 rgba(255,255,255,0.06)',
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ComingSoonOverlay({ accentRgb, accent }) {
+  return (
+    <motion.div
+      className="absolute inset-0 rounded-2xl overflow-hidden flex flex-col items-center justify-center"
+      style={{ zIndex: 25 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.4 }}
+    >
+      {/* Frosted dark veil */}
+      <div className="absolute inset-0 bg-black/72" style={{ backdropFilter: 'blur(1px)' }} />
+
+      {/* Chain band 1 */}
+      <ChainBand angle={-38} />
+      {/* Chain band 2 */}
+      <ChainBand angle={38} />
+
+      {/* Padlock + label */}
+      <div className="relative z-10 flex flex-col items-center gap-3">
+        {/* Lock housing */}
+        <motion.div
+          animate={{ y: [0, -3, 0] }}
+          transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+          className="relative"
+        >
+          {/* Outer glow ring */}
+          <div
+            className="absolute -inset-3 rounded-full"
+            style={{
+              background: `radial-gradient(circle, rgba(${accentRgb},0.22) 0%, transparent 70%)`,
+              filter: 'blur(6px)',
+            }}
+          />
+          {/* Lock icon container */}
+          <div
+            className="relative w-16 h-16 rounded-2xl flex items-center justify-center"
+            style={{
+              background: `linear-gradient(135deg, rgba(${accentRgb},0.18), rgba(0,0,0,0.85))`,
+              border: `1.5px solid rgba(${accentRgb},0.5)`,
+              boxShadow: `0 0 28px rgba(${accentRgb},0.45), 0 0 60px rgba(${accentRgb},0.12), inset 0 1px 0 rgba(255,255,255,0.08)`,
+            }}
+          >
+            <Lock
+              size={28}
+              style={{
+                color: accent,
+                filter: `drop-shadow(0 0 10px rgba(${accentRgb},0.9))`,
+              }}
+            />
+          </div>
+        </motion.div>
+
+        {/* Label */}
+        <div className="flex flex-col items-center gap-1">
+          <span
+            className="text-[10px] font-black uppercase tracking-[0.28em]"
+            style={{
+              color: `rgba(${accentRgb}, 0.9)`,
+              textShadow: `0 0 14px rgba(${accentRgb},0.7)`,
+            }}
+          >
+            Coming Soon
+          </span>
+          <span className="text-[8.5px] font-mono uppercase tracking-[0.15em] text-white/30">
+            Module locked
+          </span>
+        </div>
       </div>
     </motion.div>
   );

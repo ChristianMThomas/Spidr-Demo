@@ -58,8 +58,8 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '100kb' }));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
 // ── Rate limiting (tiered, per-user) ──────────────────────────────────────────
 // Key on the authenticated user when a valid Bearer token is present so abuse
@@ -133,6 +133,7 @@ app.use('/feed-comments',      require('./routes/feedComments'));
 app.use('/system',             require('./routes/system'));
 app.use('/weaver',             require('./routes/weaver'));
 app.use('/spotify',            require('./routes/spotify'));
+app.use('/steam',              require('./routes/steam'));
 app.use('/support',            require('./routes/support'));
 app.use('/uploads',            require('express').static(path.join(__dirname, '../uploads')));
 
@@ -213,10 +214,14 @@ mongoose
   .then(() => {
     console.log('✓ MongoDB connected');
     // Seed defaults — idempotent, safe to run on every start
-    const { seedDefaultModules } = require('./utils/seedDefaultModules');
-    const { seedDefaultBots }    = require('./utils/seedDefaultBots');
+    const { seedDefaultModules }     = require('./utils/seedDefaultModules');
+    const { seedDefaultBots }        = require('./utils/seedDefaultBots');
+    const { syncInstallCounts }      = require('./utils/syncInstallCounts');
+    const { cleanupRemovedModules }  = require('./utils/cleanupRemovedModules');
+    cleanupRemovedModules();
     seedDefaultModules();
     seedDefaultBots();
+    syncInstallCounts();
     // Auto-expire past server events (3.3) — runs on boot + every 6h.
     const { scheduleEventExpiry } = require('./utils/expireEvents');
     scheduleEventExpiry();

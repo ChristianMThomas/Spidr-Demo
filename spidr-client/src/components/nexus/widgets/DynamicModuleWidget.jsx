@@ -223,66 +223,107 @@ function LiveFeedWidget({ mod }) {
   );
 }
 
-// --- WEATHER: Shows real weather data ---
+// WMO weather interpretation code → label, emoji, gradient
+function interpretWeatherCode(code) {
+  if (code === 0)              return { label: 'Clear Sky',      emoji: '☀️',  gradient: 'from-amber-500/20 to-yellow-500/10' };
+  if (code <= 3)               return { label: 'Partly Cloudy',  emoji: '⛅',  gradient: 'from-blue-400/20 to-amber-400/10' };
+  if (code <= 48)              return { label: 'Foggy',          emoji: '🌫️', gradient: 'from-gray-400/20 to-gray-300/10' };
+  if (code <= 57)              return { label: 'Drizzle',        emoji: '🌦️', gradient: 'from-blue-400/20 to-cyan-400/10' };
+  if (code <= 67)              return { label: 'Rain',           emoji: '🌧️', gradient: 'from-blue-600/20 to-cyan-600/10' };
+  if (code <= 77)              return { label: 'Snow',           emoji: '❄️',  gradient: 'from-blue-200/20 to-white/10' };
+  if (code <= 82)              return { label: 'Rain Showers',   emoji: '🌧️', gradient: 'from-blue-500/20 to-cyan-500/10' };
+  if (code <= 86)              return { label: 'Snow Showers',   emoji: '🌨️', gradient: 'from-blue-200/20 to-white/10' };
+  return                              { label: 'Thunderstorm',   emoji: '⛈️',  gradient: 'from-purple-500/20 to-gray-500/10' };
+}
+
+// --- WEATHER: Real data via Open-Meteo (no API key) + browser geolocation ---
 function WeatherWidget({ mod }) {
-  const { data: weather, isLoading } = useQuery({
-    queryKey: ['module-weather', mod.id],
+  const [coords, setCoords]       = useState(null);
+  const [geoError, setGeoError]   = useState(null);
+  const [useFahrenheit, setUseFahrenheit] = useState(false);
+
+  useEffect(() => {
+    if (!navigator.geolocation) { setGeoError('unsupported'); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      ()    => setGeoError('denied'),
+      { timeout: 10000 }
+    );
+  }, []);
+
+  const { data: weather, isLoading: fetching } = useQuery({
+    queryKey: ['weather-live', coords?.lat, coords?.lon],
     queryFn: async () => {
-      const res = await integrations.Core.InvokeLLM({
-        prompt: `Generate a realistic weather sample for a major city. Return JSON with: "location" (city name), "temperature" (number in celsius), "condition" (one of: sunny, cloudy, rainy, snowy, stormy, windy, foggy, partly_cloudy, clear_night), "humidity" (number %), "wind_speed" (number km/h), "feels_like" (number in celsius).`,
-        response_json_schema: {
-          type: "object",
-          properties: {
-            location: { type: "string" },
-            temperature: { type: "number" },
-            condition: { type: "string" },
-            humidity: { type: "number" },
-            wind_speed: { type: "number" },
-            feels_like: { type: "number" }
-          }
-        }
-      });
-      return res;
+      const { lat, lon } = coords;
+      const [meteo, geo] = await Promise.all([
+        fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+          `&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m` +
+          `&wind_speed_unit=kmh&timezone=auto`
+        ).then(r => r.json()),
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`)
+          .then(r => r.json()),
+      ]);
+      const c = meteo.current;
+      const a = geo?.address || {};
+      const city = a.city || a.town || a.village || a.county || a.state || 'Your Location';
+      return {
+        temperature: c.temperature_2m,
+        feels_like:  c.apparent_temperature,
+        humidity:    c.relative_humidity_2m,
+        wind_speed:  c.wind_speed_10m,
+        code:        c.weather_code,
+        location:    city,
+      };
     },
+    enabled: !!coords,
     staleTime: 600000,
     refetchInterval: 900000,
   });
 
-  const conditionEmoji = {
-    sunny: '☀️', cloudy: '☁️', rainy: '🌧️', snowy: '❄️', stormy: '⛈️',
-    windy: '💨', foggy: '🌫️', partly_cloudy: '⛅', clear_night: '🌙'
-  };
+  const waiting = !coords && !geoError;
+  const loading = waiting || (!!coords && fetching);
+  const cond    = weather ? interpretWeatherCode(weather.code) : null;
 
-  const conditionGradient = {
-    sunny: 'from-amber-500/20 to-yellow-500/10',
-    cloudy: 'from-gray-500/20 to-slate-500/10',
-    rainy: 'from-blue-500/20 to-cyan-500/10',
-    snowy: 'from-blue-200/20 to-white/10',
-    stormy: 'from-purple-500/20 to-gray-500/10',
-    windy: 'from-teal-500/20 to-cyan-500/10',
-    foggy: 'from-gray-400/20 to-gray-300/10',
-    partly_cloudy: 'from-blue-400/20 to-amber-400/10',
-    clear_night: 'from-indigo-500/20 to-purple-500/10'
-  };
+  const fmt = (celsius) => useFahrenheit
+    ? `${Math.round(celsius * 9 / 5 + 32)}°F`
+    : `${Math.round(celsius)}°C`;
 
   return (
     <div className="bg-[#0a0a0a] border border-cyan-500/20 rounded-xl p-5 relative overflow-hidden">
-      <WidgetHeader mod={mod} icon={Globe} color="text-cyan-400" />
-      {isLoading ? (
+      <div className="flex items-center justify-between">
+        <WidgetHeader mod={mod} icon={Globe} color="text-cyan-400" />
+        <button
+          onClick={() => setUseFahrenheit(f => !f)}
+          className="flex items-center shrink-0 rounded-md overflow-hidden border border-white/10 text-[9px] font-black uppercase tracking-wider"
+        >
+          <span className={`px-2 py-1 transition-colors ${!useFahrenheit ? 'bg-cyan-500/20 text-cyan-400' : 'text-white/30 hover:text-white/60'}`}>°C</span>
+          <span className={`px-2 py-1 transition-colors ${useFahrenheit  ? 'bg-cyan-500/20 text-cyan-400' : 'text-white/30 hover:text-white/60'}`}>°F</span>
+        </button>
+      </div>
+      {loading ? (
         <div className="flex items-center justify-center py-8 text-zinc-500">
-          <Loader2 size={18} className="animate-spin mr-2" /> Fetching weather...
+          <Loader2 size={18} className="animate-spin mr-2" />
+          {waiting ? 'Getting your location…' : 'Fetching weather…'}
         </div>
-      ) : weather ? (
+      ) : geoError ? (
+        <div className="mt-3 text-center py-4">
+          <div className="text-2xl mb-2">📍</div>
+          <p className="text-[11px] text-gray-500 leading-relaxed">
+            Location access denied.<br />Enable location to see live weather.
+          </p>
+        </div>
+      ) : weather && cond ? (
         <div className="mt-3">
-          <div className={`bg-gradient-to-br ${conditionGradient[weather.condition] || 'from-cyan-500/20 to-blue-500/10'} rounded-lg p-4 relative`}>
+          <div className={`bg-gradient-to-br ${cond.gradient} rounded-lg p-4`}>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-3xl font-black text-white">{Math.round(weather.temperature)}°C</div>
-                <div className="text-[10px] text-gray-400 mt-0.5">Feels like {Math.round(weather.feels_like)}°C</div>
+                <div className="text-3xl font-black text-white">{fmt(weather.temperature)}</div>
+                <div className="text-[10px] text-gray-400 mt-0.5">Feels like {fmt(weather.feels_like)}</div>
               </div>
-              <div className="text-4xl">{conditionEmoji[weather.condition] || '🌡️'}</div>
+              <div className="text-4xl">{cond.emoji}</div>
             </div>
-            <div className="text-xs text-gray-300 font-medium mt-2 capitalize">{weather.condition?.replace('_', ' ')}</div>
+            <div className="text-xs text-gray-300 font-medium mt-2">{cond.label}</div>
             <div className="text-[10px] text-gray-500 mt-0.5">📍 {weather.location}</div>
           </div>
           <div className="grid grid-cols-2 gap-2 mt-3">
@@ -291,7 +332,7 @@ function WeatherWidget({ mod }) {
               <div className="text-[8px] text-gray-500 uppercase font-bold">Humidity</div>
             </div>
             <div className="bg-black/40 border border-white/5 rounded-lg p-2 text-center">
-              <div className="text-sm font-bold text-cyan-400">{weather.wind_speed} km/h</div>
+              <div className="text-sm font-bold text-cyan-400">{Math.round(weather.wind_speed)} km/h</div>
               <div className="text-[8px] text-gray-500 uppercase font-bold">Wind</div>
             </div>
           </div>
@@ -299,7 +340,6 @@ function WeatherWidget({ mod }) {
       ) : (
         <p className="text-sm text-gray-500 mt-3">No weather data available.</p>
       )}
-      <div className="absolute top-3 right-3 text-[8px] text-cyan-500/50 font-mono">AI</div>
     </div>
   );
 }

@@ -64,7 +64,14 @@ router.get('/:id', authMiddleware, async (req, res) => {
 
 router.post('/', authMiddleware, async (req, res) => {
   try {
-    const doc = await VoiceSession.create(req.body);
+    const { user_id, user_name, user_avatar, server_id, channel_id, group_id,
+            conversation_id, is_muted, is_deafened, is_video_on,
+            is_screen_sharing, is_spidr_ai, stream_url, stream_type } = req.body;
+    const doc = await VoiceSession.create({
+      user_id, user_name, user_avatar, server_id, channel_id, group_id,
+      conversation_id, is_muted, is_deafened, is_video_on,
+      is_screen_sharing, is_spidr_ai, stream_url, stream_type,
+    });
     const session = normalise(doc.toObject());
     emitSessionChanged(req, session);
     res.status(201).json(session);

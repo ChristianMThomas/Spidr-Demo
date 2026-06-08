@@ -199,13 +199,15 @@ router.post('/resend-otp', authLimiter, async (req, res) => {
     if (!email) return res.status(400).json({ error: 'Email required' });
 
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ error: 'No account found' });
+    // Always return the same response regardless of whether the email exists
+    // to prevent account enumeration.
+    if (!user) return res.json({ message: 'If that email is registered, a new code has been sent.' });
 
     const otp = generateOTP();
     await storeOTP(email, otp);
     await sendOTPEmail(email, otp, user.is_verified ? 'login' : 'verify');
 
-    res.json({ message: 'New code sent.' });
+    res.json({ message: 'If that email is registered, a new code has been sent.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
