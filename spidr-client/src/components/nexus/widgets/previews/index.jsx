@@ -1,7 +1,8 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import {
-  Skull, Gamepad2, AudioLines, Cpu, Music,
+  Skull, Gamepad2, Cpu, Music, Monitor, CloudSun,
+  Headphones, Flame, Tv2, Quote,
   Blocks, MemoryStick, MonitorPlay, Wand2,
 } from 'lucide-react';
 
@@ -40,12 +41,6 @@ export const MODULE_THEMES = {
     icon: Gamepad2,
     Preview: GamingUplinkPreview,
   },
-  'Audio Resonance Player': {
-    accent: '#06b6d4',
-    accentRgb: '6, 182, 212',
-    icon: AudioLines,
-    Preview: AudioResonancePreview,
-  },
   'PC Specs Flex': {
     accent: '#f59e0b',
     accentRgb: '245, 158, 11',
@@ -57,6 +52,42 @@ export const MODULE_THEMES = {
     accentRgb: '16, 185, 129',
     icon: Music,
     Preview: SpotifyPreview,
+  },
+  'Steam Now Playing': {
+    accent: '#66c0f4',
+    accentRgb: '102, 192, 244',
+    icon: Monitor,
+    Preview: SteamPreview,
+  },
+  'Weather Hex': {
+    accent: '#06b6d4',
+    accentRgb: '6, 182, 212',
+    icon: CloudSun,
+    Preview: WeatherPreview,
+  },
+  'Custom Quote Box': {
+    accent: '#c084fc',
+    accentRgb: '192, 132, 252',
+    icon: Quote,
+    Preview: QuoteBoxPreview,
+  },
+  'Lo-fi Radio': {
+    accent: '#a855f7',
+    accentRgb: '168, 85, 247',
+    icon: Headphones,
+    Preview: LofiRadioPreview,
+  },
+  'Daily Streak Counter': {
+    accent: '#f97316',
+    accentRgb: '249, 115, 22',
+    icon: Flame,
+    Preview: DailyStreakPreview,
+  },
+  'Anime Watchlist': {
+    accent: '#ec4899',
+    accentRgb: '236, 72, 153',
+    icon: Tv2,
+    Preview: AnimeWatchlistPreview,
   },
 };
 
@@ -184,47 +215,6 @@ function GamingUplinkPreview() {
   );
 }
 
-/** Audio Resonance Player — animated equalizer bars with a play knob. */
-function AudioResonancePreview() {
-  // 12 bars that pulse on a staggered phase
-  const bars = Array.from({ length: 14 }, (_, i) => i);
-  return (
-    <div className="relative w-full h-full flex items-center justify-center gap-3 px-4">
-      <div
-        className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-        style={{
-          background: 'radial-gradient(circle, #06b6d4 0%, #164e63 70%)',
-          boxShadow: '0 0 16px rgba(6, 182, 212, 0.55)',
-        }}
-      >
-        <div className="w-0 h-0 ml-0.5"
-          style={{ borderLeft: '6px solid white', borderTop: '4px solid transparent', borderBottom: '4px solid transparent' }} />
-      </div>
-      <div className="flex items-center gap-1 h-12">
-        {bars.map((i) => (
-          <motion.div
-            key={i}
-            className="w-1 rounded-sm"
-            style={{
-              background: 'linear-gradient(180deg, #22d3ee 0%, #0e7490 100%)',
-              boxShadow: '0 0 4px rgba(6, 182, 212, 0.6)',
-            }}
-            animate={{
-              height: ['25%', `${30 + (Math.sin(i) + 1) * 30}%`, '40%', `${50 + (Math.cos(i) + 1) * 20}%`, '25%'],
-            }}
-            transition={{
-              duration: 1.2 + (i % 4) * 0.15,
-              repeat: Infinity,
-              ease: 'easeInOut',
-              delay: i * 0.04,
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /** PC Specs Flex — three faux spec bars with progress fills. */
 function PCSpecsPreview() {
   const rows = [
@@ -293,6 +283,295 @@ function SpotifyPreview() {
               transition={{ duration: 5, repeat: Infinity, ease: 'linear' }}
             />
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Steam Now Playing — faux game card with header banner + stat pills. */
+function SteamPreview() {
+  return (
+    <div className="relative w-full h-full flex items-center justify-center px-3">
+      <div
+        className="w-full max-w-[240px] rounded-xl overflow-hidden"
+        style={{
+          background: 'linear-gradient(135deg, rgba(13,17,23,0.95), rgba(27,40,56,0.95))',
+          border: '1px solid rgba(102,192,244,0.25)',
+          boxShadow: '0 0 16px rgba(102,192,244,0.12)',
+        }}
+      >
+        {/* Faux game header banner */}
+        <div
+          className="h-10 w-full relative overflow-hidden"
+          style={{ background: 'linear-gradient(135deg, #1b2838 0%, #2a475e 60%, #1b2838 100%)' }}
+        >
+          {/* Scanline shimmer */}
+          <motion.div
+            className="absolute inset-0"
+            style={{
+              background: 'linear-gradient(90deg, transparent 0%, rgba(102,192,244,0.12) 50%, transparent 100%)',
+            }}
+            animate={{ x: ['-100%', '200%'] }}
+            transition={{ duration: 2.4, repeat: Infinity, ease: 'linear', repeatDelay: 1.2 }}
+          />
+          {/* Game title stub */}
+          <div className="absolute bottom-1.5 left-2.5 flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded-sm bg-[#66c0f4]/30 border border-[#66c0f4]/40" />
+            <div className="h-1.5 w-16 rounded-full bg-white/20" />
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div className="px-2.5 py-2 grid grid-cols-2 gap-1.5">
+          {[
+            { label: 'HOURS', val: '247.3' },
+            { label: 'RECENT', val: '12.5 hrs' },
+          ].map(({ label, val }) => (
+            <div key={label} className="bg-black/40 rounded-md px-2 py-1.5">
+              <div className="text-[10px] font-black text-white tabular-nums">{val}</div>
+              <div className="text-[7px] font-mono text-[#66c0f4]/60 uppercase tracking-wider">{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Achievement bar */}
+        <div className="px-2.5 pb-2.5">
+          <div className="flex justify-between text-[7px] font-mono text-[#66c0f4]/50 mb-1">
+            <span>ACHIEVEMENTS</span><span>47 / 83</span>
+          </div>
+          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+            <motion.div
+              className="h-full rounded-full"
+              style={{ background: 'linear-gradient(90deg, #66c0f4, #4a9fb5)' }}
+              initial={{ width: 0 }}
+              animate={{ width: '57%' }}
+              transition={{ duration: 1, ease: 'easeOut', delay: 0.3 }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Custom Quote Box — floating quote with animated quotation marks. */
+function QuoteBoxPreview() {
+  return (
+    <div className="relative w-full h-full flex items-center justify-center px-4">
+      <div
+        className="w-full max-w-[230px] rounded-xl p-4 relative"
+        style={{
+          background: 'linear-gradient(135deg, rgba(192,132,252,0.08), rgba(126,34,206,0.06))',
+          border: '1px solid rgba(192,132,252,0.22)',
+        }}
+      >
+        {/* Opening quote mark */}
+        <motion.div
+          className="text-4xl font-black leading-none select-none"
+          style={{ color: 'rgba(192,132,252,0.35)', fontFamily: 'Georgia, serif', lineHeight: 1 }}
+          animate={{ opacity: [0.25, 0.55, 0.25] }}
+          transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          "
+        </motion.div>
+        <p className="text-[11px] text-white/75 leading-relaxed mt-1 italic">
+          The web is woven from light.
+        </p>
+        <div className="flex justify-end mt-2">
+          <motion.div
+            className="text-4xl font-black leading-none select-none"
+            style={{ color: 'rgba(192,132,252,0.35)', fontFamily: 'Georgia, serif', lineHeight: 1 }}
+            animate={{ opacity: [0.25, 0.55, 0.25] }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut', delay: 1.5 }}
+          >
+            "
+          </motion.div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Lo-fi Radio — vinyl record spinning with ambient glow and waveform. */
+function LofiRadioPreview() {
+  return (
+    <div className="relative w-full h-full flex items-center justify-center gap-4 px-4">
+      {/* Spinning vinyl */}
+      <div className="relative shrink-0">
+        <motion.div
+          className="w-14 h-14 rounded-full"
+          style={{
+            background: 'radial-gradient(circle at 40% 40%, #4c1d95, #1e1b4b 60%, #0a0a0a)',
+            boxShadow: '0 0 18px rgba(168,85,247,0.4)',
+          }}
+          animate={{ rotate: 360 }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
+        >
+          {/* Grooves */}
+          {[20, 28, 36].map(r => (
+            <div
+              key={r}
+              className="absolute rounded-full border border-white/5"
+              style={{ inset: `${(56 - r * 2) / 2}px` }}
+            />
+          ))}
+          {/* Center hole */}
+          <div className="absolute inset-0 m-auto w-3 h-3 rounded-full bg-[#0a0a0a] border border-purple-500/40" />
+        </motion.div>
+        {/* Tonearm */}
+        <motion.div
+          className="absolute w-0.5 h-8 rounded-full origin-bottom"
+          style={{
+            background: 'linear-gradient(to top, rgba(168,85,247,0.6), rgba(168,85,247,0.2))',
+            top: -8, right: 0,
+          }}
+          animate={{ rotate: [-18, -12, -18] }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      </div>
+
+      {/* Track info + waveform */}
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="text-[10px] font-bold text-white truncate">beats to study to</div>
+        <div className="text-[8px] text-purple-400/70 font-mono uppercase tracking-wider">Live · lo-fi</div>
+        <div className="flex items-end gap-[2px] h-5">
+          {Array.from({ length: 12 }, (_, i) => (
+            <motion.div
+              key={i}
+              className="flex-1 rounded-t-sm"
+              style={{ background: 'linear-gradient(to top, #a855f7, #7c3aed)' }}
+              animate={{ height: ['25%', `${35 + Math.sin(i * 0.9) * 40 + 25}%`, '25%'] }}
+              transition={{ duration: 0.9 + i * 0.07, repeat: Infinity, ease: 'easeInOut', delay: i * 0.05 }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Daily Streak Counter — flame + three stat tiles with a counting animation. */
+function DailyStreakPreview() {
+  return (
+    <div className="relative w-full h-full flex items-center justify-center px-4">
+      <div className="w-full max-w-[230px] space-y-3">
+        {/* Flame + streak number */}
+        <div className="flex items-center justify-center gap-2">
+          <motion.div
+            animate={{ scale: [1, 1.15, 1], rotate: [-4, 4, -4] }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+            className="text-2xl"
+          >
+            🔥
+          </motion.div>
+          <motion.span
+            className="text-3xl font-black text-white"
+            animate={{ opacity: [0.8, 1, 0.8] }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            7
+          </motion.span>
+          <span className="text-[10px] text-orange-400/70 font-mono uppercase tracking-widest self-end pb-1">days</span>
+        </div>
+
+        {/* Stat tiles */}
+        <div className="grid grid-cols-3 gap-1.5">
+          {[
+            { label: 'Current', val: '7',  color: 'text-orange-400' },
+            { label: 'Best',    val: '23', color: 'text-white' },
+            { label: 'Active',  val: '15', color: 'text-gray-400' },
+          ].map(({ label, val, color }) => (
+            <div key={label} className="bg-black/50 border border-white/5 rounded-lg p-1.5 text-center">
+              <div className={`text-sm font-black ${color}`}>{val}</div>
+              <div className="text-[7px] text-gray-600 uppercase font-bold">{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Anime Watchlist — two faux anime entries with episode progress bars. */
+function AnimeWatchlistPreview() {
+  const shows = [
+    { title: 'Jujutsu Kaisen',  ep: 18, total: 24, pct: 75 },
+    { title: 'Chainsaw Man',    ep:  9, total: 12, pct: 75 },
+    { title: 'Frieren',         ep: 20, total: 28, pct: 71 },
+  ];
+  return (
+    <div className="relative w-full h-full flex items-center justify-center px-4">
+      <div className="w-full max-w-[230px] space-y-2">
+        {shows.map((s, i) => (
+          <div key={s.title}>
+            <div className="flex justify-between text-[9px] font-mono mb-0.5">
+              <span className="text-white/80 truncate pr-2">{s.title}</span>
+              <span className="text-pink-400/70 shrink-0">{s.ep}/{s.total}</span>
+            </div>
+            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full rounded-full"
+                style={{ background: 'linear-gradient(90deg, #ec4899, #db2777)' }}
+                initial={{ width: 0 }}
+                animate={{ width: `${s.pct}%` }}
+                transition={{ duration: 0.7, delay: 0.1 + i * 0.15, ease: 'easeOut' }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Weather Hex — live-style weather card with animated temperature and stat pills. */
+function WeatherPreview() {
+  return (
+    <div className="relative w-full h-full flex items-center justify-center px-3">
+      <div className="w-full max-w-[240px] space-y-2">
+        {/* Main temp card */}
+        <div
+          className="rounded-xl p-3"
+          style={{
+            background: 'linear-gradient(135deg, rgba(6,182,212,0.12) 0%, rgba(14,116,144,0.08) 100%)',
+            border: '1px solid rgba(6,182,212,0.25)',
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <motion.div
+                className="text-2xl font-black text-white leading-none"
+                animate={{ opacity: [0.7, 1, 0.7] }}
+                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                24°C
+              </motion.div>
+              <div className="text-[9px] text-cyan-400/70 mt-0.5">Feels like 22°C</div>
+            </div>
+            <motion.div
+              className="text-3xl"
+              animate={{ y: [0, -3, 0] }}
+              transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              ⛅
+            </motion.div>
+          </div>
+          <div className="text-[10px] text-white/60 font-medium mt-1.5">Partly Cloudy</div>
+          <div className="text-[9px] text-white/30 mt-0.5">📍 Your Location</div>
+        </div>
+
+        {/* Stat pills */}
+        <div className="grid grid-cols-2 gap-1.5">
+          {[
+            { label: 'Humidity', val: '68%' },
+            { label: 'Wind',     val: '14 km/h' },
+          ].map(({ label, val }) => (
+            <div key={label} className="bg-black/40 border border-white/5 rounded-lg p-1.5 text-center">
+              <div className="text-[10px] font-bold text-cyan-400">{val}</div>
+              <div className="text-[7px] text-gray-500 uppercase font-bold">{label}</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
