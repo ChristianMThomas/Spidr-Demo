@@ -18,17 +18,19 @@
  * profile.
  */
 import SymbiotePet        from './SymbiotePet';
-import AudioResonance     from './AudioResonance';
 import GamingUplink       from './GamingUplink';
 import PCSpecsFlex        from './PCSpecsFlex';
 import SpotifyNowPlaying  from './SpotifyNowPlaying';
+import SteamNowPlaying    from './SteamNowPlaying';
+import LofiRadio          from './LofiRadio';
 
 export const BUILTIN_WIDGETS = {
   'Symbiote Entity Pet':    SymbiotePet,
-  'Audio Resonance Player': AudioResonance,
   'Gaming Uplink Card':     GamingUplink,
   'PC Specs Flex':          PCSpecsFlex,
   'Spotify Now Playing':    SpotifyNowPlaying,
+  'Steam Now Playing':      SteamNowPlaying,
+  'Lo-fi Radio':            LofiRadio,
 };
 
 const SPIDR_OFFICIAL = 'spidr-official';
