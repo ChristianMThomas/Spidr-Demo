@@ -8,7 +8,17 @@ const authMiddleware = require('../middleware/auth');
 
 module.exports = function crudRouter(Model, opts = {}) {
   const router = express.Router();
-  const { protect = true, ownerField = null } = opts;
+  const {
+    protect = true,
+    ownerField = null,
+    // Fields any authenticated user (not just the owner) may patch. Designed
+    // for "social interaction" fields on a resource someone else owns —
+    // e.g. likes/reactions/comments_count on a Clip — without granting full
+    // write access. The document owner can still patch anything (minus
+    // PROTECTED_FIELDS). Leave empty/unset to lock PATCH to the owner only.
+    publicWriteFields = [],
+  } = opts;
+  const publicWriteSet = new Set(publicWriteFields);
 
   // Returns true if the authenticated user owns the document.
   // ownerField can be a string or array of strings (checked with OR).
@@ -97,13 +107,30 @@ module.exports = function crudRouter(Model, opts = {}) {
     try {
       const existing = await Model.findById(req.params.id).lean();
       if (!existing) return res.status(404).json({ error: 'Not found' });
-      if (!isOwner(existing, req.user?.id)) return res.status(403).json({ error: 'Forbidden' });
+
+      const owner = isOwner(existing, req.user?.id);
+      // Non-owners get blocked unless this model has explicitly opted in to
+      // public-writable interaction fields. Even then, they may only patch
+      // the keys in publicWriteSet — caption / video / pinned / etc. stay
+      // owner-only.
+      if (!owner && publicWriteSet.size === 0) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
 
       const safeBody = {};
       for (const [k, v] of Object.entries(req.body)) {
         if (k.startsWith('$') || PROTECTED_FIELDS.has(k)) continue;
+        if (!owner && !publicWriteSet.has(k)) continue; // strip non-allowlisted keys
         safeBody[k] = v;
       }
+
+      // Non-owner request with nothing left after the allowlist filter — they
+      // were trying to write fields they don't have access to. Surface a 403
+      // rather than silently no-op so the caller can see the problem.
+      if (!owner && Object.keys(safeBody).length === 0) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
       const doc = await Model.findByIdAndUpdate(
         req.params.id,
         { $set: safeBody },
