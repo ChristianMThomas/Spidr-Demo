@@ -896,7 +896,13 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             });
 
             toast.success('Friend request sent!');
-          } catch { toast.error('Could not send request'); }
+          } catch (err) {
+            if (err?.status === 409 || err?.message === 'already_exists') {
+              toast.error('You already added this user!');
+            } else {
+              toast.error('Could not send request. Please try again.');
+            }
+          }
         } else if (action === 'nickname') {
           // Server-only nickname — overrides display_name when this user
           // is rendered in this server (chat, member list, etc).

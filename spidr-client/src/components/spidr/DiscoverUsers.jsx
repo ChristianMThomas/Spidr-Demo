@@ -277,7 +277,11 @@ Return ONLY the JSON with no extra text.`,
       queryClient.invalidateQueries({ queryKey: ['friends-discover', currentUser?.id] });
     },
     onError: (err) => {
-      toast.error('Could not send request: ' + (err?.message || 'unknown'));
+      if (err?.status === 409 || err?.message === 'already_exists') {
+        toast.error('You already added this user!');
+      } else {
+        toast.error('Could not send request. Please try again.');
+      }
     },
   });
 

@@ -5,6 +5,7 @@ const REMOVED_MODULE_NAMES = [
   'Mood Ring',
   'Audio Resonance Player',
   'Local Timezone Clock',
+  'Anime Watchlist',
 ];
 
 async function cleanupRemovedModules() {

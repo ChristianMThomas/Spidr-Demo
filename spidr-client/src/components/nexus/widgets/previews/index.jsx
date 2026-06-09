@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Skull, Gamepad2, Cpu, Music, Monitor, CloudSun,
-  Headphones, Flame, Tv2, Quote,
+  Headphones, Flame, Quote,
   Blocks, MemoryStick, MonitorPlay, Wand2,
 } from 'lucide-react';
 
@@ -83,12 +83,7 @@ export const MODULE_THEMES = {
     icon: Flame,
     Preview: DailyStreakPreview,
   },
-  'Anime Watchlist': {
-    accent: '#ec4899',
-    accentRgb: '236, 72, 153',
-    icon: Tv2,
-    Preview: AnimeWatchlistPreview,
-  },
+
 };
 
 // Default theme — used for community-published modules where we don't have
@@ -493,37 +488,6 @@ function DailyStreakPreview() {
   );
 }
 
-/** Anime Watchlist — two faux anime entries with episode progress bars. */
-function AnimeWatchlistPreview() {
-  const shows = [
-    { title: 'Jujutsu Kaisen',  ep: 18, total: 24, pct: 75 },
-    { title: 'Chainsaw Man',    ep:  9, total: 12, pct: 75 },
-    { title: 'Frieren',         ep: 20, total: 28, pct: 71 },
-  ];
-  return (
-    <div className="relative w-full h-full flex items-center justify-center px-4">
-      <div className="w-full max-w-[230px] space-y-2">
-        {shows.map((s, i) => (
-          <div key={s.title}>
-            <div className="flex justify-between text-[9px] font-mono mb-0.5">
-              <span className="text-white/80 truncate pr-2">{s.title}</span>
-              <span className="text-pink-400/70 shrink-0">{s.ep}/{s.total}</span>
-            </div>
-            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-              <motion.div
-                className="h-full rounded-full"
-                style={{ background: 'linear-gradient(90deg, #ec4899, #db2777)' }}
-                initial={{ width: 0 }}
-                animate={{ width: `${s.pct}%` }}
-                transition={{ duration: 0.7, delay: 0.1 + i * 0.15, ease: 'easeOut' }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /** Weather Hex — live-style weather card with animated temperature and stat pills. */
 function WeatherPreview() {
