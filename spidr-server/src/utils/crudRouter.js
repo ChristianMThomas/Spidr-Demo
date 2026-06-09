@@ -82,6 +82,9 @@ module.exports = function crudRouter(Model, opts = {}) {
       const doc = await Model.create(data);
       res.status(201).json(normalise(doc.toObject()));
     } catch (err) {
+      if (err.code === 11000) {
+        return res.status(409).json({ error: 'already_exists' });
+      }
       res.status(400).json({ error: err.message });
     }
   });

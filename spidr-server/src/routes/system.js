@@ -12,6 +12,34 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p171',
+    title: 'Patch 1.7.1 is now live',
+    date: '2026-06-08',
+    type: 'FIX',
+    description: 'Security and polish pass. Adding a friend you\'ve already added now shows "You already added this user!" instead of leaking internal database errors. SPIDR_SYS was missing patches 1.6.2, 1.7, and the deploy pipeline fix — the server feed is now fully in sync with all release history.',
+  },
+  {
+    id: 'p17',
+    title: 'Patch 1.7 is now live',
+    date: '2026-06-03',
+    type: 'UPDATE',
+    description: 'Module Nexus overhaul. Gaming Uplink now detects games from any launcher with automatic icon extraction — League of Legends, VALORANT, TFT, Steam, Epic, Battle.net, Game Pass, and more. Background apps (Medal, Discord, Spotify, OBS) are no longer misidentified as games. Spotify Now Playing is live: connect your Spotify account in Settings → Neural and your current track appears in your profile widget. New: a "Don\'t see your game?" report form lets users flag missing detection. Module Nexus now clearly marks which widgets are under construction vs. live. Electron desktop app improvements: Spidr branding icon, window dragging from the top edge, and resizable window. APEX upgrade dialog fixed — it was rendering behind the store overlay and appearing invisible. Two new support routes added to the server: /spotify for OAuth and /support/game-report for the feedback form.',
+  },
+  {
+    id: 'p162',
+    title: 'Patch 1.6.2 is now live',
+    date: '2026-06-02',
+    type: 'UPDATE',
+    description: 'Shell architecture overhaul. SpidrShell is now the unified layout wrapper for the entire app — the old AppShell has been retired. Mobile navigation is rebuilt: a new MobileMenuPanel gives a clean, full-featured drawer for phones and tablets. Legacy components removed: TopFeedBar, UserProfilePod, GroupChatMembers, and the old Home page are gone, replaced by the HomeDashboard and integrated profile flows. KineticChat, NotificationCenter, Sidebar, BotLaboratory, DirectMessages, FriendsPanel, ServersPanel, NerveCenter, SettingsPanel, MobileBottomBar, and UserStatusChip all received updates to wire into the new shell and clean up stale references.',
+  },
+  {
+    id: 'p162b',
+    title: 'Deploy pipeline fixed',
+    date: '2026-06-02',
+    type: 'FIX',
+    description: 'Switched the production deploy workflow from plain FTP to FTPS (FTP over TLS). The old config was timing out due to firewall restrictions on GitHub Actions runners — FTPS resolves the control socket timeout so web deploys to Hostinger complete reliably again.',
+  },
+  {
     id: 'p161',
     title: 'Patch 1.6.1 is now live',
     date: '2026-05-31',
