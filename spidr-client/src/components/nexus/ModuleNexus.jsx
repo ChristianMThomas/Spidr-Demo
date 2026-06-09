@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, moduleActions } from '@/api/apiClient';
-import { Blocks, Search, Plus, Download, Loader2 } from 'lucide-react';
+import { Blocks, Search, Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import ModuleCard from './ModuleCard';
-import ModuleFabricator from './ModuleFabricator';
 import InstalledModules from './InstalledModules';
 
 export default function ModuleNexus({ currentUser }) {
@@ -19,8 +18,13 @@ export default function ModuleNexus({ currentUser }) {
     queryFn: () => entities.Module.list('-install_count', 200),
   });
 
+  // Modules fully retired — removed from seed + DB; filtered here as a client-side safety net
+  const RETIRED_MODULES = new Set(['Anime Watchlist']);
+
   // Only show modules that are public AND approved (hides flagged/rejected)
-  const approvedModules = modules.filter(m => m.is_public !== false && m.status === 'approved');
+  const approvedModules = modules.filter(m =>
+    m.is_public !== false && m.status === 'approved' && !RETIRED_MODULES.has(m.name)
+  );
 
   const { data: installed = [] } = useQuery({
     queryKey: ['installed-modules', currentUser?.id],
@@ -87,7 +91,6 @@ export default function ModuleNexus({ currentUser }) {
   const tabs = [
     { id: 'discover', label: 'Global Architecture', icon: Search },
     { id: 'installed', label: 'My Repository', icon: Download },
-    { id: 'fabricate', label: 'Fabricate', icon: Plus, color: 'text-[#FF3333]' },
   ];
 
   return (
@@ -175,11 +178,6 @@ export default function ModuleNexus({ currentUser }) {
             </motion.div>
           )}
 
-          {activeTab === 'fabricate' && (
-            <motion.div key="fabricate" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }}>
-              <ModuleFabricator currentUser={currentUser} onPublished={() => { queryClient.invalidateQueries({ queryKey: ['modules'] }); setActiveTab('discover'); }} />
-            </motion.div>
-          )}
         </AnimatePresence>
         </div>
       </div>

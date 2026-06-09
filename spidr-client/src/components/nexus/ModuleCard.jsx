@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Download, Flag, CheckCircle, Loader2, Trash2, Lock } from 'lucide-react';
 import { getModuleTheme } from './widgets/previews';
 
-const COMING_SOON_MODULES = new Set(['Anime Watchlist', 'Steam Now Playing', 'Daily Streak Counter']);
+const COMING_SOON_MODULES = new Set(['Steam Now Playing', 'Daily Streak Counter']);
 
 /**
  * ModuleCard — holographic glass card with a hover-preview crossfade.

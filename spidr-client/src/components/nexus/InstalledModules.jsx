@@ -4,30 +4,11 @@ import { Blocks, Trash2, Search } from 'lucide-react';
 import DynamicModuleWidget from './widgets/DynamicModuleWidget';
 import { BUILTIN_WIDGETS, getBuiltinWidget } from './widgets/builtinWidgets';
 
-// Modules that are fully live — everything else gets a construction overlay
-const LIVE_MODULES = new Set([
-  'Gaming Uplink Card',
-  'Spotify Now Playing',
-  'Symbiote Entity Pet',
-]);
 
-function isLive(modName = '') {
-  if (LIVE_MODULES.has(modName)) return true;
-  // Also pass custom quote boxes through
-  return modName.toLowerCase().includes('quote');
-}
-
-function ConstructionOverlay() {
-  return (
-    <div className="absolute inset-0 z-10 rounded-xl flex flex-col items-center justify-center gap-2 backdrop-blur-[2px] bg-black/60">
-      <span className="text-xs font-bold text-yellow-400 uppercase tracking-widest">Under Construction</span>
-      <span className="text-[9px] text-zinc-500 font-mono">Coming soon</span>
-    </div>
-  );
-}
+const RETIRED_MODULES = new Set(['Anime Watchlist']);
 
 export default function InstalledModules({ modules, installedIds, onUninstall, onNavigateDiscover, currentUserId }) {
-  const installed = modules.filter(m => installedIds.includes(m.id));
+  const installed = modules.filter(m => installedIds.includes(m.id) && !RETIRED_MODULES.has(m.name));
 
   if (installed.length === 0) {
     return (
@@ -65,15 +46,13 @@ export default function InstalledModules({ modules, installedIds, onUninstall, o
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {builtinModules.map(mod => {
               const Widget = getBuiltinWidget(mod);
-              const live = isLive(mod.name);
               return (
                 <motion.div key={mod.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
                   <div className="flex items-center justify-between px-1">
                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{mod.name}</span>
                     <button onClick={() => onUninstall(mod.id)} className="text-gray-600 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
                   </div>
-                  <div className={`relative rounded-xl ${!live ? 'opacity-40' : ''}`}>
-                    {!live && <ConstructionOverlay />}
+                  <div className="relative rounded-xl">
                     <Widget userId={currentUserId} isOwnProfile={true} />
                   </div>
                 </motion.div>
@@ -106,8 +85,7 @@ export default function InstalledModules({ modules, installedIds, onUninstall, o
                   </div>
                   <button onClick={() => onUninstall(mod.id)} className="text-gray-600 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
                 </div>
-                <div className={`relative rounded-xl ${!isLive(mod.name) ? 'opacity-40' : ''}`}>
-                  {!isLive(mod.name) && <ConstructionOverlay />}
+                <div className="relative rounded-xl">
                   <DynamicModuleWidget mod={mod} />
                 </div>
               </motion.div>
