@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Heart, MessageCircle, Share2, Volume2, VolumeX, Play,
   Bookmark, Sparkles, Send, Users, Lock,
+  Maximize2, Minimize2, RotateCw,
 } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { entities, algorithm } from '@/api/apiClient';
@@ -61,8 +62,13 @@ export default function ClipFeed({
   onEditClip,
   feedPersonalized,
   audioMap,
+  initialClipId,
 }) {
-  const [idx, setIdx] = useState(0);
+  const [idx, setIdx] = useState(() => {
+    if (!initialClipId) return 0;
+    const i = clips.findIndex(c => c.id === initialClipId);
+    return i >= 0 ? i : 0;
+  });
   const [muted, setMuted] = useState(false);
   const [vol, setVol] = useState(1);
   const containerRef = useRef(null);
@@ -234,9 +240,43 @@ function ClipCard({
   const [comments, setComments] = useState(false);
   const [shareMenu, setShareMenu] = useState(false);
   const [shareWeb, setShareWeb] = useState(false);
+  const [showVol, setShowVol] = useState(false);
+  const volLeaveTimer = useRef(null);
   const [freqAudio, setFreqAudio] = useState(null);
   const [striking, setStriking] = useState(false);
   const [encrypting, setEncrypting] = useState(false);
+
+  // Theater / expand state (desktop). When true the card scales to ~80vh
+  // tall so wide-aspect clips get room to breathe. Action rail follows the
+  // card's right edge naturally because it's already absolute-positioned.
+  // Escape collapses.
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e) => { if (e.key === 'Escape') setExpanded(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded]);
+
+  // Orientation tracking — drives the mobile pseudo-fullscreen experience.
+  // When a user holding a phone vertically encounters a wide clip, we show a
+  // "rotate to watch" hint; when they actually rotate to landscape, we
+  // promote the card to position:fixed inset:0 so the video fills the
+  // screen edge-to-edge. We bound this to small viewports so a desktop
+  // monitor in its natural landscape orientation doesn't constantly
+  // pseudo-fullscreen wide clips.
+  const [orientation, setOrientation] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(orientation: landscape)').matches
+      ? 'landscape' : 'portrait'
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(orientation: landscape)');
+    const handler = (e) => setOrientation(e.matches ? 'landscape' : 'portrait');
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
   const queryClient = useQueryClient();
   const menu = useMenu();
   const navigate = useNavigate();
@@ -318,12 +358,14 @@ function ClipCard({
     }
   }, [isActive, userPaused]);
 
-  // Reset to start when a card becomes active again
+  // Reset to start when a card becomes active again; collapse comments when leaving
   useEffect(() => {
     if (isActive && videoRef.current) {
       videoRef.current.currentTime = 0;
       setProgress(0);
       setUserPaused(false);
+    } else if (!isActive) {
+      setComments(false);
     }
   }, [isActive]);
 
@@ -512,16 +554,67 @@ function ClipCard({
     if (graftMuted) graftUnmute();
   };
 
+  // ── Per-clip aspect playback sizing ───────────────────────────────────
+  // Three sizing modes:
+  //   • Mobile pseudo-fullscreen (mobileFullscreen=true) — phone in
+  //     landscape with a wide clip → card escapes the feed and goes
+  //     position:fixed inset:0 to fill the viewport, video uses contain so
+  //     nothing important is cropped. Renders via cardClass below.
+  //   • Theater / expanded (expanded=true, desktop) — card scales to
+  //     ~80vh tall so wide clips fill the screen comfortably. Width is
+  //     derived from height * aspect, capped at 92vw to stay on screen.
+  //   • Default — explicit clamped width with CSS aspect-ratio deriving
+  //     the height. max-height 82vh is the safety net when 9:16 portrait
+  //     would otherwise overflow a short window.
+  const aspectNum = (() => {
+    if (!aspectCss) return 9 / 16;
+    const [n, d] = aspectCss.split('/').map(Number);
+    return d ? n / d : 9 / 16;
+  })();
+  // "Wide" = wider than tall. We only auto-suggest rotate / mobile
+  // fullscreen for content that benefits from a wider viewport.
+  const isWideClip = aspectNum > 1.05;
+  // Mobile-landscape pseudo-fullscreen kicks in only on small viewports.
+  // 1024px max-width keeps tablets in the gentler standard layout unless
+  // they're explicitly small landscape phones.
+  const isSmallViewport = typeof window !== 'undefined' && window.innerWidth < 1024;
+  const mobileFullscreen = orientation === 'landscape' && isSmallViewport && isWideClip;
+  // Show the rotate hint when the user is on a small portrait viewport
+  // looking at a wide clip — i.e. when rotating would obviously improve
+  // the experience.
+  const showRotateHint = orientation === 'portrait' && isSmallViewport && isWideClip;
+
+  const cardWidth = comments
+    ? 'max(280px, min(540px, calc(92vw - 392px)))'
+    : (expanded
+        ? `min(92vw, calc(80vh * ${aspectNum}))`
+        : 'min(720px, 92vw)');
+  const cardMaxHeight = expanded ? '80vh' : '82vh';
+
   return (
     <div
-      className={`relative flex gap-3 ${comments ? 'max-w-4xl' : 'max-w-sm'}`}
+      className="relative flex gap-3 items-center"
       style={{ height: '82vh' }}
     >
-      {/* Video card */}
+      {/* Video card. In mobile-landscape-fullscreen we break out of the feed
+          layout and pin the card to the viewport edges — gives wide clips
+          maximum room on phones. Otherwise sizing follows expanded / default
+          / comments-open modes computed above. */}
       <motion.div
         ref={graftContainerRef}
-        className="relative bg-zinc-900 rounded-2xl overflow-hidden border shadow-2xl flex-shrink-0"
-        style={{ aspectRatio: aspectCss, maxHeight: '82vh', borderColor: trending ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.08)' }}
+        className={
+          mobileFullscreen
+            ? 'fixed inset-0 z-[100] bg-black overflow-hidden'
+            : 'relative bg-zinc-900 rounded-2xl overflow-hidden border shadow-2xl'
+        }
+        style={mobileFullscreen ? {
+          borderColor: 'transparent',
+        } : {
+          aspectRatio: aspectCss,
+          width: cardWidth,
+          maxHeight: cardMaxHeight,
+          borderColor: trending ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.08)',
+        }}
         animate={striking
           ? { x: [0, -8, 8, -6, 6, 0], boxShadow: '0 0 60px rgba(239,68,68,0.8)' }
           : trending ? { boxShadow: ['0 0 22px rgba(239,68,68,0.25)', '0 0 46px rgba(239,68,68,0.55)', '0 0 22px rgba(239,68,68,0.25)'] } : {}}
@@ -568,6 +661,31 @@ function ClipCard({
             <span className="text-[9px] font-black tracking-widest text-red-400 uppercase">Trending</span>
           </motion.div>
         )}
+
+        {/* Rotate-to-watch hint — appears when a phone in portrait is
+            displaying a wide clip. Rotating triggers mobile pseudo-
+            fullscreen (handled by the mobileFullscreen branch above).
+            Auto-dismisses after 4s so it never overstays. */}
+        {showRotateHint && isActive && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.3 }}
+            className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/80 backdrop-blur-md border border-white/15 pointer-events-none"
+          >
+            <motion.span
+              animate={{ rotate: [0, 90, 90, 0] }}
+              transition={{ duration: 2.4, repeat: Infinity, times: [0, 0.4, 0.8, 1], ease: 'easeInOut' }}
+            >
+              <RotateCw className="w-3.5 h-3.5 text-white/80" />
+            </motion.span>
+            <span className="text-[10px] font-bold text-white/90 tracking-wider uppercase">
+              Rotate for fullscreen
+            </span>
+          </motion.div>
+        )}
+
         <video
           ref={videoRef}
           src={clip.video_url}
@@ -716,27 +834,50 @@ function ClipCard({
             </AnimatePresence>
           </div>
           <SideBtn onClick={() => saveMut.mutate()}><Bookmark className="w-5 h-5" /></SideBtn>
+          {/* Theater mode toggle — desktop only. Wide videos in particular
+              benefit; we surface the button for every aspect so it's a
+              consistent control. Hidden on small viewports where mobile
+              pseudo-fullscreen is the better UX. */}
+          {!isSmallViewport && (
+            <SideBtn
+              onClick={() => setExpanded(v => !v)}
+              active={expanded}
+              title={expanded ? 'Collapse (Esc)' : 'Theater mode'}
+            >
+              {expanded ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+            </SideBtn>
+          )}
           {clip.audio_id && audioMap?.[clip.audio_id] && (
             <DataDisc audioTrack={audioMap[clip.audio_id]} onOpenFrequency={(t) => setFreqAudio(t)} />
           )}
-          <div className="relative group/vol">
+          <div
+            className="relative"
+            onMouseEnter={() => { clearTimeout(volLeaveTimer.current); setShowVol(true); }}
+            onMouseLeave={() => { volLeaveTimer.current = setTimeout(() => setShowVol(false), 150); }}
+          >
             <SideBtn onClick={() => setMuted(v => !v)}>
               {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
             </SideBtn>
-            <div className="absolute right-12 top-0 bg-zinc-800/95 rounded-xl p-3 opacity-0 group-hover/vol:opacity-100 pointer-events-none group-hover/vol:pointer-events-auto transition-all shadow-xl">
-              <input
-                type="range" min="0" max="1" step="0.05" value={muted ? 0 : vol}
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value);
-                  setVol(v);
-                  setMuted(v === 0);
-                }}
-                className="w-20 h-1 appearance-none cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right,#dc2626 0%,#dc2626 ${(muted ? 0 : vol) * 100}%,#3f3f46 ${(muted ? 0 : vol) * 100}%,#3f3f46 100%)`,
-                }}
-              />
-            </div>
+            {showVol && (
+              <div
+                className="absolute right-12 top-0 bg-zinc-800/95 rounded-xl p-3 shadow-xl"
+                onMouseEnter={() => { clearTimeout(volLeaveTimer.current); setShowVol(true); }}
+                onMouseLeave={() => { volLeaveTimer.current = setTimeout(() => setShowVol(false), 150); }}
+              >
+                <input
+                  type="range" min="0" max="1" step="0.05" value={muted ? 0 : vol}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    setVol(v);
+                    setMuted(v === 0);
+                  }}
+                  className="w-20 h-1 appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right,#dc2626 0%,#dc2626 ${(muted ? 0 : vol) * 100}%,#3f3f46 ${(muted ? 0 : vol) * 100}%,#3f3f46 100%)`,
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
       </motion.div>
@@ -774,11 +915,13 @@ function ClipCard({
   );
 }
 
-function SideBtn({ children, onClick, label, active }) {
+function SideBtn({ children, onClick, label, active, title }) {
   return (
     <motion.button
       onClick={onClick}
       whileTap={{ scale: 0.85 }}
+      title={title}
+      aria-label={title}
       className="flex flex-col items-center gap-0.5"
     >
       <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
