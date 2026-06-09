@@ -49,6 +49,13 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
   const [cropXY, setCropXY] = useState({ x: 0, y: 0 });
   const [cropZoom, setCropZoom] = useState(1);
   const [cropData, setCropData] = useState(initialClip?.crop_data || null);
+  // Framing choice — 'crop' uses object-cover with a centered default crop,
+  // 'letterbox' uses object-contain (crop_data stays null). null means
+  // "not yet chosen"; the picker appears whenever the natural source aspect
+  // meaningfully differs from the selected output ratio.
+  const [framing, setFraming] = useState(initialClip?.crop_data ? 'crop' : null);
+  // Natural source dimensions, captured from the video's loadedmetadata.
+  const [natSize, setNatSize] = useState(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
   const [duration, setDuration] = useState(0);
@@ -82,6 +89,50 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
 
   const activeFilter = previewFilter || filter;
   const currentRatio = RATIOS.find(r => r.id === ratio);
+
+  // ── Framing picker helpers ────────────────────────────────────────────────
+  // Target aspect (numeric) derived from the user's ratio selection.
+  const targetAspectNum = (() => {
+    if (!currentRatio?.css) return 9 / 16;
+    const [n, d] = currentRatio.css.split('/').map(Number);
+    return d ? n / d : 9 / 16;
+  })();
+  // Source aspect from the loaded video's natural dimensions.
+  const sourceAspectNum = natSize?.width && natSize?.height
+    ? natSize.width / natSize.height
+    : null;
+  // Surface the binary choice only when the source meaningfully differs
+  // from the target (>5% — small differences look the same either way).
+  const aspectsMatch = sourceAspectNum != null
+    && Math.abs(sourceAspectNum - targetAspectNum) / targetAspectNum < 0.05;
+  const showFramingPicker = sourceAspectNum != null && !aspectsMatch;
+
+  // Compute a default centered crop in source-pixel space that matches the
+  // current target aspect — used when the user picks "Crop to fit" without
+  // opening the SpidrCropper for refinement. The playback transform reads
+  // crop_data and applies it; if the user later refines, this gets replaced.
+  const buildCenteredCrop = () => {
+    if (!natSize?.width || !natSize?.height) return null;
+    const sw = natSize.width;
+    const sh = natSize.height;
+    if (sourceAspectNum > targetAspectNum) {
+      // Source wider — crop horizontally to target aspect.
+      const cw = sh * targetAspectNum;
+      return { x: (sw - cw) / 2, y: 0, width: cw, height: sh };
+    }
+    // Source taller (or square) — crop vertically to target aspect.
+    const ch = sw / targetAspectNum;
+    return { x: 0, y: (sh - ch) / 2, width: sw, height: ch };
+  };
+
+  const pickFraming = (choice) => {
+    setFraming(choice);
+    if (choice === 'letterbox') {
+      setCropData(null);
+    } else if (choice === 'crop' && !cropData) {
+      setCropData(buildCenteredCrop());
+    }
+  };
 
   // Reset on new file
   useEffect(() => {
@@ -125,12 +176,20 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
     return () => { cancelled = true; };
   }, [open, currentUser?.id]);
 
-  // Video time tracking
+  // Video time tracking + natural-size capture (used by the framing picker
+  // to decide whether the source aspect meaningfully differs from the
+  // selected output ratio).
   useEffect(() => {
     const vid = videoRef.current;
     if (!vid) return;
     const onTime = () => setCurrentTime((vid.currentTime / (vid.duration || 1)) * 100 || 0);
-    const onMeta = () => { setDuration(vid.duration); setTrimEnd(100); };
+    const onMeta = () => {
+      setDuration(vid.duration);
+      setTrimEnd(100);
+      if (vid.videoWidth && vid.videoHeight) {
+        setNatSize({ width: vid.videoWidth, height: vid.videoHeight });
+      }
+    };
     vid.addEventListener('timeupdate', onTime);
     vid.addEventListener('loadedmetadata', onMeta);
     return () => { vid.removeEventListener('timeupdate', onTime); vid.removeEventListener('loadedmetadata', onMeta); };
@@ -433,12 +492,59 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
           {/* ── Control Dock ── */}
           <div className="bg-[#0a0a0a] border-t border-white/5 px-4 py-3 flex-shrink-0">
             <div className="max-w-xl mx-auto space-y-3">
+              {/* Framing picker — only appears when the source video's aspect
+                  meaningfully differs from the selected output ratio. Two
+                  preview tiles let the creator choose how their content fits
+                  the frame: crop to fill (object-cover with a centered
+                  default; can be refined via the Crop tool) or letterbox
+                  (object-contain, black bars). Defaults to crop on first
+                  appearance so a single click confirms; the alternative is
+                  always one tap away. */}
+              {showFramingPicker && (
+                <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-2.5">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-blue-300/90 px-1 mb-2">
+                    Source is {sourceAspectNum > targetAspectNum ? 'wider' : 'taller'} than {ratio}. How should it fit?
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <FramingTile
+                      label="Crop to fit"
+                      sublabel="Fills the frame"
+                      active={framing === 'crop'}
+                      onClick={() => pickFraming('crop')}
+                      videoUrl={videoUrl}
+                      mode="cover"
+                      aspectCss={currentRatio.css}
+                    />
+                    <FramingTile
+                      label="Keep original"
+                      sublabel="Letterboxed"
+                      active={framing === 'letterbox'}
+                      onClick={() => pickFraming('letterbox')}
+                      videoUrl={videoUrl}
+                      mode="contain"
+                      aspectCss={currentRatio.css}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Tool row */}
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2 flex-1">
                   <ToolBtn icon={Type}     label="Text"   active={isTyping}              onClick={() => setIsTyping(true)} />
                   <ToolBtn icon={Scissors} label="Splice" active={activeTool === 'trim'} onClick={() => setActiveTool(activeTool === 'trim' ? null : 'trim')} />
-                  <ToolBtn icon={Crop}     label="Crop"   active={cropMode} onClick={() => { setCropMode(!cropMode); if (!cropMode) { setCropXY({ x: 0, y: 0 }); setCropZoom(1); } }} accent />
+                  <ToolBtn icon={Crop}     label="Crop"   active={cropMode} onClick={() => {
+                    const next = !cropMode;
+                    setCropMode(next);
+                    if (next) {
+                      setCropXY({ x: 0, y: 0 });
+                      setCropZoom(1);
+                      // Entering crop mode implies crop framing — sync the
+                      // framing picker and seed a default crop if there
+                      // isn't one yet so playback knows to use object-cover.
+                      if (framing !== 'crop') pickFraming('crop');
+                    }
+                  }} accent />
                   <ToolBtn icon={Zap}      label={currentRatio.label} active={false} onClick={cycleRatio} accent />
                   <ToolBtn icon={Music}    label={selectedAudio ? 'Audio ✓' : 'Audio'} active={showAudioDB} onClick={() => setShowAudioDB(!showAudioDB)} />
                   <ToolBtn icon={RotateCcw} label="Reset" active={false}
@@ -730,6 +836,43 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
 }
 
 // ── Sub components ────────────────────────────────────────────────────────────
+
+/**
+ * FramingTile — one of the two side-by-side previews in the framing picker.
+ * Shows the actual source video rendered at the target ratio using the given
+ * object-fit mode, so the creator sees exactly what their content will look
+ * like as a Crop vs Letterbox decision.
+ */
+function FramingTile({ label, sublabel, active, onClick, videoUrl, mode, aspectCss }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative rounded-lg overflow-hidden border-2 transition-all text-left ${
+        active
+          ? 'border-[#FF3333] ring-2 ring-[#FF3333]/30'
+          : 'border-white/10 hover:border-white/30'
+      }`}
+    >
+      <div className="relative bg-black mx-auto" style={{ aspectRatio: aspectCss, maxHeight: 92 }}>
+        {videoUrl && (
+          <video
+            src={videoUrl}
+            className={`w-full h-full ${mode === 'cover' ? 'object-cover' : 'object-contain'} bg-black`}
+            muted
+            playsInline
+            preload="metadata"
+          />
+        )}
+      </div>
+      <div className="px-2 py-1.5 bg-black/70 backdrop-blur-sm border-t border-white/5">
+        <p className="text-[10px] font-black uppercase tracking-wider text-white leading-none">{label}</p>
+        <p className="text-[8px] text-zinc-500 uppercase tracking-widest leading-none mt-1">{sublabel}</p>
+      </div>
+    </button>
+  );
+}
+
 function ToolBtn({ icon: Icon, label, active, onClick, accent }) {
   return (
     <button onClick={onClick}
