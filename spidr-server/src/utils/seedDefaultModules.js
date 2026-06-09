@@ -57,14 +57,6 @@ const DEFAULT_MODULES = [
     payload: JSON.stringify({ title: "Streak", stats: { current: "0", best: "0", total: "0" } }),
   },
   {
-    name: "Anime Watchlist",
-    description: "Display your current anime watchlist with progress bars and ratings.",
-    type: "static_text",
-    category: "media",
-    tags: ["anime", "watchlist", "media"],
-    payload: JSON.stringify({ content: "No shows yet. Add one!" }),
-  },
-  {
     name: "Spotify Now Playing",
     description: "Display your current Spotify track on your profile with album art and progress bar.",
     type: "api_sync",
