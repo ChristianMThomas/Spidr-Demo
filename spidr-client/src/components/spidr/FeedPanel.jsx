@@ -40,6 +40,7 @@ export default function FeedPanel({ currentUser }) {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [activeTab, setActiveTab]       = useState('main');
   const [selectedCollection, setSelectedCollection] = useState(null);
+  const [jumpClipId, setJumpClipId]     = useState(null);
   const [searchQuery, setSearchQuery]   = useState('');
   const debouncedQ                      = useDebounce(searchQuery, 400);
   const queryClient                     = useQueryClient();
@@ -121,7 +122,7 @@ export default function FeedPanel({ currentUser }) {
     { val: 'people',       Icon: Search, label: 'FIND PEOPLE' },
     { val: 'profile',      Icon: User,   label: 'MY NODE' },
     { val: 'sounds',       Icon: Disc3,  label: 'SOUNDS' },
-    { val: 'collections',  Icon: Folder, label: 'COCOONS' },
+    { val: 'collections',  Icon: Folder, label: 'SAVED' },
   ];
 
   return (
@@ -129,7 +130,7 @@ export default function FeedPanel({ currentUser }) {
       <div className="flex-1 flex flex-col relative overflow-hidden">
 
         {/* Tab bar — pr-[200px] reserves space for the shell's top-right
-            cluster so the last tab (COCOONS) doesn't get covered. */}
+            cluster so the last tab (SAVED) doesn't get covered. */}
         <div className="border-b border-zinc-800 px-4 pr-[200px] flex-shrink-0 flex items-center gap-2">
           <div className="flex flex-1 h-12 items-end gap-1">
             {TABS.map(({ val, Icon, label }) => (
@@ -161,7 +162,7 @@ export default function FeedPanel({ currentUser }) {
               ? <Spinner />
               : filteredClips.length === 0
                 ? <EmptyFeed onUpload={() => document.getElementById('vid-upload')?.click()} />
-                : <ClipFeed clips={filteredClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized} audioMap={audioMap} />
+                : <ClipFeed clips={filteredClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized} audioMap={audioMap} initialClipId={jumpClipId} />
           )}
           {activeTab === 'friends-feed' && (
             friendClips.length === 0
@@ -171,7 +172,7 @@ export default function FeedPanel({ currentUser }) {
           {activeTab === 'profile'     && <WebProfile currentUser={currentUser} onUploadClick={() => document.getElementById('vid-upload')?.click()} />}
           {activeTab === 'people'      && <div className="w-full h-full self-stretch"><PeopleSearch currentUser={currentUser} /></div>}
           {activeTab === 'sounds'      && <SoundsBrowser currentUser={currentUser} />}
-          {activeTab === 'collections' && <CollectionsView collections={collections} selectedCollection={selectedCollection} onSelectCollection={setSelectedCollection} currentUser={currentUser} queryClient={queryClient} allClips={clips} />}
+          {activeTab === 'collections' && <CollectionsView collections={collections} selectedCollection={selectedCollection} onSelectCollection={setSelectedCollection} currentUser={currentUser} queryClient={queryClient} allClips={clips} onJumpToClip={(id) => { setJumpClipId(id); setActiveTab('main'); }} />}
         </div>
 
         {/* Upload FAB */}
@@ -231,7 +232,7 @@ function NoFriendClips() {
 }
 
 // ── Collections ───────────────────────────────────────────────────────────────
-function CollectionsView({ collections, selectedCollection, onSelectCollection, currentUser, queryClient, allClips }) {
+function CollectionsView({ collections, selectedCollection, onSelectCollection, currentUser, queryClient, allClips, onJumpToClip }) {
   const [newName, setNewName] = useState('');
   const [showNew, setShowNew] = useState(false);
 
@@ -252,8 +253,15 @@ function CollectionsView({ collections, selectedCollection, onSelectCollection, 
       </div>
       <div className="flex-1 overflow-y-auto p-4">
         {selClips.length === 0
-          ? <div className="text-center py-10 text-zinc-500"><Folder className="w-9 h-9 mx-auto mb-2 opacity-40" /><p className="text-sm">Empty cocoon</p></div>
-          : <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">{selClips.map((c, i) => <PostCard3D key={c.id} clip={c} index={i} />)}</div>
+          ? <div className="text-center py-10 text-zinc-500"><Folder className="w-9 h-9 mx-auto mb-2 opacity-40" /><p className="text-sm">Nothing saved here yet</p></div>
+          : <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">{selClips.map((c, i) => (
+              <div key={c.id} className="relative cursor-pointer group/saved" onClick={() => onJumpToClip(c.id)}>
+                <PostCard3D clip={c} index={i} />
+                <div className="absolute inset-0 bg-black/0 group-hover/saved:bg-black/40 transition-colors rounded-xl flex items-center justify-center pointer-events-none">
+                  <Play className="w-8 h-8 text-white opacity-0 group-hover/saved:opacity-100 transition-opacity drop-shadow-lg" />
+                </div>
+              </div>
+            ))}</div>
         }
       </div>
     </div>
@@ -262,7 +270,7 @@ function CollectionsView({ collections, selectedCollection, onSelectCollection, 
   return (
     <div className="w-full max-w-3xl p-6">
       <div className="flex items-center justify-between mb-5">
-        <h2 className="text-lg font-bold text-white">Cocoons</h2>
+        <h2 className="text-lg font-bold text-white">Saved</h2>
         <Button onClick={() => setShowNew(v => !v)} className="bg-red-600 hover:bg-red-700 text-sm"><Plus className="w-3.5 h-3.5 mr-1" /> New</Button>
       </div>
       {showNew && (
@@ -291,7 +299,7 @@ function CollectionsView({ collections, selectedCollection, onSelectCollection, 
             <p className="text-zinc-500 text-xs">{col.clip_ids?.length || 0} clips</p>
           </motion.button>
         ))}
-        {collections.length === 0 && <div className="col-span-full text-center py-10 text-zinc-500"><Folder className="w-9 h-9 mx-auto mb-2 opacity-40" /><p className="text-sm">No cocoons yet</p></div>}
+        {collections.length === 0 && <div className="col-span-full text-center py-10 text-zinc-500"><Folder className="w-9 h-9 mx-auto mb-2 opacity-40" /><p className="text-sm">No saved collections yet</p></div>}
       </div>
     </div>
   );

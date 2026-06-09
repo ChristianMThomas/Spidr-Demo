@@ -108,7 +108,7 @@ export default function WebProfile({ currentUser, onUploadClick }) {
       <div className="sticky top-0 bg-black/90 backdrop-blur-md z-20 border-b border-white/10">
         <div className="flex justify-center gap-10 py-3">
           <TabButton icon={Grid} label="MY STRANDS" active={activeTab === 'strands'} onClick={() => setActiveTab('strands')} />
-          <TabButton icon={Bookmark} label="COCOONS" active={activeTab === 'saved'} onClick={() => setActiveTab('saved')} />
+          <TabButton icon={Bookmark} label="SAVED" active={activeTab === 'saved'} onClick={() => setActiveTab('saved')} />
           <TabButton icon={Heart} label="RESONANCE" active={activeTab === 'liked'} onClick={() => setActiveTab('liked')} />
         </div>
       </div>
@@ -149,7 +149,7 @@ export default function WebProfile({ currentUser, onUploadClick }) {
 
           {tabContent.length === 0 && activeTab !== 'strands' && (
             <div className="col-span-full text-center py-12 text-zinc-600">
-              <p className="text-sm font-mono">{activeTab === 'saved' ? 'No cocoons yet. Save clips to build your archive.' : 'No resonance yet. Like clips to track them here.'}</p>
+              <p className="text-sm font-mono">{activeTab === 'saved' ? 'No saved clips yet. Save clips to build your archive.' : 'No resonance yet. Like clips to track them here.'}</p>
             </div>
           )}
         </div>

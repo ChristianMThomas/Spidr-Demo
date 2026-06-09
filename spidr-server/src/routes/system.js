@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p172',
+    title: 'Patch 1.7.2 is now live',
+    date: '2026-06-09',
+    type: 'FIX',
+    description: 'Polish and UX pass. "Cocoons" renamed to "Saved" across THE WEB feed, profile tabs, and collections. Volume slider in the feed no longer disappears when you move the mouse to adjust it — fixed a CSS hover gap that was losing the pointer. GIF picker and image upload panels in comments now collapse automatically when you scroll to a new video. Clicking a saved clip in your Saved collections now jumps directly to that video in the feed.',
+  },
+  {
     id: 'p171',
     title: 'Patch 1.7.1 is now live',
     date: '2026-06-08',

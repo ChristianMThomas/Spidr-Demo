@@ -4,9 +4,10 @@ import { entities, auth, integrations } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import ContextableImage from '@/components/ui/ContextableImage';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Heart, Reply, Image as ImageIcon, Loader2, X, User } from 'lucide-react';
+import { Heart, Reply, Image as ImageIcon, Loader2, X, User, Film } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import EmojiPicker from './EmojiPicker';
@@ -288,9 +289,30 @@ function CommentForm({ clipId, currentUser, parentCommentId = null, onSuccess, s
         <div className="absolute bottom-2 right-2 flex items-center gap-1">
           <EmojiPicker onEmojiSelect={handleEmojiSelect} currentUser={currentUser} />
 
-          {/* GIF picker — selected GIF is added to mediaFiles (rendered as an
-              image, same as uploaded photos). */}
-          <GifPicker onGifSelect={(url) => setMediaFiles((prev) => [...prev, url])} />
+          {/* GIF picker — wrapped in a Popover so the panel only appears when
+              the user clicks the trigger. Without the Popover wrapper the
+              full GifPicker panel (search + categories + grid) would render
+              inline and visually cover the textarea + Post Comment button.
+              Selected GIF is appended to mediaFiles, same as uploaded photos. */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="p-2 hover:bg-zinc-700 rounded-lg transition-colors"
+                title="Add GIF"
+                aria-label="Add GIF"
+              >
+                <Film className="w-5 h-5 text-zinc-400" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              sideOffset={6}
+              className="w-[360px] h-[420px] p-0 bg-zinc-900 border-red-900/30 overflow-hidden"
+            >
+              <GifPicker onGifSelect={(url) => setMediaFiles((prev) => [...prev, url])} />
+            </PopoverContent>
+          </Popover>
 
           <label className="cursor-pointer">
             <input
