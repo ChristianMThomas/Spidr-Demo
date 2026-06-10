@@ -26,7 +26,6 @@ const DEFAULT_BOTS = [
       { trigger: '/summarize', description: 'Summarize the last N messages' },
     ],
     triggers: [{ pattern: '^@spidr\\b', kind: 'mention' }],
-    install_count: 12400,
   },
   {
     name: 'Data Analyst',
@@ -39,7 +38,6 @@ const DEFAULT_BOTS = [
       { trigger: '/stats', description: 'Show server stats overview' },
       { trigger: '/top', description: 'Show top active members this week' },
     ],
-    install_count: 5200,
   },
 
   // ── Entertainers ──────────────────────────────────────────────────────────
@@ -56,7 +54,6 @@ const DEFAULT_BOTS = [
       { trigger: '/queue', description: 'Show the current queue' },
       { trigger: '/stop', description: 'Stop playback and clear queue' },
     ],
-    install_count: 18700,
   },
   {
     name: 'Game Master',
@@ -71,7 +68,6 @@ const DEFAULT_BOTS = [
       { trigger: '/8ball', description: 'Magic 8-ball answer' },
       { trigger: '/coinflip', description: 'Flip a coin' },
     ],
-    install_count: 11300,
   },
 
   // ── Guardians ─────────────────────────────────────────────────────────────
@@ -86,7 +82,6 @@ const DEFAULT_BOTS = [
       { trigger: '/modset', description: 'Configure moderation thresholds' },
       { trigger: '/modlog', description: 'Show recent auto-actions' },
     ],
-    install_count: 22100,
   },
   {
     name: 'Welcome Bot',
@@ -98,12 +93,19 @@ const DEFAULT_BOTS = [
     commands: [
       { trigger: '/welcomeset', description: 'Set the welcome message template' },
     ],
-    install_count: 9800,
   },
 ];
 
 async function seedDefaultBots() {
   try {
+    // One-time: clear legacy seeded install counts so the display shows real installs only.
+    // After this runs, install_count is no longer touched during updates — it only grows
+    // via the BotLaboratory install flow.
+    await CustomBot.updateMany(
+      { author_id: SPIDR_AUTHOR_ID, install_count: { $gt: 0 } },
+      { $set: { install_count: 0 } }
+    );
+
     let created = 0;
     let updated = 0;
     for (const def of DEFAULT_BOTS) {
@@ -112,7 +114,6 @@ async function seedDefaultBots() {
         author_id: SPIDR_AUTHOR_ID,
       });
       if (existing) {
-        const realisticInstalls = Math.max(existing.install_count || 0, def.install_count || 0);
         await CustomBot.updateOne(
           { _id: existing._id },
           {
@@ -124,7 +125,6 @@ async function seedDefaultBots() {
               features: def.features || [],
               commands: def.commands || [],
               triggers: def.triggers || [],
-              install_count: realisticInstalls,
               is_active: true,
               is_public: true,
               is_official: true,
@@ -137,6 +137,7 @@ async function seedDefaultBots() {
       } else {
         await CustomBot.create({
           ...def,
+          install_count: 0,
           author_id: SPIDR_AUTHOR_ID,
           author_name: SPIDR_AUTHOR_NAME,
           owner_id: SPIDR_AUTHOR_ID,
