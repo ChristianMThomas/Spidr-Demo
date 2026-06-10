@@ -2,6 +2,7 @@ const express = require('express');
 const crudRouter = require('../utils/crudRouter');
 const authMiddleware = require('../middleware/auth');
 const Server = require('../models/Server');
+const Message = require('../models/Message');
 const feedEvents = require('../utils/feedEvents');
 
 const router = express.Router();
@@ -98,6 +99,36 @@ router.post('/join', authMiddleware, async (req, res) => {
         io.emit('server:member-joined', payload);
       }
     } catch { /* non-fatal */ }
+
+    // Welcome Bot trigger — fires for new members only
+    try {
+      const hasWelcome = (server.bots || []).some(b => b.bot_code === 'builtin:welcome-bot');
+      if (hasWelcome) {
+        const cfg = server.bot_config?.welcome || {};
+        const welcomeChannelId = cfg.channel_id ||
+          (server.channels || []).find(c => c.type === 'text')?.id;
+        const template = cfg.message || server.bot_config?.welcome_message ||
+          `Welcome to ${server.name}, {user}! 🕷️`;
+        const text = template
+          .replace(/\{user\}/g, user_name || 'User')
+          .replace(/\{server\}/g, server.name);
+        if (welcomeChannelId) {
+          const io = req.app.get('io');
+          const wMsg = await Message.create({
+            server_id: server._id.toString(),
+            channel_id: welcomeChannelId,
+            user_id: 'spidr-ai',
+            author_id: 'spidr-ai',
+            user_name: 'Welcome Bot',
+            author_name: 'Welcome Bot',
+            content: `[SPIDR_AI] 👋 ${text}`,
+          });
+          const { _id: wid, __v: _wv, ...wOut } = wMsg.toObject();
+          io?.to(`channel:${server._id}:${welcomeChannelId}`)
+            .emit('message:new', { id: wid.toString(), ...wOut });
+        }
+      }
+    } catch { /* non-fatal — join still succeeds */ }
 
     // Fire-and-forget feed event so this shows up in the home activity feed
     feedEvents.serverJoin({
