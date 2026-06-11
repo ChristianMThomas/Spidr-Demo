@@ -56,4 +56,13 @@ function checkContent(content, userId, serverId, cfg = {}) {
   return null;
 }
 
-module.exports = { recordMessage, checkContent };
+// Matches a server bot entry to the Auto Moderator regardless of whether
+// bot_code was populated at install time (older installs may have it missing).
+function isAutoModInstalled(server) {
+  return (server?.bots || []).some(b =>
+    b.bot_code === 'builtin:auto-moderator' ||
+    b.name?.toLowerCase() === 'auto moderator'
+  );
+}
+
+module.exports = { recordMessage, checkContent, isAutoModInstalled };
