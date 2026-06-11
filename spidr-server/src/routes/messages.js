@@ -3,7 +3,7 @@ const Message        = require('../models/Message');
 const Server         = require('../models/Server');
 const authMiddleware = require('../middleware/auth');
 const crudRouter     = require('../utils/crudRouter');
-const { recordMessage, checkContent } = require('../utils/automod');
+const { recordMessage, checkContent, isAutoModInstalled } = require('../utils/automod');
 
 const router = express.Router();
 const base   = crudRouter(Message, { ownerField: ['user_id', 'author_id'] });
@@ -106,7 +106,7 @@ router.post('/', authMiddleware, async (req, res) => {
     // Run automod for server messages (skip bot-posted messages)
     if (data.server_id && data.content && userId !== 'spidr-ai' && data.author_id !== 'spidr-ai') {
       const server = await Server.findById(data.server_id, 'bots bot_config').lean();
-      const hasAutoMod = (server?.bots || []).some(b => b.bot_code === 'builtin:auto-moderator');
+      const hasAutoMod = isAutoModInstalled(server);
       if (hasAutoMod) {
         recordMessage(data.server_id, userId);
         const violation = checkContent(data.content, userId, data.server_id, server.bot_config?.automod || {});

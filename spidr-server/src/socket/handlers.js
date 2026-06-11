@@ -12,6 +12,7 @@ const GroupChat    = require('../models/GroupChat');
 const VoiceSession = require('../models/VoiceSession');
 const Friend       = require('../models/Friend');
 const UserProfile  = require('../models/UserProfile');
+const { recordMessage, checkContent, isAutoModInstalled } = require('../utils/automod');
 
 // Shared secret resolver — keeps HTTP, socket, and rate-limit verification in sync.
 const { getSecret } = require('../utils/jwtSecret');
@@ -217,6 +218,29 @@ module.exports = function registerHandlers(io) {
     socket.on('message:send', async (data) => {
       if (!socketRateLimit(socket, 5)) return;
       try {
+        if (data.server_id && data.content) {
+          const server = await Server.findById(data.server_id, 'bots bot_config').lean();
+          const hasAutoMod = isAutoModInstalled(server);
+          if (hasAutoMod) {
+            recordMessage(data.server_id, userId);
+            const violation = checkContent(data.content, userId, data.server_id, server.bot_config?.automod || {});
+            if (violation) {
+              const botMsg = await Message.create({
+                server_id: data.server_id,
+                channel_id: data.channel_id,
+                user_id: 'spidr-ai',
+                author_id: 'spidr-ai',
+                user_name: 'Auto Moderator',
+                author_name: 'Auto Moderator',
+                content: `[SPIDR_AI] 🛡️ A message was removed (${violation.reason}).`,
+                is_system: true,
+              });
+              const botOut = normalise(botMsg.toObject());
+              io.to(`channel:${data.server_id}:${data.channel_id}`).emit('message:new', botOut);
+              return socket.emit('message:blocked', { reason: violation.reason });
+            }
+          }
+        }
         const msg = await Message.create({
           server_id:   data.server_id,
           channel_id:  data.channel_id,

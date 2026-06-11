@@ -34,7 +34,7 @@ import KineticText from './KineticText';
 import AgeGateModal from './AgeGateModal';
 import StickyWeb from './StickyWeb';
 import BotMessage from './BotMessage';
-import { processBotCommand } from './SpidrBotEngine';
+import { processBotCommand, COMMAND_REGISTRY } from './SpidrBotEngine';
 import SpidrAIProfile, { SPIDR_AI_AVATAR } from './SpidrAIProfile';
 import SystemMessage from './SystemMessage';
 import ReactionBar from './ReactionBar';
@@ -551,6 +551,12 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     socket.on('message:new', onMsg);
     return () => socket.off('message:new', onMsg);
   }, [triviaSession, server?.id, selectedChannel]);
+
+  // Commands available based on which bots are installed on this server
+  const availableCommands = React.useMemo(() => {
+    const installedCodes = new Set((server?.bots || []).map(b => b.bot_code).filter(Boolean));
+    return COMMAND_REGISTRY.filter(c => !c.bot || installedCodes.has(c.bot));
+  }, [server?.bots]);
 
   // Block sending if muted or timed-out on this server
   const isUserMuted = (server.muted_members || []).includes(currentUser?.id);
@@ -1920,6 +1926,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             mentionUsers={serverMembers}
             textEffect={textEffect}
             onTextEffectChange={setTextEffect}
+            commands={availableCommands}
           />
         </div>
       </div>

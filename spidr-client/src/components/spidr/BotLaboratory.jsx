@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { Search, Sparkles, Shield, Music, Bot, Check, Cpu, Loader2, Settings, X, Plus } from 'lucide-react';
+import { Search, Sparkles, Shield, Music, Bot, Check, Cpu, Loader2, Settings, X, Plus, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
@@ -28,10 +28,13 @@ export default function BotLaboratory({ currentUser }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [installingBot, setInstallingBot] = useState(null);
   const [selectedServerId, setSelectedServerId] = useState('');
+  const [uninstallingBot, setUninstallingBot] = useState(null);
+  const [uninstallServerId, setUninstallServerId] = useState('');
 
   // Auto Mod config
   const [configuringBot, setConfiguringBot] = useState(null); // { bot }
   const [configServerId, setConfigServerId] = useState('');
+  const [configOpenCount, setConfigOpenCount] = useState(0);
   const [automodSettings, setAutomodSettings] = useState({
     slurFilter: true,
     spamThreshold: 5,
@@ -128,6 +131,31 @@ export default function BotLaboratory({ currentUser }) {
     },
   });
 
+  const uninstallMutation = useMutation({
+    mutationFn: async ({ bot, serverId }) => {
+      const server = await entities.Server.get(serverId);
+      if (!server) throw new Error('Server not found');
+      await entities.Server.update(serverId, {
+        bots: (server.bots || []).filter(b => b.bot_id !== bot.id),
+      });
+      await entities.CustomBot.update(bot.id, {
+        install_count: Math.max(0, (bot.install_count || 1) - 1),
+      });
+      return { bot, server };
+    },
+    onSuccess: ({ bot, server }) => {
+      toast.success(`✓ ${bot.name} removed from ${server.name}`);
+      queryClient.invalidateQueries({ queryKey: ['public-bots'] });
+      queryClient.invalidateQueries({ queryKey: ['my-servers-bot-lab'] });
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      setUninstallingBot(null);
+      setUninstallServerId('');
+    },
+    onError: (err) => {
+      toast.error(err?.message || 'Uninstall failed');
+    },
+  });
+
   // Populate settings form when the user picks a server to configure
   useEffect(() => {
     if (!configServerId) return;
@@ -142,7 +170,7 @@ export default function BotLaboratory({ currentUser }) {
     });
     setBannedInput('');
     setAllowedInput('');
-  }, [configServerId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [configServerId, configOpenCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const saveAutomodMutation = useMutation({
     mutationFn: async ({ serverId, settings }) => {
@@ -175,7 +203,7 @@ export default function BotLaboratory({ currentUser }) {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-black/40">
+    <div className="flex-1 min-h-0 flex flex-col bg-black/40">
       {/* Header — responsive layout with explicit breakpoints so the tabs
           never wrap into an ugly 3+1 or 1+2+1 split:
             <sm  : title stacked above a 2×2 grid of tabs
@@ -213,7 +241,7 @@ export default function BotLaboratory({ currentUser }) {
         </div>
       </div>
 
-      <ScrollArea className="flex-1 p-6">
+      <ScrollArea className="flex-1 min-h-0 p-6">
         <AnimatePresence mode="wait">
           {activeTab === 'store' && (
             <motion.div key="store" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -298,27 +326,50 @@ export default function BotLaboratory({ currentUser }) {
                                           onClick={() => {
                                             setConfiguringBot({ bot });
                                             setConfigServerId(installedOn[0].id);
+                                            setConfigOpenCount(c => c + 1);
                                           }}
                                           className="w-full rounded-md bg-emerald-900/20 border border-emerald-500/40 text-emerald-400 font-mono text-sm tracking-widest uppercase py-2 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all duration-300 flex items-center justify-center gap-2"
                                         >
                                           <Settings size={13} /> [ CONFIGURE ]
                                         </button>
                                       )}
-                                      <button
-                                        onClick={() => {
-                                          if (myServers.length === 0) {
-                                            toast.error('Join or create a server first to install bots');
-                                            return;
-                                          }
-                                          setInstallingBot(bot);
-                                          setSelectedServerId(myServers[0].id);
-                                        }}
-                                        className="w-full rounded-md bg-red-600/10 border border-red-500/40 text-red-500 font-mono text-sm tracking-widest uppercase py-2 hover:bg-red-500 hover:text-white transition-all duration-300"
-                                      >
-                                        [ INSTALL_TO_SERVER ]
-                                      </button>
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={() => {
+                                            if (myServers.length === 0) {
+                                              toast.error('Join or create a server first to install bots');
+                                              return;
+                                            }
+                                            const eligible = myServers.filter(s => !(s.bots || []).some(b => b.bot_id === bot.id));
+                                            if (eligible.length === 0) {
+                                              toast.error('Already installed on all your servers');
+                                              return;
+                                            }
+                                            setInstallingBot(bot);
+                                            setSelectedServerId(eligible[0].id);
+                                          }}
+                                          className="flex-1 rounded-md bg-red-600/10 border border-red-500/40 text-red-500 font-mono text-sm tracking-widest uppercase py-2 hover:bg-red-500 hover:text-white transition-all duration-300"
+                                        >
+                                          [ INSTALL ]
+                                        </button>
+                                        {installedOn.length > 0 && (
+                                          <button
+                                            onClick={() => {
+                                              setUninstallingBot(bot);
+                                              setUninstallServerId(installedOn[0].id);
+                                            }}
+                                            className="rounded-md bg-zinc-900/60 border border-zinc-700/60 text-zinc-500 font-mono text-sm py-2 px-3 hover:border-red-900/60 hover:text-red-400 transition-all duration-300"
+                                            title="Uninstall from a server"
+                                          >
+                                            <Trash2 size={13} />
+                                          </button>
+                                        )}
+                                      </div>
                                       <div className="text-[10px] text-neutral-600 text-center font-mono">
                                         {(bot.install_count || 0).toLocaleString()} installs
+                                        {installedOn.length > 0 && (
+                                          <span className="text-emerald-600 ml-2">✓ installed ({installedOn.length})</span>
+                                        )}
                                       </div>
                                     </div>
                                   );
@@ -533,19 +584,9 @@ export default function BotLaboratory({ currentUser }) {
                     <SelectValue placeholder="Choose a server..." />
                   </SelectTrigger>
                   <SelectContent className="bg-zinc-900 border-zinc-700">
-                    {myServers.map(s => {
-                      const alreadyHas = (s.bots || []).some(b => b.bot_id === installingBot?.id);
-                      return (
-                        <SelectItem
-                          key={s.id}
-                          value={s.id}
-                          disabled={alreadyHas}
-                          className="text-white data-[disabled]:opacity-40"
-                        >
-                          {s.name} {alreadyHas && <span className="text-[10px] text-zinc-500">(already installed)</span>}
-                        </SelectItem>
-                      );
-                    })}
+                    {myServers.filter(s => !(s.bots || []).some(b => b.bot_id === installingBot?.id)).map(s => (
+                      <SelectItem key={s.id} value={s.id} className="text-white">{s.name}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               )}
@@ -566,6 +607,47 @@ export default function BotLaboratory({ currentUser }) {
               >
                 {installMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} className="mr-1" />}
                 Install
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Uninstall dialog */}
+      <Dialog open={!!uninstallingBot} onOpenChange={(o) => { if (!o) { setUninstallingBot(null); setUninstallServerId(''); } }}>
+        <DialogContent className="bg-zinc-900 border-red-900/30 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <span className="text-3xl">{uninstallingBot?.icon_emoji || '🤖'}</span>
+              Uninstall {uninstallingBot?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-400">Choose which server to remove this bot from.</p>
+            <div>
+              <p className="text-[11px] font-bold uppercase text-zinc-500 mb-2 tracking-wider">Remove from</p>
+              <Select value={uninstallServerId} onValueChange={setUninstallServerId}>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                  <SelectValue placeholder="Choose a server..." />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-700">
+                  {myServers.filter(s => (s.bots || []).some(b => b.bot_id === uninstallingBot?.id)).map(s => (
+                    <SelectItem key={s.id} value={s.id} className="text-white">{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 border-zinc-700" onClick={() => setUninstallingBot(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => uninstallMutation.mutate({ bot: uninstallingBot, serverId: uninstallServerId })}
+                disabled={!uninstallServerId || uninstallMutation.isPending}
+                className="flex-1 bg-zinc-700 hover:bg-red-900 hover:border-red-700"
+              >
+                {uninstallMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} className="mr-1" />}
+                Uninstall
               </Button>
             </div>
           </div>
