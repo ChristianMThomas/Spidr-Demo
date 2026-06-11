@@ -1,7 +1,31 @@
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities, integrations } from '@/api/apiClient';
 
-// The Spidr AI bot command processor
-// Returns { response, actions?, streamUrl?, streamType? } or null if not a command
+// All slash commands available across all bots.
+// bot: null  → always shown regardless of what's installed.
+export const COMMAND_REGISTRY = [
+  { trigger: '/help',       description: 'Show all bot commands',           bot: null },
+  { trigger: '/ask',        description: 'Ask Spidr AI anything',           bot: 'builtin:spidr-ai' },
+  { trigger: '/roast',      description: 'Roast someone with AI',           bot: 'builtin:spidr-ai' },
+  { trigger: '/8ball',      description: 'Magic 8-ball answer',             bot: 'builtin:spidr-ai' },
+  { trigger: '/roll',       description: 'Roll a die (default d6)',         bot: 'builtin:spidr-ai' },
+  { trigger: '/coinflip',   description: 'Flip a coin',                     bot: 'builtin:spidr-ai' },
+  { trigger: '/hack',       description: 'Fake hack sequence',              bot: 'builtin:spidr-ai' },
+  { trigger: '/vibe',       description: 'Vibe check',                      bot: 'builtin:spidr-ai' },
+  { trigger: '/fact',       description: 'Random spider fact',              bot: 'builtin:spidr-ai' },
+  { trigger: '/summarize',  description: 'Summarize recent messages',       bot: 'builtin:spidr-ai' },
+  { trigger: '/trivia',     description: 'Start a trivia round',            bot: 'builtin:game-master' },
+  { trigger: '/poll',       description: 'Create a poll  /poll Q | A | B', bot: 'builtin:game-master' },
+  { trigger: '/play',       description: 'Stream YouTube/Twitch in voice',  bot: 'builtin:music-master' },
+  { trigger: '/queue',      description: 'Show music queue',                bot: 'builtin:music-master' },
+  { trigger: '/nowplaying', description: 'Show current track',              bot: 'builtin:music-master' },
+  { trigger: '/skip',       description: 'Skip current track',              bot: 'builtin:music-master' },
+  { trigger: '/stop',       description: 'Stop playback & clear queue',     bot: 'builtin:music-master' },
+  { trigger: '/stats',      description: 'Server stats overview',           bot: 'builtin:data-analyst' },
+  { trigger: '/top',        description: 'Top active members this week',    bot: 'builtin:data-analyst' },
+  { trigger: '/modset',     description: 'Configure Auto Moderator',        bot: 'builtin:auto-moderator' },
+  { trigger: '/modlog',     description: 'Recent auto-mod actions',         bot: 'builtin:auto-moderator' },
+  { trigger: '/welcomeset', description: 'Set the welcome message',         bot: 'builtin:welcome-bot' },
+];
 
 const ROASTS = [
   "Scanning profile... Error 404: Personality not found. Try upgrading your firmware.",
@@ -35,9 +59,37 @@ const FACTS = [
   "Spiders have been on Earth for over 380 million years.",
 ];
 
+async function fetchYouTubeTitle(url) {
+  try {
+    const r = await fetch(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`
+    );
+    if (!r.ok) return url;
+    const j = await r.json();
+    return j.title || url;
+  } catch {
+    return url;
+  }
+}
+
+async function getQueue(serverId) {
+  try {
+    const srv = await entities.Server.get(serverId);
+    return { srv, queue: Array.isArray(srv.bot_config?.music_queue) ? srv.bot_config.music_queue : [] };
+  } catch {
+    return { srv: null, queue: [] };
+  }
+}
+
+async function saveQueue(serverId, srv, queue) {
+  await entities.Server.update(serverId, {
+    bot_config: { ...(srv?.bot_config || {}), music_queue: queue },
+  });
+}
+
 export async function processBotCommand(text, currentUser, serverId, channelId) {
   if (!text.startsWith('/')) return null;
-  
+
   const parts = text.slice(1).split(/\s+/);
   const cmd = parts[0]?.toLowerCase();
   const args = parts.slice(1).join(' ');
@@ -51,16 +103,78 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
           response: "Usage: /play <YouTube or Twitch URL>\n\nExample:\n/play https://youtube.com/watch?v=dQw4w9WgXcQ\n/play https://twitch.tv/shroud",
         };
       }
-      
+
       let streamType = 'video';
       if (args.includes('twitch.tv')) streamType = 'twitch';
       else if (args.includes('youtube.com') || args.includes('youtu.be')) streamType = 'youtube';
-      else if (args.includes('music') || args.includes('spotify')) streamType = 'music';
+      else if (args.includes('spotify')) streamType = 'music';
+
+      // Fetch title and add to queue
+      const title = streamType === 'youtube' ? await fetchYouTubeTitle(args) : args;
+      const { srv, queue } = await getQueue(serverId);
+      const isFirst = queue.length === 0;
+      const newTrack = { url: args, title, added_by: currentUser?.full_name || 'Someone', added_at: Date.now() };
+      await saveQueue(serverId, srv, [...queue, newTrack]);
+
+      const pos = queue.length + 1;
+      const response = isFirst
+        ? `🎵 Now playing: **${title}**\n\nAdded to queue by ${newTrack.added_by}. Join a voice channel to watch!`
+        : `🎵 Added to queue (#${pos}): **${title}**\n\nRequested by ${newTrack.added_by}.`;
 
       return {
-        response: `Initializing Neural Sync Protocol...\nTargeting stream: ${args}\nAll connected users will see the stream. Enjoy!`,
-        streamUrl: args,
-        streamType,
+        response,
+        ...(isFirst ? { streamUrl: args, streamType } : {}),
+      };
+    }
+
+    case 'queue': {
+      const { queue } = await getQueue(serverId);
+      if (queue.length === 0) {
+        return { response: '🎵 [Music Master] Queue is empty. Use /play <url> to add tracks.' };
+      }
+      const lines = queue.map((t, i) => `${i + 1}. **${t.title}** — added by ${t.added_by}`).join('\n');
+      return { response: `🎵 **Music Queue** (${queue.length} track${queue.length !== 1 ? 's' : ''})\n\n${lines}` };
+    }
+
+    case 'skip': {
+      const { srv, queue } = await getQueue(serverId);
+      if (queue.length === 0) {
+        return { response: '🎵 [Music Master] Nothing in the queue to skip.' };
+      }
+      const skipped = queue[0];
+      const remaining = queue.slice(1);
+      await saveQueue(serverId, srv, remaining);
+      if (remaining.length > 0) {
+        const next = remaining[0];
+        return {
+          response: `⏭️ Skipped **${skipped.title}**\n\nNow playing: **${next.title}**`,
+          streamUrl: next.url,
+          streamType: next.url.includes('twitch') ? 'twitch' : 'youtube',
+        };
+      }
+      return {
+        response: `⏭️ Skipped **${skipped.title}**. Queue is now empty.`,
+        clearStream: true,
+      };
+    }
+
+    case 'stop': {
+      const { srv } = await getQueue(serverId);
+      await saveQueue(serverId, srv, []);
+      return {
+        response: '⏹️ [Music Master] Playback stopped and queue cleared.',
+        clearStream: true,
+      };
+    }
+
+    case 'nowplaying': {
+      const { queue } = await getQueue(serverId);
+      if (queue.length === 0) {
+        return { response: '🎵 Nothing is currently playing. Use /play <url> to start.' };
+      }
+      const t = queue[0];
+      return {
+        response: `🎵 **Now Playing**\n\n**${t.title}**\nRequested by ${t.added_by}${queue.length > 1 ? `\n\n_${queue.length - 1} track${queue.length - 1 !== 1 ? 's' : ''} in queue_` : ''}`,
       };
     }
 
@@ -115,15 +229,12 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
       if (!args) {
         return { response: "Usage: /ask <your question>\n\nI'll use my neural web to find an answer." };
       }
-      // Use LLM for custom questions
       const llmResult = await integrations.Core.InvokeLLM({
         prompt: `You are Spidr AI, a witty, edgy AI bot inside a social platform called Spidr. You speak in a cool, slightly glitchy, tech-noir style. Keep responses under 200 characters. Be helpful but with personality. The user asks: "${args}"`,
         response_json_schema: {
           type: 'object',
-          properties: {
-            answer: { type: 'string' }
-          }
-        }
+          properties: { answer: { type: 'string' } },
+        },
       });
       return {
         response: llmResult.answer || "My neural web is tangled. Try again.",
@@ -144,18 +255,21 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
           `/fact — Random spider fact\n` +
           `/ask <question> — Ask Spidr AI anything\n\n` +
           `── Game Master ──\n` +
-          `/trivia — Start a trivia round\n\n` +
-          `── Music Master (needs voice channel) ──\n` +
-          `/skip — Skip current song\n` +
-          `/queue — Show queue\n` +
-          `/stop — Clear queue\n\n` +
+          `/trivia — Start interactive trivia (30s timer)\n` +
+          `/poll <question> | opt1 | opt2 — Create a poll\n\n` +
+          `── Music Master ──\n` +
+          `/play <url> — Add track & start playing\n` +
+          `/queue — Show current queue\n` +
+          `/nowplaying — Show current track\n` +
+          `/skip — Skip to next track\n` +
+          `/stop — Clear queue & stop\n\n` +
           `── Data Analyst ──\n` +
           `/stats — Server stats overview\n` +
           `/top — Top active members this week\n\n` +
           `── Auto Moderator ──\n` +
           `/modlog — Recent auto-actions\n\n` +
           `── Welcome Bot ──\n` +
-          `/welcomeset <message> — Set the welcome message`,
+          `/welcomeset [--channel <id>] <message> — Set welcome message`,
       };
     }
 
@@ -169,7 +283,7 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
 
     case 'trivia': {
       const llmResult = await integrations.Core.InvokeLLM({
-        prompt: `Generate one interesting trivia question with 4 multiple-choice options (A, B, C, D), one correct answer, and a fun fact. Make it medium difficulty, all-ages appropriate.`,
+        prompt: `Generate one interesting trivia question with 4 multiple-choice options (A, B, C, D), one correct answer letter (just the letter, e.g. "B"), and a fun fact. Make it medium difficulty, all-ages appropriate.`,
         response_json_schema: {
           type: 'object',
           properties: {
@@ -184,22 +298,27 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
         return { response: '🎲 Trivia is offline — try again in a moment.' };
       }
       const opts = llmResult.options.slice(0, 4).map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join('\n');
+      const answerLetter = llmResult.answer?.charAt(0).toUpperCase() || 'A';
       return {
-        response: `🎲 **TRIVIA TIME**\n\n${llmResult.question}\n\n${opts}\n\n_Reply with the letter. Answer reveal in 30s._\n||Answer: ${llmResult.answer}||\n💡 ${llmResult.fact || ''}`,
+        response: `🎲 **TRIVIA TIME**\n\n${llmResult.question}\n\n${opts}\n\n_Reply with the letter (A/B/C/D). Answer reveals in 30s._`,
+        gameEvent: { type: 'trivia', answer: answerLetter, fact: llmResult.fact || '' },
       };
     }
 
-    case 'skip':
-    case 'queue':
-    case 'stop': {
-      // These are voice-channel-only commands. Without an actual audio pipeline
-      // we just acknowledge them — when voice is rewired they'll do real work.
-      const msgMap = {
-        skip:  '⏭️ Skipped current track.',
-        queue: '🎵 Queue is currently empty. Use /play <url> to add tracks.',
-        stop:  '⏹️ Playback stopped, queue cleared.',
+    case 'poll': {
+      if (!args.includes('|')) {
+        return { response: '📊 Usage: /poll <question> | option1 | option2 [| option3 | option4]' };
+      }
+      const [question, ...opts] = args.split('|').map(s => s.trim()).filter(Boolean);
+      if (opts.length < 2) {
+        return { response: '📊 A poll needs at least 2 options. Use: /poll Question | Yes | No' };
+      }
+      const options = opts.slice(0, 4);
+      const lines = options.map((o, i) => `${i + 1}️⃣ ${o}`).join('\n');
+      return {
+        response: `📊 **POLL: ${question}**\n\n${lines}\n\n_Vote by typing the number (1–${options.length})._`,
+        gameEvent: { type: 'poll', question, options },
       };
-      return { response: `🎵 [Music Master] ${msgMap[cmd]}` };
     }
 
     case 'stats': {
@@ -251,27 +370,85 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
     }
 
     case 'welcomeset': {
-      if (!args) {
-        return { response: '👋 Usage: /welcomeset <message> — use `{user}` as a placeholder.\n\nExample: `/welcomeset Welcome {user} to the web! 🕷️`' };
+      // Parse optional --channel flag: /welcomeset --channel <id> <message>
+      let channelId = null;
+      let msgText = args;
+      const chMatch = args.match(/^--channel\s+(\S+)\s*(.*)/s);
+      if (chMatch) { channelId = chMatch[1]; msgText = chMatch[2].trim(); }
+      if (!msgText) {
+        return { response: '👋 Usage: /welcomeset [--channel <channelId>] <message>\n\nUse `{user}` and `{server}` as placeholders.\n\nExample: `/welcomeset Welcome {user} to {server}! 🕷️`' };
       }
-      // Store on the server document — server-side welcome bot reads this
       try {
-        let srv;
-        try { srv = await entities.Server.get(serverId); } catch { srv = null; }
-        if (!srv) return { response: '👋 Could not find this server.' };
+        const srv = await entities.Server.get(serverId);
+        const welCfg = { ...(srv.bot_config?.welcome || {}), message: msgText };
+        if (channelId) welCfg.channel_id = channelId;
         await entities.Server.update(serverId, {
-          bot_config: { ...(srv.bot_config || {}), welcome_message: args },
+          bot_config: { ...(srv.bot_config || {}), welcome: welCfg },
         });
-        return { response: `👋 Welcome message saved!\n\nPreview:\n> ${args.replace(/\{user\}/g, currentUser?.full_name || 'NewUser')}` };
+        const preview = msgText
+          .replace(/\{user\}/g, currentUser?.full_name || 'NewUser')
+          .replace(/\{server\}/g, srv.name || 'Server');
+        return { response: `👋 Welcome message saved!\n\nPreview:\n> ${preview}` };
       } catch (err) {
         return { response: '👋 Could not save welcome message: ' + (err?.message || 'unknown') };
       }
     }
 
     case 'modset': {
-      return {
-        response: `🛡️ Auto Moderator settings:\n\n• Spam threshold: 5 messages / 10s (default)\n• Slur filter: ENABLED\n• Auto-mute on violation: ENABLED\n\nServer admins: open Server Settings → Moderation for full configuration.`,
-      };
+      const sub  = parts[1]?.toLowerCase();
+      const rest = parts.slice(2).join(' ').trim();
+      try {
+        const srv = await entities.Server.get(serverId);
+        const cfg = srv.bot_config?.automod || {};
+        const save = async (patch) => {
+          await entities.Server.update(serverId, {
+            bot_config: { ...(srv.bot_config || {}), automod: { ...cfg, ...patch } },
+          });
+        };
+
+        if (!sub || sub === 'status') {
+          const banned = (cfg.banned_words || []);
+          return {
+            response:
+              `🛡️ **Auto Moderator — Config**\n\n` +
+              `• Slur filter: **${cfg.slurFilter !== false ? 'ON' : 'OFF'}**\n` +
+              `• Spam: **${cfg.spamThreshold ?? 5}** msgs / **${cfg.spamWindowSecs ?? 10}**s\n` +
+              `• Banned words (${banned.length}): ${banned.length ? banned.map(w => `\`${w}\``).join(', ') : '_none_'}\n\n` +
+              `_/modset ban <word> · /modset unban <word> · /modset spam <n> · /modset slur on|off_`,
+          };
+        }
+        if (sub === 'ban') {
+          if (!rest) return { response: '🛡️ Usage: `/modset ban <word>`' };
+          const word = rest.toLowerCase();
+          const list = Array.isArray(cfg.banned_words) ? cfg.banned_words : [];
+          if (list.includes(word)) return { response: `🛡️ \`${word}\` is already banned.` };
+          await save({ banned_words: [...list, word] });
+          return { response: `🛡️ \`${word}\` added to banned words.` };
+        }
+        if (sub === 'unban') {
+          if (!rest) return { response: '🛡️ Usage: `/modset unban <word>`' };
+          const word = rest.toLowerCase();
+          const list = Array.isArray(cfg.banned_words) ? cfg.banned_words : [];
+          await save({ banned_words: list.filter(w => w !== word) });
+          return { response: `🛡️ \`${word}\` removed from banned words.` };
+        }
+        if (sub === 'spam') {
+          const n = parseInt(rest);
+          if (isNaN(n) || n < 2) return { response: '🛡️ Usage: `/modset spam <number>` (min 2)' };
+          await save({ spamThreshold: n });
+          return { response: `🛡️ Spam threshold set to **${n}** messages.` };
+        }
+        if (sub === 'slur') {
+          if (rest !== 'on' && rest !== 'off') return { response: '🛡️ Usage: `/modset slur on|off`' };
+          await save({ slurFilter: rest === 'on' });
+          return { response: `🛡️ Slur filter turned **${rest.toUpperCase()}**.` };
+        }
+        return {
+          response: `🛡️ Unknown sub-command \`${sub}\`.\n\nUsage:\n\`/modset status\` · \`/modset ban <word>\` · \`/modset unban <word>\` · \`/modset spam <n>\` · \`/modset slur on|off\``,
+        };
+      } catch (err) {
+        return { response: `🛡️ Error: ${err?.message || 'Could not update settings.'}` };
+      }
     }
 
     case 'summarize': {

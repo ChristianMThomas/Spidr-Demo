@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { Search, Sparkles, Shield, Music, Bot, Check, Cpu, Loader2 } from 'lucide-react';
+import { Search, Sparkles, Shield, Music, Bot, Check, Cpu, Loader2, Settings, X, Plus, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
@@ -26,8 +26,25 @@ const TABS = [
 export default function BotLaboratory({ currentUser }) {
   const [activeTab, setActiveTab] = useState('store');
   const [searchQuery, setSearchQuery] = useState('');
-  const [installingBot, setInstallingBot] = useState(null); // bot object to show install dialog for
+  const [installingBot, setInstallingBot] = useState(null);
   const [selectedServerId, setSelectedServerId] = useState('');
+  const [uninstallingBot, setUninstallingBot] = useState(null);
+  const [uninstallServerId, setUninstallServerId] = useState('');
+
+  // Auto Mod config
+  const [configuringBot, setConfiguringBot] = useState(null); // { bot }
+  const [configServerId, setConfigServerId] = useState('');
+  const [configOpenCount, setConfigOpenCount] = useState(0);
+  const [automodSettings, setAutomodSettings] = useState({
+    slurFilter: true,
+    spamThreshold: 5,
+    spamWindowSecs: 10,
+    banned_words: [],
+    allowed_words: [],
+  });
+  const [bannedInput, setBannedInput] = useState('');
+  const [allowedInput, setAllowedInput] = useState('');
+
   const queryClient = useQueryClient();
 
   // Fetch all public bots (official + user-published)
@@ -46,10 +63,16 @@ export default function BotLaboratory({ currentUser }) {
     queryFn: () => entities.Server.list('-created_date', 100),
     enabled: !!currentUser?.id,
   });
-  const myServers = allServers.filter(s =>
-    s.owner_id === currentUser?.id ||
-    (s.members || []).some(m => m.user_id === currentUser?.id && (m.role === 'Admin' || m.role === 'admin'))
-  );
+  const myServers = allServers.filter(s => {
+    const uid = String(currentUser?.id || '');
+    if (!uid) return false;
+    if (String(s.owner_id) === uid) return true;
+    return (s.members || []).some(m => {
+      if (String(m.user_id) !== uid) return false;
+      const role = String(m.role || '').toLowerCase();
+      return ['admin', 'mod', 'moderator', 'owner'].includes(role);
+    });
+  });
 
   // Group by category
   const byCategory = React.useMemo(() => {
@@ -81,6 +104,7 @@ export default function BotLaboratory({ currentUser }) {
           ...existingBots,
           {
             bot_id: bot.id,
+            bot_code: bot.code,
             name: bot.name,
             icon_emoji: bot.icon_emoji || '🤖',
             installed_by: currentUser?.id,
@@ -107,8 +131,79 @@ export default function BotLaboratory({ currentUser }) {
     },
   });
 
+  const uninstallMutation = useMutation({
+    mutationFn: async ({ bot, serverId }) => {
+      const server = await entities.Server.get(serverId);
+      if (!server) throw new Error('Server not found');
+      await entities.Server.update(serverId, {
+        bots: (server.bots || []).filter(b => b.bot_id !== bot.id),
+      });
+      await entities.CustomBot.update(bot.id, {
+        install_count: Math.max(0, (bot.install_count || 1) - 1),
+      });
+      return { bot, server };
+    },
+    onSuccess: ({ bot, server }) => {
+      toast.success(`✓ ${bot.name} removed from ${server.name}`);
+      queryClient.invalidateQueries({ queryKey: ['public-bots'] });
+      queryClient.invalidateQueries({ queryKey: ['my-servers-bot-lab'] });
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+      setUninstallingBot(null);
+      setUninstallServerId('');
+    },
+    onError: (err) => {
+      toast.error(err?.message || 'Uninstall failed');
+    },
+  });
+
+  // Populate settings form when the user picks a server to configure
+  useEffect(() => {
+    if (!configServerId) return;
+    const server = myServers.find(s => s.id === configServerId);
+    const cfg = server?.bot_config?.automod || {};
+    setAutomodSettings({
+      slurFilter: cfg.slurFilter !== false,
+      spamThreshold: cfg.spamThreshold ?? 5,
+      spamWindowSecs: cfg.spamWindowSecs ?? 10,
+      banned_words: Array.isArray(cfg.banned_words) ? cfg.banned_words : [],
+      allowed_words: Array.isArray(cfg.allowed_words) ? cfg.allowed_words : [],
+    });
+    setBannedInput('');
+    setAllowedInput('');
+  }, [configServerId, configOpenCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveAutomodMutation = useMutation({
+    mutationFn: async ({ serverId, settings }) => {
+      const server = await entities.Server.get(serverId);
+      await entities.Server.update(serverId, {
+        bot_config: { ...(server.bot_config || {}), automod: settings },
+      });
+    },
+    onSuccess: () => {
+      toast.success('✓ Auto Moderator settings saved');
+      queryClient.invalidateQueries({ queryKey: ['my-servers-bot-lab'] });
+      setConfiguringBot(null);
+      setConfigServerId('');
+    },
+    onError: () => toast.error('Could not save settings'),
+  });
+
+  const addWord = (field, input, setInput) => {
+    const word = input.trim().toLowerCase();
+    if (!word) return;
+    setAutomodSettings(prev => ({
+      ...prev,
+      [field]: prev[field].includes(word) ? prev[field] : [...prev[field], word],
+    }));
+    setInput('');
+  };
+
+  const removeWord = (field, word) => {
+    setAutomodSettings(prev => ({ ...prev, [field]: prev[field].filter(w => w !== word) }));
+  };
+
   return (
-    <div className="flex-1 flex flex-col bg-black/40">
+    <div className="flex-1 min-h-0 flex flex-col bg-black/40">
       {/* Header — responsive layout with explicit breakpoints so the tabs
           never wrap into an ugly 3+1 or 1+2+1 split:
             <sm  : title stacked above a 2×2 grid of tabs
@@ -146,7 +241,7 @@ export default function BotLaboratory({ currentUser }) {
         </div>
       </div>
 
-      <ScrollArea className="flex-1 p-6">
+      <ScrollArea className="flex-1 min-h-0 p-6">
         <AnimatePresence mode="wait">
           {activeTab === 'store' && (
             <motion.div key="store" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -221,22 +316,64 @@ export default function BotLaboratory({ currentUser }) {
                                     </div>
                                   ))}
                                 </div>
-                                <button
-                                  onClick={() => {
-                                    if (myServers.length === 0) {
-                                      toast.error('Join or create a server first to install bots');
-                                      return;
-                                    }
-                                    setInstallingBot(bot);
-                                    setSelectedServerId(myServers[0].id);
-                                  }}
-                                  className="w-full rounded-md bg-red-600/10 border border-red-500/40 text-red-500 font-mono text-sm tracking-widest uppercase py-2 hover:bg-red-500 hover:text-white transition-all duration-300"
-                                >
-                                  [ INSTALL_TO_SERVER ]
-                                </button>
-                                <div className="text-[10px] text-neutral-600 text-center mt-2 font-mono">
-                                  {(bot.install_count || 0).toLocaleString()} installs
-                                </div>
+                                {(() => {
+                                  const installedOn = myServers.filter(s => (s.bots || []).some(b => b.bot_id === bot.id));
+                                  const isConfigurable = bot.code === 'builtin:auto-moderator';
+                                  return (
+                                    <div className="flex flex-col gap-2">
+                                      {isConfigurable && installedOn.length > 0 && (
+                                        <button
+                                          onClick={() => {
+                                            setConfiguringBot({ bot });
+                                            setConfigServerId(installedOn[0].id);
+                                            setConfigOpenCount(c => c + 1);
+                                          }}
+                                          className="w-full rounded-md bg-emerald-900/20 border border-emerald-500/40 text-emerald-400 font-mono text-sm tracking-widest uppercase py-2 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all duration-300 flex items-center justify-center gap-2"
+                                        >
+                                          <Settings size={13} /> [ CONFIGURE ]
+                                        </button>
+                                      )}
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={() => {
+                                            if (myServers.length === 0) {
+                                              toast.error('Join or create a server first to install bots');
+                                              return;
+                                            }
+                                            const eligible = myServers.filter(s => !(s.bots || []).some(b => b.bot_id === bot.id));
+                                            if (eligible.length === 0) {
+                                              toast.error('Already installed on all your servers');
+                                              return;
+                                            }
+                                            setInstallingBot(bot);
+                                            setSelectedServerId(eligible[0].id);
+                                          }}
+                                          className="flex-1 rounded-md bg-red-600/10 border border-red-500/40 text-red-500 font-mono text-sm tracking-widest uppercase py-2 hover:bg-red-500 hover:text-white transition-all duration-300"
+                                        >
+                                          [ INSTALL ]
+                                        </button>
+                                        {installedOn.length > 0 && (
+                                          <button
+                                            onClick={() => {
+                                              setUninstallingBot(bot);
+                                              setUninstallServerId(installedOn[0].id);
+                                            }}
+                                            className="rounded-md bg-zinc-900/60 border border-zinc-700/60 text-zinc-500 font-mono text-sm py-2 px-3 hover:border-red-900/60 hover:text-red-400 transition-all duration-300"
+                                            title="Uninstall from a server"
+                                          >
+                                            <Trash2 size={13} />
+                                          </button>
+                                        )}
+                                      </div>
+                                      <div className="text-[10px] text-neutral-600 text-center font-mono">
+                                        {(bot.install_count || 0).toLocaleString()} installs
+                                        {installedOn.length > 0 && (
+                                          <span className="text-emerald-600 ml-2">✓ installed ({installedOn.length})</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </motion.div>
                           ))}
@@ -257,6 +394,159 @@ export default function BotLaboratory({ currentUser }) {
 
         </AnimatePresence>
       </ScrollArea>
+
+      {/* Auto Mod configure dialog */}
+      <Dialog open={!!configuringBot} onOpenChange={(o) => { if (!o) { setConfiguringBot(null); setConfigServerId(''); } }}>
+        <DialogContent className="bg-zinc-900 border-red-900/30 text-white max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 font-mono">
+              <span className="text-2xl">🛡️</span> Auto Moderator — Config
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5 pt-1">
+            {/* Server selector */}
+            {myServers.filter(s => (s.bots || []).some(b => b.bot_id === configuringBot?.bot?.id)).length > 1 && (
+              <div>
+                <p className="text-[10px] font-mono uppercase text-zinc-500 mb-1.5 tracking-wider">Configure for</p>
+                <Select value={configServerId} onValueChange={setConfigServerId}>
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                    <SelectValue placeholder="Choose server..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-900 border-zinc-700">
+                    {myServers.filter(s => (s.bots || []).some(b => b.bot_id === configuringBot?.bot?.id)).map(s => (
+                      <SelectItem key={s.id} value={s.id} className="text-white">{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Spam protection */}
+            <div className="bg-black/30 rounded-lg p-4 border border-white/5 space-y-3">
+              <p className="text-[10px] font-mono uppercase text-zinc-500 tracking-wider">Spam Protection</p>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-300 font-mono">Max messages before flag</span>
+                <input
+                  type="number" min={2} max={30}
+                  value={automodSettings.spamThreshold}
+                  onChange={e => setAutomodSettings(p => ({ ...p, spamThreshold: Number(e.target.value) }))}
+                  className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-white text-sm font-mono text-center focus:border-red-500 outline-none"
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-300 font-mono">Time window (seconds)</span>
+                <input
+                  type="number" min={2} max={60}
+                  value={automodSettings.spamWindowSecs}
+                  onChange={e => setAutomodSettings(p => ({ ...p, spamWindowSecs: Number(e.target.value) }))}
+                  className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-white text-sm font-mono text-center focus:border-red-500 outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Slur filter toggle */}
+            <div className="bg-black/30 rounded-lg p-4 border border-white/5">
+              <p className="text-[10px] font-mono uppercase text-zinc-500 tracking-wider mb-3">Slur Filter</p>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-300">Block built-in slur list</span>
+                <button
+                  onClick={() => setAutomodSettings(p => ({ ...p, slurFilter: !p.slurFilter }))}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${automodSettings.slurFilter ? 'bg-red-600' : 'bg-zinc-700'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${automodSettings.slurFilter ? 'translate-x-5' : ''}`} />
+                </button>
+              </div>
+              <p className="text-[10px] text-zinc-600 mt-2 font-mono">
+                Blocks common slurs server-wide. Use allowed words below to add exceptions.
+              </p>
+            </div>
+
+            {/* Custom banned words */}
+            <div className="bg-black/30 rounded-lg p-4 border border-white/5 space-y-3">
+              <p className="text-[10px] font-mono uppercase text-zinc-500 tracking-wider">Custom Banned Words</p>
+              <div className="flex gap-2">
+                <input
+                  value={bannedInput}
+                  onChange={e => setBannedInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addWord('banned_words', bannedInput, setBannedInput); } }}
+                  placeholder="Type a word..."
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-white text-sm font-mono placeholder-zinc-600 focus:border-red-500 outline-none"
+                />
+                <button
+                  onClick={() => addWord('banned_words', bannedInput, setBannedInput)}
+                  className="px-3 py-1.5 bg-red-600/20 border border-red-500/40 rounded text-red-400 hover:bg-red-500 hover:text-white transition-colors"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+              {automodSettings.banned_words.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {automodSettings.banned_words.map(w => (
+                    <span key={w} className="flex items-center gap-1 bg-red-950/40 border border-red-800/40 text-red-300 text-xs font-mono px-2 py-0.5 rounded-full">
+                      {w}
+                      <button onClick={() => removeWord('banned_words', w)} className="text-red-500 hover:text-white">
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {automodSettings.banned_words.length === 0 && (
+                <p className="text-[11px] text-zinc-600 font-mono">No custom words added yet.</p>
+              )}
+            </div>
+
+            {/* Allowed words (exceptions) */}
+            <div className="bg-black/30 rounded-lg p-4 border border-white/5 space-y-3">
+              <p className="text-[10px] font-mono uppercase text-zinc-500 tracking-wider">Allowed Words (exceptions)</p>
+              <p className="text-[11px] text-zinc-600 font-mono">Words here are never blocked, even if on the slur list.</p>
+              <div className="flex gap-2">
+                <input
+                  value={allowedInput}
+                  onChange={e => setAllowedInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addWord('allowed_words', allowedInput, setAllowedInput); } }}
+                  placeholder="Type a word..."
+                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-1.5 text-white text-sm font-mono placeholder-zinc-600 focus:border-red-500 outline-none"
+                />
+                <button
+                  onClick={() => addWord('allowed_words', allowedInput, setAllowedInput)}
+                  className="px-3 py-1.5 bg-emerald-900/20 border border-emerald-500/40 rounded text-emerald-400 hover:bg-emerald-500 hover:text-white transition-colors"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+              {automodSettings.allowed_words.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {automodSettings.allowed_words.map(w => (
+                    <span key={w} className="flex items-center gap-1 bg-emerald-950/40 border border-emerald-800/40 text-emerald-300 text-xs font-mono px-2 py-0.5 rounded-full">
+                      {w}
+                      <button onClick={() => removeWord('allowed_words', w)} className="text-emerald-500 hover:text-white">
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Save */}
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1 border-zinc-700" onClick={() => { setConfiguringBot(null); setConfigServerId(''); }}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => saveAutomodMutation.mutate({ serverId: configServerId, settings: automodSettings })}
+                disabled={!configServerId || saveAutomodMutation.isPending}
+                className="flex-1 bg-[#FF3333] hover:bg-red-500"
+              >
+                {saveAutomodMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} className="mr-1" />}
+                Save Settings
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Install dialog — pick which server */}
       <Dialog open={!!installingBot} onOpenChange={(o) => !o && setInstallingBot(null)}>
@@ -294,19 +584,9 @@ export default function BotLaboratory({ currentUser }) {
                     <SelectValue placeholder="Choose a server..." />
                   </SelectTrigger>
                   <SelectContent className="bg-zinc-900 border-zinc-700">
-                    {myServers.map(s => {
-                      const alreadyHas = (s.bots || []).some(b => b.bot_id === installingBot?.id);
-                      return (
-                        <SelectItem
-                          key={s.id}
-                          value={s.id}
-                          disabled={alreadyHas}
-                          className="text-white data-[disabled]:opacity-40"
-                        >
-                          {s.name} {alreadyHas && <span className="text-[10px] text-zinc-500">(already installed)</span>}
-                        </SelectItem>
-                      );
-                    })}
+                    {myServers.filter(s => !(s.bots || []).some(b => b.bot_id === installingBot?.id)).map(s => (
+                      <SelectItem key={s.id} value={s.id} className="text-white">{s.name}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               )}
@@ -327,6 +607,47 @@ export default function BotLaboratory({ currentUser }) {
               >
                 {installMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} className="mr-1" />}
                 Install
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Uninstall dialog */}
+      <Dialog open={!!uninstallingBot} onOpenChange={(o) => { if (!o) { setUninstallingBot(null); setUninstallServerId(''); } }}>
+        <DialogContent className="bg-zinc-900 border-red-900/30 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <span className="text-3xl">{uninstallingBot?.icon_emoji || '🤖'}</span>
+              Uninstall {uninstallingBot?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-zinc-400">Choose which server to remove this bot from.</p>
+            <div>
+              <p className="text-[11px] font-bold uppercase text-zinc-500 mb-2 tracking-wider">Remove from</p>
+              <Select value={uninstallServerId} onValueChange={setUninstallServerId}>
+                <SelectTrigger className="bg-zinc-800 border-zinc-700 text-white">
+                  <SelectValue placeholder="Choose a server..." />
+                </SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-700">
+                  {myServers.filter(s => (s.bots || []).some(b => b.bot_id === uninstallingBot?.id)).map(s => (
+                    <SelectItem key={s.id} value={s.id} className="text-white">{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 border-zinc-700" onClick={() => setUninstallingBot(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => uninstallMutation.mutate({ bot: uninstallingBot, serverId: uninstallServerId })}
+                disabled={!uninstallServerId || uninstallMutation.isPending}
+                className="flex-1 bg-zinc-700 hover:bg-red-900 hover:border-red-700"
+              >
+                {uninstallMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} className="mr-1" />}
+                Uninstall
               </Button>
             </div>
           </div>

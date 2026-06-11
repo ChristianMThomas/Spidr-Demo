@@ -9,11 +9,12 @@ import VoiceRecorder from './VoiceRecorder';
 import { scanContent } from './ContentScanner';
 import ContentBlockedModal from './ContentBlockedModal';
 
-export default function MessageInputBar({ 
+export default function MessageInputBar({
   value, onChange, onSend, onKeyDown, placeholder, currentUser,
   disabled = false, showEditingIndicator = false, onCancelEdit = null,
   mentionUsers = [], ghostMode = false, onGhostToggle,
-  textEffect = 'normal', onTextEffectChange
+  textEffect = 'normal', onTextEffectChange,
+  commands = [],
 }) {
   const fileInputRef = useRef(null);
   const inputRef = useRef(null);
@@ -22,6 +23,8 @@ export default function MessageInputBar({
   const [mentionSearch, setMentionSearch] = useState(null);
   const [showEffects, setShowEffects] = useState(false);
   const [blockedCategory, setBlockedCategory] = useState(null);
+  const [cmdSuggestions, setCmdSuggestions] = useState([]);
+  const [cmdSelectedIdx, setCmdSelectedIdx] = useState(0);
 
   // Listen for "Mention" actions from the global right-click menu. When the
   // user right-clicks a profile/friend avatar somewhere and picks Mention,
@@ -75,6 +78,33 @@ export default function MessageInputBar({
     onSend(attachments);
     setAttachments([]);
     setMentionSearch(null);
+    setCmdSuggestions([]);
+  };
+
+  const handleKeyDown = (e) => {
+    if (cmdSuggestions.length > 0) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setCmdSelectedIdx(i => Math.max(0, i - 1));
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setCmdSelectedIdx(i => Math.min(cmdSuggestions.length - 1, i + 1));
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && cmdSuggestions.length > 0)) {
+        e.preventDefault();
+        selectCommand(cmdSuggestions[cmdSelectedIdx]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setCmdSuggestions([]);
+        return;
+      }
+    }
+    onKeyDown?.(e);
   };
 
   const removeAttachment = (index) => {
@@ -84,8 +114,21 @@ export default function MessageInputBar({
   const handleInputChange = (e) => {
     const val = e.target.value;
     onChange(val);
+
+    // Command suggestions — only trigger when the input starts with /
+    // and the cursor hasn't moved past the first word yet.
     const cursorPos = e.target.selectionStart;
     const textBeforeCursor = val.slice(0, cursorPos);
+    if (val.startsWith('/') && commands.length > 0 && !textBeforeCursor.includes(' ')) {
+      const query = val.toLowerCase();
+      const filtered = commands.filter(c => c.trigger.toLowerCase().startsWith(query)).slice(0, 8);
+      setCmdSuggestions(filtered);
+      setCmdSelectedIdx(0);
+    } else {
+      setCmdSuggestions([]);
+    }
+
+    // Mention suggestions
     const words = textBeforeCursor.split(/\s/);
     const lastWord = words[words.length - 1];
     if (lastWord.startsWith('@') && lastWord.length > 0) {
@@ -93,6 +136,12 @@ export default function MessageInputBar({
     } else {
       setMentionSearch(null);
     }
+  };
+
+  const selectCommand = (cmd) => {
+    onChange(cmd.trigger + ' ');
+    setCmdSuggestions([]);
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const handleSelectMention = (name) => {
@@ -163,6 +212,26 @@ export default function MessageInputBar({
       <div className={`relative flex items-center gap-1.5 bg-[#0a0a0a] rounded-2xl px-3 py-2 border transition-all duration-300
         ${ghostMode ? 'border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)]' : 'border-white/[0.06] focus-within:border-[#FF3333]/30 focus-within:shadow-[0_0_20px_rgba(255,51,51,0.08)]'}
       `}>
+        {/* Command suggestions */}
+        {cmdSuggestions.length > 0 && (
+          <div className="absolute bottom-full mb-2 left-0 w-full bg-[#111] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[9999]">
+            <div className="px-3 py-1.5 bg-red-950/40 text-[10px] font-bold text-red-400 uppercase tracking-widest flex items-center gap-2">
+              <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+              Commands
+            </div>
+            {cmdSuggestions.map((cmd, i) => (
+              <button
+                key={cmd.trigger}
+                onClick={() => selectCommand(cmd)}
+                className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-colors ${i === cmdSelectedIdx ? 'bg-white/10' : 'hover:bg-white/5'}`}
+              >
+                <span className="font-mono text-sm text-red-400 font-bold w-32 flex-shrink-0">{cmd.trigger}</span>
+                <span className="text-xs text-zinc-400 truncate">{cmd.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Mention popup */}
         <MentionPopup isOpen={mentionSearch !== null} filter={mentionSearch || ''} onSelect={handleSelectMention} users={mentionUsers} position="bottom" />
 
@@ -188,7 +257,7 @@ export default function MessageInputBar({
           placeholder={placeholder}
           value={value}
           onChange={handleInputChange}
-          onKeyDown={onKeyDown}
+          onKeyDown={handleKeyDown}
           onPaste={async (e) => {
             // 1. Direct image on the clipboard (Ctrl+C an image from the OS) →
             //    upload and attach as a normal image attachment.
