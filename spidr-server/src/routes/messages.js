@@ -3,6 +3,7 @@ const Message        = require('../models/Message');
 const Server         = require('../models/Server');
 const authMiddleware = require('../middleware/auth');
 const crudRouter     = require('../utils/crudRouter');
+const { recordMessage, checkContent, isAutoModInstalled } = require('../utils/automod');
 
 const router = express.Router();
 const base   = crudRouter(Message, { ownerField: ['user_id', 'author_id'] });
@@ -96,7 +97,49 @@ router.get('/search', authMiddleware, async (req, res) => {
   }
 });
 
-// All other methods (GET /:id, POST /, PATCH /:id, DELETE /:id) via crudRouter
+// POST / — create a message with Auto Moderator interception
+router.post('/', authMiddleware, async (req, res) => {
+  try {
+    const data = req.body;
+    const userId = req.user?.id;
+
+    // Run automod for server messages (skip bot-posted messages)
+    if (data.server_id && data.content && userId !== 'spidr-ai' && data.author_id !== 'spidr-ai') {
+      const server = await Server.findById(data.server_id, 'bots bot_config').lean();
+      const hasAutoMod = isAutoModInstalled(server);
+      if (hasAutoMod) {
+        recordMessage(data.server_id, userId);
+        const violation = checkContent(data.content, userId, data.server_id, server.bot_config?.automod || {});
+        if (violation) {
+          const io = req.app.get('io');
+          const botMsg = await Message.create({
+            server_id: data.server_id,
+            channel_id: data.channel_id,
+            user_id: 'spidr-ai',
+            author_id: 'spidr-ai',
+            user_name: 'Auto Moderator',
+            author_name: 'Auto Moderator',
+            content: `[SPIDR_AI] 🛡️ A message was removed (${violation.reason}).`,
+            is_system: true,
+          });
+          const { _id: bid, __v: _bv, ...botOut } = botMsg.toObject();
+          io?.to(`channel:${data.server_id}:${data.channel_id}`)
+            .emit('message:new', { id: bid.toString(), ...botOut });
+          return res.status(200).json({ blocked: true, reason: violation.reason });
+        }
+      }
+    }
+
+    // Allowed — create normally
+    const doc = await Message.create({ ...data, user_id: userId });
+    const { _id, __v, ...out } = doc.toObject();
+    res.status(201).json({ id: _id.toString(), ...out });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// All other methods (GET /:id, PATCH /:id, DELETE /:id) via crudRouter
 router.use(base);
 
 module.exports = router;
