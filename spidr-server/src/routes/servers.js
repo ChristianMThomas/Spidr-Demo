@@ -2,8 +2,8 @@ const express = require('express');
 const crudRouter = require('../utils/crudRouter');
 const authMiddleware = require('../middleware/auth');
 const Server = require('../models/Server');
-const Message = require('../models/Message');
 const feedEvents = require('../utils/feedEvents');
+const welcomeBot = require('../utils/welcomeBot');
 
 const router = express.Router();
 
@@ -100,35 +100,13 @@ router.post('/join', authMiddleware, async (req, res) => {
       }
     } catch { /* non-fatal */ }
 
-    // Welcome Bot trigger — fires for new members only
-    try {
-      const hasWelcome = (server.bots || []).some(b => b.bot_code === 'builtin:welcome-bot');
-      if (hasWelcome) {
-        const cfg = server.bot_config?.welcome || {};
-        const welcomeChannelId = cfg.channel_id ||
-          (server.channels || []).find(c => c.type === 'text')?.id;
-        const template = cfg.message || server.bot_config?.welcome_message ||
-          `Welcome to ${server.name}, {user}! 🕷️`;
-        const text = template
-          .replace(/\{user\}/g, user_name || 'User')
-          .replace(/\{server\}/g, server.name);
-        if (welcomeChannelId) {
-          const io = req.app.get('io');
-          const wMsg = await Message.create({
-            server_id: server._id.toString(),
-            channel_id: welcomeChannelId,
-            user_id: 'spidr-ai',
-            author_id: 'spidr-ai',
-            user_name: 'Welcome Bot',
-            author_name: 'Welcome Bot',
-            content: `[SPIDR_AI] 👋 ${text}`,
-          });
-          const { _id: wid, __v: _wv, ...wOut } = wMsg.toObject();
-          io?.to(`channel:${server._id}:${welcomeChannelId}`)
-            .emit('message:new', { id: wid.toString(), ...wOut });
-        }
-      }
-    } catch { /* non-fatal — join still succeeds */ }
+    // Welcome Bot trigger — fires for new members only.
+    // Logged failures inside the helper; join must succeed even if welcome breaks.
+    welcomeBot.fireWelcome(
+      server,
+      { user_id: userId, user_name: user_name || 'User' },
+      req.app.get('io')
+    ).catch(() => {});
 
     // Fire-and-forget feed event so this shows up in the home activity feed
     feedEvents.serverJoin({
@@ -220,6 +198,47 @@ router.patch('/:serverId/roles/:roleId', authMiddleware, async (req, res) => {
     res.json({ ok: true, roles: server.roles });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /servers/:id — custom handler that runs BEFORE the generic crudRouter
+// so we can detect new members added via this path (the public-server "Join"
+// button calls Server.update({ members: [...] }) directly instead of going
+// through POST /servers/join) and fire the Welcome Bot for each.
+const PROTECTED_FIELDS = new Set(['password', 'is_banned', 'role', 'is_verified', 'is_admin', 'twoFactorSecret', 'twoFactorMethod']);
+router.patch('/:id', authMiddleware, async (req, res) => {
+  try {
+    const before = await Server.findById(req.params.id).select('members').lean();
+    if (!before) return res.status(404).json({ error: 'Not found' });
+    const beforeIds = new Set((before.members || []).map(m => m.user_id).filter(Boolean));
+
+    const safeBody = {};
+    for (const [k, v] of Object.entries(req.body)) {
+      if (k.startsWith('$') || PROTECTED_FIELDS.has(k)) continue;
+      safeBody[k] = v;
+    }
+
+    const updated = await Server.findByIdAndUpdate(
+      req.params.id,
+      { $set: safeBody },
+      { new: true, runValidators: true }
+    ).lean();
+
+    // Fire Welcome Bot for each newly-added member.
+    const newMembers = (updated.members || []).filter(
+      m => m.user_id && !beforeIds.has(m.user_id)
+    );
+    if (newMembers.length > 0) {
+      const io = req.app.get('io');
+      for (const m of newMembers) {
+        welcomeBot.fireWelcome(updated, m, io).catch(() => {});
+      }
+    }
+
+    const { _id, __v, ...rest } = updated;
+    res.json({ id: _id?.toString(), ...rest });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
