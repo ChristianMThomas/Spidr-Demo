@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p181',
+    title: 'Patch 1.8.1 is now live',
+    date: '2026-06-12',
+    type: 'FIX',
+    description: 'Welcome Bot now fires for every join path. Previously the greeting only triggered when a member joined via an invite link — users who joined a public server through the Browse / Join button were silently skipped. Welcome Bot logic is now in a shared server utility so it runs consistently across all join routes, and failures are logged without blocking the join itself.',
+  },
+  {
     id: 'p18web',
     title: 'Patch 1.8 — The Web Fixes',
     date: '2026-06-12',
