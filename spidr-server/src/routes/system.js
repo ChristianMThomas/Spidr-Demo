@@ -12,6 +12,20 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p18web',
+    title: 'Patch 1.8 — The Web Fixes',
+    date: '2026-06-12',
+    type: 'FIX',
+    description: 'Slash command autocomplete rebuilt as Discord-style grouped cards — commands are sorted by bot (avatar, color, name) and rendered in a portal so the popup never clips inside the chat panel. Shows up to 30 commands at once with keyboard navigation (↑↓ to move, ↵ to select, Esc to dismiss) and auto-scroll to keep the highlighted row in view. Admin-only commands (/modset, /modlog, /modreset, /modtest, /welcomeset, /welcomeconfig, /welcomedelete) are hidden from non-admins in the autocomplete and blocked at execution if typed manually. Commands from bots not installed on the server are filtered out. New Auto Moderator commands: /modhelp (full usage guide), /modreset (wipe all config), /modtest <text> (dry-run text against the live filter without sending), and /modset unban all (clear every banned word at once). New Welcome Bot commands: /welcomehelp (usage guide), /welcomeconfig (show current message and channel), /welcomedelete (remove the welcome message). Admins can now delete bot responses and system messages — a trash button appears on hover. Server owners and admins can delete any message in their server (previously author-only). Copy Channel ID now properly awaits the clipboard write before showing a success toast — fixes phantom "Copied" in Electron.',
+  },
+  {
+    id: 'p18',
+    title: 'Patch 1.8 is now live',
+    date: '2026-06-10',
+    type: 'UPDATE',
+    description: 'Bot system overhaul — all four official bots are now fully functional. Auto Moderator runs server-side on every message: spam detection flags users who send too many messages in a short window, and a word filter blocks slurs and any custom banned words before the message lands in chat. Configure thresholds, banned words, and allowed exceptions from the Bot Laboratory\'s Configure panel. Welcome Bot fires a customizable greeting in your server\'s first text channel whenever a new member joins — set your own template with {user} and {server} placeholders. Game Master trivia is live: /trivia posts a question with four options, players answer with a single letter, and the first correct answer wins — a 30-second timer reveals the answer if nobody gets it. Music Master improvements: /play now fetches the YouTube video title for the queue display, and /skip and /stop reliably clear the cinema stream from the voice channel.',
+  },
+  {
     id: 'p172',
     title: 'Patch 1.7.2 is now live',
     date: '2026-06-09',
