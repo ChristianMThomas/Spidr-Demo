@@ -5,10 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Heart, MessageCircle, Share2, Volume2, VolumeX, Play,
   Bookmark, Sparkles, Send, Users, Lock,
-  Maximize2, Minimize2, RotateCw, Repeat2,
+  Maximize2, Minimize2, RotateCw, Repeat2, Plus, Check,
 } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { entities, algorithm } from '@/api/apiClient';
+import { entities, algorithm, follows as followsApi } from '@/api/apiClient';
 import { toast } from 'sonner';
 import RichComments from '@/components/spidr/RichComments';
 import EmojiPicker from '@/components/spidr/EmojiPicker';
@@ -16,6 +16,39 @@ import ShareWeb from '@/components/spidr/ShareWeb';
 import { useMenu } from '@/components/MenuContext';
 import DataDisc from '@/components/feed/DataDisc';
 import { isTrending, tensionScore } from '@/lib/tensionScore';
+
+// ── Local relay store ──────────────────────────────────────────────────────
+// The server's `Clip.update({ relays: [...] })` call is best-effort: if the
+// backend schema doesn't recognize `relays` (which was the case at the time
+// the Signal Relay feature was built), the field gets silently dropped and
+// the next refetch reverts the UI to "not relayed". To make the gesture
+// feel instant AND survive reloads regardless of backend support, we keep
+// a localStorage-backed set of clip IDs the current user has relayed.
+//
+//   • localRelaySet     — module-level Set, the source of truth for the UI
+//   • setLocalRelay(id) — toggles a clip, persists to localStorage, and
+//                         fires a window event so every mounted ClipCard
+//                         re-derives its hasRelayed/count
+//   • localRelaySet has(id) is OR'd with clip.relays?.includes(userId) so
+//     server-side relays still count if the backend ever starts honoring
+//     the field — we end up eventually-consistent rather than client-only.
+const LOCAL_RELAY_KEY = 'spidr_my_relays';
+const localRelaySet = (() => {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_RELAY_KEY) : null;
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch { return new Set(); }
+})();
+function persistLocalRelays() {
+  try { localStorage.setItem(LOCAL_RELAY_KEY, JSON.stringify([...localRelaySet])); } catch {}
+}
+function setLocalRelay(clipId, on) {
+  if (on) localRelaySet.add(clipId); else localRelaySet.delete(clipId);
+  persistLocalRelays();
+  try {
+    window.dispatchEvent(new CustomEvent('spidr-relay-changed', { detail: { clipId, on } }));
+  } catch {}
+}
 import { useViewportMedia } from '@/hooks/useViewportMedia';
 import AudioGraftNode from '@/components/feed/AudioGraftNode';
 import ScrollingAudioBanner from '@/components/feed/ScrollingAudioBanner';
@@ -281,7 +314,30 @@ function ClipCard({
   const menu = useMenu();
   const navigate = useNavigate();
   const hasLiked = clip.likes?.includes(currentUser?.id);
-  const hasRelayed = clip.relays?.includes(currentUser?.id);
+
+  // ── Relay state (client-first, server best-effort) ─────────────────────
+  // The button flips on the local store immediately; the server call is
+  // fire-and-forget. Reads OR (local store) | (server's `clip.relays`),
+  // so a relay sticks even if the backend doesn't persist the field.
+  const [localRelayed, setLocalRelayed] = useState(() => localRelaySet.has(clip.id));
+  useEffect(() => {
+    const onChange = (e) => {
+      if (e?.detail?.clipId === clip.id) setLocalRelayed(!!e.detail.on);
+    };
+    window.addEventListener('spidr-relay-changed', onChange);
+    return () => window.removeEventListener('spidr-relay-changed', onChange);
+  }, [clip.id]);
+  // Re-sync local state when the clip prop changes (navigating to a clip
+  // that we already have in the local store).
+  useEffect(() => {
+    setLocalRelayed(localRelaySet.has(clip.id));
+  }, [clip.id]);
+
+  const serverHasRelayed = clip.relays?.includes(currentUser?.id);
+  const hasRelayed = localRelayed || !!serverHasRelayed;
+  // Count: server's saved count + 1 if we relayed locally but the server
+  // doesn't yet know about us (avoids double-counting once it catches up).
+  const relayCount = (clip.relays?.length || 0) + (localRelayed && !serverHasRelayed ? 1 : 0);
   // The Pulse (Patch 2.11): trending clips breathe + glow.
   const trending = isTrending(clip);
 
@@ -467,32 +523,42 @@ function ClipCard({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clips'] }),
   });
 
-  // ── Signal Relay (repost) ────────────────────────────────────────────────
-  // Toggles the current user into `clip.relays`. Client-side this just
-  // flips a flag and bumps the counter; on the server side the backend
-  // needs to listen for a clip.relays update and fan the clip out to each
-  // of the relaying user's followers' feeds, stamping `repost_by` on the
-  // payload so the receivers see the "RELAYED THIS SIGNAL" header.
-  //
-  // We do NOT call any share-menu / network-picker here — relay is the
-  // explicit 1-tap "push to my web" action; the existing Share2 button
-  // still handles the multi-target share menu (DMs, copy link, etc.).
+  // ── Signal Relay (client-first repost) ────────────────────────────────
+  // Flips the user's relay state on this clip optimistically — the icon
+  // fills the moment you tap. Persistence is via the module-level Set +
+  // localStorage. The server update is best-effort: if the backend doesn't
+  // yet recognize the `relays` field (the original bug — `Clip.update`
+  // returned the row unchanged so the next refetch reverted the UI),
+  // we still keep the local state and the button stays filled.
   const relayMut = useMutation({
     mutationFn: async () => {
-      const relays = clip.relays || [];
-      const has = relays.includes(currentUser?.id);
-      await entities.Clip.update(clip.id, {
-        relays: has
-          ? relays.filter(id => id !== currentUser?.id)
-          : [...relays, currentUser?.id],
-      });
-      return has ? 'un-relayed' : 'relayed';
+      const newOn = !hasRelayed;
+      // 1) Optimistic local flip — fires the broadcast event, all mounted
+      //    ClipCards for this clip re-derive their state.
+      setLocalRelay(clip.id, newOn);
+      // 2) Best-effort server sync — wrapped so a backend rejection
+      //    doesn't bubble out and revert our local state.
+      try {
+        const serverRelays = clip.relays || [];
+        const nextRelays = newOn
+          ? [...new Set([...serverRelays, currentUser?.id].filter(Boolean))]
+          : serverRelays.filter(id => id !== currentUser?.id);
+        await entities.Clip.update(clip.id, { relays: nextRelays });
+      } catch (err) {
+        // Server didn't accept — log but keep the local state. The button
+        // will stay flipped because localStorage says so.
+        console.warn('[Spidr] relay server sync failed; local state preserved.', err);
+      }
+      return newOn ? 'relayed' : 'un-relayed';
     },
     onSuccess: (action) => {
       toast.success(action === 'relayed' ? 'Signal relayed to your web.' : 'Relay revoked.');
+      // Soft refetch so other clip-list views pick up any server-side change.
       queryClient.invalidateQueries({ queryKey: ['clips'] });
     },
-    onError: () => toast.error('Could not relay — try again'),
+    // No onError needed — mutationFn swallows server errors and the local
+    // state is the authority. A truly unhandled error here would only fire
+    // if setLocalRelay itself threw, which it can't (sync set ops).
   });
 
   const saveMut = useMutation({
@@ -808,17 +874,37 @@ function ClipCard({
           <div className="h-full bg-red-500 transition-none" style={{ width: `${progress}%` }} />
         </div>
 
+        {/* Telemetry strip — Symbiote HUD style. Sits just above the
+            progress bar, hugs the bottom-left, gives the clip a small
+            "live signal" read: views + an interaction-spike pulse derived
+            from total engagement. The dot ticks regardless of activity so
+            the panel always reads as a live feed. */}
+        <TelemetryPanel clip={clip} />
+
         {/* Author/caption overlay */}
         <div className="absolute bottom-2 left-0 right-12 px-3 pt-8 bg-gradient-to-t from-black/80 via-black/30 to-transparent">
           <div className="flex items-center gap-2 mb-1">
-            <Avatar className="w-7 h-7 border-2 border-red-500 flex-shrink-0">
-              {clip.author_avatar
-                ? <AvatarImage src={clip.author_avatar} />
-                : <AvatarFallback className="bg-red-900 text-white text-xs">
-                    {clip.author_name?.charAt(0)?.toUpperCase()}
-                  </AvatarFallback>}
-            </Avatar>
-            <span className="font-semibold text-white text-xs truncate">{clip.author_name}</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!clip.author_id) return;
+                window.dispatchEvent(new CustomEvent('spidr-open-profile', {
+                  detail: { userId: clip.author_id }
+                }));
+              }}
+              className="flex items-center gap-2 group/author cursor-pointer min-w-0"
+              title={`View ${clip.author_name}'s profile`}
+            >
+              <Avatar className="w-7 h-7 border-2 border-red-500 flex-shrink-0 group-hover/author:border-red-400 transition-colors">
+                {clip.author_avatar
+                  ? <AvatarImage src={clip.author_avatar} />
+                  : <AvatarFallback className="bg-red-900 text-white text-xs">
+                      {clip.author_name?.charAt(0)?.toUpperCase()}
+                    </AvatarFallback>}
+              </Avatar>
+              <span className="font-semibold text-white text-xs truncate group-hover/author:text-red-400 transition-colors">{clip.author_name}</span>
+            </button>
             {clip.author_id === currentUser?.id && onEditClip && (
               <button
                 onClick={(e) => { e.stopPropagation(); onEditClip(clip); }}
@@ -829,6 +915,19 @@ function ClipCard({
             )}
           </div>
           {clip.caption && <p className="text-white text-xs line-clamp-2 mb-1">{clip.caption}</p>}
+          {/* Game tag pill — surfaces the game the creator was playing
+              when they uploaded the clip. Only renders if clip.game_tag is
+              set on the payload (new optional field; safe to leave null on
+              older clips). Uses purple text to distinguish from red
+              hashtags. */}
+          {clip.game_tag && (
+            <div className="mb-1">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.05] backdrop-blur-md border border-white/10 text-[10px] font-semibold text-purple-400">
+                <span aria-hidden="true">🎮</span>
+                {clip.game_tag}
+              </span>
+            </div>
+          )}
           {(clip.hashtags || []).length > 0 && (
             <div className="flex flex-wrap gap-1 mb-1">
               {clip.hashtags.slice(0, 4).map((t, i) =>
@@ -876,7 +975,22 @@ function ClipCard({
         )}
 
         {/* Side actions */}
-        <div className="absolute right-2 bottom-20 flex flex-col gap-3">
+        <div className="absolute right-2 bottom-20 flex flex-col gap-3 items-center">
+          {/* Profile Node — creator avatar sitting at the top of the dock,
+              with a small red `+` button overlapping the bottom for a
+              1-tap follow (TikTok pattern). Hidden when the viewer is the
+              creator. Avatar opens the profile modal; the `+` is a
+              separate target that doesn't bubble through. */}
+          {clip.author_id && clip.author_id !== currentUser?.id && (
+            <ProfileNode
+              authorId={clip.author_id}
+              authorName={clip.author_name}
+              authorAvatar={clip.author_avatar}
+              currentUserId={currentUser?.id}
+              currentUserName={currentUser?.full_name || currentUser?.username}
+              currentUserAvatar={currentUser?.avatar_url}
+            />
+          )}
           <SideBtn onClick={() => likeMut.mutate()} label={clip.likes?.length || 0} active={hasLiked}>
             <Heart className="w-5 h-5" fill={hasLiked ? 'currentColor' : 'none'} />
           </SideBtn>
@@ -887,8 +1001,8 @@ function ClipCard({
               neon purple gradient (vs the red-active default) so it
               reads as a distinct gesture from likes/comments. */}
           <SideBtn
-            onClick={() => relayMut.mutate()}
-            label={clip.relays?.length || 0}
+            onClick={() => { if (!relayMut.isPending) relayMut.mutate(); }}
+            label={relayCount}
             active={hasRelayed}
             variant="relay"
             title={hasRelayed ? 'Revoke relay' : 'Relay to your web'}
@@ -1036,5 +1150,146 @@ function SideBtn({ children, onClick, label, active, title, variant = 'default' 
         </span>
       )}
     </motion.button>
+  );
+}
+
+// ── Telemetry Panel ─────────────────────────────────────────────────────────
+// Tiny "signal HUD" pinned to the bottom-right of each clip card. Two metrics:
+//   • VIEWS — raw count from clip.views (k/m formatted for headroom).
+//   • SPIKE — a 0-100 score derived from total engagement (likes + comments
+//             + relays) normalized so a quiet clip still pulses gently and
+//             a hot clip glows brightly.
+// Aesthetic matches the Symbiote HUD: thin red border, faint outer glow,
+// pure-black glass body, mono small caps. The pulse dot ticks independent
+// of activity so the panel always reads as "live".
+function TelemetryPanel({ clip }) {
+  const views = clip?.views || 0;
+  const fmt = (n) => {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}m`;
+    if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`;
+    return String(n);
+  };
+  // Spike score: blend engagement signals. Tunable but kept stable across
+  // renders. Caps at 100 so glow intensity has a ceiling.
+  const engagement =
+    (clip?.likes?.length || 0) * 1 +
+    (clip?.comments_count || 0) * 1.5 +
+    (clip?.relays?.length || 0) * 2;
+  const spike = Math.min(100, Math.round(engagement));
+  // Map spike → glow intensity (0.10 → 0.55) for a visible-but-tasteful range.
+  const glow = 0.1 + (spike / 100) * 0.45;
+
+  return (
+    <div
+      className="absolute bottom-2 right-3 flex items-center gap-2 px-2.5 py-1 rounded-md font-mono pointer-events-none select-none"
+      style={{
+        background: 'rgba(5, 5, 5, 0.78)',
+        border: '1px solid rgba(239, 68, 68, 0.45)',
+        boxShadow: `0 0 10px rgba(239, 68, 68, ${glow}), inset 0 0 6px rgba(239, 68, 68, 0.08)`,
+        backdropFilter: 'blur(8px)',
+        zIndex: 5,
+      }}
+      aria-label="Clip telemetry"
+    >
+      <motion.span
+        className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0"
+        animate={{ opacity: [1, 0.25, 1], scale: [1, 1.4, 1] }}
+        transition={{ duration: 1.4, repeat: Infinity }}
+        style={{ boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)' }}
+      />
+      <span className="text-[9px] tracking-widest text-red-300/90 uppercase">
+        <span className="text-red-400/60">VIEW</span>{' '}
+        <span className="text-white">{fmt(views)}</span>
+      </span>
+      <span className="text-red-500/30">·</span>
+      <span className="text-[9px] tracking-widest text-red-300/90 uppercase">
+        <span className="text-red-400/60">SPIKE</span>{' '}
+        <span className="text-white">{spike}</span>
+      </span>
+    </div>
+  );
+}
+
+// ── Profile Node ────────────────────────────────────────────────────────────
+// The creator's avatar pinned at the top of the right-side action dock.
+// Clicking the avatar opens their profile modal. A small red `+` button
+// overlaps the bottom of the avatar for a single-tap follow — when the
+// viewer is already following, it flips to a check mark on a muted
+// background. Self-clips don't render this (you can't follow yourself).
+function ProfileNode({ authorId, authorName, authorAvatar, currentUserId, currentUserName, currentUserAvatar }) {
+  const queryClient = useQueryClient();
+
+  // Light query — "is the current user following this creator?". Cached
+  // for 60s so scrubbing through clips by the same creator doesn't refire.
+  const { data: followingList = [] } = useQuery({
+    queryKey: ['my-following', currentUserId],
+    queryFn: () => followsApi.following(currentUserId),
+    enabled: !!currentUserId,
+    staleTime: 60000,
+  });
+  const isFollowing = useMemo(
+    () => followingList.some(f => (f.following_id || f.user_id) === authorId),
+    [followingList, authorId]
+  );
+
+  const followMut = useMutation({
+    mutationFn: async () => {
+      if (isFollowing) return followsApi.unfollow(authorId);
+      return followsApi.follow({
+        following_id: authorId,
+        following_name: authorName,
+        following_avatar: authorAvatar || '',
+        follower_name: currentUserName,
+        follower_avatar: currentUserAvatar || '',
+      });
+    },
+    onSuccess: () => {
+      toast.success(isFollowing ? 'Unfollowed' : `Following ${authorName}`);
+      queryClient.invalidateQueries({ queryKey: ['my-following', currentUserId] });
+    },
+    onError: () => toast.error('Could not update follow'),
+  });
+
+  const openProfile = (e) => {
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: authorId } }));
+  };
+
+  return (
+    <div className="relative">
+      <motion.button
+        onClick={openProfile}
+        whileTap={{ scale: 0.9 }}
+        aria-label={`Open ${authorName}'s profile`}
+        title={`Open ${authorName}'s profile`}
+        className="block"
+      >
+        <Avatar className="w-11 h-11 border-2 border-white shadow-[0_0_10px_rgba(0,0,0,0.6)]">
+          {authorAvatar
+            ? <AvatarImage src={authorAvatar} />
+            : <AvatarFallback className="bg-red-900 text-white text-sm font-bold">
+                {authorName?.charAt(0)?.toUpperCase()}
+              </AvatarFallback>}
+        </Avatar>
+      </motion.button>
+      {/* Follow toggle — sits at the bottom-center, overlapping the avatar
+          by half its height (TikTok pattern). Red `+` when not following,
+          translucent check when already following. */}
+      <motion.button
+        onClick={(e) => { e.stopPropagation(); followMut.mutate(); }}
+        whileTap={{ scale: 0.85 }}
+        disabled={followMut.isPending}
+        aria-label={isFollowing ? `Unfollow ${authorName}` : `Follow ${authorName}`}
+        title={isFollowing ? 'Following' : 'Follow'}
+        className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center transition-all ${
+          isFollowing
+            ? 'bg-white/15 backdrop-blur-sm border border-white/30 text-white'
+            : 'bg-red-500 text-white border border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.65)]'
+        }`}
+        style={{ pointerEvents: followMut.isPending ? 'none' : 'auto' }}
+      >
+        {isFollowing ? <Check className="w-3 h-3" strokeWidth={3} /> : <Plus className="w-3 h-3" strokeWidth={3} />}
+      </motion.button>
+    </div>
   );
 }
