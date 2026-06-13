@@ -22,7 +22,16 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
 
   const sendClipMutation = useMutation({
     mutationFn: async ({ friendId, friendName }) => {
+      // Hard validate the payload before hitting the API — the silent
+      // "send button does nothing" bug was caused by undefined fields
+      // making the server reject the create without surfacing an error.
+      if (!currentUser?.id) throw new Error('Not signed in');
+      if (!friendId) throw new Error('Friend id missing');
+      if (!clip?.id) throw new Error('Clip data missing');
+
       const conversationId = dmConversationId(currentUser.id, friendId);
+      if (!conversationId) throw new Error('Could not derive conversation id');
+
       return entities.DirectMessage.create({
         conversation_id: conversationId,
         sender_id: currentUser.id,
@@ -30,7 +39,7 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
         sender_avatar: currentUser.avatar_url,
         recipient_id: friendId,
         content: `📹 Shared a clip: ${clip.caption || 'Check this out!'}`,
-        attachments: [clip.video_url],
+        attachments: [clip.video_url].filter(Boolean),
         is_clip_share: true,
         clip_data: {
           clip_id: clip.id,
@@ -46,7 +55,11 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
       playSound('send');
       toast.success(`Slung to ${friendName}!`);
       if (onClose) onClose();
-    }
+    },
+    onError: (err, vars) => {
+      console.error('[Sling to Web] failed:', err);
+      toast.error(`Could not sling to ${vars?.friendName || 'friend'} — ${err?.message || 'try again'}`);
+    },
   });
 
   const handleCopyLink = () => {
@@ -99,6 +112,8 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
               key={friend.id} 
               friend={friend} 
               index={index} 
+              isSending={sendClipMutation.isPending}
+              isError={sendClipMutation.isError}
               onSend={() => sendClipMutation.mutate({ 
                 friendId: friend.friend_id,
                 friendName: friend.friend_name 
@@ -132,11 +147,19 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
   );
 }
 
-function HangingFriend({ friend, index, onSend }) {
+function HangingFriend({ friend, index, onSend, isSending, isError }) {
   const [sent, setSent] = useState(false);
 
+  // If the mutation reports an error after we optimistically faded the
+  // avatar out, restore it so the user can retry. Without this rollback,
+  // the avatar vanishes forever even on a failed send — the user can't
+  // tell the click went through OR didn't.
+  React.useEffect(() => {
+    if (isError && sent) setSent(false);
+  }, [isError, sent]);
+
   const handleSend = () => {
-    if (sent) return;
+    if (sent || isSending) return;
     playSound('send');
     setSent(true);
     setTimeout(() => {
