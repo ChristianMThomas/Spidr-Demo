@@ -480,6 +480,18 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                   onReport={() => setShowReport(true)}
                   onAddToServer={() => setShowAddToServer(true)}
                   onMessage={handleMessage}
+                  onEnterWeb={() => {
+                    // Fire the global event the FeedPanel listens for, then
+                    // close this modal so the viewer lands directly in the
+                    // user's archive feed.
+                    window.dispatchEvent(new CustomEvent('spidr-open-user-clips', {
+                      detail: {
+                        userId,
+                        userName: userProfile?.full_name || userProfile?.username || 'this user',
+                      },
+                    }));
+                    onClose();
+                  }}
                 />
 
                 {showAddToServer && (
@@ -567,7 +579,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
   );
 }
 
-function ProfileActions({ friendshipData, onSendRequest, onAccept, onBlock, onReport, onAddToServer, onMessage }) {
+function ProfileActions({ friendshipData, onSendRequest, onAccept, onBlock, onReport, onAddToServer, onMessage, onEnterWeb }) {
   if (friendshipData?.status === 'blocked') {
     return <Badge variant="destructive" className="w-full justify-center py-2">Blocked</Badge>;
   }
@@ -583,6 +595,7 @@ function ProfileActions({ friendshipData, onSendRequest, onAccept, onBlock, onRe
             <X size={14} /> Deny
           </button>
         </div>
+        <EnterUserWebButton onClick={onEnterWeb} />
         <ActionDefensiveRow onBlock={onBlock} onReport={onReport} />
       </div>
     );
@@ -594,6 +607,7 @@ function ProfileActions({ friendshipData, onSendRequest, onAccept, onBlock, onRe
         <div className="py-2.5 bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 rounded-xl text-xs font-bold uppercase tracking-widest text-center">
           Signal Sent — Pending
         </div>
+        <EnterUserWebButton onClick={onEnterWeb} />
         <ActionDefensiveRow onBlock={onBlock} onReport={onReport} />
       </div>
     );
@@ -610,6 +624,7 @@ function ProfileActions({ friendshipData, onSendRequest, onAccept, onBlock, onRe
             <UserPlus2 size={14} /> Add to Server
           </button>
         </div>
+        <EnterUserWebButton onClick={onEnterWeb} />
         <ActionDefensiveRow onBlock={onBlock} onReport={onReport} />
       </div>
     );
@@ -625,8 +640,30 @@ function ProfileActions({ friendshipData, onSendRequest, onAccept, onBlock, onRe
           <MessageCircle size={14} /> Message
         </button>
       </div>
+      <EnterUserWebButton onClick={onEnterWeb} />
       <ActionDefensiveRow onBlock={onBlock} onReport={onReport} />
     </div>
+  );
+}
+
+// ── ENTER USER WEB ──────────────────────────────────────────────────────────
+// Primary call-to-action that takes the viewer into this user's personal
+// vertical clip feed (an archive of every clip they've published to THE WEB).
+// Styled as a secure terminal command — uppercase tracked-out red text on a
+// translucent red wash with a sharp border and faint glow. Spans the row to
+// give it the visual weight the spec calls for.
+function EnterUserWebButton({ onClick }) {
+  if (!onClick) return null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full px-8 py-3 rounded-md bg-red-600/10 border border-red-500/40 text-red-500 font-mono text-xs tracking-[0.22em] uppercase hover:bg-red-500 hover:text-white transition-all duration-300 shadow-[0_0_15px_rgba(239,68,68,0.10)] hover:shadow-[0_0_22px_rgba(239,68,68,0.35)] flex items-center justify-center gap-2 cursor-pointer"
+    >
+      <span className="text-red-400 group-hover:text-white">[</span>
+      Enter User Web
+      <span className="text-red-400 group-hover:text-white">]</span>
+    </button>
   );
 }
 

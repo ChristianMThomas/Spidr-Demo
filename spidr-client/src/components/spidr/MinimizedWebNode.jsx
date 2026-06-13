@@ -103,6 +103,21 @@ export default function MinimizedWebNode({
     return () => window.removeEventListener('spidr-call-state', onState);
   }, []);
 
+  // ── Active video stream (PiP feed) ──────────────────────────────────────
+  // VoiceChannel broadcasts the dominant video stream via
+  // `spidr-call-stream` events whenever screen-sharing or camera state
+  // changes. We also read window.__spidrCallStream synchronously on mount
+  // so the user sees the current stream the instant they minimize the
+  // call — without waiting for the next change event to land.
+  const [activeStream, setActiveStream] = useState(() => {
+    try { return window.__spidrCallStream || null; } catch { return null; }
+  });
+  useEffect(() => {
+    const onStream = (e) => setActiveStream(e?.detail?.stream || null);
+    window.addEventListener('spidr-call-stream', onStream);
+    return () => window.removeEventListener('spidr-call-stream', onStream);
+  }, []);
+
   // ── Ctrl+` toggles the dock; Escape closes it ───────────────────────────
   useEffect(() => {
     const onKey = (e) => {
@@ -269,6 +284,26 @@ export default function MinimizedWebNode({
 
   return (
     <>
+      {/* ── TACTICAL PiP WIDGET ──
+          When there's a live video stream (screen share or camera) AND the
+          call is minimized, a small w-72 holographic monitor floats at the
+          top-right of the viewport. Hovering reveals an "Expand" overlay
+          that snaps back to the full Voice Matrix. The bottom HUD carries
+          quick-action mic/deafen/disconnect controls so the user doesn't
+          have to expand the deck just to mute. Hidden when no active
+          stream — the regular pill below handles voice-only calls. */}
+      {activeStream && (
+        <TacticalPiP
+          stream={activeStream}
+          muted={muted}
+          deafened={deafened}
+          onToggleMute={toggleMute}
+          onToggleDeafen={toggleDeafen}
+          onEnd={handleEnd}
+          onExpand={handleExpand}
+        />
+      )}
+
       {/* ── Tether beam ────────────────────────────────────────────────────
           A thin blue line that descends from the very top of the viewport
           to the top of the pill. CSS-only so it's free to render and stays
@@ -770,4 +805,132 @@ function hexToRgb(hex) {
   const g = (num >> 8)  & 0xff;
   const b =  num        & 0xff;
   return `${r}, ${g}, ${b}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TacticalPiP — the floating Picture-in-Picture monitor that materializes
+// in the corner of the viewport when the user has minimized an active call
+// AND a video stream (screen share / camera) is live. Distinct from the
+// existing pill: the pill keeps audio-mode visibility, the PiP adds the
+// visual feed.
+//
+// Layout:
+//   • 16:9 video at the top (object-cover so it always fills the frame)
+//   • Glowing red LIVE badge top-left of the video
+//   • Hover-to-expand overlay — dark glass scrim that fades in with a
+//     centered Expand glyph; clicking the video snaps back to the deck
+//   • Bottom HUD: tiny mic / deafen / disconnect quick-actions
+// ─────────────────────────────────────────────────────────────────────────────
+function TacticalPiP({ stream, muted, deafened, onToggleMute, onToggleDeafen, onEnd, onExpand }) {
+  const videoRef = useRef(null);
+
+  // Attach the live MediaStream to the <video> imperatively — `srcObject`
+  // can't be set via JSX prop.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !stream) return;
+    if (el.srcObject !== stream) {
+      el.srcObject = stream;
+      el.play?.().catch(() => {});
+    }
+  }, [stream]);
+
+  return (
+    <div
+      className="fixed top-7 right-4 z-[119] w-72 rounded-2xl overflow-hidden"
+      style={{
+        background: 'rgba(5, 5, 5, 0.90)',
+        backdropFilter: 'blur(24px)',
+        WebkitBackdropFilter: 'blur(24px)',
+        border: '1px solid rgba(255, 255, 255, 0.10)',
+        boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8)',
+      }}
+      aria-label="Active call — picture in picture"
+    >
+      {/* ── VIDEO + HOVER-TO-EXPAND ── */}
+      <button
+        type="button"
+        onClick={onExpand}
+        className="relative w-full aspect-video bg-black overflow-hidden group block focus:outline-none"
+        title="Click to expand the call"
+        aria-label="Expand call"
+      >
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="w-full h-full object-cover"
+        />
+
+        {/* LIVE badge — top-left */}
+        <div
+          className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-0.5 rounded-md"
+          style={{
+            background: 'rgba(0, 0, 0, 0.75)',
+            border: '1px solid rgba(239, 68, 68, 0.55)',
+            boxShadow: '0 0 8px rgba(239, 68, 68, 0.45)',
+          }}
+        >
+          <motion.span
+            className="w-1.5 h-1.5 rounded-full bg-red-500"
+            animate={{ opacity: [1, 0.3, 1], scale: [1, 1.4, 1] }}
+            transition={{ duration: 1.4, repeat: Infinity }}
+          />
+          <span className="font-mono text-[9px] font-black tracking-widest text-red-400 uppercase">Live</span>
+        </div>
+
+        {/* Hover overlay — dark glass scrim with centered Expand glyph.
+            opacity-0 by default; group-hover slides it in. */}
+        <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 border border-white/15">
+            <Maximize2 size={14} className="text-red-400" />
+            <span className="text-white text-xs font-mono tracking-widest uppercase">Expand</span>
+          </div>
+        </div>
+      </button>
+
+      {/* ── BOTTOM HUD ── */}
+      <div className="flex items-center justify-between px-3 py-2 gap-2">
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <span className="font-mono text-[9px] tracking-widest uppercase text-zinc-500">In Call</span>
+        </div>
+        {/* Quick-action cluster: mic / deafen / disconnect */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <button
+            onClick={onToggleMute}
+            title={muted ? 'Unmute' : 'Mute'}
+            aria-label={muted ? 'Unmute' : 'Mute'}
+            className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+              muted
+                ? 'bg-red-500/15 border border-red-500/40 text-red-400 hover:bg-red-500/25'
+                : 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/25 shadow-[0_0_8px_rgba(16,185,129,0.30)]'
+            }`}
+          >
+            {muted ? <MicOff size={12} /> : <Mic size={12} />}
+          </button>
+          <button
+            onClick={onToggleDeafen}
+            title={deafened ? 'Undeafen' : 'Deafen'}
+            aria-label={deafened ? 'Undeafen' : 'Deafen'}
+            className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+              deafened
+                ? 'bg-red-500/15 border border-red-500/40 text-red-400 hover:bg-red-500/25'
+                : 'bg-white/5 border border-white/15 text-white/70 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <Headphones size={12} />
+          </button>
+          <button
+            onClick={onEnd}
+            title="Disconnect"
+            aria-label="Disconnect"
+            className="w-7 h-7 rounded-full bg-red-600/90 hover:bg-red-600 text-white flex items-center justify-center transition-all shadow-[0_0_10px_rgba(239,68,68,0.45)]"
+          >
+            <PhoneOff size={12} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

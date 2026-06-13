@@ -8,7 +8,7 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import {
   Heart, MessageCircle, Share2, Play, Volume2, VolumeX,
   Plus, ChevronUp, ChevronDown, Bookmark, Send, Sparkles, Folder,
-  Globe, User, Users, Disc3, Zap, Search
+  Globe, User, Users, Disc3, Zap, Search, Clock, Flame, X as XIcon
 } from 'lucide-react';
 import PostCard3D from '../feed/PostCard3D';
 import WebProfile from '../feed/WebProfile';
@@ -39,6 +39,16 @@ export default function FeedPanel({ currentUser }) {
   const [showUpload, setShowUpload]     = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [activeTab, setActiveTab]       = useState('main');
+  // Sub-tab inside the main "THE WEB" feed: 'foryou' (global) vs
+  // 'following' (only clips from users you've linked with). Floats as a
+  // glass pill over the video card; doesn't affect the existing top-level
+  // tab bar (THE WEB / LINKED NODES / etc).
+  const [mainSubTab, setMainSubTab]     = useState('foryou');
+  // When set, the main feed is filtered to a single user's clips — driven
+  // by the "ENTER USER WEB" button on the profile modal. A close-affordance
+  // at the top of the feed lets the viewer return to the full feed.
+  const [userArchiveId, setUserArchiveId] = useState(null);
+  const [userArchiveName, setUserArchiveName] = useState('');
   const [selectedCollection, setSelectedCollection] = useState(null);
   const [jumpClipId, setJumpClipId]     = useState(null);
   const [searchQuery, setSearchQuery]   = useState('');
@@ -95,6 +105,108 @@ export default function FeedPanel({ currentUser }) {
     );
   }, [clips, debouncedQ]);
 
+  // Listen for "ENTER USER WEB" button presses (fired from HolographicProfile
+  // and any other surface that wants to open a user's clip archive). Filters
+  // the main feed to clips authored by the requested user, switches us into
+  // the main tab, and lights up the archive-mode chrome.
+  useEffect(() => {
+    const handler = (e) => {
+      const { userId, userName } = e.detail || {};
+      if (!userId) return;
+      setUserArchiveId(userId);
+      setUserArchiveName(userName || 'this user');
+      setActiveTab('main');
+      setMainSubTab('foryou'); // archive ignores the for-you/following toggle
+    };
+    window.addEventListener('spidr-open-user-clips', handler);
+    return () => window.removeEventListener('spidr-open-user-clips', handler);
+  }, []);
+
+  // The clip list piped into ClipFeed for the main tab. Three layered
+  // filters: (a) user-archive mode wins (single-user view), (b) the
+  // For You / Following sub-toggle picks the source pool, (c) the
+  // search-bar `filteredClips` already applied above narrows by caption /
+  // hashtag / name.
+  const mainTabClips = React.useMemo(() => {
+    if (userArchiveId) {
+      return filteredClips.filter(c => c.author_id === userArchiveId);
+    }
+    return mainSubTab === 'following' ? friendClips : filteredClips;
+  }, [userArchiveId, mainSubTab, friendClips, filteredClips]);
+
+  // ── Recents ────────────────────────────────────────────────────────────
+  // Tracks the last 10 user IDs the viewer opened a profile for. Listens
+  // for the global `spidr-open-profile` event (the same event clip
+  // authors, comments, member lists, and search results all fire) and
+  // bumps the matching user to the front, dedup'd, capped to 10.
+  // Persisted to localStorage so the list survives reloads.
+  const [recentIds, setRecentIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem('spidr_recent_profiles');
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr.slice(0, 10) : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    const handler = (e) => {
+      const uid = e?.detail?.userId;
+      if (!uid || uid === currentUser?.id) return; // never record self
+      setRecentIds((prev) => {
+        const next = [uid, ...prev.filter(x => x !== uid)].slice(0, 10);
+        try { localStorage.setItem('spidr_recent_profiles', JSON.stringify(next)); } catch {}
+        return next;
+      });
+    };
+    window.addEventListener('spidr-open-profile', handler);
+    return () => window.removeEventListener('spidr-open-profile', handler);
+  }, [currentUser?.id]);
+
+  // Pull profiles for the recent IDs. One bulk query; only refetches when
+  // the ID set changes.
+  const { data: recentProfilesRaw = [] } = useQuery({
+    queryKey: ['recent-profiles', recentIds.join('|')],
+    queryFn: async () => {
+      if (!recentIds.length) return [];
+      const profiles = await entities.UserProfile.list('-created_date', 500);
+      return profiles;
+    },
+    enabled: recentIds.length > 0,
+    staleTime: 60000,
+  });
+  const recentProfiles = React.useMemo(() => {
+    if (!recentIds.length) return [];
+    const byId = new Map(recentProfilesRaw.map(p => [p.user_id || p.id, p]));
+    return recentIds.map(id => byId.get(id)).filter(Boolean);
+  }, [recentProfilesRaw, recentIds]);
+
+  // ── Pulse ──────────────────────────────────────────────────────────────
+  // Top 5 trending hashtags computed from the current clip pool. We weight
+  // by clip engagement (likes + comments + relays) instead of raw count
+  // so a tag attached to viral clips outranks a tag spammed on low-signal
+  // clips. Re-derived whenever the pool shifts.
+  const trendingTags = React.useMemo(() => {
+    const tally = {};
+    for (const c of clips) {
+      const tags = c.hashtags || [];
+      const engagement =
+        (c.likes?.length || 0) +
+        (c.comments_count || 0) * 1.5 +
+        (c.relays?.length || 0) * 2 +
+        1; // floor so even fresh clips contribute
+      for (const t of tags) {
+        const key = String(t).toLowerCase();
+        if (!key) continue;
+        tally[key] = (tally[key] || 0) + engagement;
+      }
+    }
+    return Object.entries(tally)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([tag, score]) => ({ tag, score: Math.round(score) }));
+  }, [clips]);
+
+  const [pulseOpen, setPulseOpen] = useState(true);
+
   // Audio tracks used by clips in this feed — lifted here so all ClipCards
   // share one query rather than each refetching.
   const audioIds = React.useMemo(
@@ -120,6 +232,7 @@ export default function FeedPanel({ currentUser }) {
     { val: 'main',         Icon: Globe,  label: 'THE WEB' },
     { val: 'friends-feed', Icon: Users,  label: 'LINKED NODES' },
     { val: 'people',       Icon: Search, label: 'FIND PEOPLE' },
+    { val: 'recents',      Icon: Clock,  label: 'RECENTS' },
     { val: 'profile',      Icon: User,   label: 'MY NODE' },
     { val: 'sounds',       Icon: Disc3,  label: 'SOUNDS' },
     { val: 'collections',  Icon: Folder, label: 'SAVED' },
@@ -156,19 +269,85 @@ export default function FeedPanel({ currentUser }) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 flex items-center justify-center overflow-hidden">
+        <div className="flex-1 flex items-center justify-center overflow-hidden relative">
+          {/* Floating For You / Following toggle — only over the main feed
+              area, and only when not in single-user archive mode. Sits at
+              top-center, glass-pill styling, z-50 so it floats above the
+              video card and clip overlays. */}
+          {activeTab === 'main' && !userArchiveId && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex gap-1 p-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10">
+              {[
+                { id: 'foryou',    label: 'For You' },
+                { id: 'following', label: 'Following' },
+              ].map(({ id, label }) => {
+                const active = mainSubTab === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => setMainSubTab(id)}
+                    className={`px-4 py-1.5 rounded-full font-mono text-xs tracking-wider transition-all ${
+                      active
+                        ? 'bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_12px_rgba(239,68,68,0.18)]'
+                        : 'text-neutral-500 hover:text-white border border-transparent'
+                    }`}
+                    aria-pressed={active}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Archive-mode banner — shown when the user clicked
+              "ENTER USER WEB" on someone's profile. Pinned at top, gives
+              them a clear way out back to the full feed. */}
+          {activeTab === 'main' && userArchiveId && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2 rounded-full bg-black/70 backdrop-blur-md border border-red-500/40 shadow-[0_0_14px_rgba(239,68,68,0.20)]">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-[11px] font-mono tracking-widest uppercase text-red-300">
+                Archive · <span className="text-white">{userArchiveName}</span>
+              </span>
+              <button
+                onClick={() => { setUserArchiveId(null); setUserArchiveName(''); }}
+                className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 hover:text-white transition-colors ml-1 px-2 py-0.5 rounded-full border border-white/10 hover:border-white/30"
+                title="Exit archive"
+              >
+                Exit
+              </button>
+            </div>
+          )}
+
           {activeTab === 'main' && (
             isLoading
               ? <Spinner />
-              : filteredClips.length === 0
-                ? <EmptyFeed onUpload={() => document.getElementById('vid-upload')?.click()} />
-                : <ClipFeed clips={filteredClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized} audioMap={audioMap} initialClipId={jumpClipId} />
+              : mainTabClips.length === 0
+                ? (userArchiveId
+                    ? <NoArchiveClips name={userArchiveName} />
+                    : mainSubTab === 'following'
+                      ? <NoFriendClips />
+                      : <EmptyFeed onUpload={() => document.getElementById('vid-upload')?.click()} />)
+                : <ClipFeed clips={mainTabClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized && !userArchiveId && mainSubTab === 'foryou'} audioMap={audioMap} initialClipId={jumpClipId} />
+          )}
+          {/* Pulse sidebar — top-5 trending tags. Floats on the LEFT edge
+              of the main feed area. Clicking a tag pipes it into the
+              search bar so filteredClips narrows. Hidden when in archive
+              mode (the archive is by definition single-user). */}
+          {activeTab === 'main' && !userArchiveId && trendingTags.length > 0 && (
+            <PulsePanel
+              tags={trendingTags}
+              activeTag={debouncedQ}
+              open={pulseOpen}
+              onToggleOpen={() => setPulseOpen(o => !o)}
+              onPick={(tag) => setSearchQuery(searchQuery === tag ? '' : tag)}
+            />
           )}
           {activeTab === 'friends-feed' && (
             friendClips.length === 0
               ? <NoFriendClips />
               : <ClipFeed clips={friendClips} currentUser={currentUser} onEditClip={setEditingClip} audioMap={audioMap} />
           )}
+          {activeTab === 'recents'    && <RecentsTab profiles={recentProfiles} onClear={() => { setRecentIds([]); try { localStorage.removeItem('spidr_recent_profiles'); } catch {} }} />}
           {activeTab === 'profile'     && <WebProfile currentUser={currentUser} onUploadClick={() => document.getElementById('vid-upload')?.click()} />}
           {activeTab === 'people'      && <div className="w-full h-full self-stretch"><PeopleSearch currentUser={currentUser} /></div>}
           {activeTab === 'sounds'      && <SoundsBrowser currentUser={currentUser} />}
@@ -301,6 +480,139 @@ function CollectionsView({ collections, selectedCollection, onSelectCollection, 
         ))}
         {collections.length === 0 && <div className="col-span-full text-center py-10 text-zinc-500"><Folder className="w-9 h-9 mx-auto mb-2 opacity-40" /><p className="text-sm">No saved collections yet</p></div>}
       </div>
+    </div>
+  );
+}
+
+// Empty state shown when a viewer enters someone's archive and that user
+// hasn't uploaded any clips to THE WEB yet.
+function NoArchiveClips({ name }) {
+  return <div className="text-center py-12 px-6">
+    <User className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+    <p className="text-zinc-400 font-bold text-sm">{name} hasn't woven any strands yet</p>
+    <p className="text-zinc-600 text-xs mt-1">Their archive is empty for now.</p>
+  </div>;
+}
+
+// ── Recents tab ─────────────────────────────────────────────────────────────
+// Shows the last 10 profiles the viewer opened (tracked from the global
+// spidr-open-profile window event in FeedPanel). Each row re-opens the
+// profile modal on click — no separate route needed.
+function RecentsTab({ profiles, onClear }) {
+  if (!profiles.length) {
+    return (
+      <div className="text-center py-12 px-6">
+        <Clock className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+        <p className="text-zinc-400 font-bold text-sm">No recent profiles yet</p>
+        <p className="text-zinc-600 text-xs mt-1">Profiles you view will land here for quick jumps.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="w-full max-w-xl mx-auto h-full flex flex-col p-4 overflow-y-auto">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[11px] font-mono tracking-widest uppercase text-zinc-500 flex items-center gap-1.5">
+          <Clock className="w-3 h-3" /> Last 10 viewed
+        </p>
+        <button
+          onClick={onClear}
+          className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 hover:text-red-400 transition-colors"
+        >
+          Clear
+        </button>
+      </div>
+      <div className="space-y-2">
+        {profiles.map((p) => (
+          <button
+            key={p.user_id || p.id}
+            onClick={() => window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: p.user_id || p.id } }))}
+            className="w-full flex items-center gap-3 p-3 rounded-xl bg-zinc-900/40 hover:bg-zinc-800/60 border border-white/5 hover:border-red-500/30 transition-all text-left group"
+          >
+            <Avatar className="w-10 h-10 border border-white/10 group-hover:border-red-500 transition-colors">
+              {p.avatar_url
+                ? <AvatarImage src={p.avatar_url} />
+                : <AvatarFallback className="bg-red-900 text-white text-sm font-bold">
+                    {(p.display_name || p.username || '?').charAt(0).toUpperCase()}
+                  </AvatarFallback>}
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <p className="text-white text-sm font-bold truncate">{p.display_name || p.username}</p>
+              <p className="text-zinc-500 text-xs font-mono truncate">@{p.username || (p.user_id || p.id || '').slice(0, 8)}</p>
+            </div>
+            <span className="text-zinc-600 text-[10px] font-mono uppercase tracking-widest group-hover:text-red-400 transition-colors">Jump →</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Pulse panel ─────────────────────────────────────────────────────────────
+// Top-5 trending hashtags floating on the LEFT edge of the main feed. Click
+// a tag to pipe it into the search bar (which already filters by hashtag
+// via the debounced query). Click again to clear. Collapsible — when
+// closed, only a small "Pulse" button remains so the feed has full room.
+function PulsePanel({ tags, activeTag, open, onToggleOpen, onPick }) {
+  const activeLower = (activeTag || '').toLowerCase();
+  if (!open) {
+    return (
+      <button
+        onClick={onToggleOpen}
+        className="absolute top-4 left-4 z-40 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 hover:border-red-500/40 transition-all"
+        title="Show Pulse — trending tags"
+      >
+        <Flame className="w-3.5 h-3.5 text-red-400" />
+        <span className="font-mono text-[10px] tracking-widest uppercase text-white">Pulse</span>
+      </button>
+    );
+  }
+  return (
+    <div
+      className="absolute top-4 left-4 z-40 w-56 rounded-2xl bg-black/65 backdrop-blur-md border border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.5)] overflow-hidden"
+    >
+      <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
+        <p className="flex items-center gap-1.5 font-mono text-[10px] tracking-widest uppercase text-red-400">
+          <Flame className="w-3 h-3" />
+          Pulse · Trending
+        </p>
+        <button
+          onClick={onToggleOpen}
+          className="text-zinc-500 hover:text-white transition-colors p-0.5 rounded"
+          aria-label="Hide Pulse"
+          title="Hide Pulse"
+        >
+          <XIcon className="w-3 h-3" />
+        </button>
+      </div>
+      <div className="p-2 space-y-1">
+        {tags.map(({ tag, score }, i) => {
+          const isActive = activeLower === tag.toLowerCase();
+          return (
+            <button
+              key={tag}
+              onClick={() => onPick(tag)}
+              className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg transition-all text-left ${
+                isActive
+                  ? 'bg-red-500/15 border border-red-500/40'
+                  : 'hover:bg-white/[0.04] border border-transparent'
+              }`}
+            >
+              <span className={`font-mono text-[10px] w-5 ${isActive ? 'text-red-400' : 'text-zinc-600'}`}>
+                {String(i + 1).padStart(2, '0')}
+              </span>
+              <span className={`flex-1 truncate text-xs font-bold ${isActive ? 'text-white' : 'text-zinc-300'}`}>
+                #{tag}
+              </span>
+              <span className={`font-mono text-[9px] tracking-wider tabular-nums ${isActive ? 'text-red-300' : 'text-zinc-600'}`}>
+                {score}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="px-3 py-2 text-[9px] font-mono uppercase tracking-widest text-zinc-600 border-t border-white/5">
+        Click to filter the web
+      </p>
     </div>
   );
 }
