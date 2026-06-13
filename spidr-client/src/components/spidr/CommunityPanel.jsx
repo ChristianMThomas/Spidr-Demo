@@ -724,7 +724,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser, chat
                                                 <Pencil className="w-3 h-3 text-zinc-400 hover:text-white" />
                                               </button>
                                             )}
-                                            <span className="text-zinc-500 ml-1 opacity-60">
+                                            <span className="text-zinc-500 ml-1 opacity-60 hidden">
                                               #{profile?.discriminator || '0000'}
                                             </span>
                                           </div>
