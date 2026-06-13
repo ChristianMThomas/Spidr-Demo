@@ -1,4 +1,5 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Send, ImagePlus, Smile, Ghost, Zap, Waves, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { entities, auth, integrations } from '@/api/apiClient';
@@ -25,6 +26,35 @@ export default function MessageInputBar({
   const [blockedCategory, setBlockedCategory] = useState(null);
   const [cmdSuggestions, setCmdSuggestions] = useState([]);
   const [cmdSelectedIdx, setCmdSelectedIdx] = useState(0);
+  const cmdListRef = useRef(null);
+  const deckRef = useRef(null);
+  // Viewport-relative rect of the input deck, used to position the portaled
+  // command popup. The popup is rendered into document.body so it escapes the
+  // chat panel's `overflow-hidden` clip — see ServersPanel "Message Input"
+  // wrapper. Tracked as state so a window resize re-renders the popup.
+  const [deckRect, setDeckRect] = useState(null);
+
+  useLayoutEffect(() => {
+    if (cmdSuggestions.length === 0 || !deckRef.current) return;
+    const update = () => {
+      const r = deckRef.current?.getBoundingClientRect();
+      if (r) setDeckRect({ left: r.left, width: r.width, top: r.top });
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [cmdSuggestions.length]);
+
+  // Keep the keyboard-highlighted command card in view when the popup scrolls.
+  useEffect(() => {
+    if (cmdSuggestions.length === 0 || !cmdListRef.current) return;
+    const el = cmdListRef.current.querySelector(`[data-cmd-idx="${cmdSelectedIdx}"]`);
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [cmdSelectedIdx, cmdSuggestions.length]);
 
   // Listen for "Mention" actions from the global right-click menu. When the
   // user right-clicks a profile/friend avatar somewhere and picks Mention,
@@ -121,7 +151,7 @@ export default function MessageInputBar({
     const textBeforeCursor = val.slice(0, cursorPos);
     if (val.startsWith('/') && commands.length > 0 && !textBeforeCursor.includes(' ')) {
       const query = val.toLowerCase();
-      const filtered = commands.filter(c => c.trigger.toLowerCase().startsWith(query)).slice(0, 8);
+      const filtered = commands.filter(c => c.trigger.toLowerCase().startsWith(query)).slice(0, 30);
       setCmdSuggestions(filtered);
       setCmdSelectedIdx(0);
     } else {
@@ -209,28 +239,95 @@ export default function MessageInputBar({
       )}
 
       {/* The Input Deck */}
-      <div className={`relative flex items-center gap-1.5 bg-[#0a0a0a] rounded-2xl px-3 py-2 border transition-all duration-300
+      <div ref={deckRef} className={`relative flex items-center gap-1.5 bg-[#0a0a0a] rounded-2xl px-3 py-2 border transition-all duration-300
         ${ghostMode ? 'border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)]' : 'border-white/[0.06] focus-within:border-[#FF3333]/30 focus-within:shadow-[0_0_20px_rgba(255,51,51,0.08)]'}
       `}>
-        {/* Command suggestions */}
-        {cmdSuggestions.length > 0 && (
-          <div className="absolute bottom-full mb-2 left-0 w-full bg-[#111] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[9999]">
-            <div className="px-3 py-1.5 bg-red-950/40 text-[10px] font-bold text-red-400 uppercase tracking-widest flex items-center gap-2">
-              <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-              Commands
+        {/* Command suggestions — Discord-style grouped cards.
+            Suggestions are pre-filtered (installed bots + user permission); here
+            we just visually group consecutive items by botName and render an
+            avatar + command + bot label per row. Keyboard nav stays on the
+            flat cmdSuggestions array via cmdSelectedIdx.
+            The popup is portaled to document.body so it escapes the
+            `overflow-hidden` chat-input wrapper; position is computed from
+            deckRect (viewport coords). */}
+        {cmdSuggestions.length > 0 && deckRect && createPortal((() => {
+          const groups = [];
+          let lastBot = null;
+          cmdSuggestions.forEach((cmd, i) => {
+            if (cmd.botName !== lastBot) {
+              groups.push({ botName: cmd.botName, botIcon: cmd.botIcon, botColor: cmd.botColor, items: [] });
+              lastBot = cmd.botName;
+            }
+            groups[groups.length - 1].items.push({ cmd, flatIdx: i });
+          });
+          return (
+            <div
+              ref={cmdListRef}
+              style={{
+                position: 'fixed',
+                left: deckRect.left,
+                width: deckRect.width,
+                bottom: window.innerHeight - deckRect.top + 8,
+              }}
+              className="bg-[#0a0a0a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-[9999] max-h-[420px] overflow-y-auto"
+            >
+              <div className="sticky top-0 px-3 py-2 bg-gradient-to-r from-[#1a0a0a] to-[#0a0a0a] border-b border-white/[0.06] text-[10px] font-bold text-red-400 uppercase tracking-widest flex items-center gap-2 backdrop-blur-sm">
+                <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                Bot Commands
+                <span className="ml-auto text-zinc-600 normal-case tracking-normal font-medium">
+                  ↑↓ navigate · ↵ select · esc dismiss
+                </span>
+              </div>
+              {groups.map((group) => (
+                <div key={group.botName}>
+                  <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
+                    <div
+                      className="w-4 h-4 rounded-full flex items-center justify-center text-[9px] flex-shrink-0"
+                      style={{ backgroundColor: `${group.botColor}33`, border: `1px solid ${group.botColor}55` }}
+                    >
+                      {group.botIcon}
+                    </div>
+                    <span className="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">{group.botName}</span>
+                  </div>
+                  {group.items.map(({ cmd, flatIdx }) => (
+                    <button
+                      key={cmd.trigger}
+                      data-cmd-idx={flatIdx}
+                      onMouseEnter={() => setCmdSelectedIdx(flatIdx)}
+                      onClick={() => selectCommand(cmd)}
+                      className={`w-full flex items-center gap-3 px-3 py-2 text-left transition-colors border-l-2 ${
+                        flatIdx === cmdSelectedIdx
+                          ? 'bg-white/[0.07] border-[#FF3333]'
+                          : 'border-transparent hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-base flex-shrink-0 shadow-sm"
+                        style={{
+                          backgroundColor: `${group.botColor}22`,
+                          border: `1px solid ${group.botColor}55`,
+                        }}
+                      >
+                        {group.botIcon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-mono text-sm text-white font-semibold leading-tight">
+                          {cmd.trigger}
+                        </div>
+                        <div className="text-[11px] text-zinc-500 truncate leading-tight mt-0.5">
+                          {cmd.description}
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-zinc-600 font-medium flex-shrink-0 uppercase tracking-wider">
+                        {group.botName}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ))}
             </div>
-            {cmdSuggestions.map((cmd, i) => (
-              <button
-                key={cmd.trigger}
-                onClick={() => selectCommand(cmd)}
-                className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-colors ${i === cmdSelectedIdx ? 'bg-white/10' : 'hover:bg-white/5'}`}
-              >
-                <span className="font-mono text-sm text-red-400 font-bold w-32 flex-shrink-0">{cmd.trigger}</span>
-                <span className="text-xs text-zinc-400 truncate">{cmd.description}</span>
-              </button>
-            ))}
-          </div>
-        )}
+          );
+        })(), document.body)}
 
         {/* Mention popup */}
         <MentionPopup isOpen={mentionSearch !== null} filter={mentionSearch || ''} onSelect={handleSelectMention} users={mentionUsers} position="bottom" />

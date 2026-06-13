@@ -1,31 +1,72 @@
 import { entities, integrations } from '@/api/apiClient';
 
+// Display metadata for built-in bots, keyed by bot_code.
+// Used by the slash-command autocomplete to render the bot avatar and name
+// next to each command (Discord-style). icon_emoji is a fallback when the
+// installed bot record doesn't carry one.
+export const BOT_META = {
+  'builtin:spidr-ai':       { name: 'Spidr AI',       icon_emoji: '🕷️', color: '#FF3333' },
+  'builtin:game-master':    { name: 'Game Master',    icon_emoji: '🎲', color: '#a855f7' },
+  'builtin:music-master':   { name: 'Music Master',   icon_emoji: '🎵', color: '#ec4899' },
+  'builtin:data-analyst':   { name: 'Data Analyst',   icon_emoji: '📊', color: '#3b82f6' },
+  'builtin:auto-moderator': { name: 'Auto Moderator', icon_emoji: '🛡️', color: '#10b981' },
+  'builtin:welcome-bot':    { name: 'Welcome Bot',    icon_emoji: '👋', color: '#f59e0b' },
+};
+
+export const PLATFORM_META = { name: 'Spidr', icon_emoji: '🕸️', color: '#FF3333' };
+
+// Bots that ship with every server — admins don't install them from the Bot
+// Laboratory and they can't be uninstalled. Used by ServersPanel to treat
+// these as "installed" in both the slash-command autocomplete and the
+// installation gate, so a brand-new server still has /ask, /roast, /8ball,
+// etc. working out of the box.
+export const ALWAYS_AVAILABLE_BOTS = new Set(['builtin:spidr-ai']);
+
 // All slash commands available across all bots.
-// bot: null  → always shown regardless of what's installed.
+//   bot:        bot_code the command belongs to (null = platform-level, always shown).
+//   permission: 'everyone' | 'admin' — admin includes server owner + admin/mod roles.
 export const COMMAND_REGISTRY = [
-  { trigger: '/help',       description: 'Show all bot commands',           bot: null },
-  { trigger: '/ask',        description: 'Ask Spidr AI anything',           bot: 'builtin:spidr-ai' },
-  { trigger: '/roast',      description: 'Roast someone with AI',           bot: 'builtin:spidr-ai' },
-  { trigger: '/8ball',      description: 'Magic 8-ball answer',             bot: 'builtin:spidr-ai' },
-  { trigger: '/roll',       description: 'Roll a die (default d6)',         bot: 'builtin:spidr-ai' },
-  { trigger: '/coinflip',   description: 'Flip a coin',                     bot: 'builtin:spidr-ai' },
-  { trigger: '/hack',       description: 'Fake hack sequence',              bot: 'builtin:spidr-ai' },
-  { trigger: '/vibe',       description: 'Vibe check',                      bot: 'builtin:spidr-ai' },
-  { trigger: '/fact',       description: 'Random spider fact',              bot: 'builtin:spidr-ai' },
-  { trigger: '/summarize',  description: 'Summarize recent messages',       bot: 'builtin:spidr-ai' },
-  { trigger: '/trivia',     description: 'Start a trivia round',            bot: 'builtin:game-master' },
-  { trigger: '/poll',       description: 'Create a poll  /poll Q | A | B', bot: 'builtin:game-master' },
-  { trigger: '/play',       description: 'Stream YouTube/Twitch in voice',  bot: 'builtin:music-master' },
-  { trigger: '/queue',      description: 'Show music queue',                bot: 'builtin:music-master' },
-  { trigger: '/nowplaying', description: 'Show current track',              bot: 'builtin:music-master' },
-  { trigger: '/skip',       description: 'Skip current track',              bot: 'builtin:music-master' },
-  { trigger: '/stop',       description: 'Stop playback & clear queue',     bot: 'builtin:music-master' },
-  { trigger: '/stats',      description: 'Server stats overview',           bot: 'builtin:data-analyst' },
-  { trigger: '/top',        description: 'Top active members this week',    bot: 'builtin:data-analyst' },
-  { trigger: '/modset',     description: 'Configure Auto Moderator',        bot: 'builtin:auto-moderator' },
-  { trigger: '/modlog',     description: 'Recent auto-mod actions',         bot: 'builtin:auto-moderator' },
-  { trigger: '/welcomeset', description: 'Set the welcome message',         bot: 'builtin:welcome-bot' },
+  { trigger: '/help',       description: 'Show all bot commands',           bot: null,                       permission: 'everyone' },
+  { trigger: '/ask',        description: 'Ask Spidr AI anything',           bot: 'builtin:spidr-ai',         permission: 'everyone' },
+  { trigger: '/roast',      description: 'Roast someone with AI',           bot: 'builtin:spidr-ai',         permission: 'everyone' },
+  { trigger: '/8ball',      description: 'Magic 8-ball answer',             bot: 'builtin:spidr-ai',         permission: 'everyone' },
+  { trigger: '/roll',       description: 'Roll a die (default d6)',         bot: 'builtin:spidr-ai',         permission: 'everyone' },
+  { trigger: '/coinflip',   description: 'Flip a coin',                     bot: 'builtin:spidr-ai',         permission: 'everyone' },
+  { trigger: '/hack',       description: 'Fake hack sequence',              bot: 'builtin:spidr-ai',         permission: 'everyone' },
+  { trigger: '/vibe',       description: 'Vibe check',                      bot: 'builtin:spidr-ai',         permission: 'everyone' },
+  { trigger: '/fact',       description: 'Random spider fact',              bot: 'builtin:spidr-ai',         permission: 'everyone' },
+  { trigger: '/summarize',  description: 'Summarize recent messages',       bot: 'builtin:spidr-ai',         permission: 'everyone' },
+  { trigger: '/trivia',     description: 'Start a trivia round',            bot: 'builtin:game-master',      permission: 'everyone' },
+  { trigger: '/poll',       description: 'Create a poll  /poll Q | A | B', bot: 'builtin:game-master',      permission: 'everyone' },
+  { trigger: '/play',       description: 'Stream YouTube/Twitch in voice',  bot: 'builtin:music-master',     permission: 'everyone' },
+  { trigger: '/queue',      description: 'Show music queue',                bot: 'builtin:music-master',     permission: 'everyone' },
+  { trigger: '/nowplaying', description: 'Show current track',              bot: 'builtin:music-master',     permission: 'everyone' },
+  { trigger: '/skip',       description: 'Skip current track',              bot: 'builtin:music-master',     permission: 'everyone' },
+  { trigger: '/stop',       description: 'Stop playback & clear queue',     bot: 'builtin:music-master',     permission: 'everyone' },
+  { trigger: '/stats',      description: 'Server stats overview',           bot: 'builtin:data-analyst',     permission: 'everyone' },
+  { trigger: '/top',        description: 'Top active members this week',    bot: 'builtin:data-analyst',     permission: 'everyone' },
+  { trigger: '/modset',     description: 'Configure Auto Moderator',        bot: 'builtin:auto-moderator',   permission: 'admin' },
+  { trigger: '/modlog',     description: 'Recent auto-mod actions',         bot: 'builtin:auto-moderator',   permission: 'admin' },
+  { trigger: '/modhelp',    description: 'Show Auto Moderator usage guide', bot: 'builtin:auto-moderator',   permission: 'everyone' },
+  { trigger: '/modreset',   description: 'Reset all Auto Moderator settings', bot: 'builtin:auto-moderator', permission: 'admin' },
+  { trigger: '/modtest',    description: 'Test text against Auto Moderator', bot: 'builtin:auto-moderator',  permission: 'admin' },
+  { trigger: '/welcomeset',    description: 'Set the welcome message',              bot: 'builtin:welcome-bot', permission: 'admin'    },
+  { trigger: '/welcomehelp',   description: 'Show Welcome Bot usage guide',          bot: 'builtin:welcome-bot', permission: 'everyone' },
+  { trigger: '/welcomeconfig', description: 'Show current welcome configuration',    bot: 'builtin:welcome-bot', permission: 'admin'    },
+  { trigger: '/welcomedelete', description: 'Delete the welcome message',            bot: 'builtin:welcome-bot', permission: 'admin'    },
 ];
+
+// Resolve a raw input string like "/modset ban foo" to its COMMAND_REGISTRY
+// entry. Returns null when the first token isn't a recognized command.
+// Used by ServersPanel to gate execution on bot-installation and permission
+// — without this the slash-command handler would run any registered command
+// even in servers where the owning bot was never installed.
+export function getCommandMeta(text) {
+  if (!text || typeof text !== 'string' || !text.startsWith('/')) return null;
+  const first = text.slice(1).split(/\s+/)[0]?.toLowerCase();
+  if (!first) return null;
+  return COMMAND_REGISTRY.find(c => c.trigger.slice(1).toLowerCase() === first) || null;
+}
 
 const ROASTS = [
   "Scanning profile... Error 404: Personality not found. Try upgrading your firmware.",
@@ -267,9 +308,16 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
           `/stats — Server stats overview\n` +
           `/top — Top active members this week\n\n` +
           `── Auto Moderator ──\n` +
-          `/modlog — Recent auto-actions\n\n` +
+          `/modhelp — Full Auto Moderator guide\n` +
+          `/modset [status|ban|unban|spam|slur] — Configure (admin)\n` +
+          `/modtest <text> — Dry-run a message against the filters (admin)\n` +
+          `/modlog — Recent auto-actions\n` +
+          `/modreset — Wipe all automod settings (admin)\n\n` +
           `── Welcome Bot ──\n` +
-          `/welcomeset [--channel <id>] <message> — Set welcome message`,
+          `/welcomehelp — Show Welcome Bot usage guide\n` +
+          `/welcomeset [--channel <id>] <message> — Set the welcome message\n` +
+          `/welcomeconfig — Show current welcome config (admin)\n` +
+          `/welcomedelete — Delete the welcome message (admin)`,
       };
     }
 
@@ -426,9 +474,14 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
           return { response: `🛡️ \`${word}\` added to banned words.` };
         }
         if (sub === 'unban') {
-          if (!rest) return { response: '🛡️ Usage: `/modset unban <word>`' };
-          const word = rest.toLowerCase();
+          if (!rest) return { response: '🛡️ Usage: `/modset unban <word>` · `/modset unban all` to clear them all' };
           const list = Array.isArray(cfg.banned_words) ? cfg.banned_words : [];
+          if (rest.toLowerCase() === 'all') {
+            if (list.length === 0) return { response: '🛡️ No banned words to clear.' };
+            await save({ banned_words: [] });
+            return { response: `🛡️ Cleared **${list.length}** banned word${list.length === 1 ? '' : 's'}.` };
+          }
+          const word = rest.toLowerCase();
           await save({ banned_words: list.filter(w => w !== word) });
           return { response: `🛡️ \`${word}\` removed from banned words.` };
         }
@@ -444,10 +497,107 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
           return { response: `🛡️ Slur filter turned **${rest.toUpperCase()}**.` };
         }
         return {
-          response: `🛡️ Unknown sub-command \`${sub}\`.\n\nUsage:\n\`/modset status\` · \`/modset ban <word>\` · \`/modset unban <word>\` · \`/modset spam <n>\` · \`/modset slur on|off\``,
+          response: `🛡️ Unknown sub-command \`${sub}\`.\n\nUsage:\n\`/modset status\` · \`/modset ban <word>\` · \`/modset unban <word|all>\` · \`/modset spam <n>\` · \`/modset slur on|off\``,
         };
       } catch (err) {
         return { response: `🛡️ Error: ${err?.message || 'Could not update settings.'}` };
+      }
+    }
+
+    case 'modhelp': {
+      return {
+        response:
+          `🛡️ **AUTO MODERATOR — Command Guide**\n\n` +
+          `Auto Moderator watches every message and silently blocks spam and banned words.\n\n` +
+          `── View & Test ──\n\n` +
+          `\`/modset\` or \`/modset status\` — show current config\n` +
+          `\`/modtest <text>\` — preview which rules a message would trigger (admin)\n` +
+          `\`/modlog\` — recent auto-mod actions\n\n` +
+          `── Configure ──\n\n` +
+          `\`/modset ban <word>\` — add a word to the banned list\n` +
+          `\`/modset unban <word>\` — remove a single word\n` +
+          `\`/modset unban all\` — clear every banned word\n` +
+          `\`/modset spam <n>\` — trip after N messages in 10s (default 5, min 2)\n` +
+          `\`/modset slur on|off\` — toggle the built-in slur filter\n\n` +
+          `── Reset ──\n\n` +
+          `\`/modreset\` — wipe ALL automod settings and start fresh (admin)\n\n` +
+          `── Tips ──\n` +
+          `• The built-in slur filter catches common slurs even if you haven't banned them.\n` +
+          `• Banned words match whole words only (case-insensitive), not substrings.\n` +
+          `• Spam is tracked per-user across the whole server.\n` +
+          `• Anyone can run \`/modhelp\` to see this guide; the rest are admin-only.`,
+      };
+    }
+
+    case 'modreset': {
+      try {
+        const srv = await entities.Server.get(serverId);
+        const { automod: _removed, ...restConfig } = srv.bot_config || {};
+        await entities.Server.update(serverId, { bot_config: restConfig });
+        return {
+          response:
+            `🛡️ Auto Moderator config reset.\n\n` +
+            `• Slur filter: **ON** (default)\n` +
+            `• Spam: **5** msgs / **10**s (default)\n` +
+            `• Banned words: _none_\n\n` +
+            `_Use \`/modhelp\` to see how to configure again._`,
+        };
+      } catch (err) {
+        return { response: `🛡️ Could not reset config: ${err?.message || 'unknown'}` };
+      }
+    }
+
+    case 'modtest': {
+      // Mirror the server-side check in spidr-server/src/utils/automod.js
+      // so admins can dry-run a message against the live config without
+      // actually sending it. Spam isn't tested here (it depends on message
+      // history); only word filtering.
+      if (!args) {
+        return { response: '🛡️ Usage: `/modtest <text>` — checks the text against banned words + slur filter.' };
+      }
+      // Built-in slur list kept in sync with spidr-server/src/utils/automod.js
+      const DEFAULT_BLOCKED = [
+        'nigger', 'nigga', 'faggot', 'fag', 'kike', 'chink', 'spic', 'wetback',
+        'tranny', 'retard', 'cunt', 'twat',
+      ];
+      const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      try {
+        const srv = await entities.Server.get(serverId);
+        const cfg = srv.bot_config?.automod || {};
+        const customBanned = Array.isArray(cfg.banned_words) ? cfg.banned_words : [];
+        const allowedSet = new Set(
+          (Array.isArray(cfg.allowed_words) ? cfg.allowed_words : []).map(w => w.toLowerCase())
+        );
+        const slurOn = cfg.slurFilter !== false;
+        const allBanned = slurOn ? [...DEFAULT_BLOCKED, ...customBanned] : [...customBanned];
+
+        const hits = [];
+        for (const word of allBanned) {
+          if (allowedSet.has(word.toLowerCase())) continue;
+          const pattern = new RegExp(`\\b${escapeRegex(word)}\\b`, 'i');
+          if (pattern.test(args)) {
+            const source = DEFAULT_BLOCKED.includes(word) ? 'built-in slur filter' : 'custom banned list';
+            hits.push(`• \`${word}\` (${source})`);
+          }
+        }
+        if (hits.length === 0) {
+          return {
+            response:
+              `🛡️ **Auto Mod Test — PASS** ✅\n\n` +
+              `Input: "${args}"\n\n` +
+              `This message would not be blocked by the current config.\n` +
+              `_Slur filter: **${slurOn ? 'ON' : 'OFF'}** · custom banned words: **${customBanned.length}**_`,
+          };
+        }
+        return {
+          response:
+            `🛡️ **Auto Mod Test — BLOCKED** 🚫\n\n` +
+            `Input: "${args}"\n\n` +
+            `Triggered rules:\n${hits.join('\n')}\n\n` +
+            `_To allow a word from the slur filter, add it to \`bot_config.automod.allowed_words\` (not yet available via slash command)._`,
+        };
+      } catch (err) {
+        return { response: `🛡️ Could not run test: ${err?.message || 'unknown'}` };
       }
     }
 
@@ -469,6 +619,65 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
         return { response: `🧠 **Summary of last ${recent.length} messages**\n\n${result?.summary || 'No summary available.'}` };
       } catch {
         return { response: '🧠 Summarize is offline right now.' };
+      }
+    }
+
+    case 'welcomehelp': {
+      return {
+        response:
+          `👋 **WELCOME BOT — Command Guide**\n\n` +
+          `Welcome Bot posts a greeting in a channel whenever someone new joins your server.\n\n` +
+          `── Setup ──\n\n` +
+          `/welcomeset <message>\n` +
+          `  Set the welcome message. Goes live immediately for the next join.\n` +
+          `  Placeholders: \`{user}\` → member's name  ·  \`{server}\` → server name\n\n` +
+          `  Examples:\n` +
+          `  \`/welcomeset Hey {user}, welcome to {server}! Check out #rules 🕷️\`\n` +
+          `  \`/welcomeset --channel <channelId> <message>\` ← post in a specific channel\n\n` +
+          `── Info & Maintenance ──\n\n` +
+          `/welcomeconfig   — Show the currently saved message and target channel.\n` +
+          `/welcomedelete   — Remove the message (disables auto-greeting until reset).\n\n` +
+          `── Tips ──\n` +
+          `• If no channel is set, the greeting posts in the first text channel.\n` +
+          `• Only admins can run /welcomeset, /welcomeconfig, and /welcomedelete.\n` +
+          `• Anyone can run /welcomehelp to share this guide.`,
+      };
+    }
+
+    case 'welcomeconfig': {
+      try {
+        const srv = await entities.Server.get(serverId);
+        const cfg = srv.bot_config?.welcome || {};
+        const msgLine = cfg.message
+          ? `\`${cfg.message}\``
+          : `_not set — default: "Welcome to ${srv.name || 'Server'}, {user}! 🕷️"_`;
+        const chLine = cfg.channel_id
+          ? `channel ID \`${cfg.channel_id}\``
+          : `_auto — first text channel_`;
+        return {
+          response:
+            `👋 **Welcome Bot — Current Config**\n\n` +
+            `• Message: ${msgLine}\n` +
+            `• Channel: ${chLine}\n\n` +
+            `_To change: \`/welcomeset <message>\`  ·  To remove: \`/welcomedelete\`_`,
+        };
+      } catch (err) {
+        return { response: `👋 Could not fetch welcome config: ${err?.message || 'unknown'}` };
+      }
+    }
+
+    case 'welcomedelete': {
+      try {
+        const srv = await entities.Server.get(serverId);
+        const { welcome: _removed, ...restConfig } = srv.bot_config || {};
+        await entities.Server.update(serverId, { bot_config: restConfig });
+        return {
+          response:
+            `👋 Welcome message deleted. New members will no longer receive an automatic greeting.\n\n` +
+            `_Run \`/welcomeset <message>\` any time to set a new one._`,
+        };
+      } catch (err) {
+        return { response: `👋 Could not delete welcome message: ${err?.message || 'unknown'}` };
       }
     }
 

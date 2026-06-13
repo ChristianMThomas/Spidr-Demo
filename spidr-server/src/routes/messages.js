@@ -139,7 +139,39 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 });
 
-// All other methods (GET /:id, PATCH /:id, DELETE /:id) via crudRouter
+// DELETE /:id — owner OR server admin/owner may delete any message
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const msg = await Message.findById(req.params.id).lean();
+    if (!msg) return res.status(404).json({ error: 'Not found' });
+
+    const userId = req.user?.id?.toString();
+    const isAuthor =
+      msg.user_id?.toString()   === userId ||
+      msg.author_id?.toString() === userId;
+
+    if (!isAuthor) {
+      // Check if user is server owner or has admin/mod role
+      const server = await Server.findById(msg.server_id, 'owner_id members').lean();
+      const isServerAdmin = server && (
+        server.owner_id?.toString() === userId ||
+        (server.members || []).some(m => {
+          if (m.user_id?.toString() !== userId) return false;
+          const role = (m.role || '').toLowerCase();
+          return role === 'admin' || role === 'mod' || role === 'moderator' || role === 'owner';
+        })
+      );
+      if (!isServerAdmin) return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    await Message.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// All other methods (GET /:id, PATCH /:id) via crudRouter
 router.use(base);
 
 module.exports = router;

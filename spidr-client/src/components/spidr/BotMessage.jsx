@@ -1,15 +1,26 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import { Trash2 } from 'lucide-react';
 
 import SpiderLogo from './SpiderLogo';
 
-export default function BotMessage({ command, response, actions }) {
+export default function BotMessage({ command, response, actions, onDelete }) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      className="max-w-2xl"
+      className="max-w-2xl group/bot relative"
     >
+      {onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          title="Delete bot message"
+          className="absolute -top-2 -right-2 z-10 w-7 h-7 rounded-full bg-[#0a0a0a] border border-[#FF3333]/40 text-zinc-400 hover:text-white hover:bg-[#FF3333]/20 hover:border-[#FF3333] opacity-0 group-hover/bot:opacity-100 transition-all flex items-center justify-center shadow-lg"
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
       {/* The command that triggered it */}
       {command && (
         <div className="flex items-center gap-2 mb-1 ml-4 opacity-50">

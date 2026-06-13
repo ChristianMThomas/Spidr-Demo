@@ -34,7 +34,7 @@ import KineticText from './KineticText';
 import AgeGateModal from './AgeGateModal';
 import StickyWeb from './StickyWeb';
 import BotMessage from './BotMessage';
-import { processBotCommand, COMMAND_REGISTRY } from './SpidrBotEngine';
+import { processBotCommand, COMMAND_REGISTRY, BOT_META, PLATFORM_META, getCommandMeta, ALWAYS_AVAILABLE_BOTS } from './SpidrBotEngine';
 import SpidrAIProfile, { SPIDR_AI_AVATAR } from './SpidrAIProfile';
 import SystemMessage from './SystemMessage';
 import ReactionBar from './ReactionBar';
@@ -552,12 +552,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     return () => socket.off('message:new', onMsg);
   }, [triviaSession, server?.id, selectedChannel]);
 
-  // Commands available based on which bots are installed on this server
-  const availableCommands = React.useMemo(() => {
-    const installedCodes = new Set((server?.bots || []).map(b => b.bot_code).filter(Boolean));
-    return COMMAND_REGISTRY.filter(c => !c.bot || installedCodes.has(c.bot));
-  }, [server?.bots]);
-
   // Block sending if muted or timed-out on this server
   const isUserMuted = (server.muted_members || []).includes(currentUser?.id);
   const isUserTimedOut = (() => {
@@ -585,7 +579,18 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       const cmdText = message.trim();
       setMessage('');
       setBotProcessing(true);
-      
+
+      // Gate execution by bot-installation and permission. The autocomplete
+      // already hides commands the user shouldn't see, but a user can still
+      // type one in manually — without this check, /modset would mutate
+      // automod config in servers where Auto Moderator was never installed.
+      const meta = getCommandMeta(cmdText);
+      const installedCodes = new Set((server?.bots || []).map(b => b.bot_code).filter(Boolean));
+      // Always-on built-ins (Spidr AI) are treated as installed everywhere —
+      // no admin has to add them from the Bot Laboratory.
+      const botMissing = meta && meta.bot && !installedCodes.has(meta.bot) && !ALWAYS_AVAILABLE_BOTS.has(meta.bot);
+      const adminBlocked = meta && meta.permission === 'admin' && !(isOwner || isAdmin);
+
       // Post the user's command as a message
       sendMessageMutation.mutate({
         content: cmdText,
@@ -598,6 +603,26 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         author_name: currentUser?.full_name || currentUser?.username,
         author_avatar: currentUser?.avatar_url || '',
       });
+
+      if (botMissing || adminBlocked) {
+        setBotProcessing(false);
+        const botName = BOT_META[meta.bot]?.name || 'this bot';
+        const text = botMissing
+          ? `[SPIDR_AI] \`${meta.trigger}\` is provided by **${botName}**, which isn't installed on this server. Install it from Bot Laboratory to use this command.`
+          : `[SPIDR_AI] \`${meta.trigger}\` requires admin permissions.`;
+        sendMessageMutation.mutate({
+          content: text,
+          server_id: server.id,
+          channel_id: selectedChannel,
+          user_id: 'spidr-ai',
+          user_name: 'SPIDR_AI',
+          user_avatar: '',
+          author_id: 'spidr-ai',
+          author_name: 'SPIDR_AI',
+          author_avatar: SPIDR_AI_AVATAR,
+        });
+        return;
+      }
 
       const result = await processBotCommand(cmdText, currentUser, server.id, selectedChannel);
       setBotProcessing(false);
@@ -824,10 +849,36 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const _meId = currentUser?.id;
   const _myMember = _meId ? server.members?.find(m => m.user_id === _meId) : null;
   const _myRole = (_myMember?.role || '').toLowerCase();
+  const isOwner = Boolean(_meId) && Boolean(server.owner_id) && server.owner_id === _meId;
   const isAdmin = Boolean(_meId) && (
-    (Boolean(server.owner_id) && server.owner_id === _meId) ||
+    isOwner ||
     _myRole === 'admin' || _myRole === 'mod' || _myRole === 'moderator' || _myRole === 'owner'
   );
+
+  // Slash-command autocomplete: only commands belonging to bots actually
+  // installed on this server, and admin-only commands hidden from non-admins.
+  // Server owners always see everything regardless of permission tier — this
+  // is the safety net so any future restriction can't accidentally lock the
+  // owner out of their own bots. Each entry is enriched with bot display
+  // metadata (name, icon, color) so the popup can render Discord-style cards.
+  const availableCommands = React.useMemo(() => {
+    const installedBots = (server?.bots || []).filter(b => b.bot_code);
+    const installedByCode = new Map(installedBots.map(b => [b.bot_code, b]));
+    return COMMAND_REGISTRY
+      .filter(c => !c.bot || installedByCode.has(c.bot) || ALWAYS_AVAILABLE_BOTS.has(c.bot))
+      .filter(c => isOwner || c.permission !== 'admin' || isAdmin)
+      .map(c => {
+        if (!c.bot) return { ...c, botName: PLATFORM_META.name, botIcon: PLATFORM_META.icon_emoji, botColor: PLATFORM_META.color };
+        const installed = installedByCode.get(c.bot);
+        const meta = BOT_META[c.bot] || {};
+        return {
+          ...c,
+          botName: installed?.name || meta.name || 'Bot',
+          botIcon: installed?.icon_emoji || meta.icon_emoji || '🤖',
+          botColor: meta.color || '#FF3333',
+        };
+      });
+  }, [server?.bots, isAdmin, isOwner]);
 
   // Airlock: check if user is unverified
   const currentMember = server.members?.find(m => m.user_id === currentUser?.id);
@@ -1118,12 +1169,13 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       }
 
       // --- CHANNEL ACTIONS ---
+      // `copy-channel-id` is handled globally in useGlobalMenuActions — it
+      // uses await + try/catch so failed clipboard writes don't show a false
+      // success toast. Keep panel-level actions for things only this panel
+      // knows how to do (edit, delete, mute, etc.).
       else if (type === 'channel_text' || type === 'channel_voice') {
         if (action === 'mark-read') {
           toast.success('Channel marked as read');
-        } else if (action === 'copy-channel-id') {
-          navigator.clipboard.writeText(data?.id || '');
-          toast.success('Channel ID copied');
         } else if (action === 'edit-channel' && isAdmin) {
           setShowSettings(true);
         } else if (action === 'mute-channel') {
@@ -1247,6 +1299,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             sender_id: spidrId,
             sender_name: 'Spidr System',
             sender_avatar: SPIDR_AI_AVATAR,
+            receiver_id: String(currentUser.id),
             recipient_id: String(currentUser.id),
             content: `${userName} caught the fly! +${granted} Biomass`
           }).catch(() => {});
@@ -1598,6 +1651,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                   <div key={msg.id} className="flex gap-3 p-2 -mx-2">
                     <BotMessage
                       response={msg.content.replace('[SPIDR_AI] ', '')}
+                      onDelete={isAdmin ? () => deleteMessageMutation.mutate(msg.id) : undefined}
                     />
                   </div>
                 );
@@ -1607,7 +1661,10 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               if (msg.author_id === 'system' || msg.user_id === 'system' || msg.is_system) {
                 return (
                   <div key={msg.id} className="flex gap-3 p-2 -mx-2">
-                    <SystemMessage content={msg.content} />
+                    <SystemMessage
+                      content={msg.content}
+                      onDelete={isAdmin ? () => deleteMessageMutation.mutate(msg.id) : undefined}
+                    />
                   </div>
                 );
               }
