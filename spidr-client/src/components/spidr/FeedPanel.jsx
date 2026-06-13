@@ -39,11 +39,6 @@ export default function FeedPanel({ currentUser }) {
   const [showUpload, setShowUpload]     = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [activeTab, setActiveTab]       = useState('main');
-  // Sub-tab inside the main "THE WEB" feed: 'foryou' (global) vs
-  // 'following' (only clips from users you've linked with). Floats as a
-  // glass pill over the video card; doesn't affect the existing top-level
-  // tab bar (THE WEB / LINKED NODES / etc).
-  const [mainSubTab, setMainSubTab]     = useState('foryou');
   // When set, the main feed is filtered to a single user's clips — driven
   // by the "ENTER USER WEB" button on the profile modal. A close-affordance
   // at the top of the feed lets the viewer return to the full feed.
@@ -116,23 +111,22 @@ export default function FeedPanel({ currentUser }) {
       setUserArchiveId(userId);
       setUserArchiveName(userName || 'this user');
       setActiveTab('main');
-      setMainSubTab('foryou'); // archive ignores the for-you/following toggle
     };
     window.addEventListener('spidr-open-user-clips', handler);
     return () => window.removeEventListener('spidr-open-user-clips', handler);
   }, []);
 
-  // The clip list piped into ClipFeed for the main tab. Three layered
-  // filters: (a) user-archive mode wins (single-user view), (b) the
-  // For You / Following sub-toggle picks the source pool, (c) the
-  // search-bar `filteredClips` already applied above narrows by caption /
-  // hashtag / name.
+  // The clip list piped into ClipFeed for the main tab. Two layers:
+  //   (a) user-archive mode wins (single-user view via ENTER USER WEB),
+  //   (b) otherwise the search-bar `filteredClips` already narrows by
+  //       caption / hashtag / name.
+  // The friends-only feed lives in the separate LINKED NODES tab.
   const mainTabClips = React.useMemo(() => {
     if (userArchiveId) {
       return filteredClips.filter(c => c.author_id === userArchiveId);
     }
-    return mainSubTab === 'following' ? friendClips : filteredClips;
-  }, [userArchiveId, mainSubTab, friendClips, filteredClips]);
+    return filteredClips;
+  }, [userArchiveId, filteredClips]);
 
   // ── Recents ────────────────────────────────────────────────────────────
   // Tracks the last 10 user IDs the viewer opened a profile for. Listens
@@ -270,35 +264,6 @@ export default function FeedPanel({ currentUser }) {
 
         {/* Content */}
         <div className="flex-1 flex items-center justify-center overflow-hidden relative">
-          {/* Floating For You / Following toggle — only over the main feed
-              area, and only when not in single-user archive mode. Sits at
-              top-center, glass-pill styling, z-50 so it floats above the
-              video card and clip overlays. */}
-          {activeTab === 'main' && !userArchiveId && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex gap-1 p-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10">
-              {[
-                { id: 'foryou',    label: 'For You' },
-                { id: 'following', label: 'Following' },
-              ].map(({ id, label }) => {
-                const active = mainSubTab === id;
-                return (
-                  <button
-                    key={id}
-                    onClick={() => setMainSubTab(id)}
-                    className={`px-4 py-1.5 rounded-full font-mono text-xs tracking-wider transition-all ${
-                      active
-                        ? 'bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_12px_rgba(239,68,68,0.18)]'
-                        : 'text-neutral-500 hover:text-white border border-transparent'
-                    }`}
-                    aria-pressed={active}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
           {/* Archive-mode banner — shown when the user clicked
               "ENTER USER WEB" on someone's profile. Pinned at top, gives
               them a clear way out back to the full feed. */}
@@ -324,10 +289,8 @@ export default function FeedPanel({ currentUser }) {
               : mainTabClips.length === 0
                 ? (userArchiveId
                     ? <NoArchiveClips name={userArchiveName} />
-                    : mainSubTab === 'following'
-                      ? <NoFriendClips />
-                      : <EmptyFeed onUpload={() => document.getElementById('vid-upload')?.click()} />)
-                : <ClipFeed clips={mainTabClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized && !userArchiveId && mainSubTab === 'foryou'} audioMap={audioMap} initialClipId={jumpClipId} />
+                    : <EmptyFeed onUpload={() => document.getElementById('vid-upload')?.click()} />)
+                : <ClipFeed clips={mainTabClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized && !userArchiveId} audioMap={audioMap} initialClipId={jumpClipId} />
           )}
           {/* Pulse sidebar — top-5 trending tags. Floats on the LEFT edge
               of the main feed area. Clicking a tag pipes it into the

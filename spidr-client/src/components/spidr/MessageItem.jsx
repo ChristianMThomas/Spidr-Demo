@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import MentionParser from './MentionParser';
+import Linkify from './Linkify';
 import GhostMessage from './GhostMessage';
 import KineticText from './KineticText';
 import ReactionBar from './ReactionBar';
@@ -229,7 +229,7 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
               ) : msg.text_effect && msg.text_effect !== 'normal' ? (
                 <KineticText text={msg.content} effect={msg.text_effect} />
               ) : (
-                <MentionParser text={msg.content} users={mentionUsers} onMentionClick={(uid) => onProfileClick?.(uid)} />
+                <Linkify text={msg.content} users={mentionUsers} onMentionClick={(uid) => onProfileClick?.(uid)} />
               )}
             </div>
 

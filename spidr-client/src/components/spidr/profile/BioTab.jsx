@@ -5,17 +5,60 @@ import { Input } from '@/components/ui/input';
 
 export default function BioTab({ userProfile, isOwnProfile, onWidgetSave }) {
   const [localTime, setLocalTime] = useState('');
+  const [tzLabel, setTzLabel] = useState('');
   const [editingActivity, setEditingActivity] = useState(false);
   const [editingPronouns, setEditingPronouns] = useState(false);
   const [activityVal, setActivityVal] = useState('');
   const [pronounsVal, setPronounsVal] = useState('');
 
+  // ── Timezone widget ────────────────────────────────────────────────────
+  // Renders THE PROFILE OWNER's local time, not the viewer's. The IANA tz
+  // (e.g. 'America/Los_Angeles') lives on userProfile.timezone. If the
+  // viewer is looking at their OWN profile and no tz is saved yet, we
+  // auto-detect from the browser and persist it once so subsequent viewers
+  // see the right time. The previous implementation used new Date()
+  // .toLocaleTimeString() with no timeZone option, which always showed the
+  // VIEWER's clock — making every profile look like it was in your zone.
+  const ownerTz = userProfile?.timezone || null;
   useEffect(() => {
-    const update = () => setLocalTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    // Auto-detect + persist once, only on own profile.
+    if (isOwnProfile && !ownerTz) {
+      try {
+        const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (detected) onWidgetSave?.('timezone', detected);
+      } catch {}
+    }
+  }, [isOwnProfile, ownerTz, onWidgetSave]);
+
+  useEffect(() => {
+    const tz = ownerTz || undefined; // undefined falls back to viewer's tz
+    const update = () => {
+      try {
+        setLocalTime(new Date().toLocaleTimeString([], {
+          hour: '2-digit', minute: '2-digit', timeZone: tz,
+        }));
+      } catch {
+        // Invalid tz — fall back to plain local
+        setLocalTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      }
+    };
     update();
-    const interval = setInterval(update, 1000);
+    const interval = setInterval(update, 30000); // 30s — minute precision is enough
     return () => clearInterval(interval);
-  }, []);
+  }, [ownerTz]);
+
+  useEffect(() => {
+    // Friendly label: prefer a saved location string if the user set one,
+    // otherwise extract the city out of the IANA tz ("America/Los_Angeles"
+    // → "Los Angeles"). Falls back to "Local" if neither is available.
+    if (userProfile?.location) { setTzLabel(userProfile.location); return; }
+    if (ownerTz) {
+      const city = ownerTz.split('/').slice(-1)[0]?.replace(/_/g, ' ');
+      setTzLabel(city || ownerTz);
+    } else {
+      setTzLabel('Local');
+    }
+  }, [userProfile?.location, ownerTz]);
 
   const saveActivity = () => {
     onWidgetSave('activity', activityVal);
@@ -32,7 +75,7 @@ export default function BioTab({ userProfile, isOwnProfile, onWidgetSave }) {
       {/* Timezone Widget */}
       <div className="flex items-center justify-between p-2.5 bg-[#111]/80 rounded-lg border border-white/5">
         <div className="flex items-center gap-2 text-[10px] text-gray-400 uppercase font-bold tracking-widest">
-          <Globe size={12} className="text-blue-400" /> LOCAL TIME ({userProfile?.location || 'EST'})
+          <Globe size={12} className="text-blue-400" /> LOCAL TIME ({tzLabel})
         </div>
         <div className="text-xs font-mono text-white flex items-center gap-1">
           <Clock size={12} className="text-gray-500" /> {localTime}
