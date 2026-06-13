@@ -1,14 +1,25 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import { Trash2 } from 'lucide-react';
 import { SPIDR_AI_AVATAR } from './SpidrAIProfile';
 
-export default function SystemMessage({ content }) {
+export default function SystemMessage({ content, onDelete }) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      className="max-w-2xl"
+      className="max-w-2xl group/sys relative"
     >
+      {onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          title="Delete system message"
+          className="absolute -top-2 -right-2 z-10 w-7 h-7 rounded-full bg-[#0a0a0a] border border-[#FF3333]/40 text-zinc-400 hover:text-white hover:bg-[#FF3333]/20 hover:border-[#FF3333] opacity-0 group-hover/sys:opacity-100 transition-all flex items-center justify-center shadow-lg"
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
       <div className="relative bg-[#0a0a0a] border border-zinc-700/50 rounded-xl overflow-hidden shadow-[0_0_15px_rgba(255,255,255,0.02)]">
         {/* Header Strip */}
         <div className="h-0.5 w-full bg-gradient-to-r from-zinc-600 via-[#FF3333]/50 to-zinc-600" />

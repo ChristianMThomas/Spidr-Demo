@@ -150,6 +150,22 @@ export function useGlobalMenuActions() {
             }
             break;
           }
+          case 'copy-channel-id': {
+            // Channel triggerMenu payloads carry `id` (channel.id) and
+            // `server_id`. Picking `id` first guarantees we copy the channel,
+            // not the server. Await + try/catch makes sure we only toast
+            // success when the clipboard write actually lands — the previous
+            // panel-level handler fired the toast even when the write threw,
+            // which is why this looked broken in Electron.
+            const id = data?.id || data?.channel_id;
+            if (!id) {
+              toast.error('No channel ID found');
+              return;
+            }
+            await navigator.clipboard.writeText(String(id));
+            toast.success('Channel ID copied');
+            break;
+          }
           case 'block-user':
           case 'block': {
             const targetId = data?.id || data?.user_id;
