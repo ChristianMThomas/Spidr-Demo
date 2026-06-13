@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Heart, MessageCircle, Share2, Volume2, VolumeX, Play,
   Bookmark, Sparkles, Send, Users, Lock,
-  Maximize2, Minimize2, RotateCw,
+  Maximize2, Minimize2, RotateCw, Repeat2,
 } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { entities, algorithm } from '@/api/apiClient';
@@ -281,6 +281,7 @@ function ClipCard({
   const menu = useMenu();
   const navigate = useNavigate();
   const hasLiked = clip.likes?.includes(currentUser?.id);
+  const hasRelayed = clip.relays?.includes(currentUser?.id);
   // The Pulse (Patch 2.11): trending clips breathe + glow.
   const trending = isTrending(clip);
 
@@ -464,6 +465,34 @@ function ClipCard({
       });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clips'] }),
+  });
+
+  // ── Signal Relay (repost) ────────────────────────────────────────────────
+  // Toggles the current user into `clip.relays`. Client-side this just
+  // flips a flag and bumps the counter; on the server side the backend
+  // needs to listen for a clip.relays update and fan the clip out to each
+  // of the relaying user's followers' feeds, stamping `repost_by` on the
+  // payload so the receivers see the "RELAYED THIS SIGNAL" header.
+  //
+  // We do NOT call any share-menu / network-picker here — relay is the
+  // explicit 1-tap "push to my web" action; the existing Share2 button
+  // still handles the multi-target share menu (DMs, copy link, etc.).
+  const relayMut = useMutation({
+    mutationFn: async () => {
+      const relays = clip.relays || [];
+      const has = relays.includes(currentUser?.id);
+      await entities.Clip.update(clip.id, {
+        relays: has
+          ? relays.filter(id => id !== currentUser?.id)
+          : [...relays, currentUser?.id],
+      });
+      return has ? 'un-relayed' : 'relayed';
+    },
+    onSuccess: (action) => {
+      toast.success(action === 'relayed' ? 'Signal relayed to your web.' : 'Relay revoked.');
+      queryClient.invalidateQueries({ queryKey: ['clips'] });
+    },
+    onError: () => toast.error('Could not relay — try again'),
   });
 
   const saveMut = useMutation({
@@ -662,6 +691,48 @@ function ClipCard({
           </motion.div>
         )}
 
+        {/* Signal Relay header — appears when this clip reached the viewer's
+            feed via a repost. Sits at the very top, spans the card width,
+            uses a frosted purple pill with the reposter's mini-avatar
+            inline. pointer-events-none so it never intercepts taps from
+            the underlying video. */}
+        {clip.repost_by && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: 'easeOut' }}
+            className="absolute top-0 inset-x-0 z-30 flex justify-center pt-3 pointer-events-none"
+          >
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md"
+              style={{
+                background: 'rgba(10, 4, 22, 0.78)',
+                border: '1px solid rgba(168, 85, 247, 0.55)',
+                boxShadow: '0 0 14px rgba(168, 85, 247, 0.30), inset 0 0 8px rgba(168, 85, 247, 0.10)',
+              }}
+            >
+              <Avatar className="w-4 h-4 border border-purple-400/60 flex-shrink-0">
+                {clip.repost_by.user_avatar
+                  ? <AvatarImage src={clip.repost_by.user_avatar} />
+                  : <AvatarFallback className="bg-purple-900 text-white text-[9px]">
+                      {(clip.repost_by.user_name || '?').charAt(0).toUpperCase()}
+                    </AvatarFallback>}
+              </Avatar>
+              <span className="text-[9px] font-black tracking-[0.22em] text-purple-200 uppercase whitespace-nowrap">
+                <span className="text-purple-300">{clip.repost_by.user_name}</span>
+                <span className="text-purple-400/70"> · Relayed this signal</span>
+              </span>
+              {/* Tiny pulse so the badge reads as a live frequency, not a
+                  static label. */}
+              <motion.span
+                className="w-1 h-1 rounded-full bg-purple-300"
+                animate={{ opacity: [1, 0.25, 1], scale: [1, 1.5, 1] }}
+                transition={{ duration: 1.6, repeat: Infinity }}
+              />
+            </div>
+          </motion.div>
+        )}
+
         {/* Rotate-to-watch hint — appears when a phone in portrait is
             displaying a wide clip. Rotating triggers mobile pseudo-
             fullscreen (handled by the mobileFullscreen branch above).
@@ -812,6 +883,18 @@ function ClipCard({
           <SideBtn onClick={() => setComments(v => !v)} label={clip.comments_count || 0} active={comments}>
             <MessageCircle className="w-5 h-5" />
           </SideBtn>
+          {/* Signal Relay — 1-tap repost. The active state flips to a
+              neon purple gradient (vs the red-active default) so it
+              reads as a distinct gesture from likes/comments. */}
+          <SideBtn
+            onClick={() => relayMut.mutate()}
+            label={clip.relays?.length || 0}
+            active={hasRelayed}
+            variant="relay"
+            title={hasRelayed ? 'Revoke relay' : 'Relay to your web'}
+          >
+            <Repeat2 className="w-5 h-5" />
+          </SideBtn>
           <EmojiPicker onEmojiSelect={(e) => reactMut.mutate(e)} currentUser={currentUser}>
             <SideBtn label={userReactions.length || ''} active={userReactions.length > 0}>
               <Sparkles className="w-5 h-5" />
@@ -915,7 +998,22 @@ function ClipCard({
   );
 }
 
-function SideBtn({ children, onClick, label, active, title }) {
+function SideBtn({ children, onClick, label, active, title, variant = 'default' }) {
+  // Active styling depends on the variant — most actions (like, comment,
+  // react) flip to red. The "relay" variant flips to a neon purple-pink
+  // gradient with a glow halo so the gesture reads as distinct from a
+  // like or a comment.
+  const activeClass =
+    variant === 'relay'
+      ? 'text-white'
+      : 'bg-red-600/90 text-white';
+  const activeStyle =
+    variant === 'relay' && active
+      ? {
+          background: 'linear-gradient(135deg, #a855f7 0%, #ec4899 100%)',
+          boxShadow: '0 0 14px rgba(168, 85, 247, 0.55), 0 0 24px rgba(236, 72, 153, 0.30)',
+        }
+      : undefined;
   return (
     <motion.button
       onClick={onClick}
@@ -924,9 +1022,12 @@ function SideBtn({ children, onClick, label, active, title }) {
       aria-label={title}
       className="flex flex-col items-center gap-0.5"
     >
-      <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-        active ? 'bg-red-600/90 text-white' : 'bg-white/10 text-white hover:bg-white/20'
-      }`}>
+      <div
+        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+          active ? activeClass : 'bg-white/10 text-white hover:bg-white/20'
+        }`}
+        style={activeStyle}
+      >
         {children}
       </div>
       {label !== undefined && label !== '' && (

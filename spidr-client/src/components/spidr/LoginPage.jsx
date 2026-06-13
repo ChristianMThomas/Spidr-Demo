@@ -106,25 +106,45 @@ function AuthGateway({ onSuccess, onForgot }) {
                 </div>
                 <div>
                   <label className="text-white/30 text-[10px] font-bold tracking-widest uppercase block mb-1.5">Alias</label>
-                  <div className="flex items-center gap-1.5">
+                  {/* Unified alias container: ONE glass field that hosts the
+                      username and the 4-char tag together. The previous
+                      layout used two `inp`-styled inputs side-by-side, but
+                      `inp` includes `w-full`, which fought the parent flex
+                      sizing — the result was the username box collapsing to
+                      almost nothing while the tag box ballooned. The fix:
+                      the outer container owns all the visual styling, and
+                      the inner inputs are transparent + borderless so they
+                      can finally just be flex children with predictable
+                      widths. */}
+                  <div
+                    className="flex items-center gap-2 bg-[#050505] border border-white/10 rounded-xl px-3 py-3 transition-all focus-within:border-red-500/50 focus-within:shadow-[0_0_15px_rgba(239,68,68,0.15)]"
+                  >
+                    {/* Identity prefix — subtle red @ to anchor the alias */}
+                    <span className="text-red-500/70 text-sm font-mono select-none shrink-0">@</span>
+                    {/* Username — takes the bulk of the row */}
                     <input
                       type="text"
-                      placeholder="Choose your handle"
-                      className={inp + ' flex-1'}
+                      placeholder="username"
+                      className="flex-1 min-w-0 bg-transparent border-0 outline-none text-white text-sm placeholder-white/20"
                       value={form.username}
                       onChange={set('username')}
                       required={mode === 'register'}
+                      aria-label="Username"
                     />
-                    <span className="text-white/30 text-xs font-mono select-none">#</span>
+                    {/* Separator — muted # between the two zones */}
+                    <span className="text-white/25 text-sm font-mono select-none shrink-0">#</span>
+                    {/* Tag — strictly constrained, lowercase + alphanumeric only,
+                        tracking-widest so the four digits read as a system code */}
                     <input
                       type="text"
                       placeholder="abcd"
                       maxLength={4}
                       pattern="[a-z0-9]{4}"
                       title="Optional — 4 lowercase letters or numbers. Leave blank to auto-assign."
-                      className={inp + ' w-16 text-center font-mono lowercase'}
+                      className="w-16 bg-transparent border-0 outline-none text-white text-sm text-center font-mono lowercase tracking-widest placeholder-white/20"
                       value={form.discriminator || ''}
                       onChange={(e) => setForm(f => ({ ...f, discriminator: e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4) }))}
+                      aria-label="4-character tag"
                     />
                   </div>
                   <p className="text-white/25 text-[9px] mt-1.5 leading-snug">
