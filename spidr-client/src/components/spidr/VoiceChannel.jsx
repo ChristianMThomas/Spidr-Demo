@@ -4,7 +4,7 @@ import { entities, integrations, getSocket } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Mic, MicOff, Video, VideoOff, Monitor, PhoneOff,
-  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, Music, ExternalLink
+  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, ExternalLink, Maximize2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import SpiderLogo from './SpiderLogo';
@@ -279,6 +279,30 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
     }));
   }, [rtc.isMuted, rtc.isVideoOn, isSharing, mySession?.is_deafened]);
 
+  // ── Broadcast the active video stream for the PiP ─────────────────────────
+  // The minimized call widget (MinimizedWebNode) shows a tactical PiP of the
+  // currently dominant video — preferring a peer's screen share, then the
+  // viewer's own screen share, then the viewer's camera. Custom events can
+  // carry MediaStream references in their `detail` payload (they don't get
+  // serialized, just passed by reference in-process), so we expose the
+  // active stream that way. We ALSO stash it on `window.__spidrCallStream`
+  // so a freshly-mounted MinimizedWebNode (e.g. when the user just
+  // minimized) can read the current stream immediately instead of waiting
+  // for the next change event.
+  useEffect(() => {
+    const remoteScreens = Object.values(rtc.screenStreams || {});
+    const active =
+      remoteScreens[0] ||
+      (isSharing && screenStream ? screenStream : null) ||
+      (rtc.isVideoOn && rtc.localStream ? rtc.localStream : null) ||
+      null;
+    try { window.__spidrCallStream = active; } catch {}
+    window.dispatchEvent(new CustomEvent('spidr-call-stream', { detail: { stream: active } }));
+    return () => {
+      try { if (window.__spidrCallStream === active) window.__spidrCallStream = null; } catch {}
+    };
+  }, [rtc.screenStreams, rtc.isVideoOn, rtc.localStream, isSharing, screenStream]);
+
   // ── Camera toggle (hardened) ─────────────────────────────────────────────
   // The previous toggleVideo could leave the user "kicked out" if
   // getUserMedia rejected (denied permissions, hardware busy, etc.) — the
@@ -527,34 +551,50 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
             <div className={`w-full ${
               viewMode === 'spider' ? 'max-w-md ml-auto' : 'max-w-[1280px] mx-auto'
             }`}>
-              {screenActive && !shareSidebarCollapsed && (
-                <button
-                  onClick={() => setShareSidebarCollapsed(true)}
-                  className="absolute top-20 right-8 z-30 text-zinc-400 hover:text-white font-mono text-xs bg-black/60 backdrop-blur-md border border-white/10 rounded-lg px-2 py-1"
-                  title="Collapse participants (full-screen stream)"
-                >[ &gt; ]</button>
-              )}
-              {screenActive && shareSidebarCollapsed && (
-                <button
-                  onClick={() => setShareSidebarCollapsed(false)}
-                  className="absolute top-20 right-8 z-30 text-zinc-400 hover:text-white font-mono text-xs bg-black/60 backdrop-blur-md border border-white/10 rounded-lg px-2 py-1"
-                  title="Show participants"
-                >[ &lt; ]</button>
-              )}
-              <motion.div
-                layout
-                className="grid gap-5 content-start"
-                style={{
-                  gridTemplateColumns: screenActive
-                    ? (shareSidebarCollapsed ? '1fr' : 'minmax(0,4fr) minmax(200px,1fr)')
-                    : undefined,
-                  ...(screenActive ? {} : {
+              {screenActive ? (
+                // ── SCREEN-SHARE LAYOUT ─────────────────────────────────────
+                // When someone is sharing their screen, the old grid produced
+                // a "users floating at the top and bottom of the column"
+                // layout because each participant became its own auto-row
+                // alongside a very tall screen-share row. The fix is to
+                // abandon the grid here entirely and use a flex split:
+                // LEFT  = stream stage (group-hover reveals the fullscreen
+                //         toggle in the top-right corner)
+                // RIGHT = unified Comm Panel — single glass column with the
+                //         roster compressed at the top and a live chat
+                //         scrolling below, locked into a 320px fixed-width
+                //         column so the stream gets all remaining room.
+                <ScreenShareStage
+                  isSharing={isSharing}
+                  screenStream={screenStream}
+                  remoteScreenStreams={rtc.screenStreams || {}}
+                  rtc={rtc}
+                  localVideoRef={localVideoRef}
+                  currentUser={currentUser}
+                  currentProfile={currentProfile}
+                  isApexUser={isApexUser}
+                  uniqueSessions={uniqueSessions}
+                  profiles={profiles}
+                  voiceSessions={voiceSessions}
+                  channel={channel}
+                  server={server}
+                  spidrVoice={spidrVoice}
+                  setSelectedProfileUserId={setSelectedProfileUserId}
+                  handleStopStream={handleStopStream}
+                  shareSidebarCollapsed={shareSidebarCollapsed}
+                  setShareSidebarCollapsed={setShareSidebarCollapsed}
+                />
+              ) : (
+                // ── NORMAL TILE GRID (no screen share) ──────────────────────
+                <motion.div
+                  layout
+                  className="grid gap-5 content-start"
+                  style={{
                     gridTemplateColumns: viewMode === 'spider'
                       ? 'repeat(auto-fit, minmax(150px, 1fr))'
                       : 'repeat(auto-fit, minmax(280px, 1fr))',
-                  }),
-                }}
-              >
+                  }}
+                >
                 {/* Screen share preview */}
                 {isSharing && screenStream && (
                   <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
@@ -718,6 +758,7 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
                 })}
               </AnimatePresence>
               </motion.div>
+              )}
             </div>
           )}
         </div>
@@ -1244,5 +1285,344 @@ function VoiceTile({
         />
       )}
     </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ScreenShareStage — the new flex-split layout used whenever someone in the
+// channel is sharing a screen. Replaces the old grid-with-floating-pills
+// layout that produced the "users stuck at top and bottom of the column"
+// problem when a screen-share row was much taller than a participant row.
+//
+//   LEFT  — stream stage: holds the local share (when isSharing) and every
+//           peer's remote screen. Wraps in `group` so a hover-activated
+//           fullscreen button surfaces in the top-right corner.
+//   RIGHT — Comm Panel: w-80 fixed-width glass column. Roster pinned at
+//           the top (compact VoiceStatusPills stacked tightly), live chat
+//           scrolling beneath it, input dock anchored at the bottom.
+//
+// When `shareSidebarCollapsed` is true, the Comm Panel disappears entirely
+// and a "show participants" affordance becomes the only chrome — gives the
+// stream the entire width for full-bleed viewing.
+// ─────────────────────────────────────────────────────────────────────────────
+function ScreenShareStage({
+  isSharing, screenStream, remoteScreenStreams, rtc, localVideoRef,
+  currentUser, currentProfile, isApexUser,
+  uniqueSessions, profiles, voiceSessions,
+  channel, server, spidrVoice,
+  setSelectedProfileUserId, handleStopStream,
+  shareSidebarCollapsed, setShareSidebarCollapsed,
+}) {
+  const stageRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Track fullscreen state so we can flip the toggle's icon. Uses the
+  // standard fullscreenchange event so it also clears when the user
+  // exits with Esc.
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+
+  const handleToggleFullscreen = () => {
+    const el = stageRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    } else {
+      el.requestFullscreen?.().catch(() => {
+        toast.error('Fullscreen not allowed by browser');
+      });
+    }
+  };
+
+  const remoteScreenEntries = Object.entries(remoteScreenStreams || {});
+
+  return (
+    <div className="flex gap-4 w-full">
+      {/* ── STREAM STAGE ── */}
+      <div ref={stageRef} className="flex-1 min-w-0 relative group flex flex-col gap-4">
+        {/* Local screen share preview */}
+        {isSharing && screenStream && (
+          <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="aspect-video w-full rounded-xl overflow-hidden border border-white/5 shadow-[0_0_50px_rgba(0,0,0,0.8)] bg-black relative">
+            <video
+              ref={v => { if (v && screenStream && v.srcObject !== screenStream) v.srcObject = screenStream; }}
+              autoPlay muted
+              className="w-full h-full object-contain"
+            />
+            {isApexUser && (
+              <SymbioteStreamHUD
+                stream={screenStream}
+                viewers={Object.keys(rtc.remoteStreams || {}).length}
+                apexColor={currentProfile?.apex_features?.thread_skin_color || currentProfile?.accent_color || '#FF3333'}
+                apexFrameStyle={currentProfile?.apex_features?.apexFrameStyle || currentProfile?.apexFrameStyle || 'symbiote-tear'}
+              />
+            )}
+            <div className="absolute top-0 left-0 text-red-500 bg-black/60 backdrop-blur-md px-3 py-1 rounded-br-lg font-mono text-xs">
+              &gt; LIVE_FEED: {currentUser?.full_name?.split(' ')[0] || 'You'}
+            </div>
+            <button onClick={handleStopStream}
+              className="absolute top-3 right-3 bg-black/80 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-red-600 transition-colors font-bold">
+              Stop
+            </button>
+          </motion.div>
+        )}
+
+        {/* Remote screen shares */}
+        {remoteScreenEntries.map(([sid, stream]) => {
+          const peerSession = (voiceSessions || []).find(s => s.socket_id === sid || s.session_id === sid);
+          const peerProfile = peerSession ? (profiles || []).find(p => p.user_id === peerSession.user_id) : null;
+          const peerIsApex = peerProfile?.apex_tier === 'apex';
+          return (
+            <motion.div layout key={`screen-${sid}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              className="aspect-video w-full rounded-xl overflow-hidden border border-white/5 shadow-[0_0_50px_rgba(0,0,0,0.8)] bg-black relative">
+              <video
+                ref={v => { if (v && stream && v.srcObject !== stream) { v.srcObject = stream; v.play?.().catch(() => {}); } }}
+                autoPlay playsInline muted
+                className="w-full h-full object-contain"
+              />
+              {peerIsApex && (
+                <SymbioteStreamHUD
+                  stream={stream}
+                  viewers={Object.keys(rtc.remoteStreams || {}).length}
+                  apexColor={peerProfile?.apex_features?.thread_skin_color || peerProfile?.accent_color || '#FF3333'}
+                  apexFrameStyle={peerProfile?.apex_features?.apexFrameStyle || peerProfile?.apexFrameStyle || 'symbiote-tear'}
+                />
+              )}
+              <div className="absolute top-0 left-0 text-red-500 bg-black/60 backdrop-blur-md px-3 py-1 rounded-br-lg font-mono text-xs">
+                &gt; LIVE_FEED: {peerSession?.user_name || 'Spider'}
+              </div>
+            </motion.div>
+          );
+        })}
+
+        {/* Local camera (you, when camera on) — small pip below the stream */}
+        {rtc.isVideoOn && rtc.localStream && (
+          <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="aspect-video max-w-xs rounded-2xl overflow-hidden border-2 border-[#FF3333]/60 bg-black relative">
+            <video ref={localVideoRef} autoPlay muted className="w-full h-full object-cover" />
+            <div className="absolute bottom-0 inset-x-0 px-2.5 py-1.5 bg-gradient-to-t from-black/80 to-transparent">
+              <span className="text-white text-xs font-bold">
+                {currentUser?.full_name?.split(' ')[0] || 'You'}{' '}
+                <span className="text-[#FF3333] text-[9px]">(you)</span>
+              </span>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ── HOVER-ACTIVATED CHROME ──
+            Both the fullscreen toggle and the sidebar-collapse affordance
+            are hidden until the user hovers the stream stage. They sit at
+            the top-right of the stage in a small cluster so they read as
+            a unit rather than two random buttons. */}
+        <div className="absolute top-3 right-3 z-30 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+          <button
+            onClick={() => setShareSidebarCollapsed(v => !v)}
+            className="p-2 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            title={shareSidebarCollapsed ? 'Show participants' : 'Hide participants'}
+          >
+            {shareSidebarCollapsed
+              ? <ChevronRight size={16} className="rotate-180" />
+              : <ChevronRight size={16} />}
+          </button>
+          <button
+            onClick={handleToggleFullscreen}
+            className="p-2 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          >
+            <Maximize2 size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── COMM PANEL ── */}
+      {!shareSidebarCollapsed && (
+        <CommPanel
+          sessions={uniqueSessions}
+          profiles={profiles}
+          rtc={rtc}
+          currentUser={currentUser}
+          channelId={channel?.id}
+          serverId={server?.id}
+          spidrVoice={spidrVoice}
+          onProfileClick={setSelectedProfileUserId}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CommPanel — the unified right-column glass module that holds (a) the
+// active voice roster and (b) a live text chat for the current channel.
+// Locked at w-80 so the stream gets all remaining horizontal room.
+//
+// The chat reuses the server channel's existing Message stream — anything
+// typed here lands in the channel feed and vice versa. Lightweight polling
+// (5s) keeps it live without needing a socket subscription inside this
+// component; if a socket-based pipe gets wired up at the channel level,
+// the React Query invalidation will pull updates faster.
+// ─────────────────────────────────────────────────────────────────────────────
+function CommPanel({ sessions, profiles, rtc, currentUser, channelId, serverId, spidrVoice, onProfileClick }) {
+  const queryClient = useQueryClient();
+  const scrollRef = useRef(null);
+  const [draft, setDraft] = useState('');
+
+  // Pull the channel's messages. Polling every 5s as a safe baseline so
+  // the chat reads as live even without a socket pipe wired here.
+  const { data: messages = [] } = useQuery({
+    queryKey: ['commchat', serverId, channelId],
+    queryFn: async () => {
+      if (!channelId) return [];
+      const all = await entities.Message.filter({ channel_id: channelId, server_id: serverId });
+      // Show the last 30; sort chronological (oldest → newest) so scroll
+      // anchors at the bottom = newest message visible.
+      return (all || [])
+        .sort((a, b) => new Date(a.created_at || a.createdAt || 0) - new Date(b.created_at || b.createdAt || 0))
+        .slice(-30);
+    },
+    enabled: !!channelId,
+    refetchInterval: 5000,
+    staleTime: 1000,
+  });
+
+  // Auto-scroll to bottom when new messages arrive.
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages.length]);
+
+  const sendMut = useMutation({
+    mutationFn: async (content) => {
+      return entities.Message.create({
+        content,
+        server_id: serverId,
+        channel_id: channelId,
+        user_id: currentUser?.id,
+        user_name: currentUser?.full_name || currentUser?.username,
+        user_avatar: currentUser?.avatar_url || '',
+        author_id: currentUser?.id,
+        author_name: currentUser?.full_name || currentUser?.username,
+        author_avatar: currentUser?.avatar_url || '',
+      });
+    },
+    onSuccess: () => {
+      setDraft('');
+      queryClient.invalidateQueries({ queryKey: ['commchat', serverId, channelId] });
+    },
+    onError: () => toast.error('Could not send'),
+  });
+
+  const submit = (e) => {
+    e?.preventDefault?.();
+    const content = draft.trim();
+    if (!content || sendMut.isPending) return;
+    sendMut.mutate(content);
+  };
+
+  // Color-pick helper — derives a stable username color from the author id
+  // so each speaker reads as a distinct voice in the chat feed.
+  const userColor = (uid) => {
+    if (!uid) return '#e4e4e7';
+    const palette = ['#f87171', '#fb923c', '#facc15', '#a3e635', '#34d399', '#22d3ee', '#60a5fa', '#a78bfa', '#f472b6'];
+    let hash = 0;
+    for (let i = 0; i < uid.length; i++) hash = ((hash << 5) - hash + uid.charCodeAt(i)) | 0;
+    return palette[Math.abs(hash) % palette.length];
+  };
+
+  return (
+    <aside
+      className="w-80 flex-shrink-0 flex flex-col rounded-2xl overflow-hidden"
+      style={{
+        background: 'rgba(0, 0, 0, 0.40)',
+        backdropFilter: 'blur(24px)',
+        WebkitBackdropFilter: 'blur(24px)',
+        border: '1px solid rgba(255, 255, 255, 0.05)',
+        height: '70vh',
+        maxHeight: '760px',
+      }}
+    >
+      {/* ── ROSTER (top half — compact stack of voice pills) ── */}
+      <div className="p-3 flex-shrink-0">
+        <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-2 flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          In Call · {sessions?.length || 0}
+        </p>
+        <div className="flex flex-col gap-1.5 max-h-[200px] overflow-y-auto pr-1">
+          {(sessions || []).map((session) => {
+            const sessionProfile = (profiles || []).find(p => p.user_id === session.user_id);
+            const isSelf = session.user_id === currentUser?.id;
+            const remoteStreams = Object.values(rtc.remoteStreams || {});
+            const peerStream = isSelf ? rtc.localStream : (remoteStreams[0] || null);
+            return (
+              <VoiceStatusPill
+                key={session.id}
+                session={session}
+                isSelf={isSelf}
+                isMutedLocally={isSelf ? rtc.isMuted : !!session.is_muted}
+                apexColor={sessionProfile?.apex_features?.thread_skin_color || sessionProfile?.accent_color || '#FF3333'}
+                stream={peerStream}
+                spidrAISpeaking={spidrVoice?.isSpeaking}
+                onClick={() => onProfileClick?.(session.user_id)}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="h-px bg-white/5 mx-3" />
+
+      {/* ── CHAT FEED (middle — flex-1 so it fills remaining height) ── */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-1.5">
+        {messages.length === 0 ? (
+          <div className="h-full flex items-center justify-center">
+            <p className="text-zinc-600 text-xs font-mono tracking-widest uppercase">No messages yet</p>
+          </div>
+        ) : (
+          messages.map((m) => {
+            const uid = m.user_id || m.author_id;
+            const name = m.user_name || m.author_name || 'spider';
+            const color = userColor(uid);
+            const isMine = uid === currentUser?.id;
+            return (
+              <div key={m.id} className="text-xs leading-snug">
+                <span
+                  className={`font-bold ${isMine ? 'cursor-default' : 'cursor-pointer hover:underline'}`}
+                  style={{ color }}
+                  onClick={() => !isMine && onProfileClick?.(uid)}
+                  title={isMine ? '' : `View ${name}`}
+                >
+                  {name}
+                </span>
+                <span className="text-white/85 ml-1.5 break-words">{m.content}</span>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* ── INPUT DOCK (bottom — pill input + send button) ── */}
+      <form onSubmit={submit} className="p-3 border-t border-white/5 flex items-center gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Drop a signal…"
+          className="flex-1 min-w-0 bg-black/40 border border-white/10 rounded-full px-3 py-1.5 text-xs text-white placeholder-zinc-600 outline-none transition-all focus:border-red-500/40 focus:shadow-[0_0_12px_rgba(239,68,68,0.18)]"
+          maxLength={500}
+        />
+        <button
+          type="submit"
+          disabled={!draft.trim() || sendMut.isPending}
+          className="w-8 h-8 rounded-full bg-red-500/90 hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed text-white flex items-center justify-center transition-all shadow-[0_0_10px_rgba(239,68,68,0.35)]"
+          title="Send"
+          aria-label="Send"
+        >
+          {sendMut.isPending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+        </button>
+      </form>
+    </aside>
   );
 }
