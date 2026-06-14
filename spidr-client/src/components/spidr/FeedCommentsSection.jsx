@@ -38,7 +38,7 @@ function fromNow(date) {
   return `${val}${unit}`;
 }
 
-export default function FeedCommentsSection({ feedId, currentUser }) {
+export default function FeedCommentsSection({ feedId, currentUser, feedAuthorId, feedAuthorName }) {
   const queryClient = useQueryClient();
   const [input, setInput] = useState('');
   const [replyingTo, setReplyingTo] = useState(null); // { id, name }
@@ -82,12 +82,55 @@ export default function FeedCommentsSection({ feedId, currentUser }) {
         content: content.trim(),
       });
     },
-    onSuccess: () => {
+    onSuccess: (newComment, variables) => {
       queryClient.invalidateQueries({ queryKey: ['feed-comments', feedId] });
       // Also bump the feed query so the comments_count shown on the card updates.
       queryClient.invalidateQueries({ queryKey: ['enhanced-feed'] });
       setInput('');
       setReplyingTo(null);
+
+      // ── Holo-Ping notification dispatch ───────────────────────────────
+      // Top-level comment → target feed owner.
+      // Reply         → target parent commenter (and skip if they're me).
+      // We send the notify event regardless of who's logged in here; the
+      // NotificationProvider's window-event handler will surface it for
+      // the current viewer in single-tab demos. For real multi-user
+      // delivery the server should emit `feed:comment` (to feed owner) or
+      // `feed:reply` (to parent commenter) when the FeedComment row is
+      // saved; the NotificationProvider already listens for both.
+      try {
+        const isReply = !!variables?.parent_comment_id;
+        let targetUserId = null;
+        if (isReply) {
+          const parent = comments.find(c => c.id === variables.parent_comment_id);
+          targetUserId = parent?.author_id || null;
+        } else {
+          targetUserId = feedAuthorId || null;
+        }
+        // Don't notify the commenter about their own comment.
+        if (targetUserId && targetUserId !== currentUser?.id) {
+          window.dispatchEvent(new CustomEvent('spidr-notify', {
+            detail: {
+              type: 'feed_reply',
+              title: isReply
+                ? `${currentUser?.full_name || currentUser?.username || 'Someone'} replied to your comment`
+                : `${currentUser?.full_name || currentUser?.username || 'Someone'} replied to your post`,
+              body: (variables?.content || '').slice(0, 80),
+              link: '/home',
+              feed_id: feedId,
+              key: `feed-reply-${newComment?.id || feedId}-${Date.now()}`,
+              // Target user — the NotificationProvider uses this to skip
+              // self-notifications. Only one user is "logged in" per
+              // browser session, so this is functionally a single
+              // self-check on receive.
+              recipient_id: targetUserId,
+            },
+          }));
+        }
+      } catch (err) {
+        // Notification failure should never block the comment itself.
+        console.warn('[FeedComments] notify dispatch failed:', err);
+      }
     },
     onError: (err) => {
       toast.error(err?.response?.data?.error || 'Could not post comment');

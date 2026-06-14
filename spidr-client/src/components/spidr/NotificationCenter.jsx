@@ -35,6 +35,9 @@ const TYPE_META = {
   announcement: { Icon: Megaphone,     accent: '#f97316', label: 'Announcement' },
   event:        { Icon: Calendar,      accent: '#eab308', label: 'Event' },
   clip:         { Icon: Film,          accent: '#ec4899', label: 'THE WEB' },
+  // Activity-feed reply (Holo-Ping). Toxic-purple accent so it stands out
+  // from DM purple and clip pink without colliding with either palette.
+  feed_reply:   { Icon: MessageCircle, accent: '#c084fc', label: 'Activity reply' },
   default:      { Icon: Bell,          accent: '#9ca3af', label: 'Signal' },
 };
 
@@ -45,7 +48,33 @@ export function NotificationProvider({ currentUser, children }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [ripples, setRipples] = useState([]); // transient corner toasts
+  // Feed-IDs with at least one unread reply for the current user. Drives
+  // the breathing-glow in-feed highlight in EnhancedFeed. Persisted to
+  // localStorage so the highlight survives a refresh until the user
+  // actually reads the post.
+  const [unreadFeedIds, setUnreadFeedIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem('spidr_unread_feed_replies');
+      return new Set(raw ? JSON.parse(raw) : []);
+    } catch { return new Set(); }
+  });
   const seenRef = useRef(new Set());
+
+  // Persist unreadFeedIds whenever it changes.
+  useEffect(() => {
+    try {
+      localStorage.setItem('spidr_unread_feed_replies', JSON.stringify([...unreadFeedIds]));
+    } catch {}
+  }, [unreadFeedIds]);
+
+  const markFeedRead = useCallback((feedId) => {
+    setUnreadFeedIds(prev => {
+      if (!prev.has(feedId)) return prev;
+      const next = new Set(prev);
+      next.delete(feedId);
+      return next;
+    });
+  }, []);
 
   const pushNotification = useCallback((n) => {
     // Dedupe by an optional key so rapid duplicate events don't stack.
@@ -59,10 +88,22 @@ export function NotificationProvider({ currentUser, children }) {
       title: n.title || 'New signal',
       body: n.body || '',
       link: n.link || null,
+      feed_id: n.feed_id || null,
       read: false,
       created: Date.now(),
     };
     setItems((prev) => [note, ...prev].slice(0, MAX_STORED));
+    // Activity-feed replies also light up the post's in-feed glow until
+    // the user opens it. Tracked by feed_id so multiple replies on the
+    // same post still resolve to one glow.
+    if (note.type === 'feed_reply' && note.feed_id) {
+      setUnreadFeedIds(prev => {
+        if (prev.has(note.feed_id)) return prev;
+        const next = new Set(prev);
+        next.add(note.feed_id);
+        return next;
+      });
+    }
     // Transient ripple toast
     setRipples((prev) => [...prev, note]);
     setTimeout(() => {
@@ -96,33 +137,83 @@ export function NotificationProvider({ currentUser, children }) {
       pushNotification({ type: 'dm', title: `${msg.sender_name || 'New DM'}`, body: (msg.content || '').slice(0, 80), link: '/friends/dms', key: `dm-${msg.id}` });
     };
 
+    // Activity-feed comment on a post YOU own. The server is expected to
+    // emit this to the post owner's socket when a new FeedComment is
+    // created where parent_comment_id is null and feed.user_id === socket.user.id.
+    const onFeedComment = (payload) => {
+      if (!payload) return;
+      if (payload.author_id === currentUser.id) return; // skip own comments
+      pushNotification({
+        type: 'feed_reply',
+        title: `${payload.author_name || 'Someone'} replied to your post`,
+        body: (payload.content || '').slice(0, 80),
+        link: '/home',
+        feed_id: payload.feed_id,
+        key: `feed-comment-${payload.id || payload.feed_id}-${payload.created_date || Date.now()}`,
+      });
+    };
+    // Reply to a comment YOU wrote. The server emits this to the parent
+    // commenter's socket when parent_comment_id is non-null and the
+    // parent's author_id === socket.user.id.
+    const onFeedReply = (payload) => {
+      if (!payload) return;
+      if (payload.author_id === currentUser.id) return;
+      pushNotification({
+        type: 'feed_reply',
+        title: `${payload.author_name || 'Someone'} replied to your comment`,
+        body: (payload.content || '').slice(0, 80),
+        link: '/home',
+        feed_id: payload.feed_id,
+        key: `feed-reply-${payload.id || payload.feed_id}-${payload.created_date || Date.now()}`,
+      });
+    };
+
     socket.on('friend:incoming', onFriend);
     socket.on('message:new', onMessage);
     socket.on('dm:new', onDM);
+    socket.on('feed:comment', onFeedComment);
+    socket.on('feed:reply', onFeedReply);
 
     // Generic window-event bridge so any component can raise a notification.
-    const onWindowNotify = (e) => pushNotification(e.detail || {});
+    // If the event carries a `recipient_id`, drop it when the current user
+    // isn't that recipient — this lets components fire-and-forget the
+    // dispatch without doing their own self-skip check, and supports
+    // single-tab demos where the same user is "both sides" of a flow.
+    const onWindowNotify = (e) => {
+      const detail = e.detail || {};
+      if (detail.recipient_id && detail.recipient_id !== currentUser?.id) return;
+      pushNotification(detail);
+    };
     window.addEventListener('spidr-notify', onWindowNotify);
 
     return () => {
       socket.off('friend:incoming', onFriend);
       socket.off('message:new', onMessage);
       socket.off('dm:new', onDM);
+      socket.off('feed:comment', onFeedComment);
+      socket.off('feed:reply', onFeedReply);
       window.removeEventListener('spidr-notify', onWindowNotify);
     };
   }, [currentUser?.id, currentUser?.username, currentUser?.full_name, pushNotification]);
 
   const unread = items.filter((i) => !i.read).length;
+  const unreadFeedReplies = items.filter((i) => !i.read && i.type === 'feed_reply').length;
   const markAllRead = () => setItems((prev) => prev.map((i) => ({ ...i, read: true })));
   const clearAll = () => setItems([]);
   const openItem = (note) => {
     setItems((prev) => prev.map((i) => (i.id === note.id ? { ...i, read: true } : i)));
+    // If the notification was a feed reply, also clear its in-feed glow.
+    if (note.type === 'feed_reply' && note.feed_id) markFeedRead(note.feed_id);
     if (note.link) navigate(note.link);
     setOpen(false);
   };
 
   return (
-    <NotificationContext.Provider value={{ pushNotification, items, unread, open, setOpen, markAllRead }}>
+    <NotificationContext.Provider value={{
+      pushNotification, items, unread, unreadFeedReplies,
+      open, setOpen, markAllRead,
+      unreadFeedIds, markFeedRead,
+    }}>
       {children}
 
       {/* Slide-in panel */}
@@ -229,16 +320,47 @@ export function NotificationProvider({ currentUser, children }) {
 export function NotificationBell() {
   const ctx = useContext(NotificationContext);
   if (!ctx) return null;
-  const { open, setOpen, unread, markAllRead } = ctx;
+  const { open, setOpen, unread, unreadFeedReplies, markAllRead } = ctx;
+
+  // Stronger emphasis when feed-replies are pending — the blueprint calls
+  // for a "glowing, pulsing orbital ring" instead of a static dot. The
+  // outer ring uses absolute positioning so it doesn't shift the button.
+  const hasFeedReplies = unreadFeedReplies > 0;
+
   return (
     <button
       onClick={() => { setOpen((v) => !v); if (!open) markAllRead(); }}
       className="relative w-9 h-9 rounded-full bg-black/60 backdrop-blur-sm border border-white/10 hover:border-red-500/40 flex items-center justify-center transition-colors"
       title="Signals"
     >
-      <Bell className="w-4 h-4 text-zinc-300" />
+      {/* Pulsing orbital ring — present whenever there are unread signals,
+          color-shifted to toxic purple for feed-reply emphasis. */}
       {unread > 0 && (
-        <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center border border-black">
+        <span
+          aria-hidden
+          className="absolute inset-0 rounded-full animate-ping pointer-events-none"
+          style={{
+            border: `1px solid ${hasFeedReplies ? 'rgba(192, 132, 252, 0.7)' : 'rgba(239, 68, 68, 0.7)'}`,
+            animationDuration: '2s',
+          }}
+        />
+      )}
+      {unread > 0 && (
+        <span
+          aria-hidden
+          className="absolute inset-0 rounded-full pointer-events-none"
+          style={{
+            boxShadow: hasFeedReplies
+              ? '0 0 12px rgba(192, 132, 252, 0.45), inset 0 0 4px rgba(192, 132, 252, 0.25)'
+              : '0 0 10px rgba(239, 68, 68, 0.35)',
+          }}
+        />
+      )}
+      <Bell className={`w-4 h-4 ${hasFeedReplies ? 'text-purple-300' : 'text-zinc-300'} relative z-10`} />
+      {unread > 0 && (
+        <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[9px] font-black flex items-center justify-center border border-black z-10"
+          style={{ background: hasFeedReplies ? '#a855f7' : '#dc2626' }}
+        >
           {unread > 9 ? '9+' : unread}
         </span>
       )}
