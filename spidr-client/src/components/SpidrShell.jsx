@@ -15,6 +15,7 @@ import MobileMenuPanel from '@/components/spidr/MobileMenuPanel';
 import MinimizedWebNode from '@/components/spidr/MinimizedWebNode';
 import SpidrBackground from '@/components/spidr/SpidrBackground';
 import VoiceChannel from '@/components/spidr/VoiceChannel';
+import CreateServerModal from '@/components/spidr/CreateServerModal';
 import SymbioteInfectionOverlay from '@/components/spidr/SymbioteInfectionOverlay';
 import ImageLightboxOverlay from '@/components/spidr/ImageLightboxOverlay';
 import BiomassBalancePill from '@/components/spidr/BiomassBalancePill';
@@ -404,6 +405,16 @@ export default function SpidrShell() {
             }}
           />
         )}
+
+        {/* Create Server modal — opened from the FloatingDock's `+` button.
+            Was previously broken: the button fired `setShowCreateServer(true)`
+            but the modal itself was never mounted in the shell, so the state
+            flipped silently with no UI. Mounting here fixes that. */}
+        <CreateServerModal
+          open={showCreateServer}
+          onClose={() => setShowCreateServer(false)}
+          currentUser={currentUser}
+        />
 
         {/* Sonner toaster */}
         <Toaster

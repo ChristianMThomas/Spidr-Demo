@@ -4,7 +4,7 @@ import { entities, integrations, getSocket } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Mic, MicOff, Video, VideoOff, Monitor, PhoneOff,
-  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, ExternalLink, Maximize2
+  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, ExternalLink, Maximize2, Tv
 } from 'lucide-react';
 import { toast } from 'sonner';
 import SpiderLogo from './SpiderLogo';
@@ -24,7 +24,17 @@ import VoiceDeckContextMenu from './VoiceDeckContextMenu';
 import { useWebRTC } from './useWebRTC';
 import { useSpeakingDetector } from '@/hooks/useSpeakingDetector';
 
-export default function VoiceChannel({ server, channel, currentUser, onLeave, onMinimize, deckHidden = false }) {
+export default function VoiceChannel({
+  server, channel, currentUser, onLeave, onMinimize, deckHidden = false,
+  // ── Theater Mode props ───────────────────────────────────────────────
+  // Controlled by the parent shell so the TheaterStage can be mounted at
+  // a higher layer than the voice tile grid (it needs the channel scope
+  // but renders as a full-bleed phone-aspect column over the stream area).
+  theaterHostId = null,
+  theaterHostName = '',
+  onStartTheater,
+  onStopTheater,
+}) {
   const [showAIPanel, setShowAIPanel]         = useState(false);
   const [aiPrompt, setAIPrompt]               = useState('');
   const [isAILoading, setIsAILoading]         = useState(false);
@@ -842,6 +852,32 @@ export default function VoiceChannel({ server, channel, currentUser, onLeave, on
             activeTint="#a855f7"
           >
             <MonitorUp size={18} className={isSharing ? 'text-purple-300' : 'text-white/40'} />
+          </DockBtn>
+          {/* Sync Feed — Theater Mode. Toggles the channel into co-op
+              scrolling mode, where the toggler becomes the host and
+              everyone else watches their THE WEB feed in sync.
+              The actual TheaterStage mounts in the channel content area
+              when theaterHostId === currentUser.id (host) or non-null
+              for guests. */}
+          <DockBtn
+            active={theaterHostId === currentUser?.id}
+            onClick={() => {
+              if (theaterHostId === currentUser?.id) {
+                onStopTheater?.();
+              } else if (theaterHostId) {
+                toast.info(`${theaterHostName || 'Someone'} is already broadcasting.`);
+              } else {
+                onStartTheater?.();
+              }
+            }}
+            title={
+              theaterHostId === currentUser?.id ? 'Stop Sync Feed' :
+              theaterHostId ? `${theaterHostName || 'Host'} is broadcasting` :
+              'Sync Feed (Theater Mode)'
+            }
+            activeTint="#FF3333"
+          >
+            <Tv size={18} className={theaterHostId === currentUser?.id ? 'text-red-300' : 'text-white/40'} />
           </DockBtn>
           <DockBtn
             onClick={() => setShowAVControls(!showAVControls)}

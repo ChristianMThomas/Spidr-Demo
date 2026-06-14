@@ -19,6 +19,7 @@ import MutualsTab from './profile/MutualsTab';
 import LinksTab from './profile/LinksTab';
 import ModulesTab from './profile/ModulesTab';
 import { buildUsernameStyle } from '@/lib/usernameStyle';
+import { dmConversationId } from '@/lib/utils';
 
 export default function HolographicProfile({ open, onClose, userId, currentUser, onOpenDM }) {
   const queryClient = useQueryClient();
@@ -147,6 +148,13 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
     onSuccess: () => { toast.success('User blocked'); queryClient.invalidateQueries({ queryKey: ['friendship'] }); queryClient.invalidateQueries({ queryKey: ['friends'] }); onClose(); }
   });
 
+  // ── Server Invite (consent-based) ────────────────────────────────────
+  // Previously this immediately appended the target user to the server's
+  // members array — invasive. Now we send the target a DirectMessage with
+  // is_server_invite + server_invite_data, rendered as an interactive
+  // ServerInviteCard in their DM thread. They click Accept to actually
+  // join, or Decline to dismiss. The membership write moves to that flow
+  // (ServerInviteCard's accept mutation), gated on the target's consent.
   const addToServer = useMutation({
     mutationFn: async () => {
       const server = servers.find(s => s.id === selectedServerId);
@@ -154,28 +162,48 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
       if (server.members?.some(m => m.user_id === userId)) {
         throw new Error('User is already a member of this server');
       }
-      await entities.Server.update(selectedServerId, {
-        members: [
-          ...(server.members || []),
-          {
-            user_id: userId,
-            user_name: userProfile?.display_name || 'User',
-            user_avatar: userProfile?.avatar_url || '',
-            role: 'Member',
-          },
-        ],
+      if (!currentUser?.id) throw new Error('Not signed in');
+
+      // Send the invite as a DirectMessage. The recipient's DM client
+      // sees `is_server_invite=true` and renders ServerInviteCard in
+      // place of the normal message body.
+      const conversationId = dmConversationId(currentUser.id, userId);
+      await entities.DirectMessage.create({
+        conversation_id: conversationId,
+        sender_id: currentUser.id,
+        sender_name: currentUser.full_name || currentUser.username,
+        sender_avatar: currentUser.avatar_url || '',
+        // Schema requires receiver_id; client filters use recipient_id.
+        // Sending both matches the pattern in DirectMessages.jsx.
+        receiver_id: userId,
+        recipient_id: userId,
+        content: `🕷️ Invited you to ${server.name}`,
+        is_server_invite: true,
+        server_invite_data: {
+          server_id: server.id,
+          server_name: server.name,
+          server_icon: server.icon_url || '',
+          server_description: server.description || '',
+          member_count: (server.members || []).length,
+          inviter_id: currentUser.id,
+          inviter_name: currentUser.full_name || currentUser.username,
+          // Snapshot of the inviter's snapshot of the current member list,
+          // used by the accept flow to compute the next members array
+          // without a follow-up read (single-write semantics).
+          members_snapshot: server.members || [],
+        },
       });
       return server.name;
     },
     onSuccess: (serverName) => {
-      toast.success(`Added to ${serverName}!`);
-      queryClient.invalidateQueries({ queryKey: ['servers'] });
-      queryClient.invalidateQueries({ queryKey: ['user-servers'] });
+      toast.success(`Invite sent — they'll see it in your DMs.`);
+      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
       setShowAddToServer(false);
       setSelectedServerId('');
     },
     onError: (err) => {
-      toast.error(err?.message || 'Could not add user to server');
+      console.error('[ServerInvite] failed:', err);
+      toast.error(err?.message || 'Could not send invite');
     },
   });
 
@@ -447,7 +475,8 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                     <BioTab 
                       userProfile={userProfile} 
                       isOwnProfile={isOwnProfile} 
-                      onWidgetSave={handleWidgetSave} 
+                      onWidgetSave={handleWidgetSave}
+                      currentUser={currentUser}
                     />
                   )}
                   {activeTab === 'mutuals' && (
