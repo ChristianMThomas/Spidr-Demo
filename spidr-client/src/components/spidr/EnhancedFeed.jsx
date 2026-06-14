@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Heart, MessageCircle, Share2, Pin, TrendingUp, Users, Award, Megaphone, Zap, Send, AtSign, UserCog } from 'lucide-react';
 import FeedCommentsSection from './FeedCommentsSection';
+import { useNotifications } from './NotificationCenter';
 function fromNow(date) {
   const diff = Date.now() - new Date(date).getTime();
   const abs  = Math.abs(diff);
@@ -130,6 +131,22 @@ function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 })
   const reactions = item.reactions || {};
   const quickEmojis = ['🔥', '❤️', '👀', '💀', '🕷️'];
 
+  // ── Unread-reply glow (Activity Pings, Part 3) ──────────────────────
+  // The notification context tracks feed IDs with unread replies so the
+  // post can "breathe" with a soft purple border until the viewer opens
+  // its comments. Opening the comments clears the glow via markFeedRead.
+  const notifCtx = useNotifications();
+  const hasUnreadReply = !!notifCtx?.unreadFeedIds?.has?.(item.id);
+  const handleToggleComments = () => {
+    setShowComments(v => !v);
+    // Clear the glow + the underlying notification's "unread" flag as
+    // soon as the viewer expands the thread, even if they don't click
+    // every individual reply.
+    if (!showComments && hasUnreadReply) {
+      notifCtx?.markFeedRead?.(item.id);
+    }
+  };
+
   // Each event type knows where it can deep-link to. Clicking the title/content
   // of the card jumps the user to the source. Reactions/comments stay inert.
   const deepLink = (() => {
@@ -156,12 +173,31 @@ function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 })
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05 }}
+      animate={
+        hasUnreadReply
+          ? {
+              opacity: 1,
+              y: 0,
+              // Soft pulse on the purple glow when there's an unread reply.
+              boxShadow: [
+                '0 0 10px rgba(168, 85, 247, 0.15)',
+                '0 0 22px rgba(168, 85, 247, 0.32)',
+                '0 0 10px rgba(168, 85, 247, 0.15)',
+              ],
+            }
+          : { opacity: 1, y: 0 }
+      }
+      transition={
+        hasUnreadReply
+          ? { delay: index * 0.05, boxShadow: { duration: 2.4, repeat: Infinity, ease: 'easeInOut' } }
+          : { delay: index * 0.05 }
+      }
       className={`rounded-xl p-4 transition-all ${
-        isPinned 
-          ? 'bg-gradient-to-r from-red-950/40 to-zinc-800/40 border border-red-500/30' 
-          : 'bg-zinc-800/40 border border-white/5 hover:border-red-900/30'
+        hasUnreadReply
+          ? 'bg-zinc-800/40 border border-purple-500/40'
+          : isPinned
+            ? 'bg-gradient-to-r from-red-950/40 to-zinc-800/40 border border-red-500/30'
+            : 'bg-zinc-800/40 border border-white/5 hover:border-red-900/30'
       }`}
     >
       <div className="flex items-start gap-3">
@@ -237,13 +273,20 @@ function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 })
             </div>
 
             <button
-              onClick={() => setShowComments(s => !s)}
-              className={`ml-auto flex items-center gap-1 text-xs transition-colors ${
-                showComments ? 'text-red-400' : 'text-zinc-500 hover:text-white'
+              onClick={handleToggleComments}
+              className={`ml-auto flex items-center gap-1 text-xs transition-colors relative ${
+                showComments ? 'text-red-400' : hasUnreadReply ? 'text-purple-300' : 'text-zinc-500 hover:text-white'
               }`}
             >
               <MessageCircle className="w-3.5 h-3.5" />
               {item.comments_count > 0 && <span>{item.comments_count}</span>}
+              {hasUnreadReply && (
+                <span
+                  aria-hidden
+                  className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-purple-400"
+                  style={{ boxShadow: '0 0 6px rgba(192, 132, 252, 0.9)' }}
+                />
+              )}
             </button>
           </div>
 
@@ -251,7 +294,12 @@ function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 })
               stays cheap to render. Each FeedCommentsSection runs its
               own query for that feed item's comments. */}
           {showComments && (
-            <FeedCommentsSection feedId={item.id} currentUser={currentUser} />
+            <FeedCommentsSection
+              feedId={item.id}
+              currentUser={currentUser}
+              feedAuthorId={item.user_id}
+              feedAuthorName={item.user_name}
+            />
           )}
         </div>
       </div>
