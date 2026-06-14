@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Globe, Clock, Terminal, Edit2, Check } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import ProfileAnthem from '../ProfileAnthem';
 
-export default function BioTab({ userProfile, isOwnProfile, onWidgetSave }) {
+export default function BioTab({ userProfile, isOwnProfile, onWidgetSave, currentUser }) {
   const [localTime, setLocalTime] = useState('');
   const [tzLabel, setTzLabel] = useState('');
   const [editingActivity, setEditingActivity] = useState(false);
@@ -91,6 +92,15 @@ export default function BioTab({ userProfile, isOwnProfile, onWidgetSave }) {
           {userProfile?.bio || "No bio data transmitted."}
         </p>
       </div>
+
+      {/* Profile Anthem — autoplay-muted on visitor profile views, with a
+          one-click unmute/play. On own profile, falls through to an
+          upload-prompt empty state when no anthem is set. */}
+      <ProfileAnthem
+        userProfile={userProfile}
+        isOwnProfile={isOwnProfile}
+        currentUser={currentUser}
+      />
 
       {/* Activity & Pronouns mini grid */}
       <div className="grid grid-cols-2 gap-2">
