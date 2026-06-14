@@ -10,6 +10,7 @@ import { FRAME_OPTIONS, getFrameComponent } from './FrameRegistry';
 import UserNameplate from './UserNameplate';
 import BubbleThemePicker from './BubbleThemePicker';
 import NameplateBackground from './NameplateBackground';
+import NameplateCropper from './NameplateCropper';
 
 const THEME_COLORS = ['#ffffff', '#FF3333', '#a855f7', '#3b82f6', '#10b981', '#eab308', '#ec4899', '#f97316'];
 
@@ -18,6 +19,11 @@ export default function ApexVisuals({ formData, updateFormData }) {
   const customBgUrl = apexFeatures.custom_bg_url || '';
   const customBgOpacity = apexFeatures.custom_bg_opacity ?? 40;
   const accentColor = formData.accent_color || '#FF3333';
+
+  // Pending nameplate file routed through the cropper modal. When the user
+  // drops or picks a file, it lands here instead of going straight to
+  // upload — they crop first, then we upload the cropped Blob.
+  const [pendingNameplateFile, setPendingNameplateFile] = useState(null);
 
   const handleBgUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -40,21 +46,34 @@ export default function ApexVisuals({ formData, updateFormData }) {
     } catch { toast.error(`${label} upload failed.`); }
   };
 
-  // Drag-drop / direct-file variant of the uploader. The APEX Forge's
-  // dropzone hands us a File object directly (no synthetic event), and we
-  // also want a clearer success toast tied to the "forge" verbiage.
-  // Accepts image/* up to 4 MB (nameplates lean larger — banners, GIFs).
-  const handleNameplateFile = async (file) => {
+  // The dropzone hands us a raw File. Validate, then route through the
+  // cropper modal — the user picks the framing before we upload anything.
+  const handleNameplateFile = (file) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) { toast.error('Nameplate must be an image (PNG, JPG, GIF).'); return; }
     if (file.size > 4 * 1024 * 1024) { toast.error('Nameplate must be under 4 MB.'); return; }
+    setPendingNameplateFile(file);
+  };
+
+  // Called by NameplateCropper after the user confirms a crop. Uploads the
+  // cropped Blob (wrapped as a File so the upload integration can pull a
+  // filename + mime). On success, sets `nameplate_url` on the profile.
+  const uploadCroppedNameplate = async (croppedBlob) => {
+    if (!croppedBlob) return;
+    const ext = croppedBlob.type === 'image/png' ? 'png' :
+                croppedBlob.type === 'image/webp' ? 'webp' : 'jpg';
+    const file = new File([croppedBlob], `nameplate.${ext}`, { type: croppedBlob.type });
     try {
       const { url } = await integrations.Core.UploadFile({ file });
       if (url) {
         updateFormData({ apex_features: { ...apexFeatures, nameplate_url: url } });
         toast.success('Nameplate forged.');
       }
-    } catch { toast.error('Nameplate forge failed.'); }
+    } catch {
+      toast.error('Nameplate forge failed.');
+    } finally {
+      setPendingNameplateFile(null);
+    }
   };
 
   return (
@@ -348,6 +367,17 @@ export default function ApexVisuals({ formData, updateFormData }) {
 
       {/* ── NAMEPLATES & BADGES (Patch 2.4) ─────────────────────────────── */}
       <BadgeAndNameplate formData={formData} updateFormData={updateFormData} accentColor={accentColor} />
+
+      {/* ── NAMEPLATE CROPPER ──
+          Mounts whenever the user drops/picks a nameplate image. The
+          dropzone routes the raw File here first, and only the cropped
+          Blob actually gets uploaded. */}
+      <NameplateCropper
+        open={!!pendingNameplateFile}
+        imageFile={pendingNameplateFile}
+        onCancel={() => setPendingNameplateFile(null)}
+        onApply={uploadCroppedNameplate}
+      />
     </div>
   );
 }

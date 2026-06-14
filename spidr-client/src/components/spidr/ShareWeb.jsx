@@ -37,6 +37,12 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
         sender_id: currentUser.id,
         sender_name: currentUser.full_name || currentUser.username,
         sender_avatar: currentUser.avatar_url,
+        // ── Schema gotcha ──
+        // The Mongoose schema's *required* field is `receiver_id`; the
+        // rest of the client reads `recipient_id` for filtering. The
+        // working DM-send in DirectMessages.jsx sends both. Sending only
+        // recipient_id was the cause of "Path `receiver_id` is required".
+        receiver_id: friendId,
         recipient_id: friendId,
         content: `📹 Shared a clip: ${clip.caption || 'Check this out!'}`,
         attachments: [clip.video_url].filter(Boolean),

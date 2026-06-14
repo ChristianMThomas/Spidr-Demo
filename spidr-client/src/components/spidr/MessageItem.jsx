@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import Linkify from './Linkify';
+import ServerInviteCard from './ServerInviteCard';
 import GhostMessage from './GhostMessage';
 import KineticText from './KineticText';
 import ReactionBar from './ReactionBar';
@@ -232,6 +233,12 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                 <Linkify text={msg.content} users={mentionUsers} onMentionClick={(uid) => onProfileClick?.(uid)} />
               )}
             </div>
+
+            {/* Server invite card — interactive accept/decline UI rendered
+                in-thread whenever a DM carries is_server_invite=true. */}
+            {msg.is_server_invite && msg.server_invite_data && (
+              <ServerInviteCard msg={msg} currentUser={currentUser} />
+            )}
 
             {/* Clip share embed */}
             {msg.is_clip_share && msg.clip_data && msg.attachments?.[0] && (
