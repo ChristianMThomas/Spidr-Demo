@@ -77,6 +77,20 @@ const s = new Schema({
   // Gaming Uplink — set by Electron process scanner or manually
   // Shape: { active: bool, game: string|null, character: string|null }
   gaming_status:  { type: Schema.Types.Mixed, default: null },
+  // NowPlaying presence — T1: Electron OS media session; T1+: Spotify enrichment
+  nowPlaying: {
+    isPlaying:  { type: Boolean, default: false },
+    source:     { type: String, enum: ['os', 'spotify', 'manual'] },
+    provider:   String,
+    trackName:  String,
+    artists:    [String],
+    albumArt:   String,
+    trackUri:   String,
+    durationMs: Number,
+    positionMs: Number,
+    positionAt: Date,
+    updatedAt:  Date,
+  },
   // Notification preferences (3.4 of Patch 1.2) — persisted toggle state.
   notification_prefs: { type: Schema.Types.Mixed, default: null },
   // "Spidr Web" pinned conversations (Patch 1.4 §3.1) — array of refs like

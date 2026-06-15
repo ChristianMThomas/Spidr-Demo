@@ -98,6 +98,8 @@ function createWindow() {
     show: false,
   });
 
+  forwardWindowState(mainWindow);
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     // Only open DevTools in development (not in packaged .exe)
@@ -161,6 +163,12 @@ ipcMain.on('maximize-window', () => {
   else mainWindow?.maximize();
 });
 ipcMain.on('close-window', () => mainWindow?.close());
+
+// Forward maximize/unmaximize to renderer so the title bar can swap icons
+function forwardWindowState(win) {
+  win.on('maximize',   () => { if (!win.isDestroyed()) win.webContents.send('window:maximized'); });
+  win.on('unmaximize', () => { if (!win.isDestroyed()) win.webContents.send('window:unmaximized'); });
+}
 
 // ── Video call pop-out (2.1) ────────────────────────────────────────────────
 // A MediaStream cannot be serialized across IPC, so we don't transfer the
@@ -490,6 +498,76 @@ const FULLSCREEN_EXCLUDE = [
 // Written once per app session; reused on every 10s scan tick
 const PS_SCRIPT_PATH = path.join(os.tmpdir(), 'spidr_game_scan.ps1');
 
+// ── OS Media Session (Windows SMTC) ────────────────────────────────────────
+const SMTC_SCRIPT_PATH = path.join(os.tmpdir(), 'spidr_smtc.ps1');
+let lastNowPlayingKey = '';
+let mediaSessionTimer  = null;
+
+function writeSmtcScript() {
+  const lines = [
+    '$out = @{ trackName=""; artist=""; isPlaying=$false; durationMs=0; positionMs=0 }',
+    'try {',
+    '  Add-Type -AssemblyName System.Runtime.WindowsRuntime -ErrorAction SilentlyContinue',
+    '  $mc = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime]',
+    '  $mgr = $null',
+    '  try { $mgr = $mc::RequestAsync().GetAwaiter().GetResult() } catch {}',
+    '  if (-not $mgr) {',
+    '    try {',
+    '      $asyncOp = $mc::RequestAsync()',
+    '      $exts = [System.Runtime.WindowsRuntime.WindowsRuntimeMarshal].Assembly.GetType("System.WindowsRuntimeSystemExtensions")',
+    '      if ($exts) {',
+    '        $m = $exts.GetMethods("Static,Public") | Where-Object { $_.Name -eq "AsTask" -and $_.IsGenericMethod } | Select-Object -First 1',
+    '        if ($m) { $t = $m.MakeGenericMethod($mc).Invoke($null, @($asyncOp)); $t.Wait(2000) | Out-Null; $mgr = $t.Result }',
+    '      }',
+    '    } catch {}',
+    '  }',
+    '  if ($mgr) {',
+    '    $s = $mgr.GetCurrentSession()',
+    '    if ($s) {',
+    '      try { $p = $s.TryGetMediaPropertiesAsync().GetAwaiter().GetResult() } catch { $p = $null }',
+    '      $tl = $s.GetTimelineProperties()',
+    '      $pb = $s.GetPlaybackInfo()',
+    '      $playEnum = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus,Windows.Media.Control,ContentType=WindowsRuntime]',
+    '      $out.trackName  = if ($p) { [string]$p.Title }  else { "" }',
+    '      $out.artist     = if ($p) { [string]$p.Artist } else { "" }',
+    '      $out.isPlaying  = ($pb.PlaybackStatus -eq $playEnum::Playing)',
+    '      $out.durationMs = [long]$tl.EndTime.TotalMilliseconds',
+    '      $out.positionMs = [long]$tl.Position.TotalMilliseconds',
+    '    }',
+    '  }',
+    '} catch {}',
+    'if (-not $out.trackName) {',
+    '  try {',
+    '    $sp = Get-Process Spotify -EA SilentlyContinue | Where-Object { $_.MainWindowTitle.Length -gt 10 } | Select-Object -First 1',
+    '    if ($sp -and $sp.MainWindowTitle -match "^(.+?) - (.+)$") {',
+    '      $out.artist = $Matches[1].Trim(); $out.trackName = $Matches[2].Trim(); $out.isPlaying = $true',
+    '    }',
+    '  } catch {}',
+    '}',
+    '$out | ConvertTo-Json -Compress',
+  ];
+  fs.writeFileSync(SMTC_SCRIPT_PATH, lines.join('\r\n'), 'utf8');
+}
+
+function pollMediaSession(win) {
+  if (process.platform !== 'win32') return;
+  exec(
+    `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${SMTC_SCRIPT_PATH}"`,
+    { timeout: 4000 },
+    (_err, stdout) => {
+      try {
+        const data = JSON.parse(stdout?.trim() || '{}');
+        const key = `${data.trackName}|${data.isPlaying}|${Math.floor((data.positionMs || 0) / 5000)}`;
+        if (key !== lastNowPlayingKey) {
+          lastNowPlayingKey = key;
+          if (win && !win.isDestroyed()) win.webContents.send('nowplaying-change', data);
+        }
+      } catch {}
+      mediaSessionTimer = setTimeout(() => pollMediaSession(win), 5000);
+    }
+  );
+}
+
 // R.E.P.O. log parsing — tracks read position so we only parse new bytes each tick
 const REPO_LOG_PATH = path.join(os.homedir(), 'AppData', 'LocalLow', 'Semiwork', 'REPO', 'Player.log');
 let repoLogPos   = 0;
@@ -757,11 +835,18 @@ app.whenReady().then(() => {
   writeFullscreenScript();
   scanProcesses();
   gameDetectionInterval = setInterval(scanProcesses, 10000);
+
+  // OS media session (Windows SMTC) — polls every 5s, emits 'nowplaying-change' on change
+  if (process.platform === 'win32') {
+    writeSmtcScript();
+    pollMediaSession(mainWindow);
+  }
 });
 
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll(); } catch {}
   if (gameDetectionInterval) clearInterval(gameDetectionInterval);
+  if (mediaSessionTimer) clearTimeout(mediaSessionTimer);
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

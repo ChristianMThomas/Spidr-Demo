@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { Button } from '@/components/ui/button';
@@ -244,31 +244,30 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
     setCropImage(null); setCropType(null);
   };
 
-  const handleWidgetSave = async (key, value) => {
+  const handleWidgetSave = useCallback(async (key, value) => {
     try {
       const updates = {};
       if (key === 'pronouns') updates.pronouns = value;
       else if (key === 'activity') updates.activity = { ...(userProfile?.activity || {}), name: value };
+      else if (key === 'timezone') updates.timezone = value;
+      else return; // unknown key — don't send empty update
       const targetId = userProfile?.id;
       if (!targetId) {
         toast.error('Profile not loaded yet — try again in a moment');
         return;
       }
       await entities.UserProfile.update(targetId, updates);
-      // The query key is ['userProfile', userId] — invalidate that specifically,
-      // then a broader prefix-match to catch every cached profile view.
       queryClient.invalidateQueries({ queryKey: ['userProfile', userId] });
       queryClient.invalidateQueries({ queryKey: ['userProfile'] });
       queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
       queryClient.invalidateQueries({ queryKey: ['profiles-for-chat'] });
-      // Broadcast so the shell currentUser also re-syncs.
       window.dispatchEvent(new CustomEvent('spidr-profile-updated', { detail: { profile: updates } }));
-      toast.success('Updated!');
+      if (key !== 'timezone') toast.success('Updated!');
     } catch (err) {
       console.error('Widget save failed:', err);
       toast.error(err?.data?.error || err?.message || 'Could not save — try again');
     }
-  };
+  }, [userProfile?.id, userProfile?.activity, userId, queryClient]);
 
   const handleMessage = () => {
     if (onOpenDM) {
