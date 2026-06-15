@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Music2, ExternalLink, Unlink } from 'lucide-react';
+import { Music2, ExternalLink, Unlink, Link2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { entities } from '@/api/apiClient';
 import { useNowPlaying } from '@/context/NowPlayingContext';
 
@@ -78,15 +79,72 @@ export default function SpotifyNowPlaying({ userId, isOwnProfile }) {
     queryClient.invalidateQueries({ queryKey: ['user-profile', userId] });
   }, [queryClient, userId]);
 
+  // Web-only OAuth kickoff. Electron reads OS media, so it doesn't need this.
+  // Opens the Spotify consent screen in a new tab; the server callback writes
+  // tokens to the profile, then redirects back to the app. The NowPlaying
+  // poll picks up the connection on its next 10s tick.
+  const isElectron = !!window.electronAPI?.isElectron;
+  const handleConnect = useCallback(() => {
+    if (!userId) return;
+    const url = `${BASE_URL}/spotify/auth/start?userId=${encodeURIComponent(userId)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, [userId]);
+
+  // Handle the OAuth roundtrip return. The server-side callback redirects
+  // back here with either ?spotify_connected=true (success) or
+  // ?spotify_error=<reason> (cancelled, failed). Until we get Spotify
+  // Production Mode approval the app is capped at 25 whitelisted testers, so
+  // any non-whitelisted user gets bounced before reaching the callback — we
+  // surface that as a "closed beta" toast instead of a confusing silent fail.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get('spotify_connected') === 'true') {
+      queryClient.invalidateQueries({ queryKey: ['user-profile', userId] });
+      toast.success('Spotify linked — your tracks will start showing in ~10s');
+      params.delete('spotify_connected');
+    } else if (params.has('spotify_error')) {
+      const err = params.get('spotify_error');
+      if (err === 'cancelled') {
+        toast.info('Spotify connection cancelled — if this was unexpected, your Spotify account may not be in the closed beta yet. Ask Chris for access.');
+      } else {
+        toast.error('Could not connect Spotify — try again, or ask Chris for closed-beta access.');
+      }
+      params.delete('spotify_error');
+    } else {
+      return;
+    }
+
+    const q = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (q ? `?${q}` : ''));
+  }, [queryClient, userId]);
+
   const np = ownNowPlaying;
   const isActive = np?.isPlaying && np?.trackName;
 
   // ── Nothing playing / Electron not running / no media session ────────────
   if (!isActive) {
+    // Web + own profile + not yet connected → show the Connect Spotify CTA.
+    // (Electron doesn't need OAuth — it reads the OS media session directly.)
+    const showConnect = isOwnProfile && !isElectron && !spotifyConnected;
+
     return (
       <div className="bg-[#0a0a0f] border border-[#1DB954]/20 rounded-xl overflow-hidden min-h-[100px] flex flex-col items-center justify-center gap-2 p-4">
         <Music2 size={20} className="text-[#1DB954]/40" />
-        <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">Nothing playing</p>
+        <p className="text-[10px] font-mono text-gray-600 uppercase tracking-widest">
+          {showConnect ? 'Link Spotify' : 'Nothing playing'}
+        </p>
+        {showConnect && (
+          <button
+            onClick={handleConnect}
+            className="mt-1 flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[#1DB954]/15 hover:bg-[#1DB954]/25 border border-[#1DB954]/40 text-[#1DB954] text-[10px] font-bold uppercase tracking-widest transition-colors"
+            title="Connect your Spotify account (closed beta — must be whitelisted)"
+          >
+            <Link2 size={11} />
+            Connect Spotify
+          </button>
+        )}
         {isOwnProfile && spotifyConnected && (
           <button
             onClick={handleDisconnect}
