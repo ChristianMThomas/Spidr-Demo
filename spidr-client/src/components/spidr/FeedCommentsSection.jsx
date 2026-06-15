@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { entities, feedComments } from '@/api/apiClient';
@@ -43,6 +43,26 @@ export default function FeedCommentsSection({ feedId, currentUser, feedAuthorId,
   const [input, setInput] = useState('');
   const [replyingTo, setReplyingTo] = useState(null); // { id, name }
   const [submitting, setSubmitting] = useState(false);
+  // When the server returns 429, we lock the composer until this
+  // timestamp passes. Reads as ms-since-epoch; 0 = no cooldown active.
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  // Force re-render once a second while cooldown is active so the
+  // "Try again in Ns" placeholder counts down visibly.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!cooldownUntil) return;
+    const id = setInterval(() => {
+      if (Date.now() >= cooldownUntil) {
+        setCooldownUntil(0);
+        clearInterval(id);
+      } else {
+        forceTick((n) => n + 1);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [cooldownUntil]);
+  const cooldownSec = cooldownUntil ? Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000)) : 0;
+  const onCooldown = cooldownSec > 0;
 
   const { data: comments = [], isLoading } = useQuery({
     queryKey: ['feed-comments', feedId],
@@ -51,7 +71,13 @@ export default function FeedCommentsSection({ feedId, currentUser, feedAuthorId,
     // client-side rather than by query.
     queryFn: () => entities.FeedComment.filter({ feed_id: feedId }, 'created_date', 200),
     enabled: !!feedId,
-    staleTime: 10_000,
+    // 30s stale so toggling the comments closed-then-open on the same
+    // post doesn't immediately re-fetch. The mutation onSuccess still
+    // invalidates so freshly-posted comments are visible right away.
+    staleTime: 30_000,
+    // Don't retry on failure. The default of 3 turns a single 429 into
+    // 4 requests, which makes the rate-limit problem worse not better.
+    retry: false,
   });
 
   // Bucket by parent. Top-level comments (parent_comment_id == null) and
@@ -84,8 +110,11 @@ export default function FeedCommentsSection({ feedId, currentUser, feedAuthorId,
     },
     onSuccess: (newComment, variables) => {
       queryClient.invalidateQueries({ queryKey: ['feed-comments', feedId] });
-      // Also bump the feed query so the comments_count shown on the card updates.
-      queryClient.invalidateQueries({ queryKey: ['enhanced-feed'] });
+      // NOTE: deliberately NOT invalidating ['enhanced-feed'] here.
+      // The previous version refetched the entire activity feed after
+      // every single comment, doubling the API load and contributing to
+      // 429s on /feed-comments. The feed has its own 60s refetchInterval
+      // — comments_count lag is acceptable; rate-limit failure isn't.
       setInput('');
       setReplyingTo(null);
 
@@ -133,7 +162,17 @@ export default function FeedCommentsSection({ feedId, currentUser, feedAuthorId,
       }
     },
     onError: (err) => {
-      toast.error(err?.response?.data?.error || 'Could not post comment');
+      // 429 — server told us to slow down. Lock the composer for the
+      // Retry-After window (parsed in apiClient) and show a specific,
+      // calmer toast so the user understands it's not a bug, just a
+      // brief cooldown.
+      if (err?.isRateLimited || err?.status === 429) {
+        const wait = err?.retryAfter || 5;
+        setCooldownUntil(Date.now() + wait * 1000);
+        toast.error(`Easy — try again in ${wait}s. (Server's rate-limiting)`);
+        return;
+      }
+      toast.error(err?.response?.data?.error || err?.message || 'Could not post comment');
     },
     onSettled: () => setSubmitting(false),
   });
@@ -155,7 +194,7 @@ export default function FeedCommentsSection({ feedId, currentUser, feedAuthorId,
 
   const handleSubmit = () => {
     const text = input.trim();
-    if (!text || submitting) return;
+    if (!text || submitting || onCooldown) return;
     setSubmitting(true);
     createMut.mutate({ content: text, parent_comment_id: replyingTo?.id || null });
   };
@@ -189,13 +228,20 @@ export default function FeedCommentsSection({ feedId, currentUser, feedAuthorId,
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
-              placeholder={replyingTo ? `Reply to ${replyingTo.name}...` : 'Add a comment...'}
+              placeholder={
+                onCooldown
+                  ? `Slow down — try again in ${cooldownSec}s`
+                  : (replyingTo ? `Reply to ${replyingTo.name}...` : 'Add a comment...')
+              }
               maxLength={1000}
-              className="flex-1 min-w-0 bg-zinc-900 border border-white/10 focus:border-red-500/50 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none transition-colors"
+              disabled={onCooldown}
+              className={`flex-1 min-w-0 bg-zinc-900 border ${
+                onCooldown ? 'border-red-500/40' : 'border-white/10 focus:border-red-500/50'
+              } rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none transition-colors disabled:opacity-60`}
             />
             <button
               onClick={handleSubmit}
-              disabled={!input.trim() || submitting}
+              disabled={!input.trim() || submitting || onCooldown}
               className="w-8 h-8 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white flex items-center justify-center transition-colors shrink-0"
               aria-label="Post comment"
             >
