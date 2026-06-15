@@ -448,6 +448,38 @@ module.exports = function registerHandlers(io) {
       if (sockets) for (const sid of sockets) io.to(sid).emit('call:cancelled', { conversationId, byUserId: userId });
     });
 
+    // ── NowPlaying presence (T1 — OS media session / T1+ — Spotify) ─────────
+    socket.on('nowplaying:update', async (data) => {
+      if (!socketRateLimit(socket)) return;
+      if (!data?.trackName) return;
+      const nowPlaying = {
+        isPlaying:  data.isPlaying ?? true,
+        source:     'os',
+        trackName:  typeof data.trackName === 'string' ? data.trackName : null,
+        artists:    Array.isArray(data.artists) ? data.artists : (data.artist ? [String(data.artist)] : []),
+        albumArt:   typeof data.albumArt === 'string' ? data.albumArt : null,
+        durationMs: typeof data.durationMs === 'number' ? data.durationMs : null,
+        positionMs: typeof data.positionMs === 'number' ? data.positionMs : 0,
+        positionAt: new Date(),
+        updatedAt:  new Date(),
+      };
+      UserProfile.updateOne({ user_id: userId }, { $set: { nowPlaying } }).catch(() => {});
+      for (const room of socket.rooms) {
+        if (room !== socket.id) socket.to(room).emit('presence:nowplaying', { userId, nowPlaying });
+      }
+    });
+
+    socket.on('nowplaying:clear', async () => {
+      if (!socketRateLimit(socket)) return;
+      UserProfile.updateOne(
+        { user_id: userId },
+        { $set: { 'nowPlaying.isPlaying': false } }
+      ).catch(() => {});
+      for (const room of socket.rooms) {
+        if (room !== socket.id) socket.to(room).emit('presence:nowplaying', { userId, nowPlaying: { isPlaying: false } });
+      }
+    });
+
     // ── Disconnecting: notify voice rooms while rooms are still populated ────
     socket.on('disconnecting', () => {
       for (const room of socket.rooms) {

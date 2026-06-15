@@ -22,14 +22,18 @@ export default function BioTab({ userProfile, isOwnProfile, onWidgetSave, curren
   // VIEWER's clock — making every profile look like it was in your zone.
   const ownerTz = userProfile?.timezone || null;
   useEffect(() => {
-    // Auto-detect + persist once, only on own profile.
+    // Auto-detect + persist once, only on own profile when no tz is saved.
     if (isOwnProfile && !ownerTz) {
       try {
         const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (detected) onWidgetSave?.('timezone', detected);
       } catch {}
     }
-  }, [isOwnProfile, ownerTz, onWidgetSave]);
+    // onWidgetSave intentionally excluded — it's a stable useCallback now but
+    // this effect must only re-run when the tz state actually changes, not on
+    // every render cycle. Adding it would cause a save loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOwnProfile, ownerTz]);
 
   useEffect(() => {
     const tz = ownerTz || undefined; // undefined falls back to viewer's tz
