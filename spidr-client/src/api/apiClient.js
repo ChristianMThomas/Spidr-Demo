@@ -68,6 +68,29 @@ async function request(method, path, { params, body, isFormData } = {}) {
     const err = new Error((data && data.error) || `HTTP ${res.status}`);
     err.status = res.status;
     err.data = data;
+    // ── 429 surfacing ────────────────────────────────────────────────
+    // Parse Retry-After so callers (e.g. FeedCommentsSection) can
+    // disable the input for the actual cooldown the server is asking
+    // for instead of guessing. Retry-After can be either delta-seconds
+    // ("30") or an HTTP date — we handle both. Falls back to a sensible
+    // 5s if the server didn't send one.
+    if (res.status === 429) {
+      const ra = res.headers.get('retry-after');
+      let seconds = 5;
+      if (ra) {
+        const asInt = parseInt(ra, 10);
+        if (!Number.isNaN(asInt) && asInt > 0) {
+          seconds = asInt;
+        } else {
+          const asDate = Date.parse(ra);
+          if (!Number.isNaN(asDate)) {
+            seconds = Math.max(1, Math.ceil((asDate - Date.now()) / 1000));
+          }
+        }
+      }
+      err.retryAfter = seconds;
+      err.isRateLimited = true;
+    }
     throw err;
   }
 
@@ -343,4 +366,48 @@ export const spotify = {
   // but a safety net for older profiles or schema migrations.
   track: (id) =>
     api.get(`/spotify/tracks/${id}`).catch(() => null),
+
+  // ── "Listening to" / DJ feature ────────────────────────────────────
+  // The now-playing endpoint requires per-user OAuth (Authorization
+  // Code flow). The backend stores the user's Spotify refresh token,
+  // exchanges it for an access token on demand (with caching), and
+  // proxies /me/player/currently-playing.
+  //
+  // Returned shape (or null when nothing is playing / user not
+  // connected):
+  //   {
+  //     is_playing,
+  //     track_id, track_name, artist, album,
+  //     album_art_url, spotify_url,
+  //     duration_ms, progress_ms,
+  //     // Server timestamp at the moment progress_ms was sampled —
+  //     // the client ticks progress locally between polls.
+  //     sampled_at: <ms-since-epoch>,
+  //   }
+  nowPlaying: (userId) =>
+    api.get(`/spotify/now-playing/${userId}`).catch(() => null),
+
+  // OAuth flow — first call opens the Spotify authorize URL the
+  // backend returns. After redirect, the backend stores the refresh
+  // token and bounces back to /settings/connections (or wherever you
+  // configure). disconnect revokes server-side storage of the token.
+  authUrl: () => api.get('/spotify/auth/url').catch(() => null),
+  disconnect: () => api.delete('/spotify/auth').catch(() => null),
+
+  // DJ session lives on a voice channel. Host creates one with the
+  // current track they want to broadcast; the server stores
+  // { host_id, track_id, started_at } and emits over the channel's
+  // socket room so all members re-render with the DJ matrix.
+  djSession: {
+    get:   (channelId) => api.get(`/voice-channels/${channelId}/dj-session`).catch(() => null),
+    start: (channelId, track_id) =>
+      api.post(`/voice-channels/${channelId}/dj-session`, { track_id })
+         .catch((err) => { throw err; }),
+    next:  (channelId, track_id) =>
+      api.patch(`/voice-channels/${channelId}/dj-session`, { track_id })
+         .catch((err) => { throw err; }),
+    end:   (channelId) =>
+      api.delete(`/voice-channels/${channelId}/dj-session`)
+         .catch((err) => { throw err; }),
+  },
 };
