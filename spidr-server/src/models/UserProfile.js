@@ -77,6 +77,15 @@ const s = new Schema({
   // Gaming Uplink — set by Electron process scanner or manually
   // Shape: { active: bool, game: string|null, character: string|null }
   gaming_status:  { type: Schema.Types.Mixed, default: null },
+  // Weather module — the owner's saved coords. Stored as lat/lon only (no
+  // reverse-geocoded city/region) so viewers see the OWNER's weather without
+  // exposing their precise location. Set when the owner first grants the
+  // geolocation prompt on their own profile.
+  weather_coords: {
+    lat:        Number,
+    lon:        Number,
+    updated_at: { type: Date, default: Date.now },
+  },
   // NowPlaying presence — T1: Electron OS media session; T1+: Spotify enrichment
   nowPlaying: {
     isPlaying:  { type: Boolean, default: false },
