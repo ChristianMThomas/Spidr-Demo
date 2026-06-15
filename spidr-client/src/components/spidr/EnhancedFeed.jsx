@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
@@ -147,6 +147,29 @@ function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 })
     }
   };
 
+  // ── Jump-to-thread (Holo-Ping click handler) ─────────────────────────
+  // NotificationCenter.openItem dispatches `spidr-open-feed-item` with a
+  // feed_id when the user clicks a feed_reply notification. If THIS card
+  // is the match, scroll it into view and force the comments section
+  // open. We also clear the glow since the user has now seen the post.
+  const cardRef = useRef(null);
+  useEffect(() => {
+    const onOpenFeedItem = (e) => {
+      if (e?.detail?.feed_id !== item.id) return;
+      const el = cardRef.current;
+      if (el) {
+        // 'center' so the card lands mid-screen — better than 'start' for
+        // posts near the bottom of the feed, where 'start' leaves the
+        // comments section clipped under the page chrome.
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      setShowComments(true);
+      if (hasUnreadReply) notifCtx?.markFeedRead?.(item.id);
+    };
+    window.addEventListener('spidr-open-feed-item', onOpenFeedItem);
+    return () => window.removeEventListener('spidr-open-feed-item', onOpenFeedItem);
+  }, [item.id, hasUnreadReply, notifCtx]);
+
   // Each event type knows where it can deep-link to. Clicking the title/content
   // of the card jumps the user to the source. Reactions/comments stay inert.
   const deepLink = (() => {
@@ -172,6 +195,7 @@ function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 })
 
   return (
     <motion.div
+      ref={cardRef}
       initial={{ opacity: 0, y: 10 }}
       animate={
         hasUnreadReply

@@ -316,3 +316,31 @@ export function disconnectSocket() {
 }
 
 export const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '';
+
+// ─── Spotify track search ────────────────────────────────────────────────────
+// Profile Anthems use Spotify's 30-second `preview_url` instead of letting
+// users upload raw MP3s (uploads tripped HTTP 429 rate limits and carried
+// copyright liability). The frontend never touches Spotify's API directly —
+// the client secret has to stay on the server. The backend proxies the
+// Client Credentials flow at `/api/spotify/search?q=<query>` and returns
+// tracks in this normalized shape:
+//
+//   {
+//     id, name, artist, album, album_art_url,
+//     preview_url,    // null for ~10–15% of catalog (label blocks previews)
+//     external_url,   // open.spotify.com/track/<id> — used as the fallback
+//                     // "Open in Spotify" link when preview_url is null
+//     duration_ms
+//   }
+//
+// The .catch returns an empty list so a flaky backend doesn't blow up the
+// search modal — the user sees "No matches" instead of a crash.
+export const spotify = {
+  search: (q, limit = 12) =>
+    api.get('/spotify/search', { params: { q, limit } }).catch(() => ({ tracks: [] })),
+  // Re-fetch one track's metadata. Used when a profile only has a
+  // saved spotify_id (no cached fields) — rare since we cache eagerly,
+  // but a safety net for older profiles or schema migrations.
+  track: (id) =>
+    api.get(`/spotify/tracks/${id}`).catch(() => null),
+};
