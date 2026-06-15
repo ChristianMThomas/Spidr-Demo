@@ -206,6 +206,23 @@ export function NotificationProvider({ currentUser, children }) {
     if (note.type === 'feed_reply' && note.feed_id) markFeedRead(note.feed_id);
     if (note.link) navigate(note.link);
     setOpen(false);
+
+    // ── Jump-to-thread for feed replies ──────────────────────────────
+    // The blueprint asks for "auto-scrolls them directly to that specific
+    // item in the Activity Feed and opens the reply thread". The
+    // EnhancedFeed FeedCard listens for `spidr-open-feed-item` and
+    // matches against its own item.id, so we can fire-and-forget. The
+    // 50ms delay lets the navigate() call settle when the user wasn't
+    // already on /home — FeedCard has to mount before it can react.
+    if (note.type === 'feed_reply' && note.feed_id) {
+      setTimeout(() => {
+        try {
+          window.dispatchEvent(new CustomEvent('spidr-open-feed-item', {
+            detail: { feed_id: note.feed_id },
+          }));
+        } catch {}
+      }, 50);
+    }
   };
 
   return (

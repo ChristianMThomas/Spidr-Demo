@@ -1,0 +1,306 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, X, Music, Play, Pause, Loader2, ExternalLink, Check } from 'lucide-react';
+import { spotify } from '@/api/apiClient';
+
+/**
+ * SpotifySearchModal — Instagram-Story-style search for picking a profile
+ * anthem from Spotify's catalog.
+ *
+ *   • Debounced search (320ms) hits /api/spotify/search via the spotify
+ *     helper. Backend handles the Client Credentials token + secret.
+ *   • Results render as a vertical list of {album art, track name, artist},
+ *     each row has its own micro-player so the user can audition the 30s
+ *     preview before committing. Only one preview plays at a time.
+ *   • Selecting a row calls onSelect(track) with the normalized payload
+ *     ready to stamp on UserProfile.anthem_* fields.
+ *   • Tracks without `preview_url` are NOT excluded — they show an "Open
+ *     in Spotify" affordance instead of the play button so the user knows
+ *     the track exists but can't be auditioned in-app.
+ */
+export default function SpotifySearchModal({ open, onClose, onSelect, currentSelectedId }) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [playingId, setPlayingId] = useState(null); // which preview is auditioning
+  const audioRef = useRef(null);
+  const debounceRef = useRef(null);
+
+  // Reset on close so re-opening doesn't show stale results.
+  useEffect(() => {
+    if (!open) {
+      const t = setTimeout(() => {
+        setQuery('');
+        setResults([]);
+        setPlayingId(null);
+        if (audioRef.current) { try { audioRef.current.pause(); } catch {} }
+      }, 200);
+      return () => clearTimeout(t);
+    }
+  }, [open]);
+
+  // Debounced search — wait 320ms after the user stops typing before
+  // firing. Cancels any pending search if a new keystroke lands first.
+  useEffect(() => {
+    if (!open) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const q = query.trim();
+    if (q.length < 2) { setResults([]); setLoading(false); return; }
+
+    debounceRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await spotify.search(q, 12);
+        setResults(Array.isArray(res?.tracks) ? res.tracks : []);
+      } catch {
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 320);
+    return () => clearTimeout(debounceRef.current);
+  }, [query, open]);
+
+  // Stop the audition when the modal closes.
+  useEffect(() => {
+    if (!open && audioRef.current) {
+      try { audioRef.current.pause(); audioRef.current.currentTime = 0; } catch {}
+    }
+  }, [open]);
+
+  const handlePreview = useCallback((track) => {
+    if (!track?.preview_url) return;
+    const el = audioRef.current;
+    if (!el) return;
+    if (playingId === track.id) {
+      el.pause();
+      setPlayingId(null);
+    } else {
+      el.src = track.preview_url;
+      el.play().then(() => setPlayingId(track.id)).catch(() => setPlayingId(null));
+    }
+  }, [playingId]);
+
+  if (!open) return null;
+
+  const modal = (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[9992] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl overflow-hidden flex flex-col"
+            style={{
+              maxHeight: 'min(640px, 80vh)',
+              background: 'rgba(12, 12, 14, 0.96)',
+              backdropFilter: 'blur(24px)',
+              WebkitBackdropFilter: 'blur(24px)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              boxShadow: '0 0 40px rgba(239, 68, 68, 0.15), 0 24px 60px rgba(0, 0, 0, 0.7)',
+            }}
+          >
+            {/* Hidden audio element shared across all preview buttons.
+                Single instance enforces "one preview at a time". */}
+            <audio
+              ref={audioRef}
+              preload="none"
+              onEnded={() => setPlayingId(null)}
+              onPause={() => setPlayingId(null)}
+            />
+
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b border-white/5 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.35)' }}
+                >
+                  <Music size={15} className="text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-400 leading-none">Spotify</p>
+                  <h2 className="text-white font-bold text-sm leading-tight">Set Profile Anthem</h2>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="text-zinc-500 hover:text-white p-1 rounded transition-colors"
+                aria-label="Close"
+                type="button"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Search input */}
+            <div className="p-4 flex-shrink-0">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search songs, artists…"
+                  autoFocus
+                  className="w-full bg-black/40 border border-white/10 rounded-lg pl-9 pr-9 py-2.5 text-sm text-white placeholder-zinc-600 outline-none transition-all focus:border-red-500/40 focus:shadow-[0_0_12px_rgba(239,68,68,0.18)]"
+                />
+                {loading && (
+                  <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 animate-spin" />
+                )}
+              </div>
+            </div>
+
+            {/* Results */}
+            <div className="flex-1 overflow-y-auto px-2 pb-3 min-h-0">
+              {query.trim().length < 2 ? (
+                <EmptyHint />
+              ) : loading && results.length === 0 ? (
+                <LoadingHint />
+              ) : results.length === 0 ? (
+                <NoMatchHint q={query} />
+              ) : (
+                <div className="space-y-1">
+                  {results.map((t) => (
+                    <ResultRow
+                      key={t.id}
+                      track={t}
+                      isPlaying={playingId === t.id}
+                      isSelected={currentSelectedId === t.id}
+                      onPreviewToggle={() => handlePreview(t)}
+                      onSelect={() => {
+                        try { audioRef.current?.pause?.(); } catch {}
+                        onSelect?.(t);
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  if (typeof document !== 'undefined') return createPortal(modal, document.body);
+  return modal;
+}
+
+// ── Subcomponents ──────────────────────────────────────────────────────
+
+function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect }) {
+  const hasPreview = !!track.preview_url;
+  return (
+    <div
+      className={`flex items-center gap-3 p-2 rounded-lg transition-colors group ${
+        isSelected ? 'bg-emerald-500/10 border border-emerald-500/30' : 'hover:bg-white/5 border border-transparent'
+      }`}
+    >
+      {/* Album art + audition button */}
+      <button
+        type="button"
+        onClick={onPreviewToggle}
+        disabled={!hasPreview}
+        className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 group/art"
+        title={hasPreview ? (isPlaying ? 'Stop preview' : 'Preview 30s') : 'Preview unavailable for this track'}
+      >
+        {track.album_art_url ? (
+          <img src={track.album_art_url} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+            <Music size={14} className="text-zinc-600" />
+          </div>
+        )}
+        {hasPreview && (
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-opacity ${
+              isPlaying ? 'opacity-100' : 'opacity-0 group-hover/art:opacity-100'
+            }`}
+            style={{ background: 'rgba(0, 0, 0, 0.55)' }}
+          >
+            {isPlaying
+              ? <Pause size={14} className="text-white" />
+              : <Play size={14} className="text-white ml-0.5" />}
+          </div>
+        )}
+      </button>
+
+      {/* Track meta */}
+      <div className="flex-1 min-w-0">
+        <p className={`text-xs font-bold truncate ${isPlaying ? 'text-emerald-300' : 'text-white'}`}>
+          {track.name}
+        </p>
+        <p className="text-[11px] text-zinc-500 truncate">{track.artist}</p>
+      </div>
+
+      {/* Action — Select or "Open in Spotify" fallback */}
+      {hasPreview ? (
+        <button
+          type="button"
+          onClick={onSelect}
+          className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+            isSelected
+              ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40'
+              : 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.30)]'
+          }`}
+        >
+          {isSelected ? <Check size={11} /> : 'Set'}
+        </button>
+      ) : (
+        <a
+          href={track.external_url || `https://open.spotify.com/track/${track.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          title="Preview unavailable in Spidr — open on Spotify"
+          className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+        >
+          <ExternalLink size={12} />
+        </a>
+      )}
+    </div>
+  );
+}
+
+function EmptyHint() {
+  return (
+    <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
+      <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.20)' }}>
+        <Search size={16} className="text-emerald-500" />
+      </div>
+      <p className="text-zinc-400 text-xs font-bold">Search for a song</p>
+      <p className="text-zinc-600 text-[10px] max-w-[260px] leading-relaxed">
+        Pick any track on Spotify. A 30-second preview plays when visitors open your profile.
+      </p>
+    </div>
+  );
+}
+
+function LoadingHint() {
+  return (
+    <div className="flex items-center justify-center py-10">
+      <Loader2 size={16} className="text-zinc-600 animate-spin" />
+    </div>
+  );
+}
+
+function NoMatchHint({ q }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-10 gap-1 text-center">
+      <p className="text-zinc-400 text-xs">No matches for "<span className="text-white">{q}</span>"</p>
+      <p className="text-zinc-600 text-[10px]">Try a different spelling or artist name.</p>
+    </div>
+  );
+}
