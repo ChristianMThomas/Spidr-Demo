@@ -64,6 +64,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resetProtocolPosition: ()       => ipcRenderer.send('protocol:reset-position'),
   getProtocolBounds:     ()       => ipcRenderer.invoke('protocol:get-bounds'),
 
+  // Window maximize/unmaximize — lets the title bar toggle the restore icon
+  onWindowMaximize:   (cb) => { const h = () => cb(); ipcRenderer.on('window:maximized', h);   return () => ipcRenderer.removeListener('window:maximized', h); },
+  onWindowUnmaximize: (cb) => { const h = () => cb(); ipcRenderer.on('window:unmaximized', h); return () => ipcRenderer.removeListener('window:unmaximized', h); },
+
+  // NowPlaying — emitted whenever OS media session changes (Windows SMTC)
+  onNowPlayingChange: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on('nowplaying-change', handler);
+    return () => ipcRenderer.removeListener('nowplaying-change', handler);
+  },
+
   // Game detection — emitted whenever a known game starts or stops
   onGamingStatus: (cb) => {
     const handler = (_e, status) => cb(status);

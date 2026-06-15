@@ -24,6 +24,7 @@ import { NotificationProvider, NotificationBell } from '@/components/spidr/Notif
 import IncomingCallBanner from '@/components/spidr/IncomingCallBanner';
 import LevelUpToast from '@/components/spidr/LevelUpToast';
 import ApexEntrance from '@/components/spidr/ApexEntrance';
+import TitleBar from '@/components/spidr/TitleBar';
 
 /**
  * SpidrShell — the persistent app frame that surrounds every routed page.
@@ -187,21 +188,17 @@ export default function SpidrShell() {
   return (
     <MenuProvider>
       <NotificationProvider currentUser={currentUser}>
-      <div
-        className={`w-full h-[100dvh] flex relative overflow-hidden text-white ${
-          (sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'md:flex-col' : 'flex-row'
-        }`}
-        style={getBackgroundStyle()}
-      >
-        {/* Electron drag strip — sits above all content so the user can
-            always grab the top edge to move the window. 24px is tall enough
-            to grab easily without hiding useful content. */}
-        {window.electronAPI?.isElectron && (
-          <div
-            className="absolute top-0 left-0 right-0 z-[9998]"
-            style={{ height: '24px', WebkitAppRegion: 'drag' }}
-          />
-        )}
+      <div className="w-full h-[100dvh] flex flex-col overflow-hidden text-white">
+        {/* Custom title bar — Electron only (frameless window) */}
+        {window.electronAPI?.isElectron && <TitleBar />}
+
+        {/* Main layout area — fills remaining height */}
+        <div
+          className={`flex flex-1 min-h-0 relative overflow-hidden ${
+            (sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'md:flex-col' : 'flex-row'
+          }`}
+          style={getBackgroundStyle()}
+        >
         {/* App background integration layer.
             The user's custom background sits behind everything. This layer
             blends it into the app with: (1) any user-configured blur, (2) a
@@ -427,7 +424,8 @@ export default function SpidrShell() {
             },
           }}
         />
-      </div>
+        </div>{/* end inner layout row */}
+      </div>{/* end outer flex-col */}
       </NotificationProvider>
     </MenuProvider>
   );

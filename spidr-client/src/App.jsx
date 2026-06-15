@@ -12,6 +12,7 @@ import JoinServer from '@/pages/JoinServer';
 import { getSocket } from '@/api/apiClient';
 import { AppShellProvider } from '@/context/AppShellContext';
 import { MediaProvider } from '@/context/MediaContext';
+import { NowPlayingProvider } from '@/context/NowPlayingContext';
 import SpidrShell from '@/components/SpidrShell';
 
 /**
@@ -114,7 +115,7 @@ function AppRoutes() {
         <Route path="/popout/call" element={<PopoutCall />} />
         {/* Spidr Protocol text overlay (Electron transparent ghost window). No shell. */}
         <Route path="/overlay/protocol" element={<ProtocolOverlay />} />
-        <Route element={<AppShellProvider><MediaProvider><SpidrShell /></MediaProvider></AppShellProvider>}>
+        <Route element={<AppShellProvider><MediaProvider><NowPlayingProvider><SpidrShell /></NowPlayingProvider></MediaProvider></AppShellProvider>}>
           <Route path="/home"            element={<HomeDashboard />} />
           <Route path="/friends"         element={<FriendsPage />} />
           <Route path="/friends/:tab"    element={<FriendsPage />} />
