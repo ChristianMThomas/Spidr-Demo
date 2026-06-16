@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p184',
+    title: 'Patch 1.8.4 is now live',
+    date: '2026-06-16',
+    type: 'UPDATE',
+    description: 'DJ Booth in voice channels — pick the green Music icon in the call dock, search Spotify, and the whole room sees a synchronized DJ matrix with spinning album art, three Spotify-green pulse rings, and a bouncing audience. Server now tracks who\'s DJing per channel (/voice-channels/:id/dj-session), broadcasts changes over Socket.io, and auto-ends the session if the host leaves the call. Note: this is the visual presence layer — every listener still plays the host\'s track on their own Spotify; true synchronized playback is coming later (needs Web Playback SDK + Premium). Spotify search itself was missing the backend endpoint — typing in the picker now actually returns tracks. Expand on a minimized call is fixed — clicking the pill or PiP now routes you back to the call\'s home page instead of flashing open and immediately re-minimizing. Mutuals tab is hidden on your own profile (you can\'t have mutuals with yourself). DJ result lists capped at 10 per Spotify dev-mode quota; once the app exits closed beta the limit goes back to 50.',
+  },
+  {
     id: 'p183',
     title: 'Patch 1.8.3 is now live',
     date: '2026-06-15',

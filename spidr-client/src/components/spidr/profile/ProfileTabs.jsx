@@ -1,14 +1,17 @@
 import React from 'react';
 import { Terminal, Users, Link2, Blocks } from 'lucide-react';
 
-const tabs = [
+const ALL_TABS = [
   { key: 'bio', label: 'BIO', icon: Terminal },
   { key: 'modules', label: 'MODS', icon: Blocks },
   { key: 'mutuals', label: 'MUTUALS', icon: Users },
   { key: 'links', label: 'LINKS', icon: Link2 },
 ];
 
-export default function ProfileTabs({ activeTab, onTabChange }) {
+export default function ProfileTabs({ activeTab, onTabChange, isOwnProfile = false }) {
+  // Mutuals = friends/servers you share with the profile owner. On your own
+  // profile that's a contradiction (you can't share with yourself), so hide it.
+  const tabs = isOwnProfile ? ALL_TABS.filter(t => t.key !== 'mutuals') : ALL_TABS;
   return (
     <div className="flex gap-1 border-b border-white/10 pb-0">
       {tabs.map(({ key, label, icon: Icon }) => (
