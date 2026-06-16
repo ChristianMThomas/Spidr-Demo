@@ -10,6 +10,7 @@
 const express     = require('express');
 const authMW      = require('../middleware/auth');
 const UserProfile = require('../models/UserProfile');
+const spotifyPresence = require('../utils/spotifyPresence');
 
 const router = express.Router();
 
@@ -203,6 +204,20 @@ router.get('/now-playing', authMW, async (req, res) => {
     console.error('[spotify] now-playing error:', err.message);
     res.status(500).json({ connected: true, playing: false, error: 'internal' });
   }
+});
+
+// ── GET /spotify/now-playing/:userId (JWT required) ─────────────────────────
+// Cached snapshot endpoint for initial paint. The viewer subscribes via socket
+// (spotify:subscribe) immediately after this for live updates. If the poller
+// has no cache yet (first viewer of this user, hasn't completed a poll),
+// returns 202 so the client can show a "loading" state — the socket will
+// deliver the real payload within ~1s.
+router.get('/now-playing/:userId', authMW, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const { userId } = req.params;
+  const cached = spotifyPresence.getCached(userId);
+  if (cached) return res.json(cached);
+  return res.status(202).json({ userId, connected: null, is_playing: false, pending: true });
 });
 
 // ── DELETE /spotify/auth/disconnect (JWT required) ───────────────────────────

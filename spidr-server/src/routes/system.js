@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p185',
+    title: 'Patch 1.8.5 is now live',
+    date: '2026-06-16',
+    type: 'UPDATE',
+    description: 'Three changes this patch. Spotify presence got rebuilt — instead of every browser polling every few seconds, the server now runs a single adaptive poller per Spotify-connected user and broadcasts updates over Socket.io. Per-friend HTTP traffic dropped from O(viewers × friends) to O(friends), with intervals that ramp from 10s while playing down to 5 minutes when nothing\'s on, and idle users stop being polled entirely. Friend avatars are now live — the Friends panel, Spidr Web rosters, and pending request rows all read from the live UserProfile instead of the stale snapshot baked into the Friend row when you first added them, so updated profile pics show up immediately across every tab. And there\'s a brand-new 404 page — a hand-drawn cave-and-web scene with the Spidr mascot lost in the middle of the web, replacing the host\'s default not-found page; auth-aware CTAs route you back home, back to the previous page, or to the sign-in screen depending on whether you\'re logged in.',
+  },
+  {
     id: 'p184',
     title: 'Patch 1.8.4 is now live',
     date: '2026-06-16',
