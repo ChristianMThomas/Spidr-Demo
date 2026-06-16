@@ -1,0 +1,9 @@
+#Database configuration — MongoDB (same Atlas cluster as spidr-server)
+MONGO_URI=mongodb+srv://spidr_admin_db_user:i0QxWLnEt2c8a1uj@spidrserver.eijml8k.mongodb.net/spidr?retryWrites=true&w=majority&appName=spidrserver
+
+#JWT configuration
+JWT_SECRET=Af8zWDHFmeSsyW9JBeKgv9kezg8nVmgXRotSbgs33LsjcY+tgsUuIn+wOlRHYgD4YhIvSgGBFCljJQb4ieO5Qg==
+
+#Mail configuration
+RESEND_API_KEY=re_jUEZg4ro_KrAHP5MQYuAfXpP79YBH7dHS
+MAIL_FROM=noreply@spidrapp.infinitetechteam.com
