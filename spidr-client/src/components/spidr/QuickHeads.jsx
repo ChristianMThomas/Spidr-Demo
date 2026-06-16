@@ -103,6 +103,14 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
     return m;
   }, [profiles]);
 
+  // Map user_id → live profile so avatars/names stay current after the
+  // other user updates their profile (DM rows snapshot at send time).
+  const profileByUser = React.useMemo(() => {
+    const m = {};
+    for (const p of profiles) m[p.user_id] = p;
+    return m;
+  }, [profiles]);
+
   // Drive updates off socket events instead of 20s polling. A 120s interval
   // stays as a safety net in case a socket event is missed.
   useEffect(() => {
@@ -294,16 +302,24 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
             </span>
           </div>
         ))}
-        {recentChats.map(chat => (
+        {recentChats.map(chat => {
+          const liveProfile = profileByUser[chat.otherUserId];
+          const liveFriend = liveProfile ? {
+            ...chat.friend,
+            friend_avatar: liveProfile.avatar_url || chat.friend.friend_avatar,
+            friend_name: liveProfile.display_name || chat.friend.friend_name,
+          } : chat.friend;
+          return (
           <QuickHeadItem
             key={chat.conversationId}
-            friend={chat.friend}
+            friend={liveFriend}
             latestMessage={chat.latestMessage}
             unreadCount={chat.unreadCount}
             status={statusByUser[chat.otherUserId] || 'offline'}
             onClick={() => onOpenDM(chat.friend.friend_id, chat.conversationId)}
           />
-        ))}
+          );
+        })}
         </div>
       )}
 

@@ -1,10 +1,30 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { getSocket } from '@/api/apiClient';
+import { getSocket, spotify } from '@/api/apiClient';
+import { useAuth } from '@/lib/AuthContext';
 
 const NowPlayingContext = createContext(null);
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+
+// Map the server's flat presence payload onto the camelCase shape downstream
+// consumers (SpotifyNowPlaying widget) already expect.
+function toLegacyShape(payload) {
+  if (!payload || payload.connected === false || !payload.track_id) return null;
+  return {
+    source:     'spotify-web',
+    trackName:  payload.track_name,
+    artist:     payload.artist,
+    artists:    payload.artist ? payload.artist.split(', ') : [],
+    albumArt:   payload.album_art_url,
+    durationMs: payload.duration_ms,
+    positionMs: payload.progress_ms,
+    positionAt: payload.sampled_at ? new Date(payload.sampled_at).toISOString() : new Date().toISOString(),
+    isPlaying:  !!payload.is_playing,
+    trackUri:   payload.track_id ? `spotify:track:${payload.track_id}` : null,
+  };
+}
 
 export function NowPlayingProvider({ children }) {
+  const { user } = useAuth();
+  const myUserId = user?.id;
   const [ownNowPlaying, setOwnNowPlaying]     = useState(null);
   const [peersNowPlaying, setPeersNowPlaying] = useState(new Map());
 
@@ -25,74 +45,55 @@ export function NowPlayingProvider({ children }) {
     return cleanup;
   }, []);
 
-  // T2: Web — poll the Spotify Web API via spidr-server every 10s. The
-  // browser is sandboxed and can't read the OS media session, so the only
-  // option is to ask Spotify what the user is playing. The server already
-  // handles OAuth, token refresh, and "no active player" → recently-played
-  // fallback. We shape the response to match the Electron SMTC payload so
-  // SpotifyNowPlaying.jsx doesn't have to care which source it came from.
+  // T2: Web — subscribe to the server-side Spotify presence stream for our
+  // own user (see utils/spotifyPresence.js on the server). Replaces the old
+  // every-10s poll with a single socket subscription. The server runs ONE
+  // poller per Spotify-connected user and pushes changes to subscribers; we
+  // pay zero HTTP traffic after the initial cached snapshot.
   useEffect(() => {
     if (window.electronAPI?.isElectron) return; // Electron uses SMTC
+    if (!myUserId) return;
 
     let cancelled = false;
     let lastKey = '';
+    const socket = getSocket();
 
-    const poll = async () => {
-      const token = localStorage.getItem('spidr_token');
-      if (!token) return;
+    const apply = (payload) => {
+      if (cancelled) return;
+      const np = toLegacyShape(payload);
+      setOwnNowPlaying(np);
 
+      // Mirror to peers — keeps the existing 'presence:nowplaying' broadcast
+      // working for friends who haven't migrated to the new subscription model.
+      const key = np ? `${np.trackName}-${np.isPlaying}` : '__clear__';
+      if (key === lastKey) return;
+      lastKey = key;
       try {
-        const res = await fetch(`${BASE_URL}/spotify/now-playing`, {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: 'no-store',
-        });
-        if (cancelled) return;
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-
-        // Not connected, no track, or backend error → clear local state
-        if (!data.connected || !data.track) {
-          setOwnNowPlaying(null);
-          if (lastKey !== '__clear__') {
-            lastKey = '__clear__';
-            try { getSocket().emit('nowplaying:clear'); } catch {}
-          }
-          return;
-        }
-
-        const np = {
-          source:     'spotify-web',
-          trackName:  data.track.name,
-          artist:     data.track.artist,
-          artists:    data.track.artist ? data.track.artist.split(', ') : [],
-          albumArt:   data.track.albumArt,
-          durationMs: data.track.duration,
-          positionMs: data.track.progress,
-          positionAt: new Date().toISOString(),
-          isPlaying:  !!data.track.playing,
-          trackUri:   data.track.id ? `spotify:track:${data.track.id}` : null,
-        };
-        setOwnNowPlaying(np);
-
-        // Broadcast track changes to peers — same socket events as Electron
-        const key = `${np.trackName}-${np.isPlaying}`;
-        if (key !== lastKey) {
-          lastKey = key;
-          try {
-            const socket = getSocket();
-            socket.emit(np.isPlaying ? 'nowplaying:update' : 'nowplaying:clear', np);
-          } catch {}
-        }
-      } catch {
-        /* transient network error — keep last known state */
-      }
+        if (np && np.isPlaying) socket.emit('nowplaying:update', np);
+        else socket.emit('nowplaying:clear');
+      } catch {}
     };
 
-    poll();
-    const id = setInterval(poll, 10_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, []);
+    const onUpdate = (payload) => {
+      if (payload?.userId && payload.userId !== myUserId) return;
+      apply(payload);
+    };
+
+    socket.on('spotify:now-playing', onUpdate);
+    socket.emit('spotify:subscribe', { userId: myUserId });
+
+    // Initial paint from cached snapshot — socket events take over after.
+    spotify.nowPlaying(myUserId).then((snapshot) => {
+      if (cancelled || !snapshot || snapshot.pending) return;
+      apply(snapshot);
+    });
+
+    return () => {
+      cancelled = true;
+      socket.off('spotify:now-playing', onUpdate);
+      socket.emit('spotify:unsubscribe', { userId: myUserId });
+    };
+  }, [myUserId]);
 
   // Socket.io: receive peers' now-playing broadcasts
   useEffect(() => {
