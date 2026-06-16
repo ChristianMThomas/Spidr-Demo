@@ -466,7 +466,11 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
 
             {/* LAYER 3: Tabbed Content */}
             <div style={{ zIndex: 5 }} className="relative px-10 mt-6">
-              <ProfileTabs activeTab={activeTab} onTabChange={setActiveTab} />
+              <ProfileTabs
+                activeTab={isOwnProfile && activeTab === 'mutuals' ? 'bio' : activeTab}
+                onTabChange={setActiveTab}
+                isOwnProfile={isOwnProfile}
+              />
               
               <div className="mt-4 h-[280px] overflow-y-auto pr-1">
                 <AnimatePresence mode="wait">
@@ -478,10 +482,10 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                       currentUser={currentUser}
                     />
                   )}
-                  {activeTab === 'mutuals' && (
-                    <MutualsTab 
-                      mutualServers={mutualServers} 
-                      mutualFriends={mutualFriends} 
+                  {activeTab === 'mutuals' && !isOwnProfile && (
+                    <MutualsTab
+                      mutualServers={mutualServers}
+                      mutualFriends={mutualFriends}
                     />
                   )}
                   {activeTab === 'modules' && (

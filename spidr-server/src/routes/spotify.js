@@ -206,6 +206,72 @@ router.get('/now-playing', authMW, async (req, res) => {
 });
 
 // ── DELETE /spotify/auth/disconnect (JWT required) ───────────────────────────
+// ── App-only Client Credentials token (cached) — used by /search and any
+// catalog lookup that doesn't need a specific user's OAuth scope.
+let appTokenCache = { token: null, expiresAt: 0 };
+async function getAppToken() {
+  if (appTokenCache.token && Date.now() < appTokenCache.expiresAt - 30_000) {
+    return appTokenCache.token;
+  }
+  const { SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET } = process.env;
+  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
+    throw new Error('Spotify not configured (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET missing)');
+  }
+  const creds = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64');
+  const r = await fetch('https://accounts.spotify.com/api/token', {
+    method:  'POST',
+    headers: { Authorization: `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    new URLSearchParams({ grant_type: 'client_credentials' }),
+  });
+  const data = await r.json();
+  if (!data.access_token) {
+    console.error('[spotify] client_credentials failed:', r.status, JSON.stringify(data).slice(0, 500));
+    throw new Error(`Spotify client_credentials failed (status ${r.status}): ${data.error_description || data.error || 'no token'}`);
+  }
+  appTokenCache = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+  return appTokenCache.token;
+}
+
+// ── GET /spotify/search?q=...&limit=12 ───────────────────────────────────────
+// Searches Spotify's track catalog. Returns { tracks: [{ id, name, artist,
+// album, album_art_url, preview_url, external_url, duration_ms }] }.
+router.get('/search', authMW, async (req, res) => {
+  try {
+    const q = (req.query.q || '').toString().trim();
+    // Cap at 10: Spotify dev-mode apps reject limit > 10 with 400 "Invalid limit",
+    // even though their public docs say max=50. Bump this once the app exits
+    // dev mode / extended-quota review.
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 10);
+    if (!q) return res.json({ tracks: [] });
+
+    const token = await getAppToken();
+    const url = `https://api.spotify.com/v1/search?type=track&limit=${limit}&q=${encodeURIComponent(q)}`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) {
+      const body = await r.text().catch(() => '');
+      console.error(`[spotify] search ${r.status} for q="${q}":`, body.slice(0, 500));
+      // 401 = token rejected → bust the cache so the next call mints fresh.
+      if (r.status === 401) appTokenCache = { token: null, expiresAt: 0 };
+      return res.status(502).json({ error: 'Spotify search failed', status: r.status, body });
+    }
+    const data = await r.json();
+    const tracks = (data.tracks?.items || []).map(item => ({
+      id:            item.id,
+      name:          item.name,
+      artist:        item.artists?.map(a => a.name).join(', ') || 'Unknown',
+      album:         item.album?.name || '',
+      album_art_url: item.album?.images?.[0]?.url || null,
+      preview_url:   item.preview_url || null,
+      external_url:  item.external_urls?.spotify || `https://open.spotify.com/track/${item.id}`,
+      duration_ms:   item.duration_ms || 0,
+    }));
+    res.json({ tracks });
+  } catch (err) {
+    console.error('[spotify] search error:', err.message);
+    res.status(503).json({ error: err.message, tracks: [] });
+  }
+});
+
 router.delete('/auth/disconnect', authMW, async (req, res) => {
   await UserProfile.findOneAndUpdate(
     { user_id: req.user.id },

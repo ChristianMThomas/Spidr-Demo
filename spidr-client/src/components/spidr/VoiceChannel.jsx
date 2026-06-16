@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, integrations, getSocket } from '@/api/apiClient';
+import { entities, integrations, getSocket, spotify } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Mic, MicOff, Video, VideoOff, Monitor, PhoneOff,
@@ -22,6 +22,8 @@ import VoiceEqualizer from './VoiceEqualizer';
 import HolographicProfile from './HolographicProfile';
 import VoiceDeckContextMenu from './VoiceDeckContextMenu';
 import TheaterStage from './TheaterStage';
+import DJMatrix from './DJMatrix';
+import SpotifySearchModal from './SpotifySearchModal';
 import { useWebRTC } from './useWebRTC';
 import { useSpeakingDetector } from '@/hooks/useSpeakingDetector';
 
@@ -140,6 +142,40 @@ export default function VoiceChannel({
     queryKey: ['voiceSessions', server.id, channel.id],
     queryFn: () => entities.VoiceSession.filter({ server_id: server.id, channel_id: channel.id }),
   });
+
+  // ── DJ Session (server-backed, one per channel) ─────────────────────
+  const [djPickerOpen, setDjPickerOpen] = useState(false);
+  const { data: djSession = null } = useQuery({
+    queryKey: ['djSession', channel.id],
+    queryFn: () => spotify.djSession.get(channel.id),
+    enabled: !!channel?.id,
+  });
+
+  useEffect(() => {
+    const socket = getSocket();
+    const onDjChanged = (data) => {
+      if (data?.channel_id !== channel?.id) return;
+      queryClient.invalidateQueries({ queryKey: ['djSession', channel.id] });
+    };
+    socket.on('voice:dj-session-changed', onDjChanged);
+    return () => socket.off('voice:dj-session-changed', onDjChanged);
+  }, [channel?.id, queryClient]);
+
+  const handleStartDJ = () => setDjPickerOpen(true);
+  const handleEndDJ = async () => {
+    try { await spotify.djSession.end(channel.id); }
+    catch (err) { toast.error(err?.message || 'Could not end DJ session'); }
+  };
+  const handleSelectDJTrack = async (track) => {
+    if (!channel?.id || !track?.id) return;
+    try {
+      await spotify.djSession.start(channel.id, track.id);
+      setDjPickerOpen(false);
+      toast.success(`Now spinning: ${track.name}`);
+    } catch (err) {
+      toast.error(err?.data?.error || err?.message || 'Could not start DJ session');
+    }
+  };
 
   const joinMutation = useMutation({
     mutationFn: (data) => entities.VoiceSession.create(data),
@@ -587,6 +623,26 @@ export default function VoiceChannel({
                     hostUserName={theaterHostName}
                   />
                 </TheaterStage>
+              ) : djSession ? (
+                // ── DJ MODE ───────────────────────────────────────────
+                // Below Theater (video broadcast outranks audio-only),
+                // above screen share (a live DJ matrix shouldn't get
+                // shoved aside by an incidental screen). The host's
+                // Spotify client is the audio source — listeners hear
+                // it from their own connected Spotify; this stage just
+                // keeps the album art + progress synchronized.
+                <DJMatrix
+                  channel={channel}
+                  djSession={djSession}
+                  isHost={djSession.host_id === currentUser?.id}
+                  currentUser={currentUser}
+                  participants={uniqueSessions.map(s => ({
+                    user_id: s.user_id,
+                    user_name: s.user_name,
+                    user_avatar: s.user_avatar,
+                  }))}
+                  onStop={() => queryClient.invalidateQueries({ queryKey: ['djSession', channel.id] })}
+                />
               ) : screenActive ? (
                 // ── SCREEN-SHARE LAYOUT ─────────────────────────────────────
                 // When someone is sharing their screen, the old grid produced
@@ -905,6 +961,29 @@ export default function VoiceChannel({
           >
             <Tv size={18} className={theaterHostId === currentUser?.id ? 'text-red-300' : 'text-white/40'} />
           </DockBtn>
+          {/* DJ Booth — Spotify-driven music broadcast. Same start/stop/take-over
+              UX as Sync Feed: clicking it as host ends, as guest toasts, as
+              empty channel opens the Spotify picker → start session. */}
+          <DockBtn
+            active={djSession?.host_id === currentUser?.id}
+            onClick={() => {
+              if (djSession?.host_id === currentUser?.id) {
+                handleEndDJ();
+              } else if (djSession?.host_id) {
+                toast.info(`${djSession.host_user_name || 'Someone'} is currently DJing.`);
+              } else {
+                handleStartDJ();
+              }
+            }}
+            title={
+              djSession?.host_id === currentUser?.id ? 'End DJ Session' :
+              djSession?.host_id ? `${djSession.host_user_name || 'Host'} is DJing` :
+              'Start DJ Session'
+            }
+            activeTint="#1DB954"
+          >
+            <Music size={18} className={djSession?.host_id === currentUser?.id ? 'text-emerald-300' : 'text-white/40'} />
+          </DockBtn>
           <DockBtn
             onClick={() => setShowAVControls(!showAVControls)}
             title="Audio Settings"
@@ -994,6 +1073,20 @@ export default function VoiceChannel({
         onClose={() => setSelectedProfileUserId(null)}
         userId={selectedProfileUserId}
         currentUser={currentUser}
+      />
+      {/* DJ session starter — opened from the dock Music button when no
+          session is active. Picking a track POSTs /voice-channels/:id/dj-session;
+          the resulting socket broadcast inflates the DJMatrix on every member's
+          screen. Once a session is live, DJMatrix manages its own picker for
+          track changes via spotify.djSession.next(). */}
+      <SpotifySearchModal
+        open={djPickerOpen}
+        onClose={() => setDjPickerOpen(false)}
+        onSelect={handleSelectDJTrack}
+        title="Start DJ Session"
+        subtitle="Spidr DJ"
+        actionLabel="Spin"
+        emptyHint="Pick any track on Spotify. Everyone in the call sees the DJ matrix and listens along from their own Spotify."
       />
     </div>
   );
