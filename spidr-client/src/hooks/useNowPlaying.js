@@ -1,70 +1,85 @@
 import { useEffect, useState, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { spotify } from '@/api/apiClient';
+import { spotify, getSocket } from '@/api/apiClient';
 
 /**
- * useNowPlaying — polls /api/spotify/now-playing/:userId and ticks
- * progress locally between polls so progress bars and time readouts
- * are smooth, not stair-stepped at the poll interval.
+ * useNowPlaying — subscribes to a server-side Spotify presence stream.
  *
- * Polling interval is 25s. Spotify's rate limits permit much faster
- * but this hook gets called per-user across rosters and avatars; at
- * 25s a server with 100 active rosters polls at 4 req/sec which is
- * comfortable. Bump down (faster) only if needed.
+ * The browser does NOT poll Spotify or our backend on a timer. The server
+ * runs ONE poller per Spotify-connected user (see spotifyPresence.js) and
+ * broadcasts changes over Socket.io. This hook:
  *
- * Returns the same payload shape the backend sends:
- *   {
- *     is_playing, track_id, track_name, artist, album,
- *     album_art_url, spotify_url, duration_ms,
- *     progress_ms,         // ← locally interpolated between polls
- *     sampled_at,
- *   }
- *  or `null` when nothing's playing / user not connected.
+ *   1. Fetches the cached snapshot once for initial paint.
+ *   2. Emits `spotify:subscribe` so the server starts polling (if needed)
+ *      and joins us to the spotify:<userId> room.
+ *   3. Listens for `spotify:now-playing` updates.
+ *   4. Ticks `progress_ms` locally between server updates so the bar
+ *      animates smoothly.
+ *   5. Emits `spotify:unsubscribe` and cleans up on unmount.
  *
- * @param {string} userId      — whose now-playing to track
+ * Payload shape (or null when nothing's playing / user not connected):
+ *   { userId, connected, is_playing, track_id, track_name, artist, album,
+ *     album_art_url, spotify_url, duration_ms, progress_ms, sampled_at }
+ *
+ * @param {string} userId           — whose now-playing to track
  * @param {object} options
- * @param {boolean} options.enabled  — pause polling (e.g. when widget hidden)
- * @param {number}  options.interval — override poll interval (ms)
+ * @param {boolean} options.enabled — pause subscription when false
  */
-export default function useNowPlaying(userId, { enabled = true, interval = 25_000 } = {}) {
-  const { data, refetch } = useQuery({
-    queryKey: ['now-playing', userId],
-    queryFn: () => spotify.nowPlaying(userId),
-    enabled: !!userId && enabled,
-    refetchInterval: enabled ? interval : false,
-    staleTime: interval - 1000,
-    retry: false, // don't pile on 429s if backend bails
-  });
-
-  // ── Local progress ticker ───────────────────────────────────────────
-  // The backend returns `progress_ms` and `sampled_at` (ms-since-epoch).
-  // We compute the live progress as `progress_ms + (Date.now() - sampled_at)`
-  // and re-render once per second. Pauses when is_playing flips false.
+export default function useNowPlaying(userId, { enabled = true } = {}) {
+  const [data, setData] = useState(null);
   const [tickedProgress, setTickedProgress] = useState(0);
-  const lastDataRef = useRef(null);
 
+  // Initial paint from cache, then live updates via socket.
+  useEffect(() => {
+    if (!userId || !enabled) {
+      setData(null);
+      return;
+    }
+
+    let cancelled = false;
+    const socket = getSocket();
+
+    const onUpdate = (payload) => {
+      if (cancelled) return;
+      if (payload?.userId && payload.userId !== userId) return; // belt + suspenders
+      setData(payload);
+    };
+
+    socket.on('spotify:now-playing', onUpdate);
+    socket.emit('spotify:subscribe', { userId });
+
+    // Cached snapshot for instant first paint. Server returns 202 + pending:true
+    // when the poller hasn't completed its first cycle — we just wait for the
+    // socket event in that case.
+    spotify.nowPlaying(userId).then((snapshot) => {
+      if (cancelled || !snapshot || snapshot.pending) return;
+      setData(snapshot);
+    });
+
+    return () => {
+      cancelled = true;
+      socket.off('spotify:now-playing', onUpdate);
+      socket.emit('spotify:unsubscribe', { userId });
+    };
+  }, [userId, enabled]);
+
+  // Local progress ticker — server sends progress_ms + sampled_at, we
+  // extrapolate so the UI animates smoothly between server pushes.
   useEffect(() => {
     if (!data || !data.is_playing) {
       setTickedProgress(data?.progress_ms || 0);
-      lastDataRef.current = data || null;
       return;
     }
-    lastDataRef.current = data;
     const sampledAt = data.sampled_at || Date.now();
-    const computeProgress = () => {
+    const compute = () => {
       const drift = Date.now() - sampledAt;
       const total = Math.min((data.progress_ms || 0) + drift, data.duration_ms || 0);
       setTickedProgress(total);
     };
-    computeProgress();
-    const id = setInterval(computeProgress, 500);
+    compute();
+    const id = setInterval(compute, 500);
     return () => clearInterval(id);
   }, [data]);
 
   if (!data) return null;
-  return {
-    ...data,
-    progress_ms: tickedProgress,
-    refresh: refetch,
-  };
+  return { ...data, progress_ms: tickedProgress };
 }

@@ -13,11 +13,16 @@ const VoiceSession = require('../models/VoiceSession');
 const Friend       = require('../models/Friend');
 const UserProfile  = require('../models/UserProfile');
 const { recordMessage, checkContent, isAutoModInstalled } = require('../utils/automod');
+const spotifyPresence = require('../utils/spotifyPresence');
 
 // Shared secret resolver — keeps HTTP, socket, and rate-limit verification in sync.
 const { getSecret } = require('../utils/jwtSecret');
 
 module.exports = function registerHandlers(io) {
+
+  // ── Spotify presence worker — single poller per Spotify-connected user,
+  // broadcasts via spotify:<userId> rooms. See utils/spotifyPresence.js.
+  spotifyPresence.init(io);
 
   // ── Reset everyone to offline on server start ──────────────────────────────
   // Anyone still marked online from a previous run is stale — they can't be
@@ -196,6 +201,31 @@ module.exports = function registerHandlers(io) {
         return socket.emit('error', { message: 'Not a participant in this conversation' });
       }
       socket.join(`dm:${conversationId}`);
+    });
+
+    // ── Spotify now-playing subscription ─────────────────────────────────────
+    // Viewer says "I want live updates for user X's Spotify". We ref-count
+    // per-socket so disconnects cleanly drop subscriptions. The presence
+    // worker only polls users with viewerCount > 0.
+    const spotifySubs = new Set();
+    socket.on('spotify:subscribe', ({ userId: targetId }) => {
+      if (!socketRateLimit(socket)) return;
+      if (typeof targetId !== 'string' || !targetId) return;
+      if (spotifySubs.has(targetId)) return; // idempotent — multiple widgets on same page
+      spotifySubs.add(targetId);
+      socket.join(`spotify:${targetId}`);
+      spotifyPresence.subscribe(targetId);
+      // Immediately replay the cached snapshot to this socket so it doesn't
+      // wait for the next change event.
+      const cached = spotifyPresence.getCached(targetId);
+      if (cached) socket.emit('spotify:now-playing', cached);
+    });
+    socket.on('spotify:unsubscribe', ({ userId: targetId }) => {
+      if (typeof targetId !== 'string' || !targetId) return;
+      if (!spotifySubs.has(targetId)) return;
+      spotifySubs.delete(targetId);
+      socket.leave(`spotify:${targetId}`);
+      spotifyPresence.unsubscribe(targetId);
     });
 
     socket.on('join:group', async ({ groupId }) => {
@@ -492,6 +522,10 @@ module.exports = function registerHandlers(io) {
     // ── Disconnect ───────────────────────────────────────────────────────────
     socket.on('disconnect', async () => {
       socketEventCounts.delete(socket.id);
+      // Release every Spotify subscription this socket held so the poller
+      // can stop polling users no one is watching anymore.
+      for (const targetId of spotifySubs) spotifyPresence.unsubscribe(targetId);
+      spotifySubs.clear();
       const wentOffline = removeSocket(userId, socket.id);
       if (wentOffline) {
         io.emit('user:offline', { userId });

@@ -137,10 +137,12 @@ function AppRoutes() {
         </Route>
         </>
       ) : (
-        // Not authenticated — every protected path redirects to /login
+        // Not authenticated — protected paths redirect to /login so shared
+        // links (/home, /friends/...) survive a signed-out click-through.
         <Route path="*" element={<Navigate to="/login" replace />} />
       )}
 
+      {/* Authenticated catch-all. Truly unknown paths land on the new 404. */}
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );

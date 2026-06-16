@@ -448,7 +448,11 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
             {pendingIncoming.length > 0 && (
               <div>
                 <h3 className="text-sm font-semibold text-zinc-500 uppercase mb-2">Incoming Requests</h3>
-                {pendingIncoming.map((friend) => (
+                {pendingIncoming.map((friend) => {
+                  const fp = getProfile(friend.friend_id);
+                  const liveAvatar = fp?.avatar_url || friend.friend_avatar;
+                  const liveName = fp?.display_name || friend.friend_name;
+                  return (
                   <motion.div
                     key={friend.id}
                     initial={{ opacity: 0, y: 20 }}
@@ -456,17 +460,17 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                     className="flex items-center gap-3 p-3 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 transition-colors"
                   >
                     <Avatar className="w-10 h-10">
-                      {friend.friend_avatar ? (
-                        <AvatarImage src={friend.friend_avatar} />
+                      {liveAvatar ? (
+                        <AvatarImage src={liveAvatar} />
                       ) : (
                         <AvatarFallback className="bg-red-900 text-white">
-                          {friend.friend_name?.charAt(0).toUpperCase()}
+                          {liveName?.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       )}
                     </Avatar>
                     <div className="flex-1">
                       <p className="font-medium text-white">
-                        {friend.friend_name}
+                        {liveName}
                         <span className="text-zinc-500">#{friend.friend_discriminator}</span>
                       </p>
                       <p className="text-xs text-zinc-500">Incoming request</p>
@@ -495,14 +499,19 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                       </Button>
                     </div>
                   </motion.div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
             {pendingOutgoing.length > 0 && (
               <div>
                 <h3 className="text-sm font-semibold text-zinc-500 uppercase mb-2">Sent Requests</h3>
-                {pendingOutgoing.map((friend) => (
+                {pendingOutgoing.map((friend) => {
+                  const fp = getProfile(friend.friend_id);
+                  const liveAvatar = fp?.avatar_url || friend.friend_avatar;
+                  const liveName = fp?.display_name || friend.friend_name;
+                  return (
                   <motion.div
                     key={friend.id}
                     initial={{ opacity: 0, y: 20 }}
@@ -510,29 +519,34 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                     className="flex items-center gap-3 p-3 rounded-xl bg-zinc-800/50"
                   >
                     <Avatar className="w-10 h-10">
-                      {friend.friend_avatar ? (
-                        <AvatarImage src={friend.friend_avatar} />
+                      {liveAvatar ? (
+                        <AvatarImage src={liveAvatar} />
                       ) : (
                         <AvatarFallback className="bg-red-900 text-white">
-                          {friend.friend_name?.charAt(0).toUpperCase()}
+                          {liveName?.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       )}
                     </Avatar>
                     <div className="flex-1">
                       <p className="font-medium text-white">
-                        {friend.friend_name}
+                        {liveName}
                         <span className="text-zinc-500">#{friend.friend_discriminator}</span>
                       </p>
                       <p className="text-xs text-zinc-500">Outgoing request</p>
                     </div>
                   </motion.div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </TabsContent>
 
           <TabsContent value="blocked" className="flex-1 overflow-y-auto p-4 space-y-2">
-            {blockedUsers.map((friend) => (
+            {blockedUsers.map((friend) => {
+              const fp = getProfile(friend.friend_id);
+              const liveAvatar = fp?.avatar_url || friend.friend_avatar;
+              const liveName = fp?.display_name || friend.friend_name;
+              return (
               <motion.div
                 key={friend.id}
                 initial={{ opacity: 0, y: 20 }}
@@ -540,13 +554,17 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                 className="flex items-center gap-3 p-3 rounded-xl bg-zinc-800/50 opacity-50 grayscale"
               >
                 <Avatar className="w-10 h-10">
-                  <AvatarFallback className="bg-zinc-700 text-white">
-                    {friend.friend_name?.charAt(0).toUpperCase()}
-                  </AvatarFallback>
+                  {liveAvatar ? (
+                    <AvatarImage src={liveAvatar} />
+                  ) : (
+                    <AvatarFallback className="bg-zinc-700 text-white">
+                      {liveName?.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  )}
                 </Avatar>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="font-medium text-white">{friend.friend_name}</p>
+                    <p className="font-medium text-white">{liveName}</p>
                     <svg className="w-4 h-4 text-zinc-500" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                     </svg>
@@ -561,7 +579,8 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                   Unblock
                 </Button>
               </motion.div>
-            ))}
+              );
+            })}
             {blockedUsers.length === 0 && (
               <div className="text-center text-zinc-500 py-8">
                 No blocked users
@@ -625,6 +644,9 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
   const { triggerMenu } = useMenu();
 
   const displayName = friend.nickname || profile?.display_name || friend.friend_name;
+  // Prefer live profile avatar over the snapshot stored on the Friend row,
+  // which is set once at request-accept time and never re-synced.
+  const liveAvatar = profile?.avatar_url || friend.friend_avatar;
 
   const handleSaveNickname = async () => {
     await entities.Friend.update(friend.id, { nickname: nickname.trim() });
@@ -663,7 +685,7 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
           id: friend.friend_id,
           user_id: friend.friend_id,
           name: displayName,
-          avatar: friend.friend_avatar,
+          avatar: liveAvatar,
           is_pinned: isPinned(friend.friend_id),
         })}
       >
@@ -673,11 +695,11 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
         )}
         <div className="relative z-[2]">
           <Avatar className="w-10 h-10">
-            {friend.friend_avatar ? (
-              <AvatarImage src={friend.friend_avatar} />
+            {liveAvatar ? (
+              <AvatarImage src={liveAvatar} />
             ) : (
               <AvatarFallback className="bg-red-900 text-white">
-                {friend.friend_name?.charAt(0).toUpperCase()}
+                {(profile?.display_name || friend.friend_name)?.charAt(0).toUpperCase()}
               </AvatarFallback>
             )}
           </Avatar>
