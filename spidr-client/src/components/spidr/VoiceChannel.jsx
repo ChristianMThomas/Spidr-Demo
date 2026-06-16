@@ -21,6 +21,7 @@ import Soundboard from './Soundboard';
 import VoiceEqualizer from './VoiceEqualizer';
 import HolographicProfile from './HolographicProfile';
 import VoiceDeckContextMenu from './VoiceDeckContextMenu';
+import TheaterStage from './TheaterStage';
 import { useWebRTC } from './useWebRTC';
 import { useSpeakingDetector } from '@/hooks/useSpeakingDetector';
 
@@ -561,7 +562,32 @@ export default function VoiceChannel({
             <div className={`w-full ${
               viewMode === 'spider' ? 'max-w-md ml-auto' : 'max-w-[1280px] mx-auto'
             }`}>
-              {screenActive ? (
+              {theaterHostId ? (
+                // ── THEATER MODE ──────────────────────────────────────
+                // Highest-priority branch — even if someone is also
+                // screen-sharing, the Sync Feed broadcast takes the
+                // stage. TheaterStage handles host/guest split internally
+                // (host scroll broadcasts; guest stage has pointer-events
+                // disabled). children = the feed component the host is
+                // broadcasting. We hand in a placeholder for now: the
+                // host's ClipFeed mount point is the right place to drop
+                // your actual feed component once you've decided which
+                // surface owns it (ProfilePage clips? FeedPanel's
+                // ClipFeed? a dedicated TheaterFeed wrapper?).
+                <TheaterStage
+                  channelId={channel?.id}
+                  isHost={theaterHostId === currentUser?.id}
+                  hostUserId={theaterHostId}
+                  hostUserName={theaterHostName}
+                  currentUser={currentUser}
+                  onStop={() => onStopTheater?.()}
+                >
+                  <TheaterFeedSlot
+                    isHost={theaterHostId === currentUser?.id}
+                    hostUserName={theaterHostName}
+                  />
+                </TheaterStage>
+              ) : screenActive ? (
                 // ── SCREEN-SHARE LAYOUT ─────────────────────────────────────
                 // When someone is sharing their screen, the old grid produced
                 // a "users floating at the top and bottom of the column"
@@ -1660,5 +1686,49 @@ function CommPanel({ sessions, profiles, rtc, currentUser, channelId, serverId, 
         </button>
       </form>
     </aside>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TheaterFeedSlot — the placeholder rendered inside TheaterStage's children
+// slot. The actual feed broadcast (which clip the host is currently watching)
+// requires server-side state distribution. Until that's wired, this slot
+// shows a clear, branded "Waiting for broadcast" tile for guests, and a
+// "Drop your feed component here" call-out for the host.
+//
+// To swap this for the real feed:
+//   1. Import the feed component you want to broadcast (e.g. ClipFeed wrapped
+//      to fetch just the host's own clips, or the host's full personalized
+//      THE WEB feed if your scroll-broadcast model targets feed position
+//      rather than specific clips).
+//   2. Replace the <TheaterFeedSlot ... /> inside VoiceChannel with
+//      <YourFeedComponent host={theaterHostId} />.
+//   3. The host's instance scrolls freely (TheaterStage broadcasts the scroll
+//      position via window event + socket emit). Guests' instance has
+//      pointer-events disabled by TheaterStage's outer wrapper, so their
+//      copy of the feed scrolls but doesn't accept clicks.
+// ─────────────────────────────────────────────────────────────────────────────
+function TheaterFeedSlot({ isHost, hostUserName }) {
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center">
+      <div
+        className="w-16 h-16 rounded-full mb-4 flex items-center justify-center"
+        style={{
+          background: 'rgba(239, 68, 68, 0.10)',
+          border: '1px solid rgba(239, 68, 68, 0.30)',
+          boxShadow: '0 0 20px rgba(239, 68, 68, 0.25)',
+        }}
+      >
+        <Tv className="w-8 h-8 text-red-400" />
+      </div>
+      <p className="text-white font-bold text-lg mb-1">
+        {isHost ? 'You are broadcasting' : `Watching ${hostUserName || 'host'}`}
+      </p>
+      <p className="text-zinc-500 text-xs font-mono uppercase tracking-widest max-w-[280px] leading-relaxed">
+        {isHost
+          ? 'Mount your feed component as TheaterStage children to start the broadcast.'
+          : 'Waiting for the host\'s feed stream.'}
+      </p>
+    </div>
   );
 }

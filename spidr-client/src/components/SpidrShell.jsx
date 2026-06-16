@@ -104,6 +104,24 @@ export default function SpidrShell() {
   }, [activeCall]);
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // ── Theater Mode (co-op feed sync inside a voice channel) ──────────
+  // When set, every member of `voiceSession.channel` sees the
+  // TheaterStage centerpiece in place of the normal voice grid /
+  // screen-share view. `theaterHostId` matches a single user — at most
+  // one broadcaster per channel at a time. The VoiceChannel dock's Tv
+  // toggle starts and stops it via the handlers below. The scroll +
+  // ghost-reaction broadcast is local-only today (window events) until
+  // the server binds `theater:scroll` / `theater:reaction` listeners
+  // and rebroadcasts to other sockets in the channel room.
+  const [theaterHostId, setTheaterHostId] = useState(null);
+  const [theaterHostName, setTheaterHostName] = useState('');
+  // Clear theater whenever the user leaves the voice channel.
+  useEffect(() => {
+    if (!voiceSession && theaterHostId) {
+      setTheaterHostId(null);
+      setTheaterHostName('');
+    }
+  }, [voiceSession, theaterHostId]);
   // User-chosen sidebar position: 'left' | 'right' | 'hidden'. Persisted in
   // localStorage and updated live via the Appearance settings card.
   const [sidebarPosition, setSidebarPosition] = useState(() => {
@@ -329,6 +347,23 @@ export default function SpidrShell() {
                 currentUser={voiceSession.currentUser || currentUser}
                 onLeave={() => { endVoiceSession(); }}
                 onMinimize={() => { setVoiceDeckExpanded(false); setIsCallMinimized(true); }}
+                theaterHostId={theaterHostId}
+                theaterHostName={theaterHostName}
+                onStartTheater={() => {
+                  const me = voiceSession.currentUser || currentUser;
+                  if (!me?.id) return;
+                  setTheaterHostId(me.id);
+                  setTheaterHostName(me.full_name || me.username || 'You');
+                  // TODO: emit `theater:start` over the channel socket
+                  // so other members see the matrix appear. The receive
+                  // side already listens in TheaterStage.jsx via
+                  // window event + getSocket().on('theater:scroll').
+                }}
+                onStopTheater={() => {
+                  setTheaterHostId(null);
+                  setTheaterHostName('');
+                  // TODO: emit `theater:stop` over the channel socket.
+                }}
               />
             </SpidrBackground>
           </div>
