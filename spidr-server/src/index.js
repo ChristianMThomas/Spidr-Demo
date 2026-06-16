@@ -107,6 +107,7 @@ app.use('/group-chats',        require('./routes/groupChats'));
 app.use('/group-chat-messages',require('./routes/groupChatMessages'));
 app.use('/friends',            require('./routes/friends'));
 app.use('/voice-sessions',     require('./routes/voiceSessions'));
+app.use('/voice-channels',     require('./routes/djSessions'));
 app.use('/feeds',              require('./routes/feeds'));
 app.use('/comments',           require('./routes/comments'));
 app.use('/reports',            require('./routes/reports'));
