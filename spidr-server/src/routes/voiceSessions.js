@@ -1,6 +1,7 @@
 const express = require('express');
 const authMiddleware = require('../middleware/auth');
 const VoiceSession = require('../models/VoiceSession');
+const DJSession = require('../models/DJSession');
 
 const router = express.Router();
 
@@ -108,6 +109,20 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'Not found' });
     await VoiceSession.findByIdAndDelete(req.params.id);
     emitSessionChanged(req, existing);
+
+    // If the leaver was hosting a DJ session in this channel, end it.
+    // Listeners can't enjoy a session whose host's Spotify they can no longer poll.
+    if (existing.channel_id && existing.user_id) {
+      const dj = await DJSession.findOne({ channel_id: existing.channel_id, host_id: existing.user_id });
+      if (dj) {
+        await DJSession.deleteOne({ _id: dj._id });
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('voice:dj-session-changed', { channel_id: existing.channel_id, session: null });
+        }
+      }
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

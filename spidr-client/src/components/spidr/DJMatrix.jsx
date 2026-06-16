@@ -243,6 +243,10 @@ export default function DJMatrix({
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onSelect={handleSelectTrack}
+        title="Change Track"
+        subtitle="Spidr DJ"
+        actionLabel="Spin"
+        emptyHint="Pick the next track. Everyone in the call's matrix updates the instant you select."
       />
 
       <style>{`

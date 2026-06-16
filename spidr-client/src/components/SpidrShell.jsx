@@ -380,8 +380,17 @@ export default function SpidrShell() {
               speaking={false}
               callStartedAt={callStartedAt}
               onExpand={() => {
-                // The deck is mounted at the shell, so just un-hide it. No route
-                // change and no re-mount → the call is never interrupted.
+                // Navigate back to the call's surface BEFORE un-minimizing,
+                // otherwise the auto-minimize effect above sees we're off-surface
+                // and immediately re-minimizes us — making Expand look broken.
+                const target = activeCall?.serverId
+                  ? `/servers/${activeCall.serverId}`
+                  : (activeCall?.conversationId || activeCall?.groupId)
+                    ? '/friends'
+                    : null;
+                if (target && !location.pathname.startsWith(target)) {
+                  navigate(target);
+                }
                 setVoiceDeckExpanded(true);
                 setIsCallMinimized(false);
               }}

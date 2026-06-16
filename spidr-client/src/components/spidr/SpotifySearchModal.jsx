@@ -19,7 +19,15 @@ import { spotify } from '@/api/apiClient';
  *     in Spotify" affordance instead of the play button so the user knows
  *     the track exists but can't be auditioned in-app.
  */
-export default function SpotifySearchModal({ open, onClose, onSelect, currentSelectedId }) {
+export default function SpotifySearchModal({
+  open, onClose, onSelect, currentSelectedId,
+  // Optional copy overrides so the same modal can serve Profile Anthem,
+  // DJ Booth, and any future "pick a Spotify track" flow.
+  title = 'Set Profile Anthem',
+  subtitle = 'Spotify',
+  emptyHint = 'Pick any track on Spotify. A 30-second preview plays when visitors open your profile.',
+  actionLabel = 'Set',
+}) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -130,8 +138,8 @@ export default function SpotifySearchModal({ open, onClose, onSelect, currentSel
                   <Music size={15} className="text-emerald-400" />
                 </div>
                 <div>
-                  <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-400 leading-none">Spotify</p>
-                  <h2 className="text-white font-bold text-sm leading-tight">Set Profile Anthem</h2>
+                  <p className="text-[9px] font-mono uppercase tracking-widest text-emerald-400 leading-none">{subtitle}</p>
+                  <h2 className="text-white font-bold text-sm leading-tight">{title}</h2>
                 </div>
               </div>
               <button
@@ -165,7 +173,7 @@ export default function SpotifySearchModal({ open, onClose, onSelect, currentSel
             {/* Results */}
             <div className="flex-1 overflow-y-auto px-2 pb-3 min-h-0">
               {query.trim().length < 2 ? (
-                <EmptyHint />
+                <EmptyHint copy={emptyHint} />
               ) : loading && results.length === 0 ? (
                 <LoadingHint />
               ) : results.length === 0 ? (
@@ -178,6 +186,7 @@ export default function SpotifySearchModal({ open, onClose, onSelect, currentSel
                       track={t}
                       isPlaying={playingId === t.id}
                       isSelected={currentSelectedId === t.id}
+                      actionLabel={actionLabel}
                       onPreviewToggle={() => handlePreview(t)}
                       onSelect={() => {
                         try { audioRef.current?.pause?.(); } catch {}
@@ -200,7 +209,7 @@ export default function SpotifySearchModal({ open, onClose, onSelect, currentSel
 
 // ── Subcomponents ──────────────────────────────────────────────────────
 
-function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect }) {
+function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect, actionLabel = 'Set' }) {
   const hasPreview = !!track.preview_url;
   return (
     <div
@@ -256,7 +265,7 @@ function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect }) 
               : 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.30)]'
           }`}
         >
-          {isSelected ? <Check size={11} /> : 'Set'}
+          {isSelected ? <Check size={11} /> : actionLabel}
         </button>
       ) : (
         <a
@@ -274,7 +283,7 @@ function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect }) 
   );
 }
 
-function EmptyHint() {
+function EmptyHint({ copy }) {
   return (
     <div className="flex flex-col items-center justify-center py-10 gap-2 text-center">
       <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.20)' }}>
@@ -282,7 +291,7 @@ function EmptyHint() {
       </div>
       <p className="text-zinc-400 text-xs font-bold">Search for a song</p>
       <p className="text-zinc-600 text-[10px] max-w-[260px] leading-relaxed">
-        Pick any track on Spotify. A 30-second preview plays when visitors open your profile.
+        {copy}
       </p>
     </div>
   );
