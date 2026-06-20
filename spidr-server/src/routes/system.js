@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p19m',
+    title: 'Patch 1.9 — Spidr Mobile (Phase 1) is now live',
+    date: '2026-06-20',
+    type: 'UPDATE',
+    description: 'Spidr is now on your phone. Patch 1.9 ships the first React Native build of the app — iOS + Android via Expo SDK 54 — hitting the same Railway-hosted services as the web client so your friends, DMs, servers, and clips travel with you. Auth (login, register, OTP verify) shares the Spring Boot pipeline, tokens live in AsyncStorage, and the socket layer reuses the same JWT auth so live updates work the same as web. DMs render oldest-to-newest with auto-scroll-to-bottom, live current avatars on every bubble (no more stale snapshots when a friend changes pfp), and honor the private per-friend nickname you set; the send path is fixed end-to-end (REST POST + dm:notify socket ping so both sides update instantly). Servers tab lists only servers you actually own or joined, each server screen has a banner + Main Web / Voice Webs categories, and text channels run the same live multi-author avatar lookup, date dividers, and optimistic send pattern as DMs — voice channels show a Phase 2 prompt because they need react-native-webrtc and a custom dev client. THE WEB is wired up properly — a vertical TikTok-style snap-scroll clip feed powered by expo-video, autoplay on the visible card, tap-to-pause, full action rail (avatar+follow, like, comment, mute), and a slide-up bottom sheet for comments with nested replies — plus a LINKED tab that filters the same pool to accepted friends only. Likes persist via the same Clip endpoint web uses, follow/unfollow hits the same /follows route, and watch-time telemetry POSTs to the FYP algorithm so your mobile dwell counts toward your personalization profile. The bottom tab bar is HOME / FRIENDS / SERVERS / WEB / SETTINGS — the new Settings tab groups every preference into Account / App / Media / System cards, with a profile preview row that pushes into the rich profile view (banner, accent-bordered avatar with APEX halo + status dot, BIO / MODS / LINKS tabs, Level + XP card, Now Playing widget). Phase 2 features (uploader, voice channels on mobile, settings sub-screens, edit-in-place for bio fields) fire a "Phase 2 — Coming soon" alert when tapped so nothing dead-ends. Security hardening landed in the same patch: profile social links and clip video URLs now go through a strict http(s) scheme allowlist before being handed to Linking.openURL or the video player, so a malicious server response can\'t inject javascript: or file:// schemes.',
+  },
+  {
     id: 'p185',
     title: 'Patch 1.8.5 is now live',
     date: '2026-06-16',
