@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Spidr",
+    "slug": "spidr-mobile",
+    "version": "1.9.0",
+    "orientation": "portrait",
+    "scheme": "spidr",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#111111"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.infinitetechteam.spidr"
+    },
+    "android": {
+      "package": "com.infinitetechteam.spidr"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-video"
+    ],
+    "extra": {
+      "apiUrl": "https://cooperative-simplicity-production-bb44.up.railway.app",
+      "authUrl": "https://auth.spidrapp.infinitetechteam.com",
+      "wsUrl": "https://cooperative-simplicity-production-bb44.up.railway.app",
+      "spotifyClientId": ""
+    },
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
