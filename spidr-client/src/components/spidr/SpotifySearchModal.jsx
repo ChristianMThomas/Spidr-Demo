@@ -211,28 +211,48 @@ export default function SpotifySearchModal({
 
 function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect, actionLabel = 'Set' }) {
   const hasPreview = !!track.preview_url;
+  const externalUrl = track.external_url || `https://open.spotify.com/track/${track.id}`;
+
+  // The ENTIRE row selects the track. Selection must NOT depend on preview
+  // availability — Spotify stopped returning `preview_url` for most tracks in
+  // late 2024, so the old design (Select button only when hasPreview, else just
+  // an external-link icon) left nearly every result unselectable. That was the
+  // "search works but you can't choose a song" bug. Now every track is
+  // selectable; the 30s preview and "open in Spotify" are secondary niceties.
+  const handleRowKey = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); }
+  };
+
   return (
     <div
-      className={`flex items-center gap-3 p-2 rounded-lg transition-colors group ${
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={handleRowKey}
+      aria-pressed={isSelected}
+      title={`Select "${track.name}"`}
+      className={`flex items-center gap-3 p-2 rounded-lg transition-colors group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 ${
         isSelected ? 'bg-emerald-500/10 border border-emerald-500/30' : 'hover:bg-white/5 border border-transparent'
       }`}
     >
-      {/* Album art + audition button */}
-      <button
-        type="button"
-        onClick={onPreviewToggle}
-        disabled={!hasPreview}
-        className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 group/art"
-        title={hasPreview ? (isPlaying ? 'Stop preview' : 'Preview 30s') : 'Preview unavailable for this track'}
-      >
-        {track.album_art_url ? (
-          <img src={track.album_art_url} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
-            <Music size={14} className="text-zinc-600" />
-          </div>
-        )}
-        {hasPreview && (
+      {/* Album art. When a 30s preview exists it's a button that auditions
+          (stopPropagation so it doesn't select). With no preview it's a plain
+          div, so clicking the cover bubbles up and selects the row instead of
+          being a dead zone (a disabled <button> would swallow the click). */}
+      {hasPreview ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onPreviewToggle(); }}
+          className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 group/art"
+          title={isPlaying ? 'Stop preview' : 'Preview 30s'}
+        >
+          {track.album_art_url ? (
+            <img src={track.album_art_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+              <Music size={14} className="text-zinc-600" />
+            </div>
+          )}
           <div
             className={`absolute inset-0 flex items-center justify-center transition-opacity ${
               isPlaying ? 'opacity-100' : 'opacity-0 group-hover/art:opacity-100'
@@ -243,8 +263,18 @@ function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect, ac
               ? <Pause size={14} className="text-white" />
               : <Play size={14} className="text-white ml-0.5" />}
           </div>
-        )}
-      </button>
+        </button>
+      ) : (
+        <div className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0">
+          {track.album_art_url ? (
+            <img src={track.album_art_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+              <Music size={14} className="text-zinc-600" />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Track meta */}
       <div className="flex-1 min-w-0">
@@ -254,31 +284,32 @@ function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect, ac
         <p className="text-[11px] text-zinc-500 truncate">{track.artist}</p>
       </div>
 
-      {/* Action — Select or "Open in Spotify" fallback */}
-      {hasPreview ? (
-        <button
-          type="button"
-          onClick={onSelect}
-          className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
-            isSelected
-              ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40'
-              : 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.30)]'
-          }`}
-        >
-          {isSelected ? <Check size={11} /> : actionLabel}
-        </button>
-      ) : (
-        <a
-          href={track.external_url || `https://open.spotify.com/track/${track.id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          title="Preview unavailable in Spidr — open on Spotify"
-          className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-        >
-          <ExternalLink size={12} />
-        </a>
-      )}
+      {/* Secondary: open on Spotify (kept as a small affordance, no longer the
+          only action). stopPropagation so it doesn't also select the row. */}
+      <a
+        href={externalUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        tabIndex={-1}
+        title="Open on Spotify"
+        className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-zinc-600 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+      >
+        <ExternalLink size={12} />
+      </a>
+
+      {/* Primary action — always present so every track is selectable. */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onSelect(); }}
+        className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+          isSelected
+            ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40'
+            : 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.30)]'
+        }`}
+      >
+        {isSelected ? <Check size={11} /> : actionLabel}
+      </button>
     </div>
   );
 }

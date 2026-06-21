@@ -5,25 +5,6 @@ import { Music2, ExternalLink, Unlink, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { entities } from '@/api/apiClient';
 import { useNowPlaying } from '@/context/NowPlayingContext';
-import useNowPlayingFor from '@/hooks/useNowPlaying';
-
-// Server payload (snake_case) → widget's expected camelCase shape.
-// Mirrors toLegacyShape() in NowPlayingContext.jsx.
-function toLegacyShape(p) {
-  if (!p || p.connected === false || !p.track_id) return null;
-  return {
-    source:     'spotify-web',
-    trackName:  p.track_name,
-    artist:     p.artist,
-    artists:    p.artist ? p.artist.split(', ') : [],
-    albumArt:   p.album_art_url,
-    durationMs: p.duration_ms,
-    positionMs: p.progress_ms,
-    positionAt: p.sampled_at ? new Date(p.sampled_at).toISOString() : new Date().toISOString(),
-    isPlaying:  !!p.is_playing,
-    trackUri:   p.track_id ? `spotify:track:${p.track_id}` : null,
-  };
-}
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -66,12 +47,6 @@ export default function SpotifyNowPlaying({ userId, isOwnProfile }) {
   const queryClient = useQueryClient();
   const { ownNowPlaying, getPosition } = useNowPlaying();
 
-  // Peer profiles: subscribe to the profile owner's server-side Spotify stream.
-  // Own profile uses the context (handles Electron SMTC + own Spotify together).
-  const peerRaw = useNowPlayingFor(userId, { enabled: !isOwnProfile && !!userId });
-  const peerNp  = toLegacyShape(peerRaw);
-  const np      = isOwnProfile ? ownNowPlaying : peerNp;
-
   // Profile query is non-blocking — only used to show the Disconnect button
   // when the user has previously connected Spotify (does not gate the widget)
   const { data: profile } = useQuery({
@@ -90,14 +65,14 @@ export default function SpotifyNowPlaying({ userId, isOwnProfile }) {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    if (!np?.isPlaying) {
-      setProgress(np?.positionMs ?? 0);
+    if (!ownNowPlaying?.isPlaying) {
+      setProgress(ownNowPlaying?.positionMs ?? 0);
       return;
     }
-    setProgress(getPosition(np));
-    const id = setInterval(() => setProgress(getPosition(np)), 1000);
+    setProgress(getPosition(ownNowPlaying));
+    const id = setInterval(() => setProgress(getPosition(ownNowPlaying)), 1000);
     return () => clearInterval(id);
-  }, [np?.trackName, np?.isPlaying, np?.positionAt, getPosition]);
+  }, [ownNowPlaying?.trackName, ownNowPlaying?.isPlaying, ownNowPlaying?.positionAt, getPosition]);
 
   const handleDisconnect = useCallback(async () => {
     await authFetch('/spotify/auth/disconnect', { method: 'DELETE' });
@@ -145,6 +120,7 @@ export default function SpotifyNowPlaying({ userId, isOwnProfile }) {
     window.history.replaceState({}, '', window.location.pathname + (q ? `?${q}` : ''));
   }, [queryClient, userId]);
 
+  const np = ownNowPlaying;
   const isActive = np?.isPlaying && np?.trackName;
 
   // ── Nothing playing / Electron not running / no media session ────────────
