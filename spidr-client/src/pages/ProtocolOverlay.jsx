@@ -47,6 +47,33 @@ export default function ProtocolOverlay() {
   const inputRef = useRef(null);
   const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron;
 
+  // Ghost-protocol transparency. The Electron overlay window is created with
+  // transparent:true + backgroundColor:'#00000000', but the app ships no .dark
+  // class on <html>, so index.css's :root resolves --background to white and
+  // `body { @apply bg-background }` paints an opaque WHITE layer behind this
+  // transparent overlay div — which is exactly the "white background" QA saw.
+  // Force html/body/#root transparent while the overlay is mounted, and restore
+  // on unmount so the main window (which reuses the same index.html) is unaffected.
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const root = document.getElementById('root');
+    const prev = {
+      htmlBg: html.style.background, htmlColor: html.style.backgroundColor,
+      bodyBg: body.style.background, bodyColor: body.style.backgroundColor,
+      rootBg: root?.style.background, rootColor: root?.style.backgroundColor,
+    };
+    const clear = (el) => { if (!el) return; el.style.background = 'transparent'; el.style.backgroundColor = 'transparent'; };
+    clear(html); clear(body); clear(root);
+    html.classList.add('spidr-ghost-overlay');
+    return () => {
+      html.style.background = prev.htmlBg; html.style.backgroundColor = prev.htmlColor;
+      body.style.background = prev.bodyBg; body.style.backgroundColor = prev.bodyColor;
+      if (root) { root.style.background = prev.rootBg; root.style.backgroundColor = prev.rootColor; }
+      html.classList.remove('spidr-ghost-overlay');
+    };
+  }, []);
+
   // Resolve the current user.
   useEffect(() => {
     let alive = true;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Heart, Bookmark, Grid, Activity, Settings, Upload, Pencil, Trash2, X, Check } from 'lucide-react';
+import { Play, Heart, Bookmark, Grid, Activity, Settings, Upload, Pencil, Trash2, X, Check, Repeat2 } from 'lucide-react';
 import PostCard3D from './PostCard3D';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
@@ -35,6 +35,9 @@ export default function WebProfile({ currentUser, onUploadClick }) {
   const savedClipIds = collections.find(c => c.name === 'Saved')?.clip_ids || [];
   const cocoons = clips.filter(c => savedClipIds.includes(c.id));
   const resonated = clips.filter(c => c.likes?.includes(currentUser?.id));
+  // Reposts (Signal Relays) — clips this user relayed to their own web. Now
+  // that `relays` persists server-side, these show up on the profile.
+  const reposted = clips.filter(c => c.relays?.includes(currentUser?.id));
 
   const totalViews = myStrands.reduce((sum, c) => sum + (c.views || 0), 0);
   const totalLikes = myStrands.reduce((sum, c) => sum + (c.likes?.length || 0), 0);
@@ -43,7 +46,10 @@ export default function WebProfile({ currentUser, onUploadClick }) {
   const avatarSeed = currentUser?.id || 'node';
   const avatarUrl = profile?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`;
 
-  const tabContent = activeTab === 'strands' ? myStrands : activeTab === 'saved' ? cocoons : resonated;
+  const tabContent = activeTab === 'strands' ? myStrands
+    : activeTab === 'saved' ? cocoons
+    : activeTab === 'reposts' ? reposted
+    : resonated;
 
   const updateClipMutation = useMutation({
     mutationFn: ({ id, data }) => entities.Clip.update(id, data),
@@ -108,6 +114,7 @@ export default function WebProfile({ currentUser, onUploadClick }) {
       <div className="sticky top-0 bg-black/90 backdrop-blur-md z-20 border-b border-white/10">
         <div className="flex justify-center gap-10 py-3">
           <TabButton icon={Grid} label="MY STRANDS" active={activeTab === 'strands'} onClick={() => setActiveTab('strands')} />
+          <TabButton icon={Repeat2} label="REPOSTS" active={activeTab === 'reposts'} onClick={() => setActiveTab('reposts')} />
           <TabButton icon={Bookmark} label="SAVED" active={activeTab === 'saved'} onClick={() => setActiveTab('saved')} />
           <TabButton icon={Heart} label="RESONANCE" active={activeTab === 'liked'} onClick={() => setActiveTab('liked')} />
         </div>
@@ -149,7 +156,11 @@ export default function WebProfile({ currentUser, onUploadClick }) {
 
           {tabContent.length === 0 && activeTab !== 'strands' && (
             <div className="col-span-full text-center py-12 text-zinc-600">
-              <p className="text-sm font-mono">{activeTab === 'saved' ? 'No saved clips yet. Save clips to build your archive.' : 'No resonance yet. Like clips to track them here.'}</p>
+              <p className="text-sm font-mono">{
+                activeTab === 'saved'   ? 'No saved clips yet. Save clips to build your archive.'
+              : activeTab === 'reposts' ? 'No relays yet. Hit the relay button on a strand to amplify it to your web.'
+              :                           'No resonance yet. Like clips to track them here.'
+              }</p>
             </div>
           )}
         </div>
