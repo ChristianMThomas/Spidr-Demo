@@ -75,6 +75,40 @@ module.exports = function registerHandlers(io) {
     return false; // still has other connections
   };
 
+  // ── Friend-id cache ─────────────────────────────────────────────────────────
+  // NowPlaying presence updates fire every few seconds while a track plays, so
+  // we don't want a Mongo round-trip per emit. Cache each user's accepted
+  // friend_ids for 60s. (The cache is per-process and cleared lazily.)
+  const friendCache = new Map(); // userId → { ids: string[], at: number }
+  const FRIEND_TTL_MS = 60 * 1000;
+  const getAcceptedFriendIds = async (userId) => {
+    const hit = friendCache.get(userId);
+    if (hit && Date.now() - hit.at < FRIEND_TTL_MS) return hit.ids;
+    let ids = [];
+    try {
+      const rows = await Friend.find(
+        { user_id: userId, status: 'accepted' },
+        { friend_id: 1 }
+      ).lean();
+      ids = rows.map(r => r.friend_id).filter(Boolean);
+    } catch { ids = hit?.ids || []; }
+    friendCache.set(userId, { ids, at: Date.now() });
+    return ids;
+  };
+
+  // Emit an event directly to every online socket of a set of user_ids. Used to
+  // push NowPlaying presence to friends who aren't currently sharing a room
+  // (channel / voice / DM) with the actor — the reason "others can't see what
+  // I'm listening to" even though MY own widget worked: the old broadcast only
+  // hit socket.rooms, so a friend who wasn't in the same room got nothing.
+  const emitToUsers = (userIds, event, payload) => {
+    for (const uid of userIds) {
+      const sockets = onlineUsers.get(uid);
+      if (!sockets) continue;
+      for (const sid of sockets) io.to(sid).emit(event, payload);
+    }
+  };
+
   // Sweep dead sockets every 15s. If we haven't seen a heartbeat in 60s,
   // assume the client is gone (browser killed, network died, etc).
   const HEARTBEAT_TIMEOUT_MS = 60 * 1000;
@@ -494,9 +528,17 @@ module.exports = function registerHandlers(io) {
         updatedAt:  new Date(),
       };
       UserProfile.updateOne({ user_id: userId }, { $set: { nowPlaying } }).catch(() => {});
+      // Rooms the actor currently shares with others (channel / voice / DM / group).
       for (const room of socket.rooms) {
         if (room !== socket.id) socket.to(room).emit('presence:nowplaying', { userId, nowPlaying });
       }
+      // Plus every accepted friend, wherever they are — this is what makes a
+      // friend's roster/sidebar actually show what you're listening to even
+      // when you aren't in the same channel.
+      try {
+        const friendIds = await getAcceptedFriendIds(userId);
+        emitToUsers(friendIds, 'presence:nowplaying', { userId, nowPlaying });
+      } catch {}
     });
 
     socket.on('nowplaying:clear', async () => {
@@ -505,9 +547,14 @@ module.exports = function registerHandlers(io) {
         { user_id: userId },
         { $set: { 'nowPlaying.isPlaying': false } }
       ).catch(() => {});
+      const cleared = { isPlaying: false };
       for (const room of socket.rooms) {
-        if (room !== socket.id) socket.to(room).emit('presence:nowplaying', { userId, nowPlaying: { isPlaying: false } });
+        if (room !== socket.id) socket.to(room).emit('presence:nowplaying', { userId, nowPlaying: cleared });
       }
+      try {
+        const friendIds = await getAcceptedFriendIds(userId);
+        emitToUsers(friendIds, 'presence:nowplaying', { userId, nowPlaying: cleared });
+      } catch {}
     });
 
     // ── Disconnecting: notify voice rooms while rooms are still populated ────

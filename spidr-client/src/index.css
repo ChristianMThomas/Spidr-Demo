@@ -87,6 +87,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Ghost-protocol overlay window: the transparent Electron HUD reuses the same
+ * index.html, so when ProtocolOverlay mounts it adds .spidr-ghost-overlay to
+ * <html>. Force every layer transparent so the frameless window is truly
+ * see-through over a game instead of showing an opaque (white) body. */
+html.spidr-ghost-overlay,
+html.spidr-ghost-overlay body,
+html.spidr-ghost-overlay #root {
+  background: transparent !important;
+  background-color: transparent !important;
+}
 /* ─── Electron window dragging ─────────────────────────────────────────────
  * The shell root has -webkit-app-region: drag so the whole window is
  * grabbable. Every interactive element opts back out so clicks still work. */

@@ -35,6 +35,13 @@ const s = new Schema({
   shares_count:   { type: Number, default: 0 },
   views:          { type: Number, default: 0 },
 
+  // Signal Relay (repost) — array of user_ids who relayed this clip to their
+  // own web. Drives the "RELAYED THIS SIGNAL" badge in the feed and the
+  // REPOSTS tab on a user's THE WEB profile. Previously this field was missing
+  // from the schema, so Mongoose's strict mode silently dropped relay writes
+  // and reposts never persisted server-side (they only lived in localStorage).
+  relays:         { type: [String], default: [], index: true },
+
   // ML scoring
   engagement_scores: {
     avg:   { type: Number, default: 0 },
