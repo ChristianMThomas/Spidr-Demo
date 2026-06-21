@@ -15,67 +15,141 @@ export function useSpidrVoice() {
   const audioCtxRef = useRef(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const keepAliveRef = useRef(null);
+  const primedRef = useRef(false);
 
   const getAudioContext = useCallback(() => {
     if (!audioCtxRef.current) {
-      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) audioCtxRef.current = new Ctx();
     }
     return audioCtxRef.current;
   }, []);
 
-  const speak = useCallback((text) => {
-    if (isMuted || !text || !window.speechSynthesis) return;
+  // Resolve once the browser has actually populated its voice list. getVoices()
+  // is async on first call (esp. in Electron/Chromium) and returns [] until the
+  // 'voiceschanged' event fires — calling speak() in that window produces
+  // silence, which is the core "can't hear Spidr AI" symptom. We wait (with a
+  // short timeout so we never hang) before speaking.
+  const waitForVoices = useCallback(() => new Promise((resolve) => {
+    const synth = window.speechSynthesis;
+    if (!synth) return resolve([]);
+    const existing = synth.getVoices();
+    if (existing && existing.length) return resolve(existing);
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      synth.removeEventListener?.('voiceschanged', onChange);
+      resolve(synth.getVoices() || []);
+    };
+    const onChange = () => finish();
+    synth.addEventListener?.('voiceschanged', onChange);
+    // Fallback: some engines never emit the event — poll a few times, then give
+    // up and speak with the default voice anyway (better than silence).
+    let tries = 0;
+    const poll = setInterval(() => {
+      tries += 1;
+      if ((synth.getVoices() || []).length || tries > 10) { clearInterval(poll); finish(); }
+    }, 150);
+  }), []);
 
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-
-    // Pick a natural young male voice — friendly, not robotic
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v => 
+  const pickVoice = useCallback((voices) => {
+    if (!voices || !voices.length) return null;
+    return voices.find(v =>
       /aaron|reed|evan|tom|samantha|alex|junior/i.test(v.name) && v.lang.startsWith('en')
-    ) || voices.find(v => 
+    ) || voices.find(v =>
       /daniel|james|guy|david|mark/i.test(v.name) && v.lang.startsWith('en')
     ) || voices.find(v => v.lang.startsWith('en-US'))
-      || voices.find(v => v.lang.startsWith('en'));
+      || voices.find(v => v.lang.startsWith('en'))
+      || voices[0];
+  }, []);
 
+  const speak = useCallback(async (text) => {
+    const synth = window.speechSynthesis;
+    if (isMuted || !text || !synth) return;
+
+    // Browsers gate audio behind a user gesture. invokeSpidrAI is triggered by
+    // a click so we're usually fine, but resume the AudioContext + speech queue
+    // defensively (Chrome sometimes leaves the queue paused).
+    try { getAudioContext()?.resume?.(); } catch {}
+    try { synth.resume(); } catch {}
+
+    const voices = await waitForVoices();
+    synth.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const preferred = pickVoice(voices);
     if (preferred) utterance.voice = preferred;
-
     utterance.rate = VOICE_CONFIG.rate;
     utterance.pitch = VOICE_CONFIG.pitch;
     utterance.volume = VOICE_CONFIG.volume;
 
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      // Chrome silently stops long utterances after ~15s unless nudged. Cheap
+      // insurance: tick resume() while speaking. Harmless for short replies.
+      if (keepAliveRef.current) clearInterval(keepAliveRef.current);
+      keepAliveRef.current = setInterval(() => {
+        try { if (synth.speaking) synth.resume(); } catch {}
+      }, 10000);
+    };
+    const clearKeepAlive = () => { if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; } };
+    utterance.onend = () => { setIsSpeaking(false); clearKeepAlive(); };
+    utterance.onerror = () => { setIsSpeaking(false); clearKeepAlive(); };
 
-    window.speechSynthesis.speak(utterance);
-  }, [isMuted]);
+    synth.speak(utterance);
+  }, [isMuted, getAudioContext, waitForVoices, pickVoice]);
 
   const stop = useCallback(() => {
-    window.speechSynthesis.cancel();
+    window.speechSynthesis?.cancel();
+    if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
     setIsSpeaking(false);
   }, []);
 
   const toggleMute = useCallback(() => {
     if (isSpeaking) {
-      window.speechSynthesis.cancel();
+      window.speechSynthesis?.cancel();
       setIsSpeaking(false);
     }
     setIsMuted(prev => !prev);
   }, [isSpeaking]);
 
-  // Preload voices + strict cleanup
+  // Preload voices + a one-time "audio unlock" on the first user gesture so the
+  // browser's autoplay policy is satisfied before Spidr AI ever tries to speak.
   useEffect(() => {
-    window.speechSynthesis.getVoices();
-    const handleVoicesChanged = () => window.speechSynthesis.getVoices();
-    window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    synth.getVoices();
+    const handleVoicesChanged = () => synth.getVoices();
+    synth.addEventListener?.('voiceschanged', handleVoicesChanged);
+
+    const prime = () => {
+      if (primedRef.current) return;
+      primedRef.current = true;
+      try { getAudioContext()?.resume?.(); } catch {}
+      try {
+        synth.resume();
+        // A near-silent priming utterance unlocks the TTS pipeline.
+        const u = new SpeechSynthesisUtterance(' ');
+        u.volume = 0;
+        synth.speak(u);
+      } catch {}
+      window.removeEventListener('pointerdown', prime);
+      window.removeEventListener('keydown', prime);
+    };
+    window.addEventListener('pointerdown', prime);
+    window.addEventListener('keydown', prime);
+
     return () => {
-      window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
-      window.speechSynthesis.cancel();
+      synth.removeEventListener?.('voiceschanged', handleVoicesChanged);
+      window.removeEventListener('pointerdown', prime);
+      window.removeEventListener('keydown', prime);
+      synth.cancel();
+      if (keepAliveRef.current) { clearInterval(keepAliveRef.current); keepAliveRef.current = null; }
       setIsSpeaking(false);
     };
-  }, []);
+  }, [getAudioContext]);
 
   // Close AudioContext on unmount
   useEffect(() => {

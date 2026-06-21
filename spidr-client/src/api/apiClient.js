@@ -154,7 +154,13 @@ export const entities = {
   Comment:          entity('comments'),
   Report:           entity('reports'),
   AudioTrack:       entity('audio-tracks'),
-  Clip:             entity('clips'),
+  Clip: {
+    ...entity('clips'),
+    // Atomic server-side view increment ($inc). Returns { id, views }.
+    registerView: (id) => api.post(`/clips/${id}/view`, {}),
+    // Atomic Signal Relay (repost) toggle. Returns { id, relays, relayed }.
+    relay:        (id) => api.post(`/clips/${id}/relay`, {}),
+  },
   SavedAudio:       entity('saved-audio'),
   Collection:       entity('collections'),
   CommunityAsset:   entity('community-assets'),
