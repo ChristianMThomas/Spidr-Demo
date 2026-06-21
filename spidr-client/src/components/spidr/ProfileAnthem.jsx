@@ -151,45 +151,79 @@ export default function ProfileAnthem({ userProfile, isOwnProfile }) {
   const handleSelectTrack = async (track) => {
     if (!track?.id) return;
     setSaving(true);
+
+    // Full metadata is cached on the profile (not just the id) so viewing a
+    // profile never re-hits Spotify for art/name — avoids the 429 trap.
+    const patch = {
+      anthem_spotify_id:    track.id,
+      anthem_name:          track.name || '',
+      anthem_artist:        track.artist || '',
+      anthem_album_art_url: track.album_art_url || '',
+      anthem_preview_url:   track.preview_url || '',
+      anthem_external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
+      anthem_duration_ms:   track.duration_ms || 30000,
+      anthem_url:           '', // clear any legacy upload
+    };
+
+    // Optimistic UI: stamp the anthem onto every cached copy of THIS user's
+    // profile immediately, so the editor swaps from the "[+] Set" box to the
+    // glowing track the instant Set is clicked — without waiting on the
+    // round-trip or the refetch. The parent profile query is keyed
+    // ['userProfile', userId]; we match by user_id so we hit it regardless of
+    // the exact key suffix.
+    const uid = userProfile?.user_id;
+    const applied = [];
     try {
-      await entities.UserProfile.update(userProfile.id, {
-        anthem_spotify_id:    track.id,
-        anthem_name:          track.name || '',
-        anthem_artist:        track.artist || '',
-        anthem_album_art_url: track.album_art_url || '',
-        anthem_preview_url:   track.preview_url || '',
-        anthem_external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
-        anthem_duration_ms:   track.duration_ms || 30000,
-        anthem_url:           '', // clear any legacy upload
+      queryClient.setQueriesData({ queryKey: ['userProfile'] }, (old) => {
+        if (old && (old.user_id === uid || old.id === userProfile?.id)) {
+          applied.push(true);
+          return { ...old, ...patch };
+        }
+        return old;
       });
+    } catch {}
+
+    setSearchOpen(false);
+    try {
+      await entities.UserProfile.update(userProfile.id, patch);
+      // Reconcile with server truth (prefix-matches ['userProfile', userId]).
       queryClient.invalidateQueries({ queryKey: ['userProfile'] });
       toast.success('Anthem set!');
-      setSearchOpen(false);
     } catch (err) {
       console.error('[ProfileAnthem] save failed:', err);
       toast.error(err?.message || 'Could not save anthem');
+      // Roll the optimistic change back to server state on failure.
+      if (applied.length) queryClient.invalidateQueries({ queryKey: ['userProfile'] });
     } finally {
       setSaving(false);
     }
   };
 
   const clearAnthem = async () => {
+    const cleared = {
+      anthem_spotify_id:    '',
+      anthem_name:          '',
+      anthem_artist:        '',
+      anthem_album_art_url: '',
+      anthem_preview_url:   '',
+      anthem_external_url:  '',
+      anthem_duration_ms:   0,
+      anthem_url:           '',
+    };
+    const uid = userProfile?.user_id;
     try {
-      await entities.UserProfile.update(userProfile.id, {
-        anthem_spotify_id:    '',
-        anthem_name:          '',
-        anthem_artist:        '',
-        anthem_album_art_url: '',
-        anthem_preview_url:   '',
-        anthem_external_url:  '',
-        anthem_duration_ms:   0,
-        anthem_url:           '',
-      });
+      queryClient.setQueriesData({ queryKey: ['userProfile'] }, (old) =>
+        (old && (old.user_id === uid || old.id === userProfile?.id)) ? { ...old, ...cleared } : old
+      );
+    } catch {}
+    try {
+      await entities.UserProfile.update(userProfile.id, cleared);
       queryClient.invalidateQueries({ queryKey: ['userProfile'] });
       toast('Anthem removed');
     } catch (err) {
       console.error('[ProfileAnthem] clear failed:', err);
       toast.error('Could not remove');
+      queryClient.invalidateQueries({ queryKey: ['userProfile'] });
     }
   };
 

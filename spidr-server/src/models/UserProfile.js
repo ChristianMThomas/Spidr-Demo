@@ -100,6 +100,23 @@ const s = new Schema({
     positionAt: Date,
     updatedAt:  Date,
   },
+  // Profile Anthem — a Spotify track that auto-previews on the user's profile.
+  // The FULL track metadata is cached here (not just the id) so viewing a
+  // profile never has to re-hit the Spotify API for art/name — that avoids the
+  // 429 rate-limit trap and keeps profile loads instant. Previously these
+  // fields were absent from the schema, so Mongoose strict mode silently
+  // dropped every anthem write: the PATCH returned 200 but saved nothing, the
+  // refetched profile still had no anthem, and the editor kept showing the
+  // "Set a profile anthem" box even after the user clicked Set.
+  anthem_spotify_id:    { type: String, default: '' },
+  anthem_name:          { type: String, default: '' },
+  anthem_artist:        { type: String, default: '' },
+  anthem_album_art_url: { type: String, default: '' },
+  anthem_preview_url:   { type: String, default: '' },
+  anthem_external_url:  { type: String, default: '' },
+  anthem_duration_ms:   { type: Number, default: 0 },
+  anthem_url:           { type: String, default: '' }, // legacy file-upload anthem
+
   // Notification preferences (3.4 of Patch 1.2) — persisted toggle state.
   notification_prefs: { type: Schema.Types.Mixed, default: null },
   // "Spidr Web" pinned conversations (Patch 1.4 §3.1) — array of refs like
