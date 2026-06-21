@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p191',
+    title: 'Patch 1.9.1 is now live',
+    date: '2026-06-21',
+    type: 'FIX',
+    description: 'Fix the Spotify Now Playing module so visitors see the profile owner\'s track instead of their own. The widget was reading the viewer\'s now-playing from NowPlayingContext on every render, so browsing a friend\'s profile silently showed your music under their name — the same shape of bug we patched on the Weather module in 1.8.3. The widget now subscribes to the profile owner\'s server-side Spotify presence stream when viewing someone else, and keeps the existing context source for your own profile so Electron\'s OS media session and your own Spotify both still flow through. Peer profiles without Spotify connected show "Nothing playing" instead of falling back to the viewer\'s data.',
+  },
+  {
     id: 'p19m',
     title: 'Patch 1.9 — Spidr Mobile (Phase 1) is now live',
     date: '2026-06-20',
