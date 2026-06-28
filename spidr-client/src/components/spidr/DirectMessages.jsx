@@ -2,13 +2,21 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
 import { useTension } from '@/hooks/useTension';
+import { useStickyBoolean } from '@/hooks/useStickyBoolean';
 import { useAppShell } from '@/context/AppShellContext';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import CatchMeUpBar from './CatchMeUpBar';
-import { Send, Image as ImageIcon, Smile, MoreVertical, Phone, Video, Ghost, Pin, Archive, CornerUpLeft, X } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, Phone, Video, Ghost, Pin, Archive, CornerUpLeft, X, Search } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import StickyWeb from './StickyWeb';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -36,8 +44,12 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const [message, setMessage] = useState('');
   const [reportTarget, setReportTarget] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
+  // 350ms linger so the WEB_VIBRATION_DETECTED banner doesn't flicker on
+  // brief typing pauses between keystrokes.
+  const showTypingBanner = useStickyBoolean(isTyping, 350);
   const [showProfile, setShowProfile] = useState(false);
   const [ghostMode, setGhostMode] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [selectedProfileUserId, setSelectedProfileUserId] = useState(null);
   const { startVoiceSession, endVoiceSession, voiceSession } = useAppShell();
   const activeConversationId = conversationId || conversation?.conversationId;
@@ -576,11 +588,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           as the shared MinimizedWebNode at the shell, and the full deck is the
           VoiceChannel overlay above.) */}
       
-      {/* Neural Header — pr-[200px] reserves space for the shell's top-right
-          cluster (notifications + biomass pill + status chip) so the search
-          and action icons don't slide under it. */}
+      {/* Neural Header — md:pr-[200px] reserves space for the shell's top-right
+          cluster (notifications + biomass pill + status chip) on desktop only.
+          On <md the cluster collapses and the header reclaims the full width. */}
       <div
-        className="h-14 flex items-center justify-between px-4 pr-[200px] border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-20 flex-shrink-0 transition-all duration-500"
+        className="h-14 flex items-center justify-between px-3 pr-2 md:px-4 md:pr-[200px] border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-20 flex-shrink-0 transition-all duration-500"
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {onBack && (
@@ -604,7 +616,9 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
             </div>
             <div className="min-w-0">
               <h2 className="font-semibold text-white text-sm truncate">{displayName}</h2>
-              <div className="flex items-center gap-1.5">
+              {/* Status label hidden on <sm — the status dot on the avatar already
+                  communicates online/offline at small widths. */}
+              <div className="hidden sm:flex items-center gap-1.5">
                 <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-widest">
                   {isTyping ? '/// TYPING' : recipientProfile?.status?.toUpperCase() || 'OFFLINE'}
                 </span>
@@ -613,7 +627,8 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           </button>
         </div>
 
-        <div className="flex items-center gap-0.5">
+        {/* Desktop cluster — full action row visible on md+ */}
+        <div className="hidden md:flex items-center gap-0.5">
           <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Call'}>
             <Phone size={17} />
           </button>
@@ -640,7 +655,73 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
             <MoreVertical size={17} />
           </button>
         </div>
+
+        {/* Mobile cluster — search toggles a full-width row below; everything
+            else collapses into the kebab dropdown. */}
+        <div className="flex md:hidden items-center gap-0.5">
+          <button
+            onClick={() => setMobileSearchOpen(v => !v)}
+            className={`p-2 rounded-lg transition-all ${mobileSearchOpen ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+            title="Search DM"
+          >
+            <Search size={17} />
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all">
+                <MoreVertical size={17} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52 bg-[#0a0a0a] border-white/10 text-white">
+              <DropdownMenuItem onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className="gap-2">
+                <Phone size={15} className={inCall ? 'text-green-500' : 'text-zinc-400'} />
+                {inCall ? 'Toggle Call Deck' : 'Voice Call'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className="gap-2">
+                <Video size={15} className={inCall ? 'text-green-500' : 'text-zinc-400'} />
+                {inCall ? 'Toggle Call Deck' : 'Video Call'}
+              </DropdownMenuItem>
+              {inCall && (
+                <DropdownMenuItem onClick={handleEndCall} className="gap-2 text-red-500 focus:text-red-500 focus:bg-red-500/10">
+                  <Phone size={15} className="rotate-[135deg]" />
+                  End Call
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator className="bg-white/5" />
+              <DropdownMenuItem onClick={() => setShowSpidrAI(!showSpidrAI)} className="gap-2">
+                <SpiderLogo size={15} className={showSpidrAI ? 'text-[#FF3333]' : 'text-zinc-400'} />
+                Summon Spidr AI
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setGhostMode(!ghostMode)} className="gap-2">
+                <Ghost size={15} className={ghostMode ? 'text-purple-400' : 'text-zinc-400'} />
+                {ghostMode ? 'Ghost Mode: On' : 'Ghost Mode'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowStickyWeb(!showStickyWeb)} className="gap-2">
+                <Archive size={15} className={showStickyWeb ? 'text-[#FF3333]' : 'text-zinc-400'} />
+                Sticky Web
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
+
+      {/* Mobile search row — slides in below the header on <md when toggled.
+          Reuses SignalTracker; the inner input takes full width via the wrapper
+          so it isn't constrained to SignalTracker's default w-44/w-72. */}
+      {mobileSearchOpen && (
+        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-10">
+          <div className="flex-1 [&>div]:!w-full [&>div>div]:!w-full">
+            <SignalTracker placeholder="Search DM..." messages={messages} users={[]} onResultClick={() => {}} />
+          </div>
+          <button
+            onClick={() => setMobileSearchOpen(false)}
+            className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all shrink-0"
+            title="Close search"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       {/* Active-call presence banner — symmetric with KineticChat. Lets a
           recipient who missed/dismissed the IncomingCallBanner still join
@@ -809,7 +890,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       </div>
 
       {/* Web Sense Typing Indicator */}
-      {isTyping && (
+      {showTypingBanner && (
         <div className="bg-black flex items-center px-4 py-2 relative z-10">
           <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10 bg-[#111] pr-2">
             <span className="text-[9px] font-mono uppercase tracking-widest text-[#FF3333]">

@@ -288,21 +288,24 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
 
   return (
     <div className="flex-1 flex flex-col bg-zinc-900">
-      {/* Header — pr-[200px] reserves space for the shell's top-right cluster
-          (notifications + biomass pill + status chip) so the search input
-          doesn't get covered. */}
-      <div className="h-14 border-b border-red-900/20 flex items-center px-4 pr-[200px] gap-4">
+      {/* Header — md:pr-[200px] reserves space for the shell's top-right
+          cluster on desktop only. On <md the cluster collapses, so the header
+          reclaims full width. Create Group shrinks to an icon button and the
+          search input drops to its own row below. */}
+      <div className="h-14 border-b border-red-900/20 flex items-center px-3 pr-2 md:px-4 md:pr-[200px] gap-2 md:gap-4">
         <h2 className="font-semibold text-white">Friends</h2>
         <div className="flex-1" />
-        <Button 
-          size="sm" 
+        <Button
+          size="sm"
           onClick={() => setShowCreateGroup(true)}
-          className="bg-purple-600 hover:bg-purple-700"
+          className="bg-purple-600 hover:bg-purple-700 shrink-0"
+          title="Create Group"
         >
-          <Users className="w-4 h-4 mr-2" />
-          Create Group
+          <Users className="w-4 h-4 md:mr-2" />
+          <span className="hidden md:inline">Create Group</span>
         </Button>
-        <div className="relative">
+        {/* Search — visible on md+ only (mobile shows it in its own row below). */}
+        <div className="relative hidden md:block">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
           <Input
             placeholder="Search friends..."
@@ -313,26 +316,43 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         </div>
       </div>
 
+      {/* Mobile-only search row — full-width, sits directly under the header. */}
+      <div className="md:hidden px-3 py-2 border-b border-red-900/10">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <Input
+            placeholder="Search friends..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 bg-zinc-800 border-zinc-700 text-white w-full"
+          />
+        </div>
+      </div>
+
       {/* Quick Heads - Story-style DM bubbles */}
       <QuickHeads currentUser={currentUser} profiles={profiles} onOpenDM={handleOpenDM} onOpenGroup={handleOpenGroup} />
 
       <div className="flex-1 overflow-hidden">
         <Tabs value={tab} onValueChange={(t) => { setTab(t); onTabChange?.(t); }} className="h-full flex flex-col">
-          <div className="px-4 pt-4">
-            <TabsList className="bg-zinc-800/50 border border-red-900/20">
-              <TabsTrigger value="all" className="data-[state=active]:bg-red-600">All</TabsTrigger>
-              <TabsTrigger value="online" className="data-[state=active]:bg-red-600">Online</TabsTrigger>
-              <TabsTrigger value="groups" className="data-[state=active]:bg-red-600">
+          {/* Tab strip — horizontally scrollable on <md so all 7 tabs stay
+              reachable instead of falling off the right edge. scrollbar-hide
+              keeps the strip clean on browsers that show overflow scrollbars
+              (the inline <style> below defines the class). */}
+          <div className="px-4 pt-4 overflow-x-auto scrollbar-hide">
+            <TabsList className="bg-zinc-800/50 border border-red-900/20 inline-flex w-max">
+              <TabsTrigger value="all" className="data-[state=active]:bg-red-600 shrink-0">All</TabsTrigger>
+              <TabsTrigger value="online" className="data-[state=active]:bg-red-600 shrink-0">Online</TabsTrigger>
+              <TabsTrigger value="groups" className="data-[state=active]:bg-red-600 shrink-0">
                 <Users className="w-4 h-4 mr-1" /> Groups
               </TabsTrigger>
-              <TabsTrigger value="pending" className="data-[state=active]:bg-red-600">
+              <TabsTrigger value="pending" className="data-[state=active]:bg-red-600 shrink-0">
                 Pending {pendingIncoming.length > 0 && `(${pendingIncoming.length})`}
               </TabsTrigger>
-              <TabsTrigger value="blocked" className="data-[state=active]:bg-red-600">Blocked</TabsTrigger>
-              <TabsTrigger value="requests" className="data-[state=active]:bg-yellow-600">
+              <TabsTrigger value="blocked" className="data-[state=active]:bg-red-600 shrink-0">Blocked</TabsTrigger>
+              <TabsTrigger value="requests" className="data-[state=active]:bg-yellow-600 shrink-0">
                 <ShieldAlert className="w-4 h-4 mr-1" /> Signals
               </TabsTrigger>
-              <TabsTrigger value="add" className="data-[state=active]:bg-green-600" id="add-friend-tab">
+              <TabsTrigger value="add" className="data-[state=active]:bg-green-600 shrink-0" id="add-friend-tab">
                 <UserPlus className="w-4 h-4 mr-1" /> Add
               </TabsTrigger>
             </TabsList>
@@ -634,6 +654,12 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         currentUser={currentUser}
         onGroupCreated={(group) => setActiveGroup(group.id)}
       />
+
+      {/* scrollbar-hide utility for the horizontally-scrollable tab strip. */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      ` }} />
     </div>
   );
 }
