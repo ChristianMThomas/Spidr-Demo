@@ -53,5 +53,7 @@ Spidr-Demo-dev/
 # Internal docs — not for repo
 pr
 pr/*
+handoff.md
+handoff*.md
 
 
