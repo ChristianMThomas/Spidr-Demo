@@ -8,7 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { entities } from '@/api/apiClient';
-import MyBotsTab from './MyBotsTab';
 
 const CATEGORY_META = {
   scientists:  { name: 'Scientists',  icon: Sparkles, color: '#3b82f6' },
@@ -18,13 +17,10 @@ const CATEGORY_META = {
   custom:      { name: 'Community',   icon: Bot,      color: '#FF3333' },
 };
 
-const TABS = [
-  { id: 'store',   label: 'BOT STORE',  icon: Bot },
-  { id: 'my_bots', label: 'MY BOTS',    icon: Cpu },
-];
+// MY BOTS / Fabricator tab was retired — user bots aren't ready yet, so the
+// lab only exposes the BOT STORE (official Spidr-built bots).
 
 export default function BotLaboratory({ currentUser }) {
-  const [activeTab, setActiveTab] = useState('store');
   const [searchQuery, setSearchQuery] = useState('');
   const [installingBot, setInstallingBot] = useState(null);
   const [selectedServerId, setSelectedServerId] = useState('');
@@ -212,39 +208,18 @@ export default function BotLaboratory({ currentUser }) {
                    reserves room for the shell's top-right cluster.
           On lg+, lg:min-h-14 keeps the row centered at y=28 to match the
           cluster centerline. */}
-      <div className="px-4 sm:px-6 lg:pr-[200px] py-3 lg:py-2 lg:min-h-14 border-b border-red-900/20 bg-black/30 backdrop-blur-xl flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-6">
+      <div className="px-4 sm:px-6 lg:pr-[200px] py-3 lg:py-2 lg:min-h-14 border-b border-red-900/20 bg-black/30 backdrop-blur-xl flex items-center">
         <div className="shrink-0">
           <h2 className="text-xl font-mono font-bold text-white flex items-center gap-2 leading-none">
             <span className="text-red-500">&gt;</span> BOT_LABORATORY
           </h2>
           <p className="text-neutral-500 font-mono text-[10px] mt-1 leading-none">Browse and deploy bots for your servers.</p>
         </div>
-
-        <div className="lg:flex-1 grid grid-cols-2 sm:grid-cols-4 lg:flex lg:justify-center gap-2">
-          {TABS.map(tab => {
-            const active = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`relative flex items-center justify-center gap-2 px-4 py-2 rounded-full border font-mono text-xs tracking-widest uppercase transition-all ${
-                  active
-                    ? 'bg-red-950/40 border-red-900/50 text-white'
-                    : 'bg-[#0a0a0a] border-white/5 text-neutral-400 hover:border-white/10 hover:text-neutral-200'
-                }`}
-              >
-                {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-[55%] bg-red-500 rounded-r-full" />}
-                [ {tab.label.replace(/ /g, '_')} ]
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       <ScrollArea className="flex-1 min-h-0 p-6">
         <AnimatePresence mode="wait">
-          {activeTab === 'store' && (
-            <motion.div key="store" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div key="store" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="mb-6 relative group">
                 <input
                   value={searchQuery}
@@ -384,13 +359,6 @@ export default function BotLaboratory({ currentUser }) {
                 </div>
               )}
             </motion.div>
-          )}
-
-          {activeTab === 'my_bots' && (
-            <motion.div key="my_bots" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <MyBotsTab currentUser={currentUser} />
-            </motion.div>
-          )}
 
         </AnimatePresence>
       </ScrollArea>

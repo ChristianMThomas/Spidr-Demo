@@ -269,7 +269,6 @@ export default function HomeDashboard() {
                 <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">
                   Hey, <span className="text-red-500">{greetingName}</span>
                 </h1>
-                <p className="text-zinc-500 text-sm mt-0.5">Your web is waiting</p>
               </div>
             </div>
           </motion.div>

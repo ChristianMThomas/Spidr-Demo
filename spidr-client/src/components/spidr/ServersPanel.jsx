@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
 import { resolveServerUsername } from '@/lib/usernameStyle';
 import { useAppShell } from '@/context/AppShellContext';
+import { useStickyBoolean } from '@/hooks/useStickyBoolean';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -317,6 +318,9 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     return next;
   });
   const [isTyping, setIsTyping] = useState(false);
+  // 350ms linger so the WEB_VIBRATION_DETECTED banner doesn't flicker on
+  // brief typing pauses between keystrokes.
+  const showTypingBanner = useStickyBoolean(isTyping, 350);
   const [botProcessing, setBotProcessing] = useState(false);
 
   // ── Mirror ghost mode into the global overlay ───────────────────────────
@@ -387,12 +391,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const [reportTarget, setReportTarget] = useState(null);
   const typingTimeoutRef = useRef(null);
 
-  // Game Master — trivia session state
-  const [triviaSession, setTriviaSession] = useState(null);
-  const triviaSessionRef = useRef(null);
-  useEffect(() => { triviaSessionRef.current = triviaSession; }, [triviaSession]);
-
-  
 
   const { data: messages = [] } = useQuery({
     queryKey: ['messages', server.id, selectedChannel],
@@ -528,30 +526,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   // Keep a ref so socket closures always get the current version
   useEffect(() => { sendBotMsgRef.current = sendBotMessage; }, [sendBotMessage]);
 
-  // Trivia answer scanner — active only when a trivia session is live
-  useEffect(() => {
-    if (!triviaSession || !server?.id || !selectedChannel) return;
-    const socket = getSocket();
-    const onMsg = (msg) => {
-      const sess = triviaSessionRef.current;
-      if (!sess) return;
-      if (msg.author_id === 'spidr-ai' || msg.user_id === 'spidr-ai') return;
-      // Accept bare letter or "A)" / "A." format
-      const match = msg.content?.trim().toUpperCase().match(/^([A-D])[).]?$/);
-      if (!match) return;
-      const correct = sess.answer?.charAt(0).toUpperCase();
-      if (match[1] === correct) {
-        const winner = msg.author_name || msg.user_name || 'Someone';
-        setTriviaSession(null);
-        sendBotMsgRef.current?.(
-          `🎉 **${winner}** got it!\n\nAnswer: **${sess.answer}**\n💡 ${sess.fact}`
-        );
-      }
-    };
-    socket.on('message:new', onMsg);
-    return () => socket.off('message:new', onMsg);
-  }, [triviaSession, server?.id, selectedChannel]);
-
   // Block sending if muted or timed-out on this server
   const isUserMuted = (server.muted_members || []).includes(currentUser?.id);
   const isUserTimedOut = (() => {
@@ -641,58 +615,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           author_avatar: SPIDR_AI_AVATAR,
         });
 
-        // Stream URL — create/update AI voice session for cinema display
-        if (result.streamUrl) {
-          const existingAI = await entities.VoiceSession.filter({
-            server_id: server.id,
-            is_spidr_ai: true
-          });
-          const voiceCh = channels.find(c => c.type === 'voice');
-          if (voiceCh) {
-            if (existingAI.length > 0) {
-              await entities.VoiceSession.update(existingAI[0].id, {
-                stream_url: result.streamUrl,
-                channel_id: voiceCh.id
-              });
-            } else {
-              await entities.VoiceSession.create({
-                server_id: server.id,
-                channel_id: voiceCh.id,
-                user_id: 'spidr-ai',
-                user_name: 'SPIDR_AI',
-                user_avatar: SPIDR_AI_AVATAR,
-                is_spidr_ai: true,
-                is_muted: false,
-                stream_url: result.streamUrl
-              });
-            }
-            queryClient.invalidateQueries({ queryKey: ['voice-sessions', server.id] });
-            queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
-            toast.success('Spidr AI is streaming! Join a voice channel to watch.');
-          }
-        }
-
-        // Clear stream — /skip (empty queue) or /stop
-        if (result.clearStream) {
-          const aiSessions = await entities.VoiceSession.filter({ server_id: server.id, is_spidr_ai: true });
-          for (const s of aiSessions) await entities.VoiceSession.delete(s.id).catch(() => {});
-          queryClient.invalidateQueries({ queryKey: ['voice-sessions', server.id] });
-          queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
-        }
-
-        // Game event — start trivia session with 30s reveal timer
-        if (result.gameEvent?.type === 'trivia') {
-          const sess = { answer: result.gameEvent.answer, fact: result.gameEvent.fact };
-          setTriviaSession(sess);
-          setTimeout(() => {
-            if (triviaSessionRef.current === sess) {
-              setTriviaSession(null);
-              sendBotMsgRef.current?.(
-                `⏰ Time's up! The answer was: **${sess.answer}**\n💡 ${sess.fact}`
-              );
-            }
-          }, 30_000);
-        }
       } else {
         // Unknown command
         sendMessageMutation.mutate({
@@ -1916,7 +1838,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         </ScrollArea>
 
         {/* Typing Indicator */}
-        {isTyping && (
+        {showTypingBanner && (
           <div className="bg-zinc-900 flex items-center px-4 py-1.5 relative border-t border-red-900/10">
             <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10 bg-zinc-900 pr-2">
               <span className="text-[9px] font-mono uppercase tracking-widest text-[#FF3333]">
