@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p191',
+    title: 'Patch 1.9.1 — Home + chat polish',
+    date: '2026-06-27',
+    type: 'FIX',
+    description: 'Home dashboard sections — Activity Feed and Recent Servers now collapse with a chevron toggle to the left of each header, with state remembered between visits — biomass catches no longer dump a "caught the fly" system message into the active group chat or DM, they\'re now logged into the Spidr System DM thread alongside the +Biomass toast so chats stay clean — message avatars in DMs and group chats now reflect each sender\'s current profile picture instead of the snapshot stored at send-time, so renames and pfp changes propagate everywhere — group chat header drops the green pulsing dot and "X NODES" line, group settings tabs read white-on-zinc instead of low-contrast muted, and the Friends > Spidr Web "X active" counter is gone.',
+  },
+  {
     id: 'p19m',
     title: 'Patch 1.9 — Spidr Mobile (Phase 1) is now live',
     date: '2026-06-20',

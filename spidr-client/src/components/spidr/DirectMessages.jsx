@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations, getSocket } from '@/api/apiClient';
+import { entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
 import { useTension } from '@/hooks/useTension';
 import { useAppShell } from '@/context/AppShellContext';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,7 @@ import ReportModal from './ReportModal';
 import CallDeck from '../voice/CallDeck';
 import VoiceChannel from './VoiceChannel';
 import SpidrAIChat from './SpidrAIChat';
+import { SPIDR_AI_AVATAR } from './SpidrAIProfile';
 import SpiderLogo from './SpiderLogo';
 import SignalTracker from './SignalTracker';
 
@@ -427,17 +428,34 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     setReplyingTo(null);
   };
 
-  const handleFlyCatch = (userName) => {
-    toast.success('🕷️ You caught the fly! +10 Biomass');
-    sendMessageMutation.mutate({
-      conversation_id: activeConversationId,
-      sender_id: 'system',
+  const handleFlyCatch = async (userName) => {
+    if (!currentUser?.id) return;
+    let granted = 10;
+    try {
+      const res = await biomassApi.catchFly();
+      granted = res?.amount ?? 10;
+      queryClient.invalidateQueries({ queryKey: ['biomass-wallet'] });
+    } catch (err) {
+      if (err?.response?.data?.capped) {
+        toast.info('Caught it! (daily biomass cap reached)');
+        return;
+      }
+    }
+    // Route the catch into the Spidr System DM thread instead of the
+    // active DM conversation.
+    const spidrId = 'spidr-ai';
+    const ids = [String(currentUser.id), spidrId].sort();
+    const convId = `dm_${ids[0]}_${ids[1]}`;
+    entities.DirectMessage.create({
+      conversation_id: convId,
+      sender_id: spidrId,
       sender_name: 'Spidr System',
-      sender_avatar: '',
-      recipient_id: currentUser?.id,
-      content: `🕷️ ${userName} caught the fly! +10 Biomass`,
-      is_read: true
-    });
+      sender_avatar: SPIDR_AI_AVATAR,
+      receiver_id: String(currentUser.id),
+      recipient_id: String(currentUser.id),
+      content: `${userName} caught the fly! +${granted} Biomass`
+    }).catch(() => {});
+    toast.success(`You caught the fly! +${granted} Biomass`);
   };
 
   const { data: currentProfile } = useQuery({

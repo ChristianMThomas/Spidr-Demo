@@ -164,8 +164,18 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
 
           <Tabs defaultValue="general" className="w-full">
             <TabsList className="bg-zinc-800 border border-red-900/30 grid w-full grid-cols-2">
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="members">Members</TabsTrigger>
+              <TabsTrigger
+                value="general"
+                className="text-zinc-300 hover:text-white data-[state=active]:bg-red-600 data-[state=active]:text-white"
+              >
+                General
+              </TabsTrigger>
+              <TabsTrigger
+                value="members"
+                className="text-zinc-300 hover:text-white data-[state=active]:bg-red-600 data-[state=active]:text-white"
+              >
+                Members
+              </TabsTrigger>
             </TabsList>
 
             {/* General Settings */}
