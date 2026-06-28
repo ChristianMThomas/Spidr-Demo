@@ -261,7 +261,6 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
     <div className="w-full border-b border-red-900/20 bg-zinc-900/50 backdrop-blur-md py-4">
       <div className="px-4 mb-3 flex justify-between items-center">
         <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Spidr Web</h3>
-        <span className="text-xs text-zinc-500">{totalCount} active</span>
       </div>
       
       {totalCount === 0 ? (

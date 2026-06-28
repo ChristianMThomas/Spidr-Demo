@@ -25,6 +25,7 @@ import ReportModal from './ReportModal';
 import CallDeck from '../voice/CallDeck';
 import VoiceChannel from './VoiceChannel';
 import SpidrAIChat from './SpidrAIChat';
+import { SPIDR_AI_AVATAR } from './SpidrAIProfile';
 import SpiderLogo from './SpiderLogo';
 import SignalTracker from './SignalTracker';
 
@@ -50,6 +51,14 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const [showCallDeck, setShowCallDeck] = useState(false);
   const [showSpidrAI, setShowSpidrAI] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null);
+  const [showMembers, setShowMembers] = useState(() => {
+    try { return localStorage.getItem('spidr_show_group_members') !== 'false'; } catch { return true; }
+  });
+  const toggleMembers = () => setShowMembers(v => {
+    const next = !v;
+    try { localStorage.setItem('spidr_show_group_members', String(next)); } catch {}
+    return next;
+  });
   const bottomRef = useRef(null);
   const queryClient = useQueryClient();
   const { report: reportXp } = useTension();
@@ -460,9 +469,9 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   return (
     <div className="flex-1 flex bg-black relative overflow-hidden max-w-full">
       {/* Fly Hunt */}
-      <FlyHunt 
+      <FlyHunt
         onCatch={async (userName) => {
-          // Grant biomass server-side (authoritative) + record in history.
+          if (!currentUser?.id) return;
           let granted = 10;
           try {
             const res = await biomassApi.catchFly();
@@ -474,20 +483,22 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
               return;
             }
           }
-          // Award XP too (server-capped). Fires the level-up toast if crossed.
           reportXp('fly', 'Caught a fly');
-          // The GroupChatMessage schema requires user_id — send it (the system
-          // sender) alongside the sender_* aliases so the message validates.
-          sendMessageMutation.mutate({
-            group_id: groupId,
-            user_id: 'system',
-            user_name: 'Spidr System',
-            user_avatar: '',
-            sender_id: 'system',
+          // Route the catch into the Spidr System DM thread instead of
+          // polluting the active group chat with a system message.
+          const spidrId = 'spidr-ai';
+          const ids = [String(currentUser.id), spidrId].sort();
+          const convId = `dm_${ids[0]}_${ids[1]}`;
+          entities.DirectMessage.create({
+            conversation_id: convId,
+            sender_id: spidrId,
             sender_name: 'Spidr System',
-            sender_avatar: '',
-            content: `🕷️ ${userName} caught the fly! +${granted} Biomass`
-          });
+            sender_avatar: SPIDR_AI_AVATAR,
+            receiver_id: String(currentUser.id),
+            recipient_id: String(currentUser.id),
+            content: `${userName} caught the fly! +${granted} Biomass`
+          }).catch(() => {});
+          toast.success(`You caught the fly! +${granted} Biomass`);
         }}
         userName={currentUser?.full_name || 'You'}
       />
@@ -616,12 +627,6 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
             </div>
             <div className="min-w-0">
               <h2 className="font-semibold text-white text-sm truncate">{group?.name || 'Group Chat'}</h2>
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-widest">
-                  {group?.members?.length || 0} NODES
-                </span>
-              </div>
             </div>
           </div>
         </div>
@@ -647,6 +652,13 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           </button>
           <button onClick={() => setShowStickyWeb(!showStickyWeb)} className={`p-2 rounded-lg transition-all ${showStickyWeb ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
             <Archive size={17} />
+          </button>
+          <button
+            onClick={toggleMembers}
+            className={`hidden lg:inline-flex p-2 rounded-lg transition-all ${showMembers ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+            title={showMembers ? 'Hide member list' : 'Show member list'}
+          >
+            <Users size={17} />
           </button>
           <SignalTracker placeholder="Search group..." messages={messages} users={group?.members || []} onResultClick={(r) => { if (r.type === 'user') setSelectedProfileUserId(r.id); }} />
           <button onClick={() => setShowSettings(true)} className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all">
@@ -855,7 +867,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           and leave a gray void). The shell's top-right cluster floats over
           this panel's top-right area; CommunityPanel's existing pt-16 keeps
           its header content clear of the cluster. */}
-      <div className="hidden lg:block h-full shrink-0">
+      <div className={`${showMembers ? 'hidden lg:block' : 'hidden'} h-full shrink-0`}>
         <CommunityPanel
           chatType="group"
           server={{ id: 'group', name: group?.name || 'Group Chat', owner_id: group?.owner_id, created_by: group?.created_by, members: (group?.members || []) }}
