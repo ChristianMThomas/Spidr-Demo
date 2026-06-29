@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1921',
+    title: 'Patch 1.9.21 — Spotify module privacy fix',
+    date: '2026-06-29',
+    type: 'FIX',
+    description: 'Spotify module privacy fix. The Spotify Now Playing module used to show YOUR track on every profile — now each profile shows its owner\'s track, just like the Weather widget. Visitors see what the profile owner is listening to (if they\'ve connected Spotify), and the "Connect Spotify" and "Disconnect" controls only appear on your own profile.',
+  },
+  {
     id: 'p192',
     title: 'Patch 1.9.2 — Bot Lab cleanup + mobile polish',
     date: '2026-06-28',
