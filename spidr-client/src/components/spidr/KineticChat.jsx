@@ -4,7 +4,7 @@ import { entities, auth, integrations, getSocket, biomass as biomassApi } from '
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Send, ArrowLeft, Users, Settings, Ghost, Pin, Phone, Video, Archive, CornerUpLeft, X, Search, MoreVertical } from 'lucide-react';
+import { Send, ArrowLeft, Users, Settings, Ghost, Pin, Phone, Video, Archive, CornerUpLeft, X, Search, MoreVertical, Menu } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -643,8 +643,11 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           </div>
         </div>
 
-        {/* Desktop cluster — full action row visible on md+ */}
-        <div className="hidden md:flex items-center gap-0.5">
+        {/* Desktop cluster — full action row visible at lg+ only. Tablets
+            (md→lg) used to share this row but it crowded against the
+            floating top-right cluster; tablet now joins the compact
+            hamburger tier below. */}
+        <div className="hidden lg:flex items-center gap-0.5">
           <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : handleStartCall} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Call'}>
             <Phone size={17} />
           </button>
@@ -679,9 +682,12 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           </button>
         </div>
 
-        {/* Mobile cluster — search toggles a full-width row below; everything
-            else (including Members + Group Settings) collapses into the kebab. */}
-        <div className="flex md:hidden items-center gap-0.5">
+        {/* Compact cluster — mobile AND tablet (< lg). Search toggles a
+            full-width row below the header; everything else (including
+            Members + Group Settings) collapses into a hamburger dropdown.
+            Spidr Protocol (Ghost mode) is intentionally omitted here —
+            it's a laptop+ feature only, per spec. */}
+        <div className="flex lg:hidden items-center gap-0.5">
           <button
             onClick={() => setMobileSearchOpen(v => !v)}
             className={`p-2 rounded-lg transition-all ${mobileSearchOpen ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
@@ -691,8 +697,8 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all">
-                <MoreVertical size={17} />
+              <button className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Quick actions" aria-label="Quick actions">
+                <Menu size={17} />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52 bg-[#0a0a0a] border-white/10 text-white">
@@ -711,17 +717,13 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator className="bg-white/5" />
+              <DropdownMenuItem onClick={() => setShowStickyWeb(!showStickyWeb)} className="gap-2">
+                <Archive size={15} className={showStickyWeb ? 'text-[#FF3333]' : 'text-zinc-400'} />
+                Memory Web
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setShowSpidrAI(!showSpidrAI)} className="gap-2">
                 <SpiderLogo size={15} className={showSpidrAI ? 'text-[#FF3333]' : 'text-zinc-400'} />
                 Summon Spidr AI
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setGhostMode(!ghostMode)} className="gap-2">
-                <Ghost size={15} className={ghostMode ? 'text-purple-400' : 'text-zinc-400'} />
-                {ghostMode ? 'Ghost Mode: On' : 'Ghost Mode'}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowStickyWeb(!showStickyWeb)} className="gap-2">
-                <Archive size={15} className={showStickyWeb ? 'text-[#FF3333]' : 'text-zinc-400'} />
-                Sticky Web
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-white/5" />
               <DropdownMenuItem onClick={toggleMembers} className="gap-2">
@@ -741,7 +743,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           Reuses SignalTracker; child-selector overrides its fixed w-44/w-72
           so the input stretches to fill the row. */}
       {mobileSearchOpen && (
-        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-10">
+        <div className="lg:hidden flex items-center gap-2 px-3 py-2 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-10">
           <div className="flex-1 [&>div]:!w-full [&>div>div]:!w-full">
             <SignalTracker placeholder="Search group..." messages={messages} users={group?.members || []} onResultClick={(r) => { if (r.type === 'user') setSelectedProfileUserId(r.id); }} />
           </div>

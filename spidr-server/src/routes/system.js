@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1922',
+    title: 'Patch 1.9.22 — Tablet chat headers + server avatars',
+    date: '2026-06-30',
+    type: 'FIX',
+    description: 'A polish pass for chat headers and avatars. The DM and group chat headers no longer crowd themselves on tablets — they collapse into the same compact hamburger menu that mobile already uses, so the floating top-right action cluster stops fighting for space. Sticky Web has been renamed Memory Web in the quick-actions dropdown. And server channel messages now show live profile avatars the same way DMs and group chats already do — when someone changes their picture, it updates everywhere their messages appear, not just in DMs.',
+  },
+  {
     id: 'p1921',
     title: 'Patch 1.9.21 — Spotify module privacy fix',
     date: '2026-06-29',

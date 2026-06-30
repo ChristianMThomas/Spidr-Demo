@@ -1616,7 +1616,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     }}
                     onContextMenu={(e) => triggerMenu(e, 'user', { id: msg.author_id || msg.user_id, name: msg.author_name || msg.user_name })}
                   >
-                    <AvatarImage src={msg.author_avatar || msg.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.author_id || msg.user_id}`} />
+                    <AvatarImage src={profilesByUserId[msg.author_id || msg.user_id]?.avatar_url || msg.author_avatar || msg.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.author_id || msg.user_id}`} />
                     <AvatarFallback className="bg-red-900 text-white">
                       {(msg.author_name || msg.user_name || '?').charAt(0).toUpperCase()}
                     </AvatarFallback>
