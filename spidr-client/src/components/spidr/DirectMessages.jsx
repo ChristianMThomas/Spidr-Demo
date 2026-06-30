@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import CatchMeUpBar from './CatchMeUpBar';
-import { Send, Image as ImageIcon, Smile, MoreVertical, Phone, Video, Ghost, Pin, Archive, CornerUpLeft, X, Search } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, Phone, Video, Ghost, Pin, Archive, CornerUpLeft, X, Search, Menu } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -616,9 +617,12 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
             </div>
             <div className="min-w-0">
               <h2 className="font-semibold text-white text-sm truncate">{displayName}</h2>
-              {/* Status label hidden on <sm — the status dot on the avatar already
-                  communicates online/offline at small widths. */}
-              <div className="hidden sm:flex items-center gap-1.5">
+              {/* Status label hidden until lg — the status dot on the
+                  avatar already communicates online/offline, and on tablet
+                  the cramped header doesn't have room for the redundant
+                  text. (Was hidden sm:flex previously; tablet now matches
+                  mobile and joins the compact-header tier.) */}
+              <div className="hidden lg:flex items-center gap-1.5">
                 <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-widest">
                   {isTyping ? '/// TYPING' : recipientProfile?.status?.toUpperCase() || 'OFFLINE'}
                 </span>
@@ -627,8 +631,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           </button>
         </div>
 
-        {/* Desktop cluster — full action row visible on md+ */}
-        <div className="hidden md:flex items-center gap-0.5">
+        {/* Desktop cluster — full action row visible at lg+ only. Tablets
+            (md→lg) used to share this row but it crowded against the
+            floating top-right cluster; tablet now joins the compact
+            hamburger tier below. */}
+        <div className="hidden lg:flex items-center gap-0.5">
           <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Call'}>
             <Phone size={17} />
           </button>
@@ -656,9 +663,12 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           </button>
         </div>
 
-        {/* Mobile cluster — search toggles a full-width row below; everything
-            else collapses into the kebab dropdown. */}
-        <div className="flex md:hidden items-center gap-0.5">
+        {/* Compact cluster — mobile AND tablet (< lg). Search toggles a
+            full-width row below the header; everything else collapses into
+            a hamburger dropdown. Spidr Protocol (Ghost mode) is
+            intentionally omitted at this tier — it's a laptop+ feature
+            only, per spec. */}
+        <div className="flex lg:hidden items-center gap-0.5">
           <button
             onClick={() => setMobileSearchOpen(v => !v)}
             className={`p-2 rounded-lg transition-all ${mobileSearchOpen ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
@@ -668,8 +678,8 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all">
-                <MoreVertical size={17} />
+              <button className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Quick actions" aria-label="Quick actions">
+                <Menu size={17} />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52 bg-[#0a0a0a] border-white/10 text-white">
@@ -688,28 +698,26 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator className="bg-white/5" />
+              <DropdownMenuItem onClick={() => setShowStickyWeb(!showStickyWeb)} className="gap-2">
+                <Archive size={15} className={showStickyWeb ? 'text-[#FF3333]' : 'text-zinc-400'} />
+                Memory Web
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setShowSpidrAI(!showSpidrAI)} className="gap-2">
                 <SpiderLogo size={15} className={showSpidrAI ? 'text-[#FF3333]' : 'text-zinc-400'} />
                 Summon Spidr AI
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setGhostMode(!ghostMode)} className="gap-2">
-                <Ghost size={15} className={ghostMode ? 'text-purple-400' : 'text-zinc-400'} />
-                {ghostMode ? 'Ghost Mode: On' : 'Ghost Mode'}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowStickyWeb(!showStickyWeb)} className="gap-2">
-                <Archive size={15} className={showStickyWeb ? 'text-[#FF3333]' : 'text-zinc-400'} />
-                Sticky Web
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
-      {/* Mobile search row — slides in below the header on <md when toggled.
-          Reuses SignalTracker; the inner input takes full width via the wrapper
-          so it isn't constrained to SignalTracker's default w-44/w-72. */}
+      {/* Slide-down search row — appears below the header on <lg when the
+          Search button is toggled. Reuses SignalTracker; the inner input
+          takes full width via the wrapper so it isn't constrained to
+          SignalTracker's default w-44/w-72. Was md:hidden previously;
+          tablet now shares the compact-header tier with mobile. */}
       {mobileSearchOpen && (
-        <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-10">
+        <div className="lg:hidden flex items-center gap-2 px-3 py-2 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-10">
           <div className="flex-1 [&>div]:!w-full [&>div>div]:!w-full">
             <SignalTracker placeholder="Search DM..." messages={messages} users={[]} onResultClick={() => {}} />
           </div>
