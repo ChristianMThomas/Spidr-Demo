@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1923',
+    title: 'Patch 1.9.23 — Bot Lab tidy + Spidr Protocol fixes',
+    date: '2026-06-30',
+    type: 'FIX',
+    description: 'Two cleanup passes. The Bot Laboratory drops the Data Analyst bot and swaps its category-grouped layout for a single alphabetical list — one clean A→Z grid of official bots instead of Scientists / Guardians / Utility sections. And the Spidr Protocol ghost overlay finally sends messages properly and drags where you want it: sends now route to the correct backend for DMs, group chats, and server channels (group chats were silently hitting the wrong endpoint before), and grabbing the top drag rail no longer flips interactive mode off mid-drag so the overlay pins wherever you put it. A colored status pill next to the input surfaces send success or failure inline.',
+  },
+  {
     id: 'p1922',
     title: 'Patch 1.9.22 — Tablet chat headers + server avatars',
     date: '2026-06-30',

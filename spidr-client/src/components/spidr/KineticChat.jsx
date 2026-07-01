@@ -17,7 +17,6 @@ import { toast } from 'sonner';
 import { useTension } from '@/hooks/useTension';
 import { useStickyBoolean } from '@/hooks/useStickyBoolean';
 import { useAppShell } from '@/context/AppShellContext';
-import GhostOverlay from './GhostOverlay';
 import MessageItem from './MessageItem';
 import CatchMeUpBar from './CatchMeUpBar';
 import HolographicProfile from './HolographicProfile';
@@ -136,32 +135,24 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     [group?.members]
   );
 
-  // ── Spidr Protocol (gaming overlay): drive the GLOBAL overlay via events ──
-  // Activate/deactivate on ghost-mode toggle; stream each message so the global
-  // overlay (which survives navigation + supports pinning) stays updated.
+  // ── Spidr Protocol — Electron-only OS-level chat HUD (Discord-style) ──
+  // The HUD is a separate frameless transparent BrowserWindow scoped to this
+  // group; web has no equivalent and the toggle button is hidden there.
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
   useEffect(() => {
+    if (!isElectron) return;
     if (ghostMode) {
-      window.dispatchEvent(new CustomEvent('spidr-ghost-activate', {
-        detail: { conversationName: group?.name || 'Group Chat' },
-      }));
+      window.electronAPI.openProtocol?.({ groupId: groupId || '' });
     } else {
-      window.dispatchEvent(new Event('spidr-ghost-deactivate'));
+      window.electronAPI.closeProtocol?.();
     }
-  }, [ghostMode, group?.name]);
+  }, [ghostMode, groupId, isElectron]);
 
   useEffect(() => {
-    if (!ghostMode || messages.length === 0) return;
-    const last = messages[messages.length - 1];
-    if (!last?.id) return;
-    window.dispatchEvent(new CustomEvent('spidr-ghost-message', {
-      detail: {
-        id: last.id,
-        sender_name: last.sender_name || last.user_name,
-        sender_avatar: last.sender_avatar || last.user_avatar,
-        content: last.content,
-      },
-    }));
-  }, [ghostMode, messages]);
+    if (!isElectron) return;
+    const off = window.electronAPI.onProtocolClosed?.(() => setGhostMode(false));
+    return () => { if (typeof off === 'function') off(); };
+  }, [isElectron]);
   const { data: memberProfiles = [] } = useQuery({
     queryKey: ['group-member-profiles', groupId, memberUserIds.join(',')],
     queryFn: async () => {
@@ -663,9 +654,12 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
             <SpiderLogo size={17} />
           </button>
           <div className="w-px h-4 bg-white/[0.06] mx-1" />
-          <button onClick={() => setGhostMode(!ghostMode)} className={`p-2 rounded-lg transition-all ${ghostMode ? 'text-purple-400 bg-purple-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
-            <Ghost size={17} />
-          </button>
+          {/* Spidr Protocol (Ghost mode) — desktop-only. Hidden on web. */}
+          {isElectron && (
+            <button onClick={() => setGhostMode(!ghostMode)} className={`p-2 rounded-lg transition-all ${ghostMode ? 'text-purple-400 bg-purple-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title="Spidr Protocol — desktop chat overlay">
+              <Ghost size={17} />
+            </button>
+          )}
           <button onClick={() => setShowStickyWeb(!showStickyWeb)} className={`p-2 rounded-lg transition-all ${showStickyWeb ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
             <Archive size={17} />
           </button>
@@ -938,9 +932,6 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           onTextEffectChange={setTextEffect}
         />
       </div>
-
-      {/* Spidr Protocol overlay renders globally (GlobalGhostOverlay at the
-          shell); we dispatch activate/message/deactivate events to it below. */}
 
       <HolographicProfile
         open={!!selectedProfileUserId}

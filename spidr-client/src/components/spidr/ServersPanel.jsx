@@ -20,7 +20,6 @@ import MiniChat from './MiniChat';
 import HolographicProfile from './HolographicProfile';
 import VoiceWeb from './VoiceWeb';
 import EmojiPicker from './EmojiPicker';
-import GhostOverlay from './GhostOverlay';
 import ContextableImage from '@/components/ui/ContextableImage';
 import { playSound } from './SoundEngine';
 import { useMenu } from '@/components/MenuContext';
@@ -323,27 +322,26 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const showTypingBanner = useStickyBoolean(isTyping, 350);
   const [botProcessing, setBotProcessing] = useState(false);
 
-  // ── Mirror ghost mode into the global overlay ───────────────────────────
-  // The local GhostOverlay (rendered at the bottom of this file) only shows
-  // while the user is on this server route. The global overlay survives
-  // route changes — we dispatch activate/deactivate events here so the
-  // gaming overlay keeps streaming messages even when the user navigates
-  // away to settings, feed, etc.
+  // ── Spidr Protocol — Electron-only OS-level chat HUD (Discord-style) ──
+  // Web has no equivalent (no OS window APIs), so the Ghost button is hidden
+  // on web entirely. On Electron we just open/close the transparent overlay
+  // BrowserWindow scoped to this server channel; it reads messages itself
+  // via the same socket.
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
   useEffect(() => {
+    if (!isElectron) return;
     if (ghostMode) {
-      window.dispatchEvent(new CustomEvent('spidr-ghost-activate', {
-        detail: { conversationName: `#${selectedChannel ? (server.channels?.find(c => c.id === selectedChannel)?.name || 'channel') : 'server'} · ${server.name}` },
-      }));
-      // In the desktop app, also spawn the real OS-level transparent overlay
-      // (frameless, always-on-top, click-through) bound to this channel.
-      if (window.electronAPI?.isElectron) {
-        window.electronAPI.openProtocol?.({ serverId: server.id, channelId: selectedChannel || '' });
-      }
+      window.electronAPI.openProtocol?.({ serverId: server.id, channelId: selectedChannel || '' });
     } else {
-      window.dispatchEvent(new Event('spidr-ghost-deactivate'));
-      if (window.electronAPI?.isElectron) window.electronAPI.closeProtocol?.();
+      window.electronAPI.closeProtocol?.();
     }
-  }, [ghostMode, server.id, server.name, selectedChannel]);
+  }, [ghostMode, server.id, selectedChannel, isElectron]);
+
+  useEffect(() => {
+    if (!isElectron) return;
+    const off = window.electronAPI.onProtocolClosed?.(() => setGhostMode(false));
+    return () => { if (typeof off === 'function') off(); };
+  }, [isElectron]);
   // ── Socket.io: instant message delivery ─────────────────────────────────────
   useEffect(() => {
     if (!server?.id || !selectedChannel) return;
@@ -668,23 +666,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       }
     }
   }, [messages.length, currentProfile?.status, currentUser?.id]);
-
-  // ── Forward each new message to the global ghost overlay when active ────
-  // We re-broadcast the latest message when ghostMode is on. The overlay
-  // de-dupes by id so re-renders (e.g. when reactions change) don't spam.
-  useEffect(() => {
-    if (!ghostMode || messages.length === 0) return;
-    const latest = messages[messages.length - 1];
-    if (!latest?.id) return;
-    window.dispatchEvent(new CustomEvent('spidr-ghost-message', {
-      detail: {
-        id: latest.id,
-        sender_name: latest.author_name || latest.user_name || 'Someone',
-        sender_avatar: latest.author_avatar || latest.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${latest.author_id || latest.user_id}`,
-        content: latest.content || '',
-      },
-    }));
-  }, [messages, ghostMode]);
 
   const updateMessageMutation = useMutation({
     mutationFn: ({ id, content }) => entities.Message.update(id, { content, edited_at: new Date().toISOString() }),
@@ -1512,15 +1493,18 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             >
               <Archive className="w-5 h-5" />
             </Button>
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              onClick={() => setGhostMode(!ghostMode)}
-              className={`${ghostMode ? 'text-red-600 bg-red-600/10' : 'text-zinc-400'} hover:text-red-600`}
-              title="Spidr Protocol - Gaming Overlay"
-            >
-              <Ghost className="w-5 h-5" />
-            </Button>
+            {/* Spidr Protocol (Ghost mode) — desktop-only. Hidden on web. */}
+            {isElectron && (
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setGhostMode(!ghostMode)}
+                className={`${ghostMode ? 'text-red-600 bg-red-600/10' : 'text-zinc-400'} hover:text-red-600`}
+                title="Spidr Protocol — desktop chat overlay"
+              >
+                <Ghost className="w-5 h-5" />
+              </Button>
+            )}
             <Button
               size="icon"
               variant="ghost"
@@ -1994,10 +1978,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         serverName={server.name}
         currentUser={currentUser}
       />
-
-      {/* Spidr Protocol overlay is rendered globally (GlobalGhostOverlay at the
-          shell). This panel only dispatches activate/message/deactivate events
-          to it — rendering a second local overlay here caused the "double". */}
 
       {/* (The voice deck is a single persistent instance rendered above; it
           stays mounted and merely hidden while minimized, so the WebRTC session

@@ -22,7 +22,6 @@ import StickyWeb from './StickyWeb';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import HolographicProfile from './HolographicProfile';
-import GhostOverlay from './GhostOverlay';
 import MessageItem from './MessageItem';
 import CallAVControls from './CallAVControls';
 import CallOverlay from './CallOverlay';
@@ -255,32 +254,27 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const displayName = conversation?.friendName || recipientProfile?.display_name || 'User';
   const displayAvatar = conversation?.friendAvatar || recipientProfile?.avatar_url;
 
-  // ── Spidr Protocol (gaming overlay): drive the GLOBAL overlay via events ──
-  // so it survives navigation and supports pinning (the old local overlay did
-  // neither, and rendering both caused the "double").
+  // ── Spidr Protocol — Electron-only OS-level chat HUD (Discord-style) ──
+  // The HUD is a separate frameless transparent BrowserWindow that floats
+  // over games; it re-reads messages itself via the same socket, so we only
+  // need to open/close it with the conversation context. Web has no HUD —
+  // the Ghost button isn't rendered there.
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
   useEffect(() => {
+    if (!isElectron) return;
     if (ghostMode) {
-      window.dispatchEvent(new CustomEvent('spidr-ghost-activate', {
-        detail: { conversationName: displayName },
-      }));
+      window.electronAPI.openProtocol?.({ conversationId: activeConversationId || '' });
     } else {
-      window.dispatchEvent(new Event('spidr-ghost-deactivate'));
+      window.electronAPI.closeProtocol?.();
     }
-  }, [ghostMode, displayName]);
+  }, [ghostMode, activeConversationId, isElectron]);
 
+  // Keep local toggle state in sync if the user closes the HUD from its own X.
   useEffect(() => {
-    if (!ghostMode || messages.length === 0) return;
-    const last = messages[messages.length - 1];
-    if (!last?.id) return;
-    window.dispatchEvent(new CustomEvent('spidr-ghost-message', {
-      detail: {
-        id: last.id,
-        sender_name: last.sender_name || last.user_name,
-        sender_avatar: last.sender_avatar || last.user_avatar,
-        content: last.content,
-      },
-    }));
-  }, [ghostMode, messages]);
+    if (!isElectron) return;
+    const off = window.electronAPI.onProtocolClosed?.(() => setGhostMode(false));
+    return () => { if (typeof off === 'function') off(); };
+  }, [isElectron]);
 
   useEffect(() => {
     if (!activeConversationId) return;
@@ -651,9 +645,14 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
             <SpiderLogo size={17} />
           </button>
           <div className="w-px h-4 bg-white/[0.06] mx-1" />
-          <button onClick={() => setGhostMode(!ghostMode)} className={`p-2 rounded-lg transition-all ${ghostMode ? 'text-purple-400 bg-purple-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
-            <Ghost size={17} />
-          </button>
+          {/* Spidr Protocol (Ghost mode) — desktop-only. The Electron app
+              spawns a transparent OS-level HUD over your game; the web
+              build has no equivalent, so this button is hidden there. */}
+          {isElectron && (
+            <button onClick={() => setGhostMode(!ghostMode)} className={`p-2 rounded-lg transition-all ${ghostMode ? 'text-purple-400 bg-purple-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title="Spidr Protocol — desktop chat overlay">
+              <Ghost size={17} />
+            </button>
+          )}
           <button onClick={() => setShowStickyWeb(!showStickyWeb)} className={`p-2 rounded-lg transition-all ${showStickyWeb ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
             <Archive size={17} />
           </button>
@@ -985,9 +984,6 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         userId={selectedProfileUserId}
         currentUser={currentUser}
       />
-
-      {/* Spidr Protocol overlay renders globally (GlobalGhostOverlay at the
-          shell); this view dispatches activate/message/deactivate to it. */}
 
       <AnimatePresence>
         {inCall && !showCallDeck && <CallAVControls onClose={() => setInCall(false)} />}
