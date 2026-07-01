@@ -344,6 +344,11 @@ ipcMain.on('protocol:open', (_evt, params = {}) => {
   protocolWindow.once('ready-to-show', () => {
     protocolWindow.show();
     setProtocolInteractive(false); // start click-through
+    // Dev-only: open DevTools in a detached window so we can debug the overlay
+    // without breaking its transparency/click-through model.
+    if (!app.isPackaged) {
+      protocolWindow.webContents.openDevTools({ mode: 'detach' });
+    }
   });
 
   const qs = new URLSearchParams(params).toString();
@@ -375,6 +380,19 @@ ipcMain.on('protocol:close', () => {
 // Renderer asks to flip interactive mode (e.g. when the input loses focus, it
 // can hand control back to the game).
 ipcMain.on('protocol:set-interactive', (_evt, on) => setProtocolInteractive(!!on));
+
+// Lightweight click-through toggle WITHOUT entering full interactive mode.
+// The renderer asks for this when the mouse hovers the red anchor dot so the
+// dot can receive a click (or a drag) to open the chat manually. The whole
+// window is `setIgnoreMouseEvents(true, { forward: true })` in ambient mode,
+// which kills clicks AND drag regions — this lets the renderer briefly open a
+// hole over the dot. Skipped when already interactive (it manages its own).
+ipcMain.on('protocol:set-clickthrough', (_evt, ignore) => {
+  if (!protocolWindow || protocolWindow.isDestroyed()) return;
+  if (protocolInteractive) return;
+  if (ignore) protocolWindow.setIgnoreMouseEvents(true, { forward: true });
+  else        protocolWindow.setIgnoreMouseEvents(false);
+});
 
 // ── Pin Spidr Protocol anywhere ──────────────────────────────────────────────
 // Three ways the renderer can move the overlay:

@@ -3,19 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { Search, Sparkles, Shield, Music, Bot, Check, Cpu, Loader2, Settings, X, Plus, Trash2 } from 'lucide-react';
+import { Check, Loader2, Settings, X, Plus, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { entities } from '@/api/apiClient';
 
-const CATEGORY_META = {
-  scientists:  { name: 'Scientists',  icon: Sparkles, color: '#3b82f6' },
-  entertainers:{ name: 'Entertainers',icon: Music,    color: '#ec4899' },
-  guardians:   { name: 'Guardians',   icon: Shield,   color: '#10b981' },
-  utility:     { name: 'Utility',     icon: Cpu,      color: '#a855f7' },
-  custom:      { name: 'Community',   icon: Bot,      color: '#FF3333' },
-};
+const BOT_ACCENT = '#FF3333';
 
 // MY BOTS / Fabricator tab was retired — user bots aren't ready yet, so the
 // lab only exposes the BOT STORE (official Spidr-built bots).
@@ -70,19 +64,15 @@ export default function BotLaboratory({ currentUser }) {
     });
   });
 
-  // Group by category
-  const byCategory = React.useMemo(() => {
-    const groups = {};
-    for (const bot of bots) {
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        if (!bot.name?.toLowerCase().includes(q) && !bot.description?.toLowerCase().includes(q)) continue;
-      }
-      const cat = bot.category || 'custom';
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(bot);
-    }
-    return groups;
+  // Flat alphabetical list — categories were retired; users browse one A→Z grid.
+  const visibleBots = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return bots
+      .filter(b => {
+        if (!q) return true;
+        return b.name?.toLowerCase().includes(q) || b.description?.toLowerCase().includes(q);
+      })
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
   }, [bots, searchQuery]);
 
   const installMutation = useMutation({
@@ -239,123 +229,105 @@ export default function BotLaboratory({ currentUser }) {
                 <div className="flex items-center justify-center py-20">
                   <Loader2 size={32} className="animate-spin text-zinc-500" />
                 </div>
-              ) : Object.keys(byCategory).length === 0 ? (
+              ) : visibleBots.length === 0 ? (
                 <div className="text-center py-20 text-zinc-500">
                   {searchQuery ? 'No bots match your search.' : 'No bots yet — be the first to publish one!'}
                 </div>
               ) : (
-                <div className="space-y-8">
-                  {Object.entries(byCategory).map(([categoryKey, categoryBots]) => {
-                    const meta = CATEGORY_META[categoryKey] || CATEGORY_META.custom;
-                    const Icon = meta.icon;
-                    return (
-                      <div key={categoryKey}>
-                        {/* Category header — glowing concentric node + cyan terminal type */}
-                        <div className="flex items-center gap-2.5 mb-4">
-                          <span className="relative flex items-center justify-center w-3.5 h-3.5 rounded-full border border-red-500/30 shrink-0">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]" />
-                          </span>
-                          <h3 className="font-mono text-xs tracking-[0.15em] text-cyan-600/80 uppercase">&gt; {meta.name}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {visibleBots.map((bot, index) => (
+                    <motion.div
+                      key={bot.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                      className="group relative"
+                    >
+                      <div className="relative bg-[#0a0a0a]/80 backdrop-blur-md rounded-xl p-5 border border-white/5 h-full flex flex-col transition-all duration-300 group-hover:border-red-900/50 group-hover:shadow-[0_0_24px_rgba(220,38,38,0.12)]">
+                        <div className="mb-4 flex items-center">
+                          <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center text-2xl"
+                            style={{ boxShadow: `0 0 16px ${BOT_ACCENT}33`, borderColor: `${BOT_ACCENT}40` }}>
+                            {bot.icon_emoji || '◆'}
+                          </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {categoryBots.map((bot, index) => (
-                            <motion.div
-                              key={bot.id}
-                              initial={{ opacity: 0, y: 20 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: index * 0.05 }}
-                              className="group relative"
-                            >
-                              <div className="relative bg-[#0a0a0a]/80 backdrop-blur-md rounded-xl p-5 border border-white/5 h-full flex flex-col transition-all duration-300 group-hover:border-red-900/50 group-hover:shadow-[0_0_24px_rgba(220,38,38,0.12)]">
-                                {/* Bot icon — flat glowing node */}
-                                <div className="mb-4 flex items-center">
-                                  <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center text-2xl"
-                                    style={{ boxShadow: `0 0 16px ${meta.color}33`, borderColor: `${meta.color}40` }}>
-                                    {bot.icon_emoji || '◆'}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2 mb-2">
-                                  <h4 className="text-lg font-bold text-white font-mono">{bot.name}</h4>
-                                  {bot.is_official && (
-                                    <span className="border border-purple-500/50 bg-purple-500/10 text-purple-400 text-[10px] uppercase px-1.5 py-0.5 rounded-[3px] font-mono tracking-wider">
-                                      Official
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-sm text-gray-400 mb-4 flex-1">{bot.description}</p>
-                                <div className="space-y-1 mb-4">
-                                  {(bot.features || []).slice(0, 3).map((feature, i) => (
-                                    <div key={i} className="flex items-center gap-2 text-sm text-gray-400 font-mono">
-                                      <span className="text-red-500 shrink-0">&gt;</span>
-                                      {feature}
-                                    </div>
-                                  ))}
-                                </div>
-                                {(() => {
-                                  const installedOn = myServers.filter(s => (s.bots || []).some(b => b.bot_id === bot.id));
-                                  const isConfigurable = bot.code === 'builtin:auto-moderator';
-                                  return (
-                                    <div className="flex flex-col gap-2">
-                                      {isConfigurable && installedOn.length > 0 && (
-                                        <button
-                                          onClick={() => {
-                                            setConfiguringBot({ bot });
-                                            setConfigServerId(installedOn[0].id);
-                                            setConfigOpenCount(c => c + 1);
-                                          }}
-                                          className="w-full rounded-md bg-emerald-900/20 border border-emerald-500/40 text-emerald-400 font-mono text-sm tracking-widest uppercase py-2 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all duration-300 flex items-center justify-center gap-2"
-                                        >
-                                          <Settings size={13} /> [ CONFIGURE ]
-                                        </button>
-                                      )}
-                                      <div className="flex gap-2">
-                                        <button
-                                          onClick={() => {
-                                            if (myServers.length === 0) {
-                                              toast.error('Join or create a server first to install bots');
-                                              return;
-                                            }
-                                            const eligible = myServers.filter(s => !(s.bots || []).some(b => b.bot_id === bot.id));
-                                            if (eligible.length === 0) {
-                                              toast.error('Already installed on all your servers');
-                                              return;
-                                            }
-                                            setInstallingBot(bot);
-                                            setSelectedServerId(eligible[0].id);
-                                          }}
-                                          className="flex-1 rounded-md bg-red-600/10 border border-red-500/40 text-red-500 font-mono text-sm tracking-widest uppercase py-2 hover:bg-red-500 hover:text-white transition-all duration-300"
-                                        >
-                                          [ INSTALL ]
-                                        </button>
-                                        {installedOn.length > 0 && (
-                                          <button
-                                            onClick={() => {
-                                              setUninstallingBot(bot);
-                                              setUninstallServerId(installedOn[0].id);
-                                            }}
-                                            className="rounded-md bg-zinc-900/60 border border-zinc-700/60 text-zinc-500 font-mono text-sm py-2 px-3 hover:border-red-900/60 hover:text-red-400 transition-all duration-300"
-                                            title="Uninstall from a server"
-                                          >
-                                            <Trash2 size={13} />
-                                          </button>
-                                        )}
-                                      </div>
-                                      <div className="text-[10px] text-neutral-600 text-center font-mono">
-                                        {(bot.install_count || 0).toLocaleString()} installs
-                                        {installedOn.length > 0 && (
-                                          <span className="text-emerald-600 ml-2">✓ installed ({installedOn.length})</span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
-                              </div>
-                            </motion.div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <h4 className="text-lg font-bold text-white font-mono">{bot.name}</h4>
+                          {bot.is_official && (
+                            <span className="border border-purple-500/50 bg-purple-500/10 text-purple-400 text-[10px] uppercase px-1.5 py-0.5 rounded-[3px] font-mono tracking-wider">
+                              Official
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-400 mb-4 flex-1">{bot.description}</p>
+                        <div className="space-y-1 mb-4">
+                          {(bot.features || []).slice(0, 3).map((feature, i) => (
+                            <div key={i} className="flex items-center gap-2 text-sm text-gray-400 font-mono">
+                              <span className="text-red-500 shrink-0">&gt;</span>
+                              {feature}
+                            </div>
                           ))}
                         </div>
+                        {(() => {
+                          const installedOn = myServers.filter(s => (s.bots || []).some(b => b.bot_id === bot.id));
+                          const isConfigurable = bot.code === 'builtin:auto-moderator';
+                          return (
+                            <div className="flex flex-col gap-2">
+                              {isConfigurable && installedOn.length > 0 && (
+                                <button
+                                  onClick={() => {
+                                    setConfiguringBot({ bot });
+                                    setConfigServerId(installedOn[0].id);
+                                    setConfigOpenCount(c => c + 1);
+                                  }}
+                                  className="w-full rounded-md bg-emerald-900/20 border border-emerald-500/40 text-emerald-400 font-mono text-sm tracking-widest uppercase py-2 hover:bg-emerald-500/20 hover:text-emerald-300 transition-all duration-300 flex items-center justify-center gap-2"
+                                >
+                                  <Settings size={13} /> [ CONFIGURE ]
+                                </button>
+                              )}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => {
+                                    if (myServers.length === 0) {
+                                      toast.error('Join or create a server first to install bots');
+                                      return;
+                                    }
+                                    const eligible = myServers.filter(s => !(s.bots || []).some(b => b.bot_id === bot.id));
+                                    if (eligible.length === 0) {
+                                      toast.error('Already installed on all your servers');
+                                      return;
+                                    }
+                                    setInstallingBot(bot);
+                                    setSelectedServerId(eligible[0].id);
+                                  }}
+                                  className="flex-1 rounded-md bg-red-600/10 border border-red-500/40 text-red-500 font-mono text-sm tracking-widest uppercase py-2 hover:bg-red-500 hover:text-white transition-all duration-300"
+                                >
+                                  [ INSTALL ]
+                                </button>
+                                {installedOn.length > 0 && (
+                                  <button
+                                    onClick={() => {
+                                      setUninstallingBot(bot);
+                                      setUninstallServerId(installedOn[0].id);
+                                    }}
+                                    className="rounded-md bg-zinc-900/60 border border-zinc-700/60 text-zinc-500 font-mono text-sm py-2 px-3 hover:border-red-900/60 hover:text-red-400 transition-all duration-300"
+                                    title="Uninstall from a server"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-neutral-600 text-center font-mono">
+                                {(bot.install_count || 0).toLocaleString()} installs
+                                {installedOn.length > 0 && (
+                                  <span className="text-emerald-600 ml-2">✓ installed ({installedOn.length})</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
-                    );
-                  })}
+                    </motion.div>
+                  ))}
                 </div>
               )}
             </motion.div>

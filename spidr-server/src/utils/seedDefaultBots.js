@@ -27,19 +27,6 @@ const DEFAULT_BOTS = [
     ],
     triggers: [{ pattern: '^@spidr\\b', kind: 'mention' }],
   },
-  {
-    name: 'Data Analyst',
-    description: 'Analyze server statistics and generate reports on demand.',
-    category: 'scientists',
-    icon_emoji: '📊',
-    code: 'builtin:data-analyst',
-    features: ['Analytics dashboard', 'Custom reports', 'Trend analysis'],
-    commands: [
-      { trigger: '/stats', description: 'Show server stats overview' },
-      { trigger: '/top', description: 'Show top active members this week' },
-    ],
-  },
-
   // ── Guardians ─────────────────────────────────────────────────────────────
   {
     name: 'Auto Moderator',
@@ -81,7 +68,7 @@ async function seedDefaultBots() {
     // keep showing up in the Bot Laboratory. Purge them by name + author here.
     await CustomBot.deleteMany({
       author_id: SPIDR_AUTHOR_ID,
-      name: { $in: ['Music Master', 'Game Master'] },
+      name: { $in: ['Music Master', 'Game Master', 'Data Analyst'] },
     });
 
     let created = 0;
