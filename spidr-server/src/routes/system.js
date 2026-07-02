@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1924',
+    title: 'Patch 1.9.24 — Streak Counter + Steam Now Playing modules unlocked',
+    date: '2026-07-02',
+    type: 'UPDATE',
+    description: 'Two modules step out of Coming Soon. The Daily Streak Counter is now real — instead of guessing your streak from message activity, the server tracks a proper day-by-day login streak on your profile: a /streak/ping endpoint fires once per session on login so consecutive days count up, missing a day resets the current streak to zero, and best and total-days climb alongside it. The streak fields are locked at the CRUD layer so nobody can PATCH themselves a higher number. Steam Now Playing is unlocked in the Module Nexus and installs like any other module — enter your 64-bit Steam ID, pick a game from your library, and the widget renders the game\'s header art, total hours, past-two-weeks hours, and achievement progress against Steam\'s public API. The widget UI and the server\'s /steam/games and /steam/stats routes were already in the tree; they were just gated by the padlock overlay in ModuleCard until now.',
+  },
+  {
     id: 'p1923',
     title: 'Patch 1.9.23 — Bot Lab tidy + Spidr Protocol fixes',
     date: '2026-06-30',

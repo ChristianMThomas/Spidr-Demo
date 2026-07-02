@@ -1,5 +1,13 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { auth } from '@/api/apiClient';
+import { auth, streak } from '@/api/apiClient';
+
+// Fire once per authenticated session — the /streak/ping endpoint dedupes
+// same-day calls server-side so extra pings from re-mounts are harmless, but
+// there's no reason to spam it. Errors are swallowed: a streak that can't be
+// recorded should never block the app from loading.
+function pingStreak() {
+  streak.ping().catch(() => {});
+}
 
 const AuthContext = createContext();
 
@@ -19,7 +27,7 @@ export const AuthProvider = ({ children }) => {
     const token = localStorage.getItem('spidr_token');
     if (!token) { setLoadingAuth(false); return; }
     auth.me()
-      .then((u) => { setUser(u); setIsAuth(true); })
+      .then((u) => { setUser(u); setIsAuth(true); pingStreak(); })
       .catch(() => { localStorage.removeItem('spidr_token'); })
       .finally(() => setLoadingAuth(false));
   }, []);
@@ -50,6 +58,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('spidr_token', data.token);
       const user = await auth.me();
       setUser(user); setIsAuth(true); setAuthError(null);
+      pingStreak();
     }
     return data;
   };
@@ -64,6 +73,7 @@ export const AuthProvider = ({ children }) => {
     if (res.token) {
       localStorage.setItem('spidr_token', res.token);
       setUser(res.user); setIsAuth(true); setAuthError(null);
+      pingStreak();
     }
     return res;
   };
@@ -75,6 +85,7 @@ export const AuthProvider = ({ children }) => {
     const user = await auth.me();
     setUser(user); setIsAuth(true); setAuthError(null);
     setPendingEmail(null); setOtpMode(null);
+    pingStreak();
     return data;
   };
 
