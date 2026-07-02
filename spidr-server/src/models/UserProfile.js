@@ -55,6 +55,14 @@ const s = new Schema({
   plan_type:      String,
   app_theme:      { type: Schema.Types.Mixed, default: null },
 
+  // daily-login streak (Streak Counter module). last_active_date is a
+  // 'YYYY-MM-DD' UTC string so day comparisons don't depend on TZ math.
+  // Server-side only; the /streak route is the single writer.
+  streak_current:          { type: Number, default: 0 },
+  streak_best:             { type: Number, default: 0 },
+  streak_total_days:       { type: Number, default: 0 },
+  streak_last_active_date: { type: String, default: '' },
+
   // metadata
   links:          [{ title: String, url: String }],
   badges:         [String],

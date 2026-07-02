@@ -135,6 +135,7 @@ app.use('/system',             require('./routes/system'));
 app.use('/weaver',             require('./routes/weaver'));
 app.use('/spotify',            require('./routes/spotify'));
 app.use('/steam',              require('./routes/steam'));
+app.use('/streak',             require('./routes/streak'));
 app.use('/support',            require('./routes/support'));
 app.use('/uploads',            require('express').static(path.join(__dirname, '../uploads')));
 

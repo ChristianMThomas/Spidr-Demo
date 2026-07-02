@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Blocks, Globe, Radio, FileText, Loader2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities, auth, integrations, streak as streakApi } from '@/api/apiClient';
 
 /**
  * Dynamically renders any user-created module based on its type and payload.
@@ -424,48 +424,21 @@ function ClockWidget({ mod }) {
   );
 }
 
-// --- STREAK: Real consecutive-day activity streak ---
-function buildDailyBuckets(items, days) {
-  const buckets = new Array(days).fill(0);
-  const now = Date.now();
-  items.forEach(item => {
-    const created = new Date(item.created_date || item.sent_at || item.created_at).getTime();
-    const daysAgo = Math.floor((now - created) / 86400000);
-    if (daysAgo >= 0 && daysAgo < days) buckets[days - 1 - daysAgo]++;
-  });
-  return buckets;
-}
-
-function calcStreak(buckets) {
-  let streak = 0;
-  for (let i = buckets.length - 1; i >= 0; i--) {
-    if (buckets[i] > 0) streak++;
-    else break;
-  }
-  return streak;
-}
-
+// --- STREAK: Consecutive-day login streak.
+// Server-side truth: /streak/:userId returns { current, best, total } computed
+// from the streak_last_active_date on the user's profile. AuthContext fires
+// /streak/ping on login, which is what increments/resets these values.
 function StreakWidget({ mod, userId }) {
-  const { data: msgs = [] } = useQuery({
-    queryKey: ['streak-msgs', userId],
-    queryFn: () => entities.Message.filter({ author_id: userId }),
-    enabled: !!userId,
-    staleTime: 60000,
-  });
-  const { data: dms = [] } = useQuery({
-    queryKey: ['streak-dms', userId],
-    queryFn: () => entities.DirectMessage.filter({ sender_id: userId }),
+  const { data, isLoading } = useQuery({
+    queryKey: ['streak', userId],
+    queryFn: () => streakApi.get(userId),
     enabled: !!userId,
     staleTime: 60000,
   });
 
-  const DAYS = 30;
-  const msgBuckets = buildDailyBuckets(msgs, DAYS);
-  const dmBuckets  = buildDailyBuckets(dms, DAYS);
-  const combined   = msgBuckets.map((v, i) => v + (dmBuckets[i] || 0));
-  const current    = calcStreak(combined);
-  const best       = Math.max(...combined.map((_, i) => calcStreak(combined.slice(0, i + 1))));
-  const total      = combined.filter(v => v > 0).length;
+  const current = data?.current ?? 0;
+  const best    = data?.best ?? 0;
+  const total   = data?.total ?? 0;
 
   return (
     <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-5 relative overflow-hidden">
@@ -473,7 +446,7 @@ function StreakWidget({ mod, userId }) {
       <div className="grid grid-cols-3 gap-2 mt-4">
         {[['Current', current, 'text-amber-400'], ['Best', best, 'text-white'], ['Active Days', total, 'text-gray-400']].map(([label, val, cls]) => (
           <div key={label} className="bg-black/50 border border-white/5 rounded-lg p-2 text-center">
-            <div className={`text-lg font-black ${cls}`}>{val}</div>
+            <div className={`text-lg font-black ${cls}`}>{isLoading ? '—' : val}</div>
             <div className="text-[8px] text-gray-500 uppercase font-bold">{label}</div>
           </div>
         ))}

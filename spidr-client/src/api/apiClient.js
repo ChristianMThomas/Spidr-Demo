@@ -311,6 +311,15 @@ export const follows = {
   unfollow:   (userId)        => api.delete(`/follows/${userId}`),
 };
 
+// ─── Daily-login streak ──────────────────────────────────────────────────────
+// ping() is fired once per session from AuthContext; server dedupes same-day
+// pings so re-mounts or focus refetches don't corrupt the streak.
+export const streak = {
+  ping:  ()       => api.post('/streak/ping'),
+  me:    ()       => api.get('/streak/me'),
+  get:   (userId) => api.get(`/streak/${userId}`),
+};
+
 // ─── Named export matching old base44 import shape ───────────────────────────
 export const base44 = { entities, auth, integrations };
 
