@@ -320,7 +320,8 @@ export default function DJMatrix({
         title="Change Track"
         subtitle="Spidr DJ"
         actionLabel="Spin"
-        emptyHint="Pick the next track. Everyone in the call's matrix updates the instant you select."
+        requirePreview
+        emptyHint="Pick the next track — only songs with a playable 30s preview are shown, so the whole call hears it."
       />
 
       <style>{`

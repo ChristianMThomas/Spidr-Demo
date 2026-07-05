@@ -4,7 +4,7 @@ import { entities, integrations, getSocket, spotify } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Mic, MicOff, Video, VideoOff, Monitor, PhoneOff,
-  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, ExternalLink, Maximize2, Tv
+  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, AudioLines, ExternalLink, Maximize2, Tv
 } from 'lucide-react';
 import { toast } from 'sonner';
 import SpiderLogo from './SpiderLogo';
@@ -176,7 +176,18 @@ export default function VoiceChannel({
   const handleSelectDJTrack = async (track) => {
     if (!channel?.id || !track?.id) return;
     try {
-      await spotify.djSession.start(channel.id, track.id);
+      // Metadata ride-along is what makes the booth AUDIBLE — the session
+      // caches preview_url so every client can play it. Starting with just
+      // the id (the old behavior here) produced a silent session even after
+      // DJMatrix learned to send metadata on track changes.
+      await spotify.djSession.start(channel.id, track.id, {
+        track_name:    track.name || '',
+        track_artist:  track.artist || '',
+        album_art_url: track.album_art_url || '',
+        preview_url:   track.preview_url || '',
+        external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
+        duration_ms:   track.duration_ms || 0,
+      });
       setDjPickerOpen(false);
       toast.success(`Now spinning: ${track.name}`);
     } catch (err) {
@@ -1007,7 +1018,10 @@ export default function VoiceChannel({
             title="Soundboard"
             activeTint="#FF3333"
           >
-            <Music size={18} className={showSoundboard ? 'text-red-300' : 'text-white/40'} />
+            {/* AudioLines, not Music — the DJ Booth button two slots over
+                already uses Music, and two identical glyphs in one dock read
+                as a duplicate-render bug. */}
+            <AudioLines size={18} className={showSoundboard ? 'text-red-300' : 'text-white/40'} />
           </DockBtn>
           {isApexUser && (
             <DockBtn
@@ -1097,7 +1111,8 @@ export default function VoiceChannel({
         title="Start DJ Session"
         subtitle="Spidr DJ"
         actionLabel="Spin"
-        emptyHint="Pick any track on Spotify. Everyone in the call sees the DJ matrix and listens along from their own Spotify."
+        requirePreview
+        emptyHint="Pick a track — only songs with a playable 30s preview are shown, so everyone in the call actually hears it."
       />
     </div>
   );

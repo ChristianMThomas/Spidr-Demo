@@ -75,12 +75,16 @@ export default function PostCard3D({ clip, index, isOwner, onEdit, onDelete, onC
               className={`w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-300 ${getFilterClass(filter)}`}
             />
           ) : clip.video_url ? (
+            /* No stored thumbnail — paint the first video frame instead of a
+               black tile: preload="metadata" + a #t=0.1 media fragment makes
+               the browser decode and display frame one without playing. */
             <video
-              src={clip.video_url}
+              src={`${clip.video_url}${clip.video_url.includes('#') ? '' : '#t=0.1'}`}
+              preload="metadata"
               className={`w-full h-full object-cover ${getFilterClass(filter)}`}
               loop muted playsInline
               onMouseOver={e => e.target.play()}
-              onMouseOut={e => { e.target.pause(); e.target.currentTime = 0; }}
+              onMouseOut={e => { e.target.pause(); e.target.currentTime = 0.1; }}
             />
           ) : (
             <div className={`w-full h-full bg-gradient-to-br from-zinc-900 to-zinc-800 flex items-center justify-center ${getFilterClass(filter)}`}>

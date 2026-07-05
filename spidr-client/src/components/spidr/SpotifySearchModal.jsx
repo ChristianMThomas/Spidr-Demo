@@ -27,9 +27,15 @@ export default function SpotifySearchModal({
   subtitle = 'Spotify',
   emptyHint = 'Pick any track on Spotify. A 30-second preview plays when visitors open your profile.',
   actionLabel = 'Set',
+  // DJ booth mode: only PLAYABLE tracks (with a 30s preview) are shown, so
+  // the host can never spin a silent track. Spotify ships no preview for a
+  // huge slice of the catalog (major labels especially), so we also say how
+  // many results were hidden instead of quietly shrinking the list.
+  requirePreview = false,
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
+  const [hiddenCount, setHiddenCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [playingId, setPlayingId] = useState(null); // which preview is auditioning
   const audioRef = useRef(null);
@@ -59,8 +65,16 @@ export default function SpotifySearchModal({
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await spotify.search(q, 12);
-        setResults(Array.isArray(res?.tracks) ? res.tracks : []);
+        const res = await spotify.search(q, requirePreview ? 24 : 12);
+        let tracks = Array.isArray(res?.tracks) ? res.tracks : [];
+        if (requirePreview) {
+          const playable = tracks.filter(t => !!t.preview_url);
+          setHiddenCount(tracks.length - playable.length);
+          tracks = playable.slice(0, 12);
+        } else {
+          setHiddenCount(0);
+        }
+        setResults(tracks);
       } catch {
         setResults([]);
       } finally {
@@ -177,9 +191,14 @@ export default function SpotifySearchModal({
               ) : loading && results.length === 0 ? (
                 <LoadingHint />
               ) : results.length === 0 ? (
-                <NoMatchHint q={query} />
+                <NoMatchHint q={query} filtered={requirePreview && hiddenCount > 0} />
               ) : (
                 <div className="space-y-1">
+                  {requirePreview && hiddenCount > 0 && (
+                    <p className="px-2 pb-1 text-[9px] font-mono uppercase tracking-widest text-zinc-600">
+                      {hiddenCount} track{hiddenCount === 1 ? '' : 's'} hidden — no playable preview from Spotify
+                    </p>
+                  )}
                   {results.map((t) => (
                     <ResultRow
                       key={t.id}
@@ -336,11 +355,15 @@ function LoadingHint() {
   );
 }
 
-function NoMatchHint({ q }) {
+function NoMatchHint({ q, filtered = false }) {
   return (
     <div className="flex flex-col items-center justify-center py-10 gap-1 text-center">
-      <p className="text-zinc-400 text-xs">No matches for "<span className="text-white">{q}</span>"</p>
-      <p className="text-zinc-600 text-[10px]">Try a different spelling or artist name.</p>
+      <p className="text-zinc-400 text-xs">No {filtered ? 'playable ' : ''}matches for "<span className="text-white">{q}</span>"</p>
+      <p className="text-zinc-600 text-[10px]">
+        {filtered
+          ? 'Spotify has no audio preview for these results — try another song or artist.'
+          : 'Try a different spelling or artist name.'}
+      </p>
     </div>
   );
 }
