@@ -158,7 +158,14 @@ export default function VoiceChannel({
       queryClient.invalidateQueries({ queryKey: ['djSession', channel.id] });
     };
     socket.on('voice:dj-session-changed', onDjChanged);
+    const onAISpeak = (data) => {
+      if (!data || data.channel_id !== channel.id) return;
+      if (data.from && data.from === currentUser?.id) return; // we already spoke it
+      if (data.text) spidrVoice.speak(String(data.text));
+    };
+    socket.on('voice:ai-speak', onAISpeak);
     return () => socket.off('voice:dj-session-changed', onDjChanged);
+      socket.off('voice:ai-speak', onAISpeak);
   }, [channel?.id, queryClient]);
 
   const handleStartDJ = () => setDjPickerOpen(true);
@@ -422,6 +429,10 @@ export default function VoiceChannel({
         const answer = result.answer || 'Try asking again!';
         toast.success(answer);
         spidrVoice.speak(answer);
+        // Relay to everyone else in this voice channel — before this, only
+        // the invoker's client had the text, so only they ever heard the TTS
+        // (the "users can't hear Spidr AI" bug). Receivers speak it locally.
+        try { getSocket()?.emit('voice:ai-speak', { channel_id: channel.id, text: answer }); } catch {}
       } else if (['music','video','movie'].includes(action)) {
         const url = prompt(`Enter a YouTube or Twitch URL:`);
         if (url) {

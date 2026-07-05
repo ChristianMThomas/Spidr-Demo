@@ -23,12 +23,13 @@
     "mongoose": "^8.0.0",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^6.9.0",
+    "nodemailer": "^9.0.3",
     "pidusage": "^3.0.2",
     "qrcode": "^1.5.3",
     "socket.io": "^4.7.0",
     "speakeasy": "^2.0.0",
-    "uuid": "^9.0.1"
+    "stripe": "^22.3.0",
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

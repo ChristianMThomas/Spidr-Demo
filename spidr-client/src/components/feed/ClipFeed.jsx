@@ -33,6 +33,14 @@ import { isTrending, tensionScore } from '@/lib/tensionScore';
 //     server-side relays still count if the backend ever starts honoring
 //     the field — we end up eventually-consistent rather than client-only.
 const LOCAL_RELAY_KEY = 'spidr_my_relays';
+
+// ── View de-dupe ───────────────────────────────────────────────────────────
+// A clip should count ONE view per session no matter how many times the user
+// scrolls back to it (TikTok behaves the same — repeat views in one sitting
+// don't keep inflating the number). Module-level so it persists across card
+// mount/unmount as you scroll the virtualized triplet.
+const viewedClips = new Set();
+
 const localRelaySet = (() => {
   try {
     const raw = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_RELAY_KEY) : null;
@@ -96,6 +104,7 @@ export default function ClipFeed({
   feedPersonalized,
   audioMap,
   initialClipId,
+  onOpenProfile,   // (user) => open their WEB profile in-feed
 }) {
   const [idx, setIdx] = useState(() => {
     if (!initialClipId) return 0;
@@ -192,7 +201,7 @@ export default function ClipFeed({
       {/* Top label */}
       <div className="absolute top-3 inset-x-0 text-center z-10 pointer-events-none">
         <span className="text-[10px] font-black tracking-widest text-red-600/40 uppercase">
-          {feedPersonalized ? '⚡ For You' : 'THE WEB'} // {idx + 1} / {clips.length}
+          {feedPersonalized ? '⚡ YOUR WEB' : 'THE WEB'} // {idx + 1} / {clips.length}
         </span>
       </div>
 
@@ -224,6 +233,7 @@ export default function ClipFeed({
                   isActive={isCurrent}
                   currentUser={currentUser}
                   onEditClip={onEditClip}
+                  onOpenProfile={onOpenProfile}
                   muted={muted}
                   setMuted={setMuted}
                   vol={vol}
@@ -263,7 +273,7 @@ export default function ClipFeed({
  * mounted (preloading metadata) but paused.
  */
 function ClipCard({
-  clip, isActive, currentUser, onEditClip,
+  clip, isActive, currentUser, onEditClip, onOpenProfile,
   muted, setMuted, vol, setVol, audioMap,
 }) {
   const videoRef = useRef(null);
@@ -415,6 +425,31 @@ function ClipCard({
     }
   }, [isActive, userPaused]);
 
+  // ── Register a view ───────────────────────────────────────────────────────
+  // When a card becomes active (it's the one on screen), count a view exactly
+  // once per session via the atomic server endpoint. Optimistically bump the
+  // local count so the telemetry HUD ticks up immediately; the cache refetch
+  // later reconciles to the server truth. (Before this, clip.views was rendered
+  // but never written, so it sat frozen at 0 — the "views don't update" bug.)
+  useEffect(() => {
+    if (!isActive || !clip?.id) return;
+    if (viewedClips.has(clip.id)) return;
+    viewedClips.add(clip.id);
+    // Reflect immediately in the cached list so the HUD updates without a wait.
+    try {
+      queryClient.setQueriesData({ queryKey: ['clips'] }, (old) =>
+        Array.isArray(old)
+          ? old.map(c => c.id === clip.id ? { ...c, views: (c.views || 0) + 1 } : c)
+          : old
+      );
+    } catch {}
+    entities.Clip.registerView(clip.id).catch(() => {
+      // On failure, let it be re-tried next session.
+      viewedClips.delete(clip.id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, clip?.id]);
+
   // Reset to start when a card becomes active again; collapse comments when leaving
   useEffect(() => {
     if (isActive && videoRef.current) {
@@ -523,42 +558,34 @@ function ClipCard({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clips'] }),
   });
 
-  // ── Signal Relay (client-first repost) ────────────────────────────────
-  // Flips the user's relay state on this clip optimistically — the icon
-  // fills the moment you tap. Persistence is via the module-level Set +
-  // localStorage. The server update is best-effort: if the backend doesn't
-  // yet recognize the `relays` field (the original bug — `Clip.update`
-  // returned the row unchanged so the next refetch reverted the UI),
-  // we still keep the local state and the button stays filled.
+  // ── Signal Relay (repost) ─────────────────────────────────────────────
+  // Flips the user's relay state on this clip optimistically — the icon fills
+  // the moment you tap (local Set + localStorage for instant, reload-proof UI).
+  // The server side now PERSISTS via the atomic POST /clips/:id/relay endpoint
+  // ($addToSet / $pull on the schema-backed `relays` field). Previously the
+  // backend silently dropped the unknown `relays` field, so reposts never
+  // survived a refetch — that's fixed now, but we keep the local fallback so
+  // the gesture still feels instant and degrades gracefully offline.
   const relayMut = useMutation({
     mutationFn: async () => {
       const newOn = !hasRelayed;
-      // 1) Optimistic local flip — fires the broadcast event, all mounted
+      // 1) Optimistic local flip — fires the broadcast event so all mounted
       //    ClipCards for this clip re-derive their state.
       setLocalRelay(clip.id, newOn);
-      // 2) Best-effort server sync — wrapped so a backend rejection
-      //    doesn't bubble out and revert our local state.
+      // 2) Persist server-side (atomic toggle). Best-effort: a failure keeps
+      //    the local state so the button stays flipped.
       try {
-        const serverRelays = clip.relays || [];
-        const nextRelays = newOn
-          ? [...new Set([...serverRelays, currentUser?.id].filter(Boolean))]
-          : serverRelays.filter(id => id !== currentUser?.id);
-        await entities.Clip.update(clip.id, { relays: nextRelays });
+        await entities.Clip.relay(clip.id);
       } catch (err) {
-        // Server didn't accept — log but keep the local state. The button
-        // will stay flipped because localStorage says so.
         console.warn('[Spidr] relay server sync failed; local state preserved.', err);
       }
       return newOn ? 'relayed' : 'un-relayed';
     },
     onSuccess: (action) => {
       toast.success(action === 'relayed' ? 'Signal relayed to your web.' : 'Relay revoked.');
-      // Soft refetch so other clip-list views pick up any server-side change.
+      // Soft refetch so other clip-list views (incl. profile REPOSTS) update.
       queryClient.invalidateQueries({ queryKey: ['clips'] });
     },
-    // No onError needed — mutationFn swallows server errors and the local
-    // state is the authority. A truly unhandled error here would only fire
-    // if setLocalRelay itself threw, which it can't (sync set ops).
   });
 
   const saveMut = useMutation({
@@ -889,6 +916,12 @@ function ClipCard({
               onClick={(e) => {
                 e.stopPropagation();
                 if (!clip.author_id) return;
+                // Preferred: open their WEB profile right here in the feed.
+                if (onOpenProfile) {
+                  onOpenProfile({ id: clip.author_id, full_name: clip.author_name, avatar_url: clip.author_avatar });
+                  return;
+                }
+                // Fallback (older mounts): main-app holographic profile.
                 window.dispatchEvent(new CustomEvent('spidr-open-profile', {
                   detail: { userId: clip.author_id }
                 }));

@@ -1,5 +1,6 @@
 import React from 'react';
 import useNowPlaying from '@/hooks/useNowPlaying';
+import { useNowPlaying as useNowPlayingPresence } from '@/context/NowPlayingContext';
 
 /**
  * NowPlayingPulse — the tiny "Listening to Spotify" indicator that
@@ -8,6 +9,15 @@ import useNowPlaying from '@/hooks/useNowPlaying';
  * name. Renders NOTHING when the user isn't currently playing, so
  * it's safe to drop in anywhere member rows render — empty state is
  * literally zero space.
+ *
+ * Sources (whichever has a track wins):
+ *   1. Server-side Spotify poller  → hooks/useNowPlaying(userId)
+ *      Works when the target user connected their Spotify account.
+ *   2. Generic presence stream     → context peersNowPlaying.get(userId)
+ *      Fed by `presence:nowplaying` (OS media session / SMTC on the desktop
+ *      app, now broadcast to friends server-side). This is what makes a
+ *      friend's listening visible even when they aren't a Spotify-connected
+ *      poller target — the missing half of "can't see what others are playing".
  *
  * Drop-in callsites:
  *   Member row in CommunityPanel  → <NowPlayingPulse userId={member.user_id} />
@@ -20,15 +30,30 @@ import useNowPlaying from '@/hooks/useNowPlaying';
  *                            Useful for very tight avatar adornments.
  */
 export default function NowPlayingPulse({ userId, compact = false, dotOnly = false }) {
-  const np = useNowPlaying(userId);
-  if (!np || !np.is_playing) return null;
+  const spotifyNp = useNowPlaying(userId);
+  const { peersNowPlaying } = useNowPlayingPresence();
+  const peerNp = peersNowPlaying?.get?.(userId) || null;
+
+  // Normalize the two shapes into { name, artist }. Prefer the Spotify poller
+  // when it reports a playing track (richer metadata), otherwise fall back to
+  // the generic presence broadcast.
+  let track = null;
+  if (spotifyNp && spotifyNp.is_playing && spotifyNp.track_name) {
+    track = { name: spotifyNp.track_name, artist: spotifyNp.artist || '' };
+  } else if (peerNp && peerNp.isPlaying && peerNp.trackName) {
+    track = {
+      name: peerNp.trackName,
+      artist: Array.isArray(peerNp.artists) ? peerNp.artists.join(', ') : (peerNp.artist || ''),
+    };
+  }
+  if (!track) return null;
 
   // Dot-only variant: a 6px green pulse with a halo. Best for tucking
   // into the bottom-right of a member avatar circle.
   if (dotOnly) {
     return (
       <span
-        aria-label={`Listening to ${np.track_name}`}
+        aria-label={`Listening to ${track.name}`}
         className="relative inline-block w-2 h-2 rounded-full bg-[#1DB954]"
         style={{ boxShadow: '0 0 6px rgba(29, 185, 84, 0.65)' }}
       >
@@ -43,13 +68,13 @@ export default function NowPlayingPulse({ userId, compact = false, dotOnly = fal
 
   return (
     <span
-      title={`${np.track_name} — ${np.artist}`}
-      className="inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest text-[#1DB954]"
+      title={`${track.name}${track.artist ? ` — ${track.artist}` : ''}`}
+      className="inline-flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-widest text-[#1DB954] min-w-0"
     >
       <Equalizer />
       {!compact && (
         <span className="truncate max-w-[140px] normal-case tracking-normal text-[10px] font-medium text-[#1DB954]/85">
-          {np.track_name}
+          {track.name}
         </span>
       )}
     </span>

@@ -27,49 +27,6 @@ const DEFAULT_BOTS = [
     ],
     triggers: [{ pattern: '^@spidr\\b', kind: 'mention' }],
   },
-  {
-    name: 'Data Analyst',
-    description: 'Analyze server statistics and generate reports on demand.',
-    category: 'scientists',
-    icon_emoji: '📊',
-    code: 'builtin:data-analyst',
-    features: ['Analytics dashboard', 'Custom reports', 'Trend analysis'],
-    commands: [
-      { trigger: '/stats', description: 'Show server stats overview' },
-      { trigger: '/top', description: 'Show top active members this week' },
-    ],
-  },
-
-  // ── Entertainers ──────────────────────────────────────────────────────────
-  {
-    name: 'Music Master',
-    description: 'Queue and play music from YouTube/SoundCloud links in voice channels.',
-    category: 'entertainers',
-    icon_emoji: '🎵',
-    code: 'builtin:music-master',
-    features: ['Multi-platform support', 'Playlist creation', 'Queue management'],
-    commands: [
-      { trigger: '/play', description: 'Play a song or add to queue' },
-      { trigger: '/skip', description: 'Skip the current song' },
-      { trigger: '/queue', description: 'Show the current queue' },
-      { trigger: '/stop', description: 'Stop playback and clear queue' },
-    ],
-  },
-  {
-    name: 'Game Master',
-    description: 'Host interactive games and trivia for your community.',
-    category: 'entertainers',
-    icon_emoji: '🎮',
-    code: 'builtin:game-master',
-    features: ['Trivia games', 'Leaderboards', 'Custom games'],
-    commands: [
-      { trigger: '/trivia', description: 'Start a trivia round' },
-      { trigger: '/roll', description: 'Roll a die (default d6)' },
-      { trigger: '/8ball', description: 'Magic 8-ball answer' },
-      { trigger: '/coinflip', description: 'Flip a coin' },
-    ],
-  },
-
   // ── Guardians ─────────────────────────────────────────────────────────────
   {
     name: 'Auto Moderator',
@@ -105,6 +62,14 @@ async function seedDefaultBots() {
       { author_id: SPIDR_AUTHOR_ID, install_count: { $gt: 0 } },
       { $set: { install_count: 0 } }
     );
+
+    // Retired bots — Music Master + Game Master were pulled in 1.9.2. Seed is
+    // upsert-only, so the existing DB rows would otherwise linger forever and
+    // keep showing up in the Bot Laboratory. Purge them by name + author here.
+    await CustomBot.deleteMany({
+      author_id: SPIDR_AUTHOR_ID,
+      name: { $in: ['Music Master', 'Game Master', 'Data Analyst'] },
+    });
 
     let created = 0;
     let updated = 0;

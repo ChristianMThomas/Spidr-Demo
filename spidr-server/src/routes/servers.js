@@ -243,6 +243,6 @@ router.patch('/:id', authMiddleware, async (req, res) => {
 });
 
 // Mount the generic CRUD router for everything else (list, get one, create, update, delete)
-router.use('/', crudRouter(Server));
+router.use('/', crudRouter(Server, { ownerField: 'owner_id' }));
 
 module.exports = router;

@@ -987,9 +987,9 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                       <div key={`pend-${idx}`} className="flex items-center justify-between bg-yellow-500/5 border border-yellow-500/20 rounded-lg px-3 py-2">
                         <div className="flex items-center gap-3">
                           {profile?.avatar_url ? (
-                            <img src={profile.avatar_url} alt={displayName} className="w-8 h-8 rounded-full object-cover" />
+                            <img src={profile.avatar_url} alt={displayName} className="w-8 h-8 rounded-full object-cover shrink-0" />
                           ) : (
-                            <div className="w-8 h-8 rounded-full bg-yellow-900 flex items-center justify-center text-white text-sm">
+                            <div className="w-8 h-8 rounded-full bg-yellow-900 flex items-center justify-center text-white text-sm shrink-0">
                               {displayName.charAt(0)}
                             </div>
                           )}
@@ -1039,9 +1039,9 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                   >
                     <div className="flex items-center gap-3">
                       {profile?.avatar_url ? (
-                        <img src={profile.avatar_url} alt={displayName} className="w-8 h-8 rounded-full object-cover" />
+                        <img src={profile.avatar_url} alt={displayName} className="w-8 h-8 rounded-full object-cover shrink-0" />
                       ) : (
-                        <div className="w-8 h-8 rounded-full bg-red-900 flex items-center justify-center text-white text-sm">
+                        <div className="w-8 h-8 rounded-full bg-red-900 flex items-center justify-center text-white text-sm shrink-0">
                           {displayName.charAt(0)}
                         </div>
                       )}

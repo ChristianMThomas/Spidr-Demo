@@ -1,7 +1,7 @@
 {
   "name": "spidr-client",
   "version": "1.0.0",
-  "description": "Spidr — Discord-style communication platform",
+  "description": "Spidr \u2014 Discord-style communication platform",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -111,13 +111,14 @@
     "copyright": "Copyright 2026 Spidr",
     "asar": false,
     "directories": {
-      "buildResources": "public",
+      "buildResources": "build",
       "output": "dist_installer"
     },
     "files": [
       "dist/**/*",
       "electron/main.js",
       "electron/preload.js",
+      "electron/splash.html",
       "package.json"
     ],
     "extraResources": [
@@ -127,7 +128,7 @@
       }
     ],
     "win": {
-      "icon": "src/assets/spidr-app-desktop.png",
+      "icon": "build/icon.ico",
       "artifactName": "${productName}Setup-${version}.${ext}",
       "target": [
         {
@@ -153,7 +154,8 @@
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.social-networking"
+      "category": "public.app-category.social-networking",
+      "icon": "build/icon.icns"
     },
     "linux": {
       "target": "AppImage"

@@ -31,6 +31,10 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
   const { logout } = useAuth();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
+  // Spidr Protocol is the OS-level transparent HUD spawned by the Electron
+  // app — there's no web equivalent (no transparent always-on-top windows
+  // in a browser), so the tab is hidden in the web build entirely.
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
   
   const { data: profile } = useQuery({
     queryKey: ['userProfile', currentUser?.id],
@@ -79,6 +83,25 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
       return raw ? { ...NOTIF_DEFAULTS, ...JSON.parse(raw) } : NOTIF_DEFAULTS;
     } catch { return NOTIF_DEFAULTS; }
   });
+
+  // Sound settings — previously decorative defaultChecked switches (the
+  // "changes don't actually happen" bug). Now controlled + persisted;
+  // SoundEngine.playSound reads spidr_sound_prefs live on every play.
+  const SOUND_DEFAULTS = { master: true, volume: 80, send: true, receive: true, join_leave: true, ui: true };
+  const [soundPrefs, setSoundPrefs] = useState(() => {
+    try {
+      const raw = localStorage.getItem('spidr_sound_prefs');
+      return raw ? { ...SOUND_DEFAULTS, ...JSON.parse(raw) } : SOUND_DEFAULTS;
+    } catch { return SOUND_DEFAULTS; }
+  });
+  const setSound = (key, value) => {
+    setSoundPrefs(prev => {
+      const next = { ...prev, [key]: value };
+      try { localStorage.setItem('spidr_sound_prefs', JSON.stringify(next)); } catch {}
+      if (profile?.id) { entities.UserProfile.update(profile.id, { sound_prefs: next }).catch(() => {}); }
+      return next;
+    });
+  };
 
   const setNotif = (key, value) => {
     setNotifPrefs(prev => {
@@ -236,9 +259,11 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
               <TabsTrigger value="security" className="flex items-center gap-2 data-[state=active]:bg-red-600/20 data-[state=active]:text-white px-3 py-2 text-sm">
                 <ShieldAlert className="w-4 h-4" /> <span className="hidden sm:inline">Security</span>
               </TabsTrigger>
-              <TabsTrigger value="protocol" className="flex items-center gap-2 data-[state=active]:bg-red-600/20 data-[state=active]:text-white px-3 py-2 text-sm">
-                <Ghost className="w-4 h-4" /> <span className="hidden sm:inline">Protocol</span>
-              </TabsTrigger>
+              {isElectron && (
+                <TabsTrigger value="protocol" className="flex items-center gap-2 data-[state=active]:bg-red-600/20 data-[state=active]:text-white px-3 py-2 text-sm">
+                  <Ghost className="w-4 h-4" /> <span className="hidden sm:inline">Protocol</span>
+                </TabsTrigger>
+              )}
               <TabsTrigger value="widgets" className="flex items-center gap-2 data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-400 px-3 py-2 text-sm">
                 <LayoutPanelLeft className="w-4 h-4" /> <span className="hidden sm:inline">Widgets</span>
               </TabsTrigger>
@@ -698,15 +723,15 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                       <p className="text-white font-medium">Master Sound</p>
                       <p className="text-zinc-500 text-sm">Enable all sound effects</p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch checked={soundPrefs.master} onCheckedChange={(v) => setSound('master', v)} />
                   </div>
 
                   <div>
                     <div className="flex justify-between mb-2">
                       <Label className="text-zinc-400">Sound Volume</Label>
-                      <span className="text-zinc-400 text-sm">80%</span>
+                      <span className="text-zinc-400 text-sm">{soundPrefs.volume}%</span>
                     </div>
-                    <Slider defaultValue={[80]} max={100} className="w-full" />
+                    <Slider value={[soundPrefs.volume]} onValueChange={([v]) => setSound('volume', v)} max={100} className="w-full" />
                   </div>
 
                   <div className="border-t border-zinc-700 pt-4 space-y-3">
@@ -715,7 +740,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                         <p className="text-white text-sm">Message Sent</p>
                         <p className="text-zinc-500 text-xs">Play sound when sending message</p>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch checked={soundPrefs.send} onCheckedChange={(v) => setSound('send', v)} />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -723,7 +748,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                         <p className="text-white text-sm">Message Received</p>
                         <p className="text-zinc-500 text-xs">Play sound for incoming messages</p>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch checked={soundPrefs.receive} onCheckedChange={(v) => setSound('receive', v)} />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -731,7 +756,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                         <p className="text-white text-sm">User Join/Leave</p>
                         <p className="text-zinc-500 text-xs">Voice channel join/leave sounds</p>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch checked={soundPrefs.join_leave} onCheckedChange={(v) => setSound('join_leave', v)} />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -739,7 +764,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                         <p className="text-white text-sm">UI Interactions</p>
                         <p className="text-zinc-500 text-xs">Hover and click sound effects</p>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch checked={soundPrefs.ui} onCheckedChange={(v) => setSound('ui', v)} />
                     </div>
                   </div>
                 </div>
@@ -956,12 +981,14 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
             <SecurityMatrix currentUser={currentUser} />
           </TabsContent>
 
-          <TabsContent value="protocol" className="p-6 m-0">
-            <h2 className="text-2xl font-bold text-white mb-6">Spidr Protocol</h2>
-            <div className="space-y-6 max-w-lg">
-              <SpidrProtocolSettings />
-            </div>
-          </TabsContent>
+          {isElectron && (
+            <TabsContent value="protocol" className="p-6 m-0">
+              <h2 className="text-2xl font-bold text-white mb-6">Spidr Protocol</h2>
+              <div className="space-y-6 max-w-lg">
+                <SpidrProtocolSettings />
+              </div>
+            </TabsContent>
+          )}
 
           <TabsContent value="widgets" className="p-0 m-0 h-full">
             <TelemetryDeck currentUser={currentUser} />

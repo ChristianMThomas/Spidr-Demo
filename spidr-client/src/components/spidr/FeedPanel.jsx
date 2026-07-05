@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import PostCard3D from '../feed/PostCard3D';
 import WebProfile from '../feed/WebProfile';
+import WebSignalsInbox from '../feed/WebSignalsInbox';
 import ClipFeed from '../feed/ClipFeed';
 import { toast } from 'sonner';
 import VideoStudio from './VideoStudio';
@@ -39,6 +40,9 @@ export default function FeedPanel({ currentUser }) {
   const [showUpload, setShowUpload]     = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [activeTab, setActiveTab]       = useState('main');
+  // Viewing another user's WEB profile (tap an author in the feed). When set,
+  // it overlays the current tab with their public profile.
+  const [viewingUser, setViewingUser]   = useState(null);
   // When set, the main feed is filtered to a single user's clips — driven
   // by the "ENTER USER WEB" button on the profile modal. A close-affordance
   // at the top of the feed lets the viewer return to the full feed.
@@ -230,6 +234,7 @@ export default function FeedPanel({ currentUser }) {
     { val: 'profile',      Icon: User,   label: 'MY NODE' },
     { val: 'sounds',       Icon: Disc3,  label: 'SOUNDS' },
     { val: 'collections',  Icon: Folder, label: 'SAVED' },
+    { val: 'signals',      Icon: Send,   label: 'SIGNALS' },
   ];
 
   return (
@@ -264,6 +269,16 @@ export default function FeedPanel({ currentUser }) {
 
         {/* Content */}
         <div className="flex-1 flex items-center justify-center overflow-hidden relative">
+          {/* Another user's WEB profile — overlays whatever tab is active */}
+          {viewingUser && (
+            <div className="absolute inset-0 z-40 bg-black flex">
+              <WebProfile
+                currentUser={currentUser}
+                targetUser={viewingUser}
+                onBack={() => setViewingUser(null)}
+              />
+            </div>
+          )}
           {/* Archive-mode banner — shown when the user clicked
               "ENTER USER WEB" on someone's profile. Pinned at top, gives
               them a clear way out back to the full feed. */}
@@ -290,7 +305,7 @@ export default function FeedPanel({ currentUser }) {
                 ? (userArchiveId
                     ? <NoArchiveClips name={userArchiveName} />
                     : <EmptyFeed onUpload={() => document.getElementById('vid-upload')?.click()} />)
-                : <ClipFeed clips={mainTabClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized && !userArchiveId} audioMap={audioMap} initialClipId={jumpClipId} />
+                : <ClipFeed clips={mainTabClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized && !userArchiveId} audioMap={audioMap} initialClipId={jumpClipId} onOpenProfile={(u) => setViewingUser(u)} />
           )}
           {/* Pulse sidebar — top-5 trending tags. Floats on the LEFT edge
               of the main feed area. Clicking a tag pipes it into the
@@ -308,10 +323,11 @@ export default function FeedPanel({ currentUser }) {
           {activeTab === 'friends-feed' && (
             friendClips.length === 0
               ? <NoFriendClips />
-              : <ClipFeed clips={friendClips} currentUser={currentUser} onEditClip={setEditingClip} audioMap={audioMap} />
+              : <ClipFeed clips={friendClips} currentUser={currentUser} onEditClip={setEditingClip} audioMap={audioMap} onOpenProfile={(u) => setViewingUser(u)} />
           )}
           {activeTab === 'recents'    && <RecentsTab profiles={recentProfiles} onClear={() => { setRecentIds([]); try { localStorage.removeItem('spidr_recent_profiles'); } catch {} }} />}
           {activeTab === 'profile'     && <WebProfile currentUser={currentUser} onUploadClick={() => document.getElementById('vid-upload')?.click()} />}
+          {activeTab === 'signals'     && <WebSignalsInbox currentUser={currentUser} onOpenClip={(id) => { setJumpClipId(id); setActiveTab('main'); }} onOpenProfile={(u) => setViewingUser(u)} />}
           {activeTab === 'people'      && <div className="w-full h-full self-stretch"><PeopleSearch currentUser={currentUser} /></div>}
           {activeTab === 'sounds'      && <SoundsBrowser currentUser={currentUser} />}
           {activeTab === 'collections' && <CollectionsView collections={collections} selectedCollection={selectedCollection} onSelectCollection={setSelectedCollection} currentUser={currentUser} queryClient={queryClient} allClips={clips} onJumpToClip={(id) => { setJumpClipId(id); setActiveTab('main'); }} />}

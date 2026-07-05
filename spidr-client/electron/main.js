@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, globalShortcut, desktopCapturer, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -6,6 +6,43 @@ const { exec } = require('child_process');
 const https = require('https');
 
 let mainWindow;
+let splashWindow = null;
+
+// ── Boot splash ──────────────────────────────────────────────────────────────
+// A small frameless, transparent window with the Spidr web-weaving animation,
+// shown instantly on launch and torn down when the main window is ready. This
+// covers the (multi-second on cold boot) gap where Discord shows their loader
+// — ours weaves a web instead.
+function createSplash() {
+  try {
+    splashWindow = new BrowserWindow({
+      width: 340,
+      height: 380,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      show: true,
+      webPreferences: { contextIsolation: true, nodeIntegration: false },
+    });
+    splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+    splashWindow.on('closed', () => { splashWindow = null; });
+  } catch (e) {
+    console.warn('Splash failed (non-fatal):', e?.message);
+    splashWindow = null;
+  }
+}
+function closeSplash() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    try { splashWindow.close(); } catch {}
+  }
+  splashWindow = null;
+}
+
+// The desktopCapturer source id the renderer picked in the StreamSelector,
+// consumed by the display-media request handler on the next getDisplayMedia().
+let pendingShareSourceId = null;
 
 // ── Spidr Protocol overlay — persistent bounds ──────────────────────────────
 // The protocol overlay is a separate OS-level frameless transparent window
@@ -101,6 +138,7 @@ function createWindow() {
   forwardWindowState(mainWindow);
 
   mainWindow.once('ready-to-show', () => {
+    closeSplash();
     mainWindow.show();
     // Only open DevTools in development (not in packaged .exe)
     if (!app.isPackaged) {
@@ -163,6 +201,34 @@ ipcMain.on('maximize-window', () => {
   else mainWindow?.maximize();
 });
 ipcMain.on('close-window', () => mainWindow?.close());
+
+// ── Screen-share source list ────────────────────────────────────────────────
+// Returns the available capture sources (screens + windows) so the renderer's
+// StreamSelector can show real thumbnails instead of mock entries. The chosen
+// id is then handed back via 'desktop:set-share-source' and granted by the
+// display-media request handler registered in app.whenReady().
+ipcMain.handle('desktop:get-sources', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      thumbnailSize: { width: 320, height: 180 },
+      fetchWindowIcons: true,
+    });
+    return sources.map(s => ({
+      id:        s.id,
+      name:      s.name,
+      kind:      s.id.startsWith('screen:') ? 'screen' : 'window',
+      thumbnail: s.thumbnail?.isEmpty?.() ? null : s.thumbnail?.toDataURL() || null,
+      appIcon:   s.appIcon && !s.appIcon.isEmpty?.() ? s.appIcon.toDataURL() : null,
+    }));
+  } catch (e) {
+    console.warn('desktop:get-sources failed:', e?.message);
+    return [];
+  }
+});
+ipcMain.on('desktop:set-share-source', (_evt, id) => {
+  pendingShareSourceId = (typeof id === 'string' && id) ? id : null;
+});
 
 // Forward maximize/unmaximize to renderer so the title bar can swap icons
 function forwardWindowState(win) {
@@ -312,6 +378,11 @@ ipcMain.on('protocol:open', (_evt, params = {}) => {
   protocolWindow.once('ready-to-show', () => {
     protocolWindow.show();
     setProtocolInteractive(false); // start click-through
+    // Dev-only: open DevTools in a detached window so we can debug the overlay
+    // without breaking its transparency/click-through model.
+    if (!app.isPackaged) {
+      protocolWindow.webContents.openDevTools({ mode: 'detach' });
+    }
   });
 
   const qs = new URLSearchParams(params).toString();
@@ -343,6 +414,19 @@ ipcMain.on('protocol:close', () => {
 // Renderer asks to flip interactive mode (e.g. when the input loses focus, it
 // can hand control back to the game).
 ipcMain.on('protocol:set-interactive', (_evt, on) => setProtocolInteractive(!!on));
+
+// Lightweight click-through toggle WITHOUT entering full interactive mode.
+// The renderer asks for this when the mouse hovers the red anchor dot so the
+// dot can receive a click (or a drag) to open the chat manually. The whole
+// window is `setIgnoreMouseEvents(true, { forward: true })` in ambient mode,
+// which kills clicks AND drag regions — this lets the renderer briefly open a
+// hole over the dot. Skipped when already interactive (it manages its own).
+ipcMain.on('protocol:set-clickthrough', (_evt, ignore) => {
+  if (!protocolWindow || protocolWindow.isDestroyed()) return;
+  if (protocolInteractive) return;
+  if (ignore) protocolWindow.setIgnoreMouseEvents(true, { forward: true });
+  else        protocolWindow.setIgnoreMouseEvents(false);
+});
 
 // ── Pin Spidr Protocol anywhere ──────────────────────────────────────────────
 // Three ways the renderer can move the overlay:
@@ -820,6 +904,43 @@ ipcMain.handle('game:get-icon', async (_evt, exePath) => {
 });
 
 app.whenReady().then(() => {
+  createSplash();
+
+  // ── Screen-share capture (fixes Electron streaming) ──────────────────────
+  // In a browser, navigator.mediaDevices.getDisplayMedia() pops the native
+  // picker. In Electron (contextIsolation: true, nodeIntegration: false) that
+  // call rejects unless the main process registers a display-media request
+  // handler — which is why screen sharing silently failed on the desktop app
+  // while it worked on web. We resolve the source the renderer picked (via the
+  // StreamSelector → ipc 'desktop:set-share-source') and grant it; if nothing
+  // was pre-selected we fall back to the primary screen. Audio uses 'loopback'
+  // on Windows so system sound is captured with the screen.
+  try {
+    session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+      desktopCapturer
+        .getSources({ types: ['screen', 'window'] })
+        .then((sources) => {
+          if (!sources || sources.length === 0) { callback({}); return; }
+          let chosen = null;
+          if (pendingShareSourceId) {
+            chosen = sources.find(s => s.id === pendingShareSourceId) || null;
+          }
+          // Fall back to the first whole-screen source, else the first source.
+          if (!chosen) {
+            chosen = sources.find(s => s.id.startsWith('screen:')) || sources[0];
+          }
+          pendingShareSourceId = null; // consume the selection
+          const grant = { video: chosen };
+          if (process.platform === 'win32') grant.audio = 'loopback';
+          callback(grant);
+        })
+        .catch(() => callback({}));
+    }, { useSystemPicker: false });
+  } catch (e) {
+    // setDisplayMediaRequestHandler throws if called twice; safe to ignore.
+    console.warn('display-media handler registration:', e?.message);
+  }
+
   createWindow();
   // Global hotkey: Shift+Enter focuses the overlay for typing (or hands control
   // back if it's already interactive). Registered app-wide so it works while a

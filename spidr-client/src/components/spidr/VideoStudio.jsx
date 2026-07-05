@@ -569,7 +569,7 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
               </div>
 
               {/* Crop mode: aspect-ratio suite (Part 6) + zoom. The 9:16
-                  "Phone/Web" option is the FYP default. */}
+                  "Phone/Web" option is the personalized-feed default. */}
               {cropMode && (
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   {[

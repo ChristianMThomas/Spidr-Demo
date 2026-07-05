@@ -8,6 +8,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
   platform:  process.platform,
 
+  // Screen-share capture. getDesktopSources() lists real screens/windows for
+  // the StreamSelector; setShareSource(id) tells the main process which one to
+  // grant on the next getDisplayMedia() call (see main.js display-media handler).
+  getDesktopSources: () => ipcRenderer.invoke('desktop:get-sources'),
+  setShareSource:    (id) => ipcRenderer.send('desktop:set-share-source', id),
+
   // Video call pop-out (2.1). openPopout takes the call's identifiers; the
   // child window re-joins the same call. onPopoutClosed lets the main window
   // restore its inline grid when the pop-out is closed.
@@ -39,6 +45,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openProtocol:  (params) => ipcRenderer.send('protocol:open', params),
   closeProtocol: () => ipcRenderer.send('protocol:close'),
   setProtocolInteractive: (on) => ipcRenderer.send('protocol:set-interactive', on),
+  // Briefly open a clickable hole in the otherwise click-through overlay so the
+  // user can press the red anchor dot to manually open the chat. Pass false on
+  // mouseenter, true on mouseleave (or any time the renderer wants the window
+  // to go back to passing mouse events through to the game underneath).
+  setProtocolClickthrough: (ignore) => ipcRenderer.send('protocol:set-clickthrough', ignore),
   onProtocolInteractive: (cb) => {
     const handler = (_e, on) => cb(on);
     ipcRenderer.on('protocol:interactive', handler);

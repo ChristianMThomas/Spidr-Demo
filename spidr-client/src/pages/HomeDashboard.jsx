@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { ChevronDown } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { entities } from '@/api/apiClient';
 import { useAppShell } from '@/context/AppShellContext';
@@ -29,6 +30,21 @@ import SpidrSystem from '@/components/spidr/SpidrSystem';
 export default function HomeDashboard() {
   const { currentUser, setSelectedServerId, navigateToDM, appTheme } = useAppShell();
   const navigate = useNavigate();
+
+  // Collapse state for the dashboard sections — persisted so the user's
+  // preference survives reloads. Default = expanded (false).
+  const [activityCollapsed, setActivityCollapsed] = React.useState(() => {
+    try { return localStorage.getItem('spidr_home_activity_collapsed') === '1'; } catch { return false; }
+  });
+  const [serversCollapsed, setServersCollapsed] = React.useState(() => {
+    try { return localStorage.getItem('spidr_home_servers_collapsed') === '1'; } catch { return false; }
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem('spidr_home_activity_collapsed', activityCollapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [activityCollapsed]);
+  React.useEffect(() => {
+    try { localStorage.setItem('spidr_home_servers_collapsed', serversCollapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [serversCollapsed]);
 
   const { data: allServers = [] } = useQuery({
     queryKey: ['servers'],
@@ -253,7 +269,6 @@ export default function HomeDashboard() {
                 <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">
                   Hey, <span className="text-red-500">{greetingName}</span>
                 </h1>
-                <p className="text-zinc-500 text-sm mt-0.5">Your web is waiting</p>
               </div>
             </div>
           </motion.div>
@@ -341,6 +356,16 @@ export default function HomeDashboard() {
                 never moves as the user scrolls the feed below. */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActivityCollapsed(v => !v)}
+                  aria-label={activityCollapsed ? 'Expand Activity Feed' : 'Collapse Activity Feed'}
+                  className="text-white/60 hover:text-white transition-colors"
+                >
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${activityCollapsed ? '-rotate-90' : ''}`}
+                  />
+                </button>
                 <span className="relative flex items-center justify-center w-2 h-2">
                   <span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-60" />
                   <span className="relative w-2 h-2 rounded-full bg-red-500" />
@@ -357,26 +382,30 @@ export default function HomeDashboard() {
               </button>
             </div>
 
-            {/* Scroll engine — internal overflow, capped height. The pr-5
-                gives the scrollbar a hair of breathing room from the
-                content. */}
-            <div
-              className="spidr-feed-scroll max-h-[450px] overflow-y-auto px-5 pb-6"
-              style={{ maskImage: undefined }}
-            >
-              <EnhancedFeed currentUser={currentUser} />
-            </div>
+            {!activityCollapsed && (
+              <>
+                {/* Scroll engine — internal overflow, capped height. The pr-5
+                    gives the scrollbar a hair of breathing room from the
+                    content. */}
+                <div
+                  className="spidr-feed-scroll max-h-[450px] overflow-y-auto px-5 pb-6"
+                  style={{ maskImage: undefined }}
+                >
+                  <EnhancedFeed currentUser={currentUser} />
+                </div>
 
-            {/* Fade-out mask — absolute, pointer-events-none, sits inside
-                the rounded clip so older feed items vanish smoothly into
-                the dark canvas at the bottom edge. */}
-            <div
-              className="absolute bottom-0 inset-x-0 h-16 pointer-events-none"
-              style={{
-                background:
-                  'linear-gradient(to top, rgba(10, 10, 10, 0.95) 0%, rgba(10, 10, 10, 0.6) 50%, transparent 100%)',
-              }}
-            />
+                {/* Fade-out mask — absolute, pointer-events-none, sits inside
+                    the rounded clip so older feed items vanish smoothly into
+                    the dark canvas at the bottom edge. */}
+                <div
+                  className="absolute bottom-0 inset-x-0 h-16 pointer-events-none"
+                  style={{
+                    background:
+                      'linear-gradient(to top, rgba(10, 10, 10, 0.95) 0%, rgba(10, 10, 10, 0.6) 50%, transparent 100%)',
+                  }}
+                />
+              </>
+            )}
           </div>
 
           {/* Recent Servers */}
@@ -390,13 +419,24 @@ export default function HomeDashboard() {
                 border: '1px solid rgba(255, 255, 255, 0.05)',
               }}
             >
-              <div className="flex items-center gap-2 mb-4">
+              <div className={`flex items-center gap-2 ${serversCollapsed ? '' : 'mb-4'}`}>
+                <button
+                  type="button"
+                  onClick={() => setServersCollapsed(v => !v)}
+                  aria-label={serversCollapsed ? 'Expand Recent Servers' : 'Collapse Recent Servers'}
+                  className="text-white/60 hover:text-white transition-colors"
+                >
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${serversCollapsed ? '-rotate-90' : ''}`}
+                  />
+                </button>
                 <span className="w-2 h-2 rounded-full bg-red-500"
                   style={{ boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)' }} />
                 <h2 className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">
                   Recent Servers
                 </h2>
               </div>
+              {!serversCollapsed && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {servers.slice(0, 4).map((server) => (
                   <motion.button
@@ -434,6 +474,7 @@ export default function HomeDashboard() {
                   </motion.button>
                 ))}
               </div>
+              )}
             </div>
           )}
         </div>

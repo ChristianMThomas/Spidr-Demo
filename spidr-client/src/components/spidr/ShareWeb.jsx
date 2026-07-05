@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Send, X, Copy } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { entities, webMessages } from '@/api/apiClient';
 import { dmConversationId } from '@/lib/utils';
 import { toast } from 'sonner';
 import { playSound } from './SoundEngine';
@@ -22,44 +22,25 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
 
   const sendClipMutation = useMutation({
     mutationFn: async ({ friendId, friendName }) => {
-      // Hard validate the payload before hitting the API — the silent
-      // "send button does nothing" bug was caused by undefined fields
-      // making the server reject the create without surfacing an error.
       if (!currentUser?.id) throw new Error('Not signed in');
       if (!friendId) throw new Error('Friend id missing');
       if (!clip?.id) throw new Error('Clip data missing');
 
-      const conversationId = dmConversationId(currentUser.id, friendId);
-      if (!conversationId) throw new Error('Could not derive conversation id');
-
-      return entities.DirectMessage.create({
-        conversation_id: conversationId,
-        sender_id: currentUser.id,
-        sender_name: currentUser.full_name || currentUser.username,
-        sender_avatar: currentUser.avatar_url,
-        // ── Schema gotcha ──
-        // The Mongoose schema's *required* field is `receiver_id`; the
-        // rest of the client reads `recipient_id` for filtering. The
-        // working DM-send in DirectMessages.jsx sends both. Sending only
-        // recipient_id was the cause of "Path `receiver_id` is required".
-        receiver_id: friendId,
-        recipient_id: friendId,
-        content: `📹 Shared a clip: ${clip.caption || 'Check this out!'}`,
-        attachments: [clip.video_url].filter(Boolean),
-        is_clip_share: true,
-        clip_data: {
-          clip_id: clip.id,
-          thumbnail: clip.thumbnail_url,
-          caption: clip.caption,
-          author: clip.author_name
-        }
+      // "Sling to DM" now lands in THE WEB's own SIGNALS inbox — a separate
+      // lane from real DMs, so shared posts never flood actual conversations.
+      return webMessages.sling({
+        recipient_id:  friendId,
+        clip_id:       clip.id,
+        clip_title:    clip.caption || '',
+        clip_thumb:    clip.thumbnail_url || '',
+        sender_name:   currentUser.full_name || currentUser.username || '',
+        sender_avatar: currentUser.avatar_url || '',
       });
     },
     onSuccess: (_, { friendName }) => {
-      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
-      queryClient.invalidateQueries({ queryKey: ['unread-dms-friends'] });
+      queryClient.invalidateQueries({ queryKey: ['web-signals'] });
       playSound('send');
-      toast.success(`Slung to ${friendName}!`);
+      toast.success(`Slung to ${friendName}'s signals!`);
       if (onClose) onClose();
     },
     onError: (err, vars) => {

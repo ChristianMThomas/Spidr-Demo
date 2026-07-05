@@ -52,6 +52,21 @@ async function callerInChannel(userId, channelId) {
   return !!exists;
 }
 
+
+// Pull the optional track metadata a client sends with start/next. Cached on
+// the session so LISTENERS can actually play audio (the 30s preview) instead
+// of just watching the host's now-playing.
+function trackMeta(body = {}) {
+  return {
+    track_name:    String(body.track_name    || '').slice(0, 200),
+    track_artist:  String(body.track_artist  || '').slice(0, 200),
+    album_art_url: String(body.album_art_url || '').slice(0, 500),
+    preview_url:   String(body.preview_url   || '').slice(0, 500),
+    external_url:  String(body.external_url  || '').slice(0, 500),
+    duration_ms:   Number(body.duration_ms)  || 0,
+  };
+}
+
 // ── GET /voice-channels/:channelId/dj-session ────────────────────────────────
 router.get('/:channelId/dj-session', authMW, async (req, res) => {
   try {
@@ -89,6 +104,7 @@ router.post('/:channelId/dj-session', authMW, async (req, res) => {
       host_user_name:   profile?.full_name || profile?.username || 'Spider',
       host_user_avatar: profile?.avatar_url,
       track_id,
+      ...trackMeta(req.body),
       started_at:       new Date(),
     });
 
@@ -122,6 +138,7 @@ router.patch('/:channelId/dj-session', authMW, async (req, res) => {
     }
 
     existing.track_id  = track_id;
+    Object.assign(existing, trackMeta(req.body));
     existing.started_at = new Date();
     await existing.save();
 

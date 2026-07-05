@@ -4,11 +4,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
 import { resolveServerUsername } from '@/lib/usernameStyle';
 import { useAppShell } from '@/context/AppShellContext';
+import { useStickyBoolean } from '@/hooks/useStickyBoolean';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { Search, Plus, Users, Hash, Volume2, Settings, ChevronDown, Send, Smile, ImagePlus, MoreHorizontal, Edit2, Trash2, Ghost, Pin, Archive, Shield, UserPlus, CornerUpLeft, X, MicOff } from 'lucide-react';
+import { Search, Plus, Users, Hash, Volume2, Settings, ChevronDown, Send, Smile, ImagePlus, MoreHorizontal, Edit2, Trash2, Ghost, Pin, Archive, Shield, UserPlus, CornerUpLeft, X, MicOff , ChevronLeft, ChevronRight } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ServerSettingsModal from './ServerSettingsModal';
@@ -19,7 +20,6 @@ import MiniChat from './MiniChat';
 import HolographicProfile from './HolographicProfile';
 import VoiceWeb from './VoiceWeb';
 import EmojiPicker from './EmojiPicker';
-import GhostOverlay from './GhostOverlay';
 import ContextableImage from '@/components/ui/ContextableImage';
 import { playSound } from './SoundEngine';
 import { useMenu } from '@/components/MenuContext';
@@ -164,18 +164,41 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
 
   const selectedServer = servers.find(s => s.id === selectedServerId) || directServer;
 
+  // Collapsible server list — reclaims ~240px of width on demand. Persisted
+  // so the layout choice survives restarts. Desktop only (mobile already
+  // auto-hides the list once a server is selected).
+  const [serverListCollapsed, setServerListCollapsed] = useState(() => {
+    try { return localStorage.getItem('spidr_serverlist_collapsed') === '1'; } catch { return false; }
+  });
+  const toggleServerList = () => setServerListCollapsed(v => {
+    const next = !v;
+    try { localStorage.setItem('spidr_serverlist_collapsed', next ? '1' : '0'); } catch {}
+    return next;
+  });
+
   return (
     <div className="flex-1 flex bg-[#080505] min-w-0 overflow-hidden">
       {/* Server List — desktop: always visible as a 240px column.
           Mobile: visible only when no server is selected; once a server is
           chosen, the list hides and the chat takes the full width. A back
           button inside ServerContent brings the user back to the list. */}
+      {/* Collapsed handle — slim strip that re-expands the server list */}
+      {serverListCollapsed && (
+        <button
+          onClick={toggleServerList}
+          className="hidden md:flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-r border-red-900/30 bg-[#0a0506] hover:bg-[#140a0b] transition-colors group"
+          title="Expand server list"
+        >
+          <ChevronRight size={14} className="text-zinc-500 group-hover:text-white transition-colors" />
+          <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 group-hover:text-zinc-300 transition-colors" style={{ writingMode: 'vertical-rl' }}>Servers</span>
+        </button>
+      )}
       <div className={`${
         selectedServer ? 'hidden md:flex' : 'flex'
-      } w-full md:w-60 shrink-0 border-r border-red-900/30 flex-col`}
+      } ${serverListCollapsed ? 'md:hidden' : ''} w-full md:w-60 shrink-0 border-r border-red-900/30 flex-col`}
         style={{ background: 'linear-gradient(180deg, #0d0708 0%, #080505 100%)' }}>
-        <div className="p-3 border-b border-red-900/20">
-          <div className="relative">
+        <div className="p-3 border-b border-red-900/20 flex items-center gap-2">
+          <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
             <Input
               placeholder="Search servers..."
@@ -184,6 +207,13 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
               className="pl-9 bg-zinc-800 border-zinc-700 text-white text-sm"
             />
           </div>
+          <button
+            onClick={toggleServerList}
+            className="hidden md:flex items-center justify-center w-8 h-8 rounded-lg text-zinc-500 hover:text-white hover:bg-white/5 transition-colors shrink-0"
+            title="Collapse server list"
+          >
+            <ChevronLeft size={15} />
+          </button>
         </div>
         
         <ScrollArea className="flex-1">
@@ -274,6 +304,15 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
 }
 
 function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinimizeCall, onBackToServerList }) {
+  // Collapsible channel rail — same pattern as the server list, own key.
+  const [channelsCollapsed, setChannelsCollapsed] = useState(() => {
+    try { return localStorage.getItem('spidr_channels_collapsed') === '1'; } catch { return false; }
+  });
+  const toggleChannels = () => setChannelsCollapsed(v => {
+    const next = !v;
+    try { localStorage.setItem('spidr_channels_collapsed', next ? '1' : '0'); } catch {}
+    return next;
+  });
   const queryClient = useQueryClient();
   const { triggerMenu, bindLongPress } = useMenu();
   const { isCallMinimized, startVoiceSession } = useAppShell();
@@ -317,29 +356,31 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     return next;
   });
   const [isTyping, setIsTyping] = useState(false);
+  // 350ms linger so the WEB_VIBRATION_DETECTED banner doesn't flicker on
+  // brief typing pauses between keystrokes.
+  const showTypingBanner = useStickyBoolean(isTyping, 350);
   const [botProcessing, setBotProcessing] = useState(false);
 
-  // ── Mirror ghost mode into the global overlay ───────────────────────────
-  // The local GhostOverlay (rendered at the bottom of this file) only shows
-  // while the user is on this server route. The global overlay survives
-  // route changes — we dispatch activate/deactivate events here so the
-  // gaming overlay keeps streaming messages even when the user navigates
-  // away to settings, feed, etc.
+  // ── Spidr Protocol — Electron-only OS-level chat HUD (Discord-style) ──
+  // Web has no equivalent (no OS window APIs), so the Ghost button is hidden
+  // on web entirely. On Electron we just open/close the transparent overlay
+  // BrowserWindow scoped to this server channel; it reads messages itself
+  // via the same socket.
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
   useEffect(() => {
+    if (!isElectron) return;
     if (ghostMode) {
-      window.dispatchEvent(new CustomEvent('spidr-ghost-activate', {
-        detail: { conversationName: `#${selectedChannel ? (server.channels?.find(c => c.id === selectedChannel)?.name || 'channel') : 'server'} · ${server.name}` },
-      }));
-      // In the desktop app, also spawn the real OS-level transparent overlay
-      // (frameless, always-on-top, click-through) bound to this channel.
-      if (window.electronAPI?.isElectron) {
-        window.electronAPI.openProtocol?.({ serverId: server.id, channelId: selectedChannel || '' });
-      }
+      window.electronAPI.openProtocol?.({ serverId: server.id, channelId: selectedChannel || '' });
     } else {
-      window.dispatchEvent(new Event('spidr-ghost-deactivate'));
-      if (window.electronAPI?.isElectron) window.electronAPI.closeProtocol?.();
+      window.electronAPI.closeProtocol?.();
     }
-  }, [ghostMode, server.id, server.name, selectedChannel]);
+  }, [ghostMode, server.id, selectedChannel, isElectron]);
+
+  useEffect(() => {
+    if (!isElectron) return;
+    const off = window.electronAPI.onProtocolClosed?.(() => setGhostMode(false));
+    return () => { if (typeof off === 'function') off(); };
+  }, [isElectron]);
   // ── Socket.io: instant message delivery ─────────────────────────────────────
   useEffect(() => {
     if (!server?.id || !selectedChannel) return;
@@ -387,12 +428,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const [reportTarget, setReportTarget] = useState(null);
   const typingTimeoutRef = useRef(null);
 
-  // Game Master — trivia session state
-  const [triviaSession, setTriviaSession] = useState(null);
-  const triviaSessionRef = useRef(null);
-  useEffect(() => { triviaSessionRef.current = triviaSession; }, [triviaSession]);
-
-  
 
   const { data: messages = [] } = useQuery({
     queryKey: ['messages', server.id, selectedChannel],
@@ -528,30 +563,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   // Keep a ref so socket closures always get the current version
   useEffect(() => { sendBotMsgRef.current = sendBotMessage; }, [sendBotMessage]);
 
-  // Trivia answer scanner — active only when a trivia session is live
-  useEffect(() => {
-    if (!triviaSession || !server?.id || !selectedChannel) return;
-    const socket = getSocket();
-    const onMsg = (msg) => {
-      const sess = triviaSessionRef.current;
-      if (!sess) return;
-      if (msg.author_id === 'spidr-ai' || msg.user_id === 'spidr-ai') return;
-      // Accept bare letter or "A)" / "A." format
-      const match = msg.content?.trim().toUpperCase().match(/^([A-D])[).]?$/);
-      if (!match) return;
-      const correct = sess.answer?.charAt(0).toUpperCase();
-      if (match[1] === correct) {
-        const winner = msg.author_name || msg.user_name || 'Someone';
-        setTriviaSession(null);
-        sendBotMsgRef.current?.(
-          `🎉 **${winner}** got it!\n\nAnswer: **${sess.answer}**\n💡 ${sess.fact}`
-        );
-      }
-    };
-    socket.on('message:new', onMsg);
-    return () => socket.off('message:new', onMsg);
-  }, [triviaSession, server?.id, selectedChannel]);
-
   // Block sending if muted or timed-out on this server
   const isUserMuted = (server.muted_members || []).includes(currentUser?.id);
   const isUserTimedOut = (() => {
@@ -641,58 +652,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           author_avatar: SPIDR_AI_AVATAR,
         });
 
-        // Stream URL — create/update AI voice session for cinema display
-        if (result.streamUrl) {
-          const existingAI = await entities.VoiceSession.filter({
-            server_id: server.id,
-            is_spidr_ai: true
-          });
-          const voiceCh = channels.find(c => c.type === 'voice');
-          if (voiceCh) {
-            if (existingAI.length > 0) {
-              await entities.VoiceSession.update(existingAI[0].id, {
-                stream_url: result.streamUrl,
-                channel_id: voiceCh.id
-              });
-            } else {
-              await entities.VoiceSession.create({
-                server_id: server.id,
-                channel_id: voiceCh.id,
-                user_id: 'spidr-ai',
-                user_name: 'SPIDR_AI',
-                user_avatar: SPIDR_AI_AVATAR,
-                is_spidr_ai: true,
-                is_muted: false,
-                stream_url: result.streamUrl
-              });
-            }
-            queryClient.invalidateQueries({ queryKey: ['voice-sessions', server.id] });
-            queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
-            toast.success('Spidr AI is streaming! Join a voice channel to watch.');
-          }
-        }
-
-        // Clear stream — /skip (empty queue) or /stop
-        if (result.clearStream) {
-          const aiSessions = await entities.VoiceSession.filter({ server_id: server.id, is_spidr_ai: true });
-          for (const s of aiSessions) await entities.VoiceSession.delete(s.id).catch(() => {});
-          queryClient.invalidateQueries({ queryKey: ['voice-sessions', server.id] });
-          queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
-        }
-
-        // Game event — start trivia session with 30s reveal timer
-        if (result.gameEvent?.type === 'trivia') {
-          const sess = { answer: result.gameEvent.answer, fact: result.gameEvent.fact };
-          setTriviaSession(sess);
-          setTimeout(() => {
-            if (triviaSessionRef.current === sess) {
-              setTriviaSession(null);
-              sendBotMsgRef.current?.(
-                `⏰ Time's up! The answer was: **${sess.answer}**\n💡 ${sess.fact}`
-              );
-            }
-          }, 30_000);
-        }
       } else {
         // Unknown command
         sendMessageMutation.mutate({
@@ -746,23 +705,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       }
     }
   }, [messages.length, currentProfile?.status, currentUser?.id]);
-
-  // ── Forward each new message to the global ghost overlay when active ────
-  // We re-broadcast the latest message when ghostMode is on. The overlay
-  // de-dupes by id so re-renders (e.g. when reactions change) don't spam.
-  useEffect(() => {
-    if (!ghostMode || messages.length === 0) return;
-    const latest = messages[messages.length - 1];
-    if (!latest?.id) return;
-    window.dispatchEvent(new CustomEvent('spidr-ghost-message', {
-      detail: {
-        id: latest.id,
-        sender_name: latest.author_name || latest.user_name || 'Someone',
-        sender_avatar: latest.author_avatar || latest.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${latest.author_id || latest.user_id}`,
-        content: latest.content || '',
-      },
-    }));
-  }, [messages, ghostMode]);
 
   const updateMessageMutation = useMutation({
     mutationFn: ({ id, content }) => entities.Message.update(id, { content, edited_at: new Date().toISOString() }),
@@ -1310,9 +1252,19 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       
       {/* Channels rail. On desktop always visible (w-56). On mobile
           visible only when mobileView === 'channels'. */}
+      {channelsCollapsed && (
+        <button
+          onClick={toggleChannels}
+          className="hidden md:flex w-6 shrink-0 flex-col items-center justify-center gap-2 border-r border-red-900/20 bg-[#0a0506] hover:bg-[#140a0b] transition-colors group"
+          title="Expand channels"
+        >
+          <ChevronRight size={14} className="text-zinc-500 group-hover:text-white transition-colors" />
+          <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 group-hover:text-zinc-300 transition-colors" style={{ writingMode: 'vertical-rl' }}>Channels</span>
+        </button>
+      )}
       <div className={`${
         mobileView === 'channels' ? 'flex' : 'hidden md:flex'
-      } w-full md:w-56 shrink-0 flex-col`}
+      } ${channelsCollapsed ? 'md:hidden' : ''} w-full md:w-56 shrink-0 flex-col`}
         style={{ background: 'linear-gradient(180deg, #0d0708 0%, #080505 100%)' }}>
         {/* Server Header */}
         <div
@@ -1333,6 +1285,15 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           )}
           <span className="font-semibold text-white truncate flex-1">{server.name}</span>
           <div className="flex items-center">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="hidden md:inline-flex w-7 h-7 text-zinc-500 hover:text-white"
+              onClick={(e) => { e.stopPropagation(); toggleChannels(); }}
+              title="Collapse channels"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
             <Button
               size="icon"
               variant="ghost"
@@ -1590,15 +1551,18 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             >
               <Archive className="w-5 h-5" />
             </Button>
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              onClick={() => setGhostMode(!ghostMode)}
-              className={`${ghostMode ? 'text-red-600 bg-red-600/10' : 'text-zinc-400'} hover:text-red-600`}
-              title="Spidr Protocol - Gaming Overlay"
-            >
-              <Ghost className="w-5 h-5" />
-            </Button>
+            {/* Spidr Protocol (Ghost mode) — desktop-only. Hidden on web. */}
+            {isElectron && (
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => setGhostMode(!ghostMode)}
+                className={`${ghostMode ? 'text-red-600 bg-red-600/10' : 'text-zinc-400'} hover:text-red-600`}
+                title="Spidr Protocol — desktop chat overlay"
+              >
+                <Ghost className="w-5 h-5" />
+              </Button>
+            )}
             <Button
               size="icon"
               variant="ghost"
@@ -1694,7 +1658,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     }}
                     onContextMenu={(e) => triggerMenu(e, 'user', { id: msg.author_id || msg.user_id, name: msg.author_name || msg.user_name })}
                   >
-                    <AvatarImage src={msg.author_avatar || msg.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.author_id || msg.user_id}`} />
+                    <AvatarImage src={profilesByUserId[msg.author_id || msg.user_id]?.avatar_url || msg.author_avatar || msg.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.author_id || msg.user_id}`} />
                     <AvatarFallback className="bg-red-900 text-white">
                       {(msg.author_name || msg.user_name || '?').charAt(0).toUpperCase()}
                     </AvatarFallback>
@@ -1916,7 +1880,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         </ScrollArea>
 
         {/* Typing Indicator */}
-        {isTyping && (
+        {showTypingBanner && (
           <div className="bg-zinc-900 flex items-center px-4 py-1.5 relative border-t border-red-900/10">
             <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10 bg-zinc-900 pr-2">
               <span className="text-[9px] font-mono uppercase tracking-widest text-[#FF3333]">
@@ -2072,10 +2036,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         serverName={server.name}
         currentUser={currentUser}
       />
-
-      {/* Spidr Protocol overlay is rendered globally (GlobalGhostOverlay at the
-          shell). This panel only dispatches activate/message/deactivate events
-          to it — rendering a second local overlay here caused the "double". */}
 
       {/* (The voice deck is a single persistent instance rendered above; it
           stays mounted and merely hidden while minimized, so the WebRTC session

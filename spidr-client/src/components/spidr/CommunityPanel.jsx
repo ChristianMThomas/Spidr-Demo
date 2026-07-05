@@ -4,6 +4,7 @@ import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import UserNameplate from './UserNameplate';
+import { SonicUplink, ActivityBlade } from './NameplateBadges';
 import NameplateBackground from './NameplateBackground';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Shield, Crown, User, Users, ChevronDown, Pencil, Check, X, UserX, Ban, Volume2, VolumeX, PhoneOff, ArrowRight, Settings, GripVertical } from 'lucide-react';
@@ -727,8 +728,12 @@ export default function CommunityPanel({ server, currentUser, onSelectUser, chat
                                             <span className="text-zinc-500 ml-1 opacity-60 hidden">
                                               #{profile?.discriminator || '0000'}
                                             </span>
+                                            {/* Sonic Uplink — glowing eq pill, right-aligned opposite the name */}
+                                            {isOnline && <SonicUplink userId={member.user_id} className="ml-auto shrink-0" />}
                                           </div>
                                         )}
+                                        {/* Activity Blade — razor-thin frosted tag (game / activity) */}
+                                        {isOnline && <ActivityBlade userId={member.user_id} className="mt-0.5 max-w-full" />}
                                         <div className="flex items-center gap-1">
                                           {/* 1.3 — data-transmission style status line */}
                                           <p className="text-xs text-white/50 truncate font-mono">

@@ -35,7 +35,7 @@ export default function MutualsTab({ mutualServers, mutualFriends }) {
             {mutualFriends.map(f => (
               <div key={f.id} className="flex items-center gap-2 p-1.5 pr-3 bg-white/[0.03] rounded-xl border border-white/[0.06]">
                 {f.friend_avatar ? (
-                  <img src={f.friend_avatar} className="w-6 h-6 rounded-full object-cover bg-black" alt="" />
+                  <img src={f.friend_avatar} className="w-6 h-6 rounded-full object-cover bg-black shrink-0" alt="" />
                 ) : (
                   <div className="w-6 h-6 rounded-full bg-gray-800 flex items-center justify-center text-[10px] text-gray-400 font-bold">
                     {f.friend_name?.charAt(0) || '?'}

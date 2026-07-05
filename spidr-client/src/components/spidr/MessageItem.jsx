@@ -34,6 +34,12 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
   const bubbleStyle = buildBubbleStyle(bubbleGradient, { variant: isOwnMessage ? 'own' : 'incoming' });
   const cornerStyle = buildBubbleCornerStyle(bubbleGradient, { variant: isOwnMessage ? 'own' : 'incoming' });
 
+  // Live avatar wins over the stale snapshot stored on the message at send-time
+  // so renaming/changing your pfp updates everywhere — DMs AND group chats.
+  const liveAvatar = isOwnMessage
+    ? (currentUser?.avatar_url || senderProfile?.avatar_url || msg.sender_avatar)
+    : (senderProfile?.avatar_url || msg.sender_avatar);
+
   return (
     <motion.div
       initial={{ opacity: 0, x: isOwnMessage ? 8 : -8 }}
@@ -126,7 +132,7 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                   <div className="absolute -inset-0.5 bg-gradient-to-tr from-[#FF3333] to-purple-600 rounded-lg blur-[2px] opacity-50 animate-pulse" />
                 )}
                 <Avatar className="relative w-full h-full rounded-lg">
-                  {msg.sender_avatar && <AvatarImage src={msg.sender_avatar} className="rounded-lg" />}
+                  {liveAvatar && <AvatarImage src={liveAvatar} className="rounded-lg" />}
                   <AvatarFallback className="bg-gradient-to-br from-[#FF3333] to-[#660000] text-white text-[10px] font-bold rounded-lg">
                     {msg.sender_name?.charAt(0)?.toUpperCase() || '🕷'}
                   </AvatarFallback>
@@ -199,11 +205,6 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                 >
                   {msg.sender_name}
                 </button>
-                {isApex && !isOwnMessage && (
-                  <span className="text-[7px] font-black text-white bg-gradient-to-r from-[#FF3333] to-purple-600 px-1 py-px rounded tracking-wider uppercase">
-                    APEX
-                  </span>
-                )}
                 <span className="text-[9px] text-zinc-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
                   {(() => {
                     const d = new Date(msg.created_date);
@@ -316,7 +317,7 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
         <button onClick={() => onProfileClick?.(msg.sender_id)} className="flex-shrink-0 mt-0.5 mr-3">
           <div className="relative w-8 h-8">
             <Avatar className="relative w-full h-full rounded-lg">
-              {msg.sender_avatar && <AvatarImage src={msg.sender_avatar} className="rounded-lg" />}
+              {liveAvatar && <AvatarImage src={liveAvatar} className="rounded-lg" />}
               <AvatarFallback className="bg-gradient-to-br from-[#FF3333] to-[#660000] text-white text-[10px] font-bold rounded-lg">
                 {msg.sender_name?.charAt(0)?.toUpperCase() || '🕷'}
               </AvatarFallback>
