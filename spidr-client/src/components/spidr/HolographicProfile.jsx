@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import ImageCropper from './ImageCropper';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import SpiderLogo from './SpiderLogo';
+import ApexBadge from './ApexBadge';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReportModal from './ReportModal';
 import ProfileTabs from './profile/ProfileTabs';
@@ -346,9 +347,10 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
               <X size={16} />
             </button>
 
-            {/* LAYER 0.5: User Banner */}
-            <div 
-              className="absolute top-0 left-0 right-0 h-52 overflow-hidden pointer-events-none"
+            {/* LAYER 0.5: User Banner — shorter on small screens so the
+                avatar + name area isn't pushed off the top of the viewport. */}
+            <div
+              className="absolute top-0 left-0 right-0 h-32 sm:h-40 md:h-52 overflow-hidden pointer-events-none"
               style={{
                 borderRadius: frameStyle === 'sharp' ? '8px 8px 0 0' : '20px 20px 0 0',
                 zIndex: 1,
@@ -375,9 +377,11 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
               </label>
             )}
 
-            {/* LAYER 1: Avatar */}
-            <div style={{ zIndex: 5 }} className="relative px-10 pt-[140px]">
-              <div className="relative w-28 h-28">
+            {/* LAYER 1: Avatar — padding + top offset scale with banner height
+                so the overhang against the banner stays consistent at each
+                breakpoint. Avatar also shrinks on small screens. */}
+            <div style={{ zIndex: 5 }} className="relative px-4 sm:px-6 md:px-10 pt-[80px] sm:pt-[110px] md:pt-[140px]">
+              <div className="relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28">
                 {/* APEX avatar halo — pulsing blurred gradient bloom behind
                     the avatar. Kept; only the screen-wide Symbiote takeover
                     overlay was removed (that was the "blob" complaint). */}
@@ -424,7 +428,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
             </div>
 
             {/* LAYER 2: Identity — @username#tag */}
-            <div style={{ zIndex: 5 }} className="relative px-10 mt-4">
+            <div style={{ zIndex: 5 }} className="relative px-4 sm:px-6 md:px-10 mt-4">
               {/* NB: APEX nameplate_url is NOT rendered here. It's a list-row
                   personalization (sidebar member list, DM list, group member
                   list, friends list) — not a profile-view treatment. Inside
@@ -433,9 +437,9 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                   on top makes the header read as a "blurry blob" because
                   most nameplates are abstract textures meant to be glanced
                   at behind a tiny username chip. */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <h2
-                  className="text-3xl tracking-tight"
+                  className="text-2xl md:text-3xl tracking-tight"
                   style={{
                     // Default size is 3xl + heavy weight, then overridden by user prefs
                     fontWeight: 900,
@@ -445,11 +449,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                 >
                   {userProfile?.display_name || 'User'}
                 </h2>
-                {isApex && (
-                  <span className="inline-flex items-center gap-1 bg-gradient-to-r from-[#FF3333] to-[#990000] px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-[0_0_12px_rgba(255,51,51,0.5)]">
-                    <SpiderLogo size={10} /> APEX
-                  </span>
-                )}
+                {isApex && <ApexBadge size="md" />}
               </div>
               <div className="text-sm font-mono mt-1">
                 <span className="text-gray-500">@</span>
@@ -465,14 +465,17 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
             </div>
 
             {/* LAYER 3: Tabbed Content */}
-            <div style={{ zIndex: 5 }} className="relative px-10 mt-6">
+            <div style={{ zIndex: 5 }} className="relative px-4 sm:px-6 md:px-10 mt-6">
               <ProfileTabs
                 activeTab={isOwnProfile && activeTab === 'mutuals' ? 'bio' : activeTab}
                 onTabChange={setActiveTab}
                 isOwnProfile={isOwnProfile}
               />
-              
-              <div className="mt-4 h-[280px] overflow-y-auto pr-1">
+
+              {/* On <md, content flows with the outer modal scroll so the inner
+                  fixed-height pane doesn't double-scroll on a small viewport.
+                  On md+ keep the original 280px scrolling pane. */}
+              <div className="mt-4 md:h-[280px] md:overflow-y-auto md:pr-1">
                 <AnimatePresence mode="wait">
                   {activeTab === 'bio' && (
                     <BioTab 
@@ -503,7 +506,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
 
             {/* LAYER 5: Action Buttons (other users only) */}
             {!isOwnProfile && (
-              <div style={{ zIndex: 10 }} className="relative px-10 mt-5 pb-8">
+              <div style={{ zIndex: 10 }} className="relative px-4 sm:px-6 md:px-10 mt-5 pb-8">
                 <ProfileActions 
                   friendshipData={friendshipData}
                   onSendRequest={() => sendFriendRequest.mutate()}
@@ -649,11 +652,13 @@ function ProfileActions({ friendshipData, onSendRequest, onAccept, onBlock, onRe
     return (
       <div className="space-y-2">
         <div className="flex gap-2">
-          <button type="button" onClick={onMessage} className="flex-1 py-2.5 bg-white hover:bg-gray-200 text-black rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all hover:scale-[1.02] shadow-lg cursor-pointer">
+          <button type="button" onClick={onMessage} className="flex-1 py-2.5 bg-white hover:bg-gray-200 text-black rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all hover:scale-[1.02] shadow-lg cursor-pointer whitespace-nowrap">
             <MessageCircle size={14} /> Message
           </button>
-          <button type="button" onClick={onAddToServer} className="flex-1 py-2.5 bg-black/80 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer">
-            <UserPlus2 size={14} /> Add to Server
+          <button type="button" onClick={onAddToServer} className="flex-1 py-2.5 bg-black/80 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer whitespace-nowrap">
+            <UserPlus2 size={14} />
+            <span className="hidden sm:inline">Add to Server</span>
+            <span className="sm:hidden">Add</span>
           </button>
         </div>
         <EnterUserWebButton onClick={onEnterWeb} />
@@ -665,10 +670,10 @@ function ProfileActions({ friendshipData, onSendRequest, onAccept, onBlock, onRe
   return (
     <div className="space-y-2">
       <div className="flex gap-2">
-        <button type="button" onClick={onSendRequest} className="flex-1 py-2.5 bg-[#FF3333] hover:bg-red-500 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(255,51,51,0.3)] cursor-pointer">
+        <button type="button" onClick={onSendRequest} className="flex-1 py-2.5 bg-[#FF3333] hover:bg-red-500 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(255,51,51,0.3)] cursor-pointer whitespace-nowrap">
           <UserPlus size={14} /> Link Node
         </button>
-        <button type="button" onClick={onMessage} className="flex-1 py-2.5 bg-white hover:bg-gray-200 text-black rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all hover:scale-[1.02] shadow-lg cursor-pointer">
+        <button type="button" onClick={onMessage} className="flex-1 py-2.5 bg-white hover:bg-gray-200 text-black rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all hover:scale-[1.02] shadow-lg cursor-pointer whitespace-nowrap">
           <MessageCircle size={14} /> Message
         </button>
       </div>
@@ -702,11 +707,15 @@ function EnterUserWebButton({ onClick }) {
 function ActionDefensiveRow({ onBlock, onReport }) {
   return (
     <div className="grid grid-cols-2 gap-2">
-      <button type="button" onClick={onBlock} className="py-2 bg-black/60 hover:bg-red-900/30 border border-white/[0.06] hover:border-red-500/40 text-gray-500 hover:text-red-500 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer">
-        <UserX size={12} /> Sever (Block)
+      <button type="button" onClick={onBlock} className="py-2 bg-black/60 hover:bg-red-900/30 border border-white/[0.06] hover:border-red-500/40 text-gray-500 hover:text-red-500 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap">
+        <UserX size={12} />
+        <span className="hidden sm:inline">Sever (Block)</span>
+        <span className="sm:hidden">Block</span>
       </button>
-      <button type="button" onClick={onReport} className="py-2 bg-black/60 hover:bg-red-900/30 border border-white/[0.06] hover:border-red-500/40 text-gray-500 hover:text-red-500 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer">
-        <ShieldAlert size={12} /> Flag (Report)
+      <button type="button" onClick={onReport} className="py-2 bg-black/60 hover:bg-red-900/30 border border-white/[0.06] hover:border-red-500/40 text-gray-500 hover:text-red-500 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap">
+        <ShieldAlert size={12} />
+        <span className="hidden sm:inline">Flag (Report)</span>
+        <span className="sm:hidden">Report</span>
       </button>
     </div>
   );

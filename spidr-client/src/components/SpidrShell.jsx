@@ -9,7 +9,6 @@ import Sidebar from '@/components/spidr/Sidebar';
 import { MenuProvider } from '@/components/MenuContext';
 import SpidrMenu from '@/components/ui/SpidrMenu';
 import HolographicProfile from '@/components/spidr/HolographicProfile';
-import GlobalGhostOverlay from '@/components/spidr/GlobalGhostOverlay';
 import MobileBottomBar from '@/components/spidr/MobileBottomBar';
 import MobileMenuPanel from '@/components/spidr/MobileMenuPanel';
 import MinimizedWebNode from '@/components/spidr/MinimizedWebNode';
@@ -207,8 +206,12 @@ export default function SpidrShell() {
     <MenuProvider>
       <NotificationProvider currentUser={currentUser}>
       <div className="w-full h-[100dvh] flex flex-col overflow-hidden text-white">
-        {/* Custom title bar — Electron only (frameless window) */}
-        {window.electronAPI?.isElectron && <TitleBar />}
+        {/* Custom title bar — Electron only (frameless window). Owns the
+            NotificationBell + BiomassBalancePill + UserStatusChip cluster
+            on desktop app users, so the floating cluster below is hidden
+            when Electron is present (see the isElectron gate on the
+            fixed cluster). */}
+        {window.electronAPI?.isElectron && <TitleBar currentUser={currentUser} />}
 
         {/* Main layout area — fills remaining height */}
         <div
@@ -304,7 +307,11 @@ export default function SpidrShell() {
             buttons and search inputs.
             Hidden on mobile (<md): on small screens these controls live inside
             the MobileMenuPanel drawer instead, so they don't crowd the top. */}
-        {currentUser && (
+        {/* On Electron this cluster lives inside the TitleBar (see above),
+            so we skip rendering the floating version to avoid a duplicate
+            row on the right and the visual overlap between the two. On
+            web (no TitleBar) it stays floating over the page headers. */}
+        {currentUser && !window.electronAPI?.isElectron && (
           <div className="fixed top-[10px] right-4 z-40 hidden md:flex items-center gap-2">
             <NotificationBell />
             <BiomassBalancePill />
@@ -423,12 +430,6 @@ export default function SpidrShell() {
 
         {/* APEX entrance flash (thunder / ripple / glitch) */}
         <ApexEntrance />
-
-        {/* Spidr Protocol overlay — survives route changes so the gaming
-            overlay keeps showing messages even when navigating between
-            servers/feed/settings. Chat panels dispatch `spidr-ghost-*`
-            events to drive it. */}
-        <GlobalGhostOverlay />
 
         {/* Global profile modal — opened from any right-click → View Profile.
             Mounted at the shell level so it works on every page. */}

@@ -58,6 +58,15 @@ app.use(cors({
   },
   credentials: true,
 }));
+// Stripe webhook MUST be mounted BEFORE express.json — signature verification
+// requires the raw request bytes exactly as Stripe sent them. If express.json
+// parses first, the buffer is replaced with a JS object and verification fails.
+app.use(
+  '/webhooks/stripe',
+  express.raw({ type: 'application/json' }),
+  require('./routes/webhooks/stripe'),
+);
+
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
@@ -97,7 +106,25 @@ const uploadLimiter = rateLimit({ ...limiterBase, max: 10,  skip: (req) => !isUp
 app.use(readLimiter, writeLimiter, uploadLimiter);
 
 // ── Routes ───────────────────────────────────────────────────────────────────
-app.use('/auth',               require('./routes/auth'));
+// Legacy /auth router — Spring Boot handles all prod auth (register, login,
+// OTP, password reset). Only TOTP-related endpoints still live here because
+// Spring Boot doesn't have TOTP yet (AUTH-F3). Everything else is blocked
+// with 410 Gone so a client can't bypass Spring Boot MFA/security policy by
+// hitting the old Node.js JWT-issuance endpoints.
+app.use(
+  '/auth',
+  (req, res, next) => {
+    const allowedLegacy = new Set(['/me', '/setup-totp', '/verify-totp-setup', '/disable-totp']);
+    if (!allowedLegacy.has(req.path)) {
+      return res.status(410).json({
+        error: 'endpoint_moved',
+        message: 'This auth endpoint has moved to the Spring Boot service. Use AUTH_URL/auth/* instead.',
+      });
+    }
+    next();
+  },
+  require('./routes/auth'),
+);
 app.use('/users',              require('./routes/users'));
 app.use('/user-profiles',      require('./routes/userProfiles'));
 app.use('/servers',            require('./routes/servers'));
@@ -135,6 +162,8 @@ app.use('/system',             require('./routes/system'));
 app.use('/weaver',             require('./routes/weaver'));
 app.use('/spotify',            require('./routes/spotify'));
 app.use('/steam',              require('./routes/steam'));
+app.use('/streak',             require('./routes/streak'));
+app.use('/payments',           require('./routes/payments'));
 app.use('/support',            require('./routes/support'));
 app.use('/uploads',            require('express').static(path.join(__dirname, '../uploads')));
 

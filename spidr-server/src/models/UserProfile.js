@@ -55,6 +55,28 @@ const s = new Schema({
   plan_type:      String,
   app_theme:      { type: Schema.Types.Mixed, default: null },
 
+  // Stripe subscription state (Patch 1.9.25 — real Apex payments).
+  // ALL of these are server-only writes via routes/webhooks/stripe.js —
+  // they're in crudRouter's PROTECTED_FIELDS so no client PATCH can touch
+  // them, and the userProfiles route now has ownerField: 'user_id'.
+  // apex_first_activated_at is the trial-eligibility gate: null → user
+  // has never held Apex → include 30-day trial in the Checkout Session;
+  // set once and never cleared, so re-subscribers pay from day one.
+  stripe_customer_id:          { type: String, index: true },
+  stripe_subscription_id:      { type: String },
+  stripe_subscription_status:  { type: String }, // 'active' | 'trialing' | 'canceled' | 'past_due' | ...
+  stripe_current_period_end:   { type: Date },
+  stripe_cancel_at_period_end: { type: Boolean, default: false },
+  apex_first_activated_at:     { type: Date },
+
+  // daily-login streak (Streak Counter module). last_active_date is a
+  // 'YYYY-MM-DD' UTC string so day comparisons don't depend on TZ math.
+  // Server-side only; the /streak route is the single writer.
+  streak_current:          { type: Number, default: 0 },
+  streak_best:             { type: Number, default: 0 },
+  streak_total_days:       { type: Number, default: 0 },
+  streak_last_active_date: { type: String, default: '' },
+
   // metadata
   links:          [{ title: String, url: String }],
   badges:         [String],

@@ -3,7 +3,10 @@ import { motion } from 'framer-motion';
 import { Download, Flag, CheckCircle, Loader2, Trash2, Lock } from 'lucide-react';
 import { getModuleTheme } from './widgets/previews';
 
-const COMING_SOON_MODULES = new Set(['Steam Now Playing', 'Daily Streak Counter']);
+// Modules that ship as installable-but-locked (padlock overlay, no Install
+// button). Steam Now Playing and Daily Streak Counter are now fully wired and
+// no longer belong here; the mechanism is kept for any future preview drops.
+const COMING_SOON_MODULES = new Set();
 
 /**
  * ModuleCard — holographic glass card with a hover-preview crossfade.

@@ -101,7 +101,24 @@ module.exports = function crudRouter(Model, opts = {}) {
 
   // ── UPDATE ─────────────────────────────────────────────────────────────────
   // Strip sensitive/protected fields and MongoDB operator keys from the update body.
-  const PROTECTED_FIELDS = new Set(['password', 'is_banned', 'role', 'is_verified', 'is_admin', 'twoFactorSecret', 'twoFactorMethod']);
+  const PROTECTED_FIELDS = new Set([
+    'password', 'is_banned', 'role', 'is_verified', 'is_admin',
+    'twoFactorSecret', 'twoFactorMethod',
+    // streak fields are server-computed; only the /streak route may write them
+    'streak_current', 'streak_best', 'streak_total_days', 'streak_last_active_date',
+    // Apex tier + Stripe subscription state — only routes/webhooks/stripe.js
+    // (verified signature, bypasses this crudRouter) may write these. Without
+    // this, any authenticated user could PATCH themselves to apex_tier:'apex'
+    // for free. apex_features stays writable so the client can still toggle
+    // cosmetic Apex perks (thread_skin, badge style, etc.).
+    'apex_tier',
+    'stripe_customer_id',
+    'stripe_subscription_id',
+    'stripe_subscription_status',
+    'stripe_current_period_end',
+    'stripe_cancel_at_period_end',
+    'apex_first_activated_at',
+  ]);
 
   router.patch('/:id', guard, async (req, res) => {
     try {

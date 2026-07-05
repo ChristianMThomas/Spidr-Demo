@@ -6,8 +6,6 @@ import { entities, integrations } from '@/api/apiClient';
 // installed bot record doesn't carry one.
 export const BOT_META = {
   'builtin:spidr-ai':       { name: 'Spidr AI',       icon_emoji: '🕷️', color: '#FF3333' },
-  'builtin:game-master':    { name: 'Game Master',    icon_emoji: '🎲', color: '#a855f7' },
-  'builtin:music-master':   { name: 'Music Master',   icon_emoji: '🎵', color: '#ec4899' },
   'builtin:data-analyst':   { name: 'Data Analyst',   icon_emoji: '📊', color: '#3b82f6' },
   'builtin:auto-moderator': { name: 'Auto Moderator', icon_emoji: '🛡️', color: '#10b981' },
   'builtin:welcome-bot':    { name: 'Welcome Bot',    icon_emoji: '👋', color: '#f59e0b' },
@@ -36,13 +34,6 @@ export const COMMAND_REGISTRY = [
   { trigger: '/vibe',       description: 'Vibe check',                      bot: 'builtin:spidr-ai',         permission: 'everyone' },
   { trigger: '/fact',       description: 'Random spider fact',              bot: 'builtin:spidr-ai',         permission: 'everyone' },
   { trigger: '/summarize',  description: 'Summarize recent messages',       bot: 'builtin:spidr-ai',         permission: 'everyone' },
-  { trigger: '/trivia',     description: 'Start a trivia round',            bot: 'builtin:game-master',      permission: 'everyone' },
-  { trigger: '/poll',       description: 'Create a poll  /poll Q | A | B', bot: 'builtin:game-master',      permission: 'everyone' },
-  { trigger: '/play',       description: 'Stream YouTube/Twitch in voice',  bot: 'builtin:music-master',     permission: 'everyone' },
-  { trigger: '/queue',      description: 'Show music queue',                bot: 'builtin:music-master',     permission: 'everyone' },
-  { trigger: '/nowplaying', description: 'Show current track',              bot: 'builtin:music-master',     permission: 'everyone' },
-  { trigger: '/skip',       description: 'Skip current track',              bot: 'builtin:music-master',     permission: 'everyone' },
-  { trigger: '/stop',       description: 'Stop playback & clear queue',     bot: 'builtin:music-master',     permission: 'everyone' },
   { trigger: '/stats',      description: 'Server stats overview',           bot: 'builtin:data-analyst',     permission: 'everyone' },
   { trigger: '/top',        description: 'Top active members this week',    bot: 'builtin:data-analyst',     permission: 'everyone' },
   { trigger: '/modset',     description: 'Configure Auto Moderator',        bot: 'builtin:auto-moderator',   permission: 'admin' },
@@ -100,34 +91,6 @@ const FACTS = [
   "Spiders have been on Earth for over 380 million years.",
 ];
 
-async function fetchYouTubeTitle(url) {
-  try {
-    const r = await fetch(
-      `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`
-    );
-    if (!r.ok) return url;
-    const j = await r.json();
-    return j.title || url;
-  } catch {
-    return url;
-  }
-}
-
-async function getQueue(serverId) {
-  try {
-    const srv = await entities.Server.get(serverId);
-    return { srv, queue: Array.isArray(srv.bot_config?.music_queue) ? srv.bot_config.music_queue : [] };
-  } catch {
-    return { srv: null, queue: [] };
-  }
-}
-
-async function saveQueue(serverId, srv, queue) {
-  await entities.Server.update(serverId, {
-    bot_config: { ...(srv?.bot_config || {}), music_queue: queue },
-  });
-}
-
 export async function processBotCommand(text, currentUser, serverId, channelId) {
   if (!text.startsWith('/')) return null;
 
@@ -136,89 +99,6 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
   const args = parts.slice(1).join(' ');
 
   switch (cmd) {
-    case 'play':
-    case 'stream':
-    case 'watch': {
-      if (!args) {
-        return {
-          response: "Usage: /play <YouTube or Twitch URL>\n\nExample:\n/play https://youtube.com/watch?v=dQw4w9WgXcQ\n/play https://twitch.tv/shroud",
-        };
-      }
-
-      let streamType = 'video';
-      if (args.includes('twitch.tv')) streamType = 'twitch';
-      else if (args.includes('youtube.com') || args.includes('youtu.be')) streamType = 'youtube';
-      else if (args.includes('spotify')) streamType = 'music';
-
-      // Fetch title and add to queue
-      const title = streamType === 'youtube' ? await fetchYouTubeTitle(args) : args;
-      const { srv, queue } = await getQueue(serverId);
-      const isFirst = queue.length === 0;
-      const newTrack = { url: args, title, added_by: currentUser?.full_name || 'Someone', added_at: Date.now() };
-      await saveQueue(serverId, srv, [...queue, newTrack]);
-
-      const pos = queue.length + 1;
-      const response = isFirst
-        ? `🎵 Now playing: **${title}**\n\nAdded to queue by ${newTrack.added_by}. Join a voice channel to watch!`
-        : `🎵 Added to queue (#${pos}): **${title}**\n\nRequested by ${newTrack.added_by}.`;
-
-      return {
-        response,
-        ...(isFirst ? { streamUrl: args, streamType } : {}),
-      };
-    }
-
-    case 'queue': {
-      const { queue } = await getQueue(serverId);
-      if (queue.length === 0) {
-        return { response: '🎵 [Music Master] Queue is empty. Use /play <url> to add tracks.' };
-      }
-      const lines = queue.map((t, i) => `${i + 1}. **${t.title}** — added by ${t.added_by}`).join('\n');
-      return { response: `🎵 **Music Queue** (${queue.length} track${queue.length !== 1 ? 's' : ''})\n\n${lines}` };
-    }
-
-    case 'skip': {
-      const { srv, queue } = await getQueue(serverId);
-      if (queue.length === 0) {
-        return { response: '🎵 [Music Master] Nothing in the queue to skip.' };
-      }
-      const skipped = queue[0];
-      const remaining = queue.slice(1);
-      await saveQueue(serverId, srv, remaining);
-      if (remaining.length > 0) {
-        const next = remaining[0];
-        return {
-          response: `⏭️ Skipped **${skipped.title}**\n\nNow playing: **${next.title}**`,
-          streamUrl: next.url,
-          streamType: next.url.includes('twitch') ? 'twitch' : 'youtube',
-        };
-      }
-      return {
-        response: `⏭️ Skipped **${skipped.title}**. Queue is now empty.`,
-        clearStream: true,
-      };
-    }
-
-    case 'stop': {
-      const { srv } = await getQueue(serverId);
-      await saveQueue(serverId, srv, []);
-      return {
-        response: '⏹️ [Music Master] Playback stopped and queue cleared.',
-        clearStream: true,
-      };
-    }
-
-    case 'nowplaying': {
-      const { queue } = await getQueue(serverId);
-      if (queue.length === 0) {
-        return { response: '🎵 Nothing is currently playing. Use /play <url> to start.' };
-      }
-      const t = queue[0];
-      return {
-        response: `🎵 **Now Playing**\n\n**${t.title}**\nRequested by ${t.added_by}${queue.length > 1 ? `\n\n_${queue.length - 1} track${queue.length - 1 !== 1 ? 's' : ''} in queue_` : ''}`,
-      };
-    }
-
     case 'roast': {
       const target = args || currentUser?.full_name || 'you';
       const roast = ROASTS[Math.floor(Math.random() * ROASTS.length)];
@@ -286,7 +166,6 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
       return {
         response: `🕷️ SPIDR BOT COMMAND PROTOCOL\n\n` +
           `── Spidr AI ──\n` +
-          `/play <url> — Stream YouTube/Twitch in voice\n` +
           `/roast <name> — Get roasted by AI\n` +
           `/8ball <question> — Magic 8-ball\n` +
           `/roll <sides> — Roll dice (default: 6)\n` +
@@ -295,15 +174,6 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
           `/vibe — Vibe check\n` +
           `/fact — Random spider fact\n` +
           `/ask <question> — Ask Spidr AI anything\n\n` +
-          `── Game Master ──\n` +
-          `/trivia — Start interactive trivia (30s timer)\n` +
-          `/poll <question> | opt1 | opt2 — Create a poll\n\n` +
-          `── Music Master ──\n` +
-          `/play <url> — Add track & start playing\n` +
-          `/queue — Show current queue\n` +
-          `/nowplaying — Show current track\n` +
-          `/skip — Skip to next track\n` +
-          `/stop — Clear queue & stop\n\n` +
           `── Data Analyst ──\n` +
           `/stats — Server stats overview\n` +
           `/top — Top active members this week\n\n` +
@@ -326,46 +196,6 @@ export async function processBotCommand(text, currentUser, serverId, channelId) 
       const result = Math.random() < 0.5 ? 'Heads' : 'Tails';
       return {
         response: `🪙 Flipping a coin...\n\n>>> **${result}** <<<`,
-      };
-    }
-
-    case 'trivia': {
-      const llmResult = await integrations.Core.InvokeLLM({
-        prompt: `Generate one interesting trivia question with 4 multiple-choice options (A, B, C, D), one correct answer letter (just the letter, e.g. "B"), and a fun fact. Make it medium difficulty, all-ages appropriate.`,
-        response_json_schema: {
-          type: 'object',
-          properties: {
-            question: { type: 'string' },
-            options: { type: 'array', items: { type: 'string' } },
-            answer: { type: 'string' },
-            fact: { type: 'string' },
-          },
-        },
-      });
-      if (!llmResult?.question || !Array.isArray(llmResult?.options)) {
-        return { response: '🎲 Trivia is offline — try again in a moment.' };
-      }
-      const opts = llmResult.options.slice(0, 4).map((o, i) => `${String.fromCharCode(65 + i)}) ${o}`).join('\n');
-      const answerLetter = llmResult.answer?.charAt(0).toUpperCase() || 'A';
-      return {
-        response: `🎲 **TRIVIA TIME**\n\n${llmResult.question}\n\n${opts}\n\n_Reply with the letter (A/B/C/D). Answer reveals in 30s._`,
-        gameEvent: { type: 'trivia', answer: answerLetter, fact: llmResult.fact || '' },
-      };
-    }
-
-    case 'poll': {
-      if (!args.includes('|')) {
-        return { response: '📊 Usage: /poll <question> | option1 | option2 [| option3 | option4]' };
-      }
-      const [question, ...opts] = args.split('|').map(s => s.trim()).filter(Boolean);
-      if (opts.length < 2) {
-        return { response: '📊 A poll needs at least 2 options. Use: /poll Question | Yes | No' };
-      }
-      const options = opts.slice(0, 4);
-      const lines = options.map((o, i) => `${i + 1}️⃣ ${o}`).join('\n');
-      return {
-        response: `📊 **POLL: ${question}**\n\n${lines}\n\n_Vote by typing the number (1–${options.length})._`,
-        gameEvent: { type: 'poll', question, options },
       };
     }
 
