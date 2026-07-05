@@ -320,6 +320,16 @@ export const streak = {
   get:   (userId) => api.get(`/streak/${userId}`),
 };
 
+// ─── Stripe payments (Apex subscriptions) ────────────────────────────────────
+// createCheckoutSession returns { url } — client redirects the user to
+// Stripe-hosted checkout so cards never touch our app (zero PCI scope).
+// createPortalSession returns { url } for the Billing Portal (manage/cancel).
+// The actual Apex activation happens server-side in the webhook, not here.
+export const payments = {
+  createCheckoutSession: (planType) => api.post('/payments/create-checkout-session', { planType }),
+  createPortalSession:   ()         => api.post('/payments/create-portal-session'),
+};
+
 // ─── Named export matching old base44 import shape ───────────────────────────
 export const base44 = { entities, auth, integrations };
 

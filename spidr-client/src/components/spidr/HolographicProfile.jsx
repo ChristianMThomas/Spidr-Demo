@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import ImageCropper from './ImageCropper';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import SpiderLogo from './SpiderLogo';
+import ApexBadge from './ApexBadge';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReportModal from './ReportModal';
 import ProfileTabs from './profile/ProfileTabs';
@@ -436,7 +437,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                   on top makes the header read as a "blurry blob" because
                   most nameplates are abstract textures meant to be glanced
                   at behind a tiny username chip. */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <h2
                   className="text-2xl md:text-3xl tracking-tight"
                   style={{
@@ -448,11 +449,7 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                 >
                   {userProfile?.display_name || 'User'}
                 </h2>
-                {isApex && (
-                  <span className="inline-flex items-center gap-1 bg-gradient-to-r from-[#FF3333] to-[#990000] px-2 py-0.5 rounded-full text-[9px] font-black text-white shadow-[0_0_12px_rgba(255,51,51,0.5)]">
-                    <SpiderLogo size={10} /> APEX
-                  </span>
-                )}
+                {isApex && <ApexBadge size="md" />}
               </div>
               <div className="text-sm font-mono mt-1">
                 <span className="text-gray-500">@</span>

@@ -1,3 +1,3 @@
 const crudRouter = require('../utils/crudRouter');
 const CustomBot = require('../models/CustomBot');
-module.exports = crudRouter(CustomBot);
+module.exports = crudRouter(CustomBot, { ownerField: 'author_id' });

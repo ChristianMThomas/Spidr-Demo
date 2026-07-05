@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1925',
+    title: 'Patch 1.9.25 — Spidr Apex + platform hardening',
+    date: '2026-07-05',
+    type: 'UPDATE',
+    description: 'Spidr Apex ($7.99/mo, $69.99/yr) subscription flow is live end-to-end — signed Stripe webhook writes apex_tier, checkout + billing portal routes, 30-day trial gated by a burn-once flag on the profile so cancel-and-resubscribe pays from day one, and idempotent webhook processing means Stripe redeliveries can\'t double-flip anyone. Platform-wide security pass: every user-owned CRUD collection (AI logs, DMs, group chats, friends, collections, saved audio, custom bots, community assets, servers, events, feeds, reports) now locks PATCH/DELETE to the owner — no more cross-account writes. Server audit logs are now truly append-only via HTTP. Legacy Node.js auth endpoints return 410 for anything except TOTP, so the Spring Boot MFA gate can\'t be bypassed. Node dependency vulns cleared (nodemailer + uuid majors bumped).',
+  },
+  {
     id: 'p1924',
     title: 'Patch 1.9.24 — Streak Counter + Steam Now Playing modules unlocked',
     date: '2026-07-02',

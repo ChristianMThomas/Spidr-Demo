@@ -205,11 +205,6 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                 >
                   {msg.sender_name}
                 </button>
-                {isApex && !isOwnMessage && (
-                  <span className="text-[7px] font-black text-white bg-gradient-to-r from-[#FF3333] to-purple-600 px-1 py-px rounded tracking-wider uppercase">
-                    APEX
-                  </span>
-                )}
                 <span className="text-[9px] text-zinc-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
                   {(() => {
                     const d = new Date(msg.created_date);
