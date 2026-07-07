@@ -190,3 +190,15 @@ button, a, input, textarea, select, label,
 /* Bot Laboratory terminal search — blinking cursor underscore */
 @keyframes spidr-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 .spidr-blink { animation: spidr-blink 1s step-end infinite; }
+
+/* ── Radix ScrollArea truncation fix ────────────────────────────────────────
+ * Radix wraps viewport content in a div with `display: table; min-width: 100%`,
+ * which sizes to the content's INTRINSIC width — so `truncate` inside never
+ * engages and long channel names / rows overflow past the sidebar edge and
+ * get clipped (the "channels cut off" bug). Forcing block + full width lets
+ * flexbox min-w-0 truncation work as designed, app-wide. */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
+  width: 100%;
+  min-width: 0 !important;
+}

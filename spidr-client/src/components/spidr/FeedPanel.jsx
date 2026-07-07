@@ -85,7 +85,24 @@ export default function FeedPanel({ currentUser }) {
     staleTime: 60000,
   });
   const friendIds   = new Set(friends.map(f => f.friend_id));
-  const friendClips = clips.filter(c => friendIds.has(c.author_id));
+  // Friends tab = strands your friends AUTHORED plus strands they RELAYED
+  // (reposts). A relayed clip carries a `_relayedBy` annotation so the card
+  // can render the "X RELAYED THIS SIGNAL" banner. Authored wins when both.
+  const friendById = React.useMemo(() => {
+    const m = {};
+    for (const f of friends) if (f.friend_id) m[f.friend_id] = f;
+    return m;
+  }, [friends]);
+  const friendClips = React.useMemo(() => clips
+    .filter(c => friendIds.has(c.author_id) || (c.relays || []).some(id => friendIds.has(id)))
+    .map(c => {
+      if (friendIds.has(c.author_id)) return c;
+      const relayerId = (c.relays || []).find(id => friendIds.has(id));
+      const fr = friendById[relayerId];
+      // `repost_by` is the shape the ClipCard's existing purple "Relayed this
+      // signal" header renders — reuse the OG design instead of a new banner.
+      return { ...c, repost_by: { user_name: fr?.friend_name || 'A friend', user_avatar: fr?.friend_avatar || '' } };
+    }), [clips, friendIds, friendById]);
 
   const { data: collections = [] } = useQuery({
     queryKey: ['collections', currentUser?.id],

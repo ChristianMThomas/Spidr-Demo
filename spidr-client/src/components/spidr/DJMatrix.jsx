@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Disc3, Volume2, Music, ChevronLeft, ChevronRight, Pause, Play, X, Loader2 } from 'lucide-react';
 import { spotify } from '@/api/apiClient';
 import useNowPlaying from '@/hooks/useNowPlaying';
+import useMusicKit from './useMusicKit';
 import SpotifySearchModal from './SpotifySearchModal';
 import { toast } from 'sonner';
 
@@ -62,10 +63,50 @@ export default function DJMatrix({
   const [audioBlocked, setAudioBlocked] = useState(false); // autoplay gate hit
   const previewUrl = djSession?.preview_url || '';
 
+  // ── Apple Music full-track upgrade ──────────────────────────────────
+  // For 'apple' sessions, listeners who connected Apple Music (and have a
+  // subscription) hear the ENTIRE song via MusicKit, synced to the session
+  // clock — everyone else stays on the 30s preview loop. This is the
+  // listen-along Discord doesn't have.
+  const musicKit = useMusicKit();
+  const [fullTrackActive, setFullTrackActive] = useState(false);
+  const canFullTrack = djSession?.source === 'apple' && musicKit.ready && musicKit.authorized;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!djSession || !canFullTrack) { setFullTrackActive(false); return; }
+      try {
+        const startedMs = djSession.started_at ? new Date(djSession.started_at).getTime() : Date.now();
+        const offsetSec = Math.max(0, (Date.now() - startedMs) / 1000);
+        // Past the track's end (host idle on a finished song) → stay on preview loop.
+        const durSec = (djSession.duration_ms || 0) / 1000;
+        if (durSec && offsetSec >= durSec - 2) { setFullTrackActive(false); return; }
+        await musicKit.playTrack(djSession.track_id, offsetSec);
+        if (!cancelled) {
+          setFullTrackActive(true);
+          audioRef.current?.pause(); // silence the preview loop underneath
+        }
+      } catch (err) {
+        // Not a subscriber / DRM / anything — preview loop stays the truth.
+        if (!cancelled) setFullTrackActive(false);
+        console.warn('[DJ] full-track fallback to preview:', err?.message);
+      }
+    })();
+    return () => { cancelled = true; try { musicKit.stop(); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [djSession?.track_id, djSession?.started_at, canFullTrack]);
+
+  // Volume follows the booth slider in both modes.
+  useEffect(() => {
+    if (fullTrackActive) musicKit.setVolume(localVolume / 100);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localVolume, fullTrackActive]);
+
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    if (!djSession || !previewUrl) { el.pause(); return; }
+    if (!djSession || !previewUrl || fullTrackActive) { el.pause(); return; }
 
     el.src = previewUrl;
     el.loop = true; // 30s clip loops for the length of the session
@@ -82,7 +123,7 @@ export default function DJMatrix({
     else { el.addEventListener('canplay', play, { once: true }); el.load(); }
 
     return () => { el.pause(); };
-  }, [djSession?.track_id, previewUrl, djSession?.started_at]);
+  }, [djSession?.track_id, previewUrl, djSession?.started_at, fullTrackActive]);
 
   // Volume slider actually controls the booth audio now.
   useEffect(() => {
@@ -112,6 +153,7 @@ export default function DJMatrix({
         preview_url:   track.preview_url || '',
         external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
         duration_ms:   track.duration_ms || 0,
+        source:        track.source === 'apple' ? 'apple' : 'spotify',
       };
       if (djSession?.host_id) {
         await spotify.djSession.next(channel.id, track.id, meta);
@@ -177,9 +219,18 @@ export default function DJMatrix({
           ▶ Tap to hear the booth
         </button>
       )}
+      {/* Full-track mode badge — Apple Music subscribers hear the whole song */}
+      {djSession && fullTrackActive && (
+        <div
+          className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.2em] text-white shadow-[0_0_18px_rgba(250,36,60,0.4)]"
+          style={{ background: 'linear-gradient(135deg, #fa243c, #a250fa)' }}
+        >
+          ♫ Full track · Apple Music
+        </div>
+      )}
       {/* No-preview notice — Spotify stopped shipping previews for many
           tracks in late 2024; be honest instead of playing silence. */}
-      {djSession && !previewUrl && (
+      {djSession && !previewUrl && !fullTrackActive && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-full bg-black/70 border border-white/10 text-[10px] font-mono uppercase tracking-widest text-zinc-400">
           No audio preview for this track — DJ, try another song
         </div>
@@ -321,6 +372,7 @@ export default function DJMatrix({
         subtitle="Spidr DJ"
         actionLabel="Spin"
         requirePreview
+        allowAppleMusic
         emptyHint="Pick the next track — only songs with a playable 30s preview are shown, so the whole call hears it."
       />
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, X, Music, Play, Pause, Loader2, ExternalLink, Check } from 'lucide-react';
-import { spotify } from '@/api/apiClient';
+import { spotify, appleMusic } from '@/api/apiClient';
 
 /**
  * SpotifySearchModal — Instagram-Story-style search for picking a profile
@@ -32,10 +32,16 @@ export default function SpotifySearchModal({
   // huge slice of the catalog (major labels especially), so we also say how
   // many results were hidden instead of quietly shrinking the list.
   requirePreview = false,
+  // DJ booth: offer both catalogs. Apple still ships previews for virtually
+  // its whole catalog (unlike Spotify post-2024), and Apple tracks unlock
+  // FULL-length playback for connected subscribers in the booth.
+  allowAppleMusic = false,
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [hiddenCount, setHiddenCount] = useState(0);
+  const [provider, setProvider] = useState('spotify'); // 'spotify' | 'apple'
+  const [appleAvailable, setAppleAvailable] = useState(true); // hides tab on 503
   const [loading, setLoading] = useState(false);
   const [playingId, setPlayingId] = useState(null); // which preview is auditioning
   const audioRef = useRef(null);
@@ -65,7 +71,12 @@ export default function SpotifySearchModal({
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await spotify.search(q, requirePreview ? 24 : 12);
+        const res = provider === 'apple'
+          ? await appleMusic.search(q, requirePreview ? 24 : 12).catch((err) => {
+              if (err?.status === 503) setAppleAvailable(false);
+              throw err;
+            })
+          : await spotify.search(q, requirePreview ? 24 : 12);
         let tracks = Array.isArray(res?.tracks) ? res.tracks : [];
         if (requirePreview) {
           const playable = tracks.filter(t => !!t.preview_url);
@@ -82,7 +93,7 @@ export default function SpotifySearchModal({
       }
     }, 320);
     return () => clearTimeout(debounceRef.current);
-  }, [query, open]);
+  }, [query, open, provider]);
 
   // Stop the audition when the modal closes.
   useEffect(() => {
@@ -185,7 +196,33 @@ export default function SpotifySearchModal({
             </div>
 
             {/* Results */}
-            <div className="flex-1 overflow-y-auto px-2 pb-3 min-h-0">
+            {allowAppleMusic && appleAvailable && (
+          <div className="flex items-center gap-1 px-4 pb-2">
+            {[['spotify', 'SPOTIFY'], ['apple', 'APPLE MUSIC']].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setProvider(id)}
+                className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
+                  provider === id
+                    ? id === 'apple'
+                      ? 'text-white border-transparent'
+                      : 'bg-[#1DB954] text-black border-[#1DB954]'
+                    : 'bg-white/5 text-zinc-500 border-white/10 hover:text-white'
+                }`}
+                style={provider === id && id === 'apple' ? { background: 'linear-gradient(135deg, #fa243c, #a250fa)' } : undefined}
+              >
+                {label}
+              </button>
+            ))}
+            {provider === 'apple' && (
+              <span className="ml-2 text-[8px] font-mono uppercase tracking-widest text-zinc-600">
+                Full tracks for connected subscribers
+              </span>
+            )}
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto px-2 pb-3 min-h-0">
               {query.trim().length < 2 ? (
                 <EmptyHint copy={emptyHint} />
               ) : loading && results.length === 0 ? (

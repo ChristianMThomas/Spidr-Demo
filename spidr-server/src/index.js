@@ -141,6 +141,7 @@ app.use('/reports',            require('./routes/reports'));
 app.use('/audio-tracks',       require('./routes/audioTracks'));
 app.use('/clips',              require('./routes/clips'));
 app.use('/web-messages',       require('./routes/webMessages'));
+app.use('/apple-music',        require('./routes/appleMusic'));
 app.use('/saved-audio',        require('./routes/savedAudio'));
 app.use('/collections',        require('./routes/collections'));
 app.use('/community-assets',   require('./routes/communityAssets'));

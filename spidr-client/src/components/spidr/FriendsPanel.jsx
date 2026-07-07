@@ -18,6 +18,7 @@ import ErrorBoundary from './ErrorBoundary';
 import CreateGroupChatModal from './CreateGroupChatModal';
 import QuickHeads from './QuickHeads';
 import { toast } from 'sonner';
+import { dmConversationId } from '@/lib/utils';
 import SignalRequests from './SignalRequests';
 import NameplateBackground from './NameplateBackground';
 
@@ -127,6 +128,34 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         toast.success(wasPinned ? 'Unpinned from Spidr Web' : 'Pinned to Spidr Web');
       } else if (type === 'web_group' && action === 'open-group') {
         handleOpenGroup(data.id);
+      } else if (type === 'friend') {
+        // Friend-row context actions — previously only pin-web worked; the
+        // rest of the menu was decorative.
+        const uid = data.user_id || data.id;
+        if (action === 'view-profile') {
+          window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: uid } }));
+        } else if (action === 'send-message' || action === 'mention') {
+          // Mention rides the DM composer too — opens the conversation ready to type.
+          window.dispatchEvent(new CustomEvent('spidr-open-dm', { detail: { userId: uid, name: data.name } }));
+        } else if (action === 'copy-user-id') {
+          navigator.clipboard?.writeText(uid || '').then(
+            () => toast.success('User ID copied'),
+            () => toast.error('Could not copy')
+          );
+        } else if (action === 'remove-friend') {
+          if (!confirm(`Remove ${data.name || 'this friend'} from your web?`)) return;
+          (async () => {
+            try {
+              const rows = await entities.Friend.filter({ user_id: currentUser?.id, friend_id: uid });
+              if (rows[0]) await entities.Friend.delete(rows[0].id);
+              queryClient.invalidateQueries({ queryKey: ['friends'] });
+              toast.success('Friend removed');
+            } catch { toast.error('Could not remove friend'); }
+          })();
+        } else if (action === 'mute' || action === 'block-user') {
+          // No mute/block backend exists yet — say so instead of pretending.
+          toast.info('Mute & block are coming in a future patch.');
+        }
       }
     };
     window.addEventListener('spidr-menu-action', handler);
@@ -248,6 +277,23 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
       toast.error('Failed to send request: ' + (error?.response?.data?.error || error.message));
     }
   };
+
+  // Consume the shell's pending "open a DM" intent (context-menu Send
+  // Message from anywhere in the app). Checked on mount and whenever the
+  // shell re-announces while we're already mounted.
+  useEffect(() => {
+    const consume = () => {
+      const pending = window.__spidrPendingDM;
+      if (!pending?.userId || !currentUser?.id) return;
+      if (Date.now() - (pending.at || 0) > 30000) { window.__spidrPendingDM = null; return; }
+      window.__spidrPendingDM = null;
+      handleOpenDM(pending.userId, dmConversationId(currentUser.id, pending.userId));
+    };
+    consume();
+    window.addEventListener('spidr-pending-dm', consume);
+    return () => window.removeEventListener('spidr-pending-dm', consume);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
 
   const handleOpenDM = (friendId, conversationId) => {
     setActiveDM({ friendId, conversationId });

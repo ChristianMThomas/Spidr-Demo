@@ -14,6 +14,7 @@ import StreamSelector from './StreamSelector';
 import CinemaStage from './CinemaStage';
 import { useScreenShare } from './useScreenShare';
 import { useSpidrVoice } from './SpidrVoice';
+const ClipFeed = React.lazy(() => import('@/components/feed/ClipFeed'));
 import SpidrVoiceVisualizer from './SpidrVoice';
 import SpidrAIProfile, { SPIDR_AI_AVATAR } from './SpidrAIProfile';
 import CallAVControls from './CallAVControls';
@@ -187,6 +188,7 @@ export default function VoiceChannel({
         preview_url:   track.preview_url || '',
         external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
         duration_ms:   track.duration_ms || 0,
+        source:        track.source === 'apple' ? 'apple' : 'spotify',
       });
       setDjPickerOpen(false);
       toast.success(`Now spinning: ${track.name}`);
@@ -643,6 +645,7 @@ export default function VoiceChannel({
                   <TheaterFeedSlot
                     isHost={theaterHostId === currentUser?.id}
                     hostUserName={theaterHostName}
+                    currentUser={currentUser}
                   />
                 </TheaterStage>
               ) : djSession ? (
@@ -1112,6 +1115,7 @@ export default function VoiceChannel({
         subtitle="Spidr DJ"
         actionLabel="Spin"
         requirePreview
+        allowAppleMusic
         emptyHint="Pick a track — only songs with a playable 30s preview are shown, so everyone in the call actually hears it."
       />
     </div>
@@ -1827,27 +1831,43 @@ function CommPanel({ sessions, profiles, rtc, currentUser, channelId, serverId, 
 //      pointer-events disabled by TheaterStage's outer wrapper, so their
 //      copy of the feed scrolls but doesn't accept clicks.
 // ─────────────────────────────────────────────────────────────────────────────
-function TheaterFeedSlot({ isHost, hostUserName }) {
-  return (
-    <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center">
-      <div
-        className="w-16 h-16 rounded-full mb-4 flex items-center justify-center"
-        style={{
-          background: 'rgba(239, 68, 68, 0.10)',
-          border: '1px solid rgba(239, 68, 68, 0.30)',
-          boxShadow: '0 0 20px rgba(239, 68, 68, 0.25)',
-        }}
-      >
-        <Tv className="w-8 h-8 text-red-400" />
+function TheaterFeedSlot({ isHost, hostUserName, currentUser }) {
+  // The REAL feed, finally mounted. This slot used to be a placeholder card
+  // ("mount your feed component here…"), which is why Sync Feed showed
+  // nothing. Host and guests both mount the same global clip list; the
+  // host's scroll drives guests via TheaterStage's scroll relay.
+  const { data: clips = [], isLoading } = useQuery({
+    queryKey: ['clips'],
+    queryFn: () => entities.Clip.list('-created_date', 50),
+    staleTime: 30_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+        <Loader2 className="w-6 h-6 text-red-500 animate-spin" />
+        <p className="text-zinc-500 text-xs font-mono uppercase tracking-widest">Weaving the feed…</p>
       </div>
-      <p className="text-white font-bold text-lg mb-1">
-        {isHost ? 'You are broadcasting' : `Watching ${hostUserName || 'host'}`}
-      </p>
-      <p className="text-zinc-500 text-xs font-mono uppercase tracking-widest max-w-[280px] leading-relaxed">
-        {isHost
-          ? 'Mount your feed component as TheaterStage children to start the broadcast.'
-          : 'Waiting for the host\'s feed stream.'}
-      </p>
-    </div>
+    );
+  }
+  if (!clips.length) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center">
+        <Tv className="w-8 h-8 text-red-400 mb-3" />
+        <p className="text-white font-bold">THE WEB is empty</p>
+        <p className="text-zinc-500 text-xs mt-1">No strands to broadcast yet.</p>
+      </div>
+    );
+  }
+  return (
+    <React.Suspense fallback={
+      <div className="w-full h-full flex items-center justify-center">
+        <Loader2 className="w-6 h-6 text-red-500 animate-spin" />
+      </div>
+    }>
+      <div className="w-full h-full">
+        <ClipFeed clips={clips} currentUser={currentUser} audioMap={{}} />
+      </div>
+    </React.Suspense>
   );
 }

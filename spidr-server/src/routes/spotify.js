@@ -247,6 +247,42 @@ async function getAppToken() {
   return appTokenCache.token;
 }
 
+
+// ── iTunes preview enrichment ────────────────────────────────────────────────
+// Spotify removed `preview_url` from Web API responses for apps created after
+// Nov 2024 — our search now gets null for essentially the ENTIRE catalog,
+// which silently emptied every preview-dependent surface (the DJ booth's
+// playable-only picker returned zero results). Apple's iTunes Search API
+// still serves 30-second previews for most of the same catalog, free and
+// keyless, so we backfill missing previews from there. Cached in-memory
+// (6h TTL, capped) because DJ searches repeat the same popular tracks.
+const itunesCache = new Map(); // key → { url, at }
+const ITUNES_TTL = 6 * 60 * 60 * 1000;
+const ITUNES_CACHE_MAX = 2000;
+async function itunesPreview(name, artist) {
+  const key = `${(artist || '').toLowerCase()}|${(name || '').toLowerCase()}`;
+  const hit = itunesCache.get(key);
+  if (hit && Date.now() - hit.at < ITUNES_TTL) return hit.url;
+  let url = null;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    const term = encodeURIComponent(`${artist || ''} ${name || ''}`.trim().slice(0, 120));
+    const r = await fetch(
+      `https://itunes.apple.com/search?term=${term}&media=music&entity=song&limit=1`,
+      { signal: ctrl.signal }
+    );
+    clearTimeout(t);
+    if (r.ok) {
+      const d = await r.json().catch(() => null);
+      url = d?.results?.[0]?.previewUrl || null;
+    }
+  } catch { /* timeout / network — leave null */ }
+  if (itunesCache.size > ITUNES_CACHE_MAX) itunesCache.clear();
+  itunesCache.set(key, { url, at: Date.now() });
+  return url;
+}
+
 // ── GET /spotify/search?q=...&limit=12 ───────────────────────────────────────
 // Searches Spotify's track catalog. Returns { tracks: [{ id, name, artist,
 // album, album_art_url, preview_url, external_url, duration_ms }] }.
@@ -279,6 +315,14 @@ router.get('/search', authMW, async (req, res) => {
       preview_url:   item.preview_url || null,
       external_url:  item.external_urls?.spotify || `https://open.spotify.com/track/${item.id}`,
       duration_ms:   item.duration_ms || 0,
+    }));
+    // Backfill previews Spotify no longer provides. Parallel, individually
+    // timeboxed, and cached — worst case adds ~2.5s to a cold search.
+    await Promise.all(tracks.map(async (t) => {
+      if (!t.preview_url) {
+        const itunes = await itunesPreview(t.name, t.artist);
+        if (itunes) { t.preview_url = itunes; t.preview_source = 'itunes'; }
+      }
     }));
     res.json({ tracks });
   } catch (err) {

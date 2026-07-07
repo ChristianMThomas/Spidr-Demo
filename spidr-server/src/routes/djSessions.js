@@ -56,6 +56,25 @@ async function callerInChannel(userId, channelId) {
 // Pull the optional track metadata a client sends with start/next. Cached on
 // the session so LISTENERS can actually play audio (the 30s preview) instead
 // of just watching the host's now-playing.
+// Server-side preview backfill for sessions started by clients that didn't
+// send one (or where Spotify shipped none) — see routes/spotify.js itunesPreview.
+async function ensurePreview(meta) {
+  if (meta.preview_url || !meta.track_name) return meta;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    const term = encodeURIComponent(`${meta.track_artist || ''} ${meta.track_name}`.trim().slice(0, 120));
+    const r = await fetch(`https://itunes.apple.com/search?term=${term}&media=music&entity=song&limit=1`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (r.ok) {
+      const d = await r.json().catch(() => null);
+      const url = d?.results?.[0]?.previewUrl || null;
+      if (url) meta.preview_url = url;
+    }
+  } catch { /* leave as-is */ }
+  return meta;
+}
+
 function trackMeta(body = {}) {
   return {
     track_name:    String(body.track_name    || '').slice(0, 200),
@@ -64,6 +83,7 @@ function trackMeta(body = {}) {
     preview_url:   String(body.preview_url   || '').slice(0, 500),
     external_url:  String(body.external_url  || '').slice(0, 500),
     duration_ms:   Number(body.duration_ms)  || 0,
+    source:        body.source === 'apple' ? 'apple' : 'spotify',
   };
 }
 
@@ -104,7 +124,7 @@ router.post('/:channelId/dj-session', authMW, async (req, res) => {
       host_user_name:   profile?.full_name || profile?.username || 'Spider',
       host_user_avatar: profile?.avatar_url,
       track_id,
-      ...trackMeta(req.body),
+      ...(await ensurePreview(trackMeta(req.body))),
       started_at:       new Date(),
     });
 
@@ -138,7 +158,7 @@ router.patch('/:channelId/dj-session', authMW, async (req, res) => {
     }
 
     existing.track_id  = track_id;
-    Object.assign(existing, trackMeta(req.body));
+    Object.assign(existing, await ensurePreview(trackMeta(req.body)));
     existing.started_at = new Date();
     await existing.save();
 

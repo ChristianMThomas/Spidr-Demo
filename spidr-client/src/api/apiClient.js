@@ -383,6 +383,15 @@ export const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '';
 //
 // The .catch returns an empty list so a flaky backend doesn't blow up the
 // search modal — the user sees "No matches" instead of a crash.
+// Apple Music (MusicKit) — Spidr's Discord differentiator.
+export const appleMusic = {
+  devToken:       ()      => api.get('/apple-music/dev-token'),
+  search:         (q, limit = 12) => api.get(`/apple-music/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  saveUserToken:  (music_user_token) => api.post('/apple-music/user-token', { music_user_token }),
+  recentlyPlayed: ()      => api.get('/apple-music/recently-played'),
+  disconnect:     ()      => api.delete('/apple-music/disconnect'),
+};
+
 // THE WEB "Sling to DM" lane — separate from real DMs on purpose.
 export const webMessages = {
   inbox:    ()   => api.get('/web-messages?box=inbox'),

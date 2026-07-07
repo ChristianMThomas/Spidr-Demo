@@ -111,7 +111,7 @@ const s = new Schema({
   // NowPlaying presence — T1: Electron OS media session; T1+: Spotify enrichment
   nowPlaying: {
     isPlaying:  { type: Boolean, default: false },
-    source:     { type: String, enum: ['os', 'spotify', 'manual'] },
+    source:     { type: String, enum: ['os', 'spotify', 'apple', 'manual'] },
     provider:   String,
     trackName:  String,
     artists:    [String],

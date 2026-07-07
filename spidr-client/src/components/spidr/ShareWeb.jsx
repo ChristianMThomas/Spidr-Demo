@@ -56,9 +56,14 @@ export default function ShareWeb({ isOpen, onClose, clip, currentUser }) {
     playSound('toggle');
   };
 
-  const filteredFriends = friends.filter(f => 
-    f.friend_name?.toLowerCase().includes(searchQuery.toLowerCase())
-  ).slice(0, 8);
+  // Empty query = show everyone. A friend row with no denormalized
+  // friend_name used to be dropped by the old `?.includes` chain (undefined
+  // is falsy), which made the sling sheet look empty — THE "doesn't show
+  // friends" bug for accounts whose Friend rows predate name denormalization.
+  const q = searchQuery.trim().toLowerCase();
+  const filteredFriends = friends
+    .filter(f => !q || (f.friend_name || '').toLowerCase().includes(q))
+    .slice(0, 8);
 
   if (!isOpen) return null;
 

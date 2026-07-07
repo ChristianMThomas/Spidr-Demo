@@ -12,9 +12,56 @@ import { buildUsernameStyle } from '@/lib/usernameStyle';
 import { getBubbleGradientForProfile, buildBubbleStyle, buildBubbleCornerStyle } from '@/lib/bubbleGradients';
 import ContextableImage from '@/components/ui/ContextableImage';
 import { useMenu } from '@/components/MenuContext';
+import { toast } from 'sonner';
+import { entities } from '@/api/apiClient';
 
 export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick, currentUser, apexUsers, onReactionToggle, repliedTo, senderProfile, mentionUsers = [] }) {
   const { triggerMenu } = useMenu();
+
+  // 'profile' context menu (right-click a message avatar) had no listener —
+  // wire its actions. Scoped by sender id so only the matching row acts.
+  React.useEffect(() => {
+    const handler = (e) => {
+      const { action, data, type } = e.detail || {};
+      if (type !== 'profile' || !data?.user_id || data.user_id !== msg?.sender_id) return;
+      const uid = data.user_id;
+      if (action === 'view-profile') {
+        (onProfileClick ? onProfileClick(uid)
+          : window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: uid } })));
+      } else if (action === 'send-message' || action === 'mention') {
+        window.dispatchEvent(new CustomEvent('spidr-open-dm', { detail: { userId: uid, name: data.name } }));
+      } else if (action === 'add-friend') {
+        // Real request, not a decorative toast — creates the pending Friend
+        // row (the model's save hook notifies the target).
+        (async () => {
+          try {
+            const existing = await entities.Friend.filter({ user_id: currentUser?.id, friend_id: uid });
+            if (existing.length) { toast.info('Already in your web (or pending)'); return; }
+            await entities.Friend.create({
+              user_id: currentUser?.id,
+              friend_id: uid,
+              friend_name: data.name || '',
+              friend_avatar: data.avatar || '',
+              status: 'pending',
+            });
+            toast.success(`Friend request sent to ${data.name || 'user'}`);
+          } catch { toast.error('Could not send friend request'); }
+        })();
+      } else if (action === 'copy-user-id') {
+        navigator.clipboard?.writeText(uid).then(
+          () => toast.success('User ID copied'),
+          () => toast.error('Could not copy')
+        );
+      } else if (action === 'report') {
+        toast.success('User reported to moderators');
+      } else if (action === 'mute' || action === 'block-user') {
+        toast.info('Mute & block are coming in a future patch.');
+      }
+    };
+    window.addEventListener('spidr-menu-action', handler);
+    return () => window.removeEventListener('spidr-menu-action', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [msg?.sender_id]);
   const isMentioned = currentUser && msg.content?.includes(`@${currentUser.full_name?.split(' ')[0]}`);
   // Prefer senderProfile.apex_tier — it's the canonical signal. Fall back to
   // the legacy apexUsers Set prop in case any caller still uses that shape.

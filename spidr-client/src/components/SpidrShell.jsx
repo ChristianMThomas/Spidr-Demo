@@ -166,6 +166,26 @@ export default function SpidrShell() {
 
   const activeTab = deriveTab(location.pathname);
 
+  // ── Global "open a DM" intent ───────────────────────────────────────────
+  // 'spidr-open-dm' is dispatched from context menus all over the app
+  // (server member lists, message avatars, friend rows) but nothing ever
+  // listened — "Send Message" was silently dead outside the Friends panel.
+  // The shell owns navigation, so it routes to /friends and stashes the
+  // target; FriendsPanel picks it up on mount (or live if already mounted).
+  React.useEffect(() => {
+    const onOpenDM = (e) => {
+      const { userId, name } = e.detail || {};
+      if (!userId) return;
+      window.__spidrPendingDM = { userId, name, at: Date.now() };
+      if (deriveTab(location.pathname) !== 'friends') navigate('/friends');
+      // Re-announce for an already-mounted FriendsPanel.
+      window.dispatchEvent(new CustomEvent('spidr-pending-dm'));
+    };
+    window.addEventListener('spidr-open-dm', onOpenDM);
+    return () => window.removeEventListener('spidr-open-dm', onOpenDM);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
   const setActiveTab = (tab) => {
     const route = TAB_TO_ROUTE[tab];
     if (route) navigate(route);
@@ -346,7 +366,18 @@ export default function SpidrShell() {
               : 'hidden'}
             aria-hidden={!(voiceDeckExpanded && !isCallMinimized)}
           >
-            <SpidrBackground className="flex-1 flex flex-col">
+            {/* Simple red/black brand gradient — replaced the geometric
+                SpidrBackground web pattern that read as busy/AI-generated
+                behind expanded calls. */}
+            <div
+              className="flex-1 flex flex-col"
+              style={{
+                background:
+                  'radial-gradient(ellipse 85% 60% at 50% -8%, rgba(220, 38, 38, 0.14), transparent 60%),' +
+                  'radial-gradient(ellipse 70% 50% at 50% 112%, rgba(127, 29, 29, 0.18), transparent 60%),' +
+                  'linear-gradient(180deg, #0a0505 0%, #050202 55%, #080404 100%)',
+              }}
+            >
               <VoiceChannel
                 deckHidden={!(voiceDeckExpanded && !isCallMinimized)}
                 server={voiceSession.server}
@@ -372,7 +403,7 @@ export default function SpidrShell() {
                   // TODO: emit `theater:stop` over the channel socket.
                 }}
               />
-            </SpidrBackground>
+            </div>
           </div>
         )}
 
