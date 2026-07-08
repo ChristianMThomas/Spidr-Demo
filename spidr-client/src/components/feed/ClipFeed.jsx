@@ -378,10 +378,20 @@ function ClipCard({
         entities.Clip.update(clip.id, { overclock_until: new Date(Date.now() + 3600_000).toISOString() })
           .then(() => { queryClient.invalidateQueries({ queryKey: ['clips'] }); toast.success('Post overclocked for 1 hour 🔥'); })
           .catch(() => toast.error('Overclock failed'));
+      } else if (action === 'save-to-collection') {
+        setCollectionPickerOpen(true);
+      } else if (action === 'relay') {
+        if (!relayMut.isPending) relayMut.mutate();
       } else if (action === 'profile' && data.author_id) {
         window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: data.author_id } }));
       } else if (action === 'report') {
         toast.success('Post reported to moderators');
+      } else if (action === 'delete-post' && data.is_own) {
+        if (confirm('Delete this post permanently?')) {
+          entities.Clip.delete(clip.id)
+            .then(() => { queryClient.invalidateQueries({ queryKey: ['clips'] }); toast.success('Post deleted'); })
+            .catch(() => toast.error('Could not delete post'));
+        }
       }
     };
     window.addEventListener('spidr-menu-action', handler);
@@ -772,6 +782,11 @@ function ClipCard({
             id: clip.id,
             author_id: clip.author_id,
             author_name: clip.author_name,
+            name: clip.author_name,
+            avatar_url: clip.author_avatar || '',
+            header_sub: 'Strand on the web',
+            is_relayed: Array.isArray(clip.relays) && currentUser?.id ? clip.relays.includes(currentUser.id) : false,
+            is_own: clip.author_id === currentUser?.id,
           });
         }}
       >

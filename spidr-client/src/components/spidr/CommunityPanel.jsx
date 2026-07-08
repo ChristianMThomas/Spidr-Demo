@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import HolographicProfile from './HolographicProfile';
+import { useMenu } from '@/components/MenuContext';
 
 const defaultRoleTiers = {
   admin: { name: 'The Council', icon: Crown, color: '#dc2626' },
@@ -156,215 +157,90 @@ export default function CommunityPanel({ server, currentUser, onSelectUser, chat
     }
   });
 
+  // ── Tactical context menu (SpidrMenu) ─────────────────────────────────
+  // Replaces the legacy DOM-injected emoji menu with the app-standard
+  // frosted-glass SpidrMenu: capability flags + voice state travel in the
+  // menu data; actions come back on 'spidr-menu-action' below.
+  const { setMenu } = useMenu();
+
   const handleRightClick = (e, member) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     const canKick = isOwner || currentUserPermissions.includes('kick');
     const canMute = isOwner || currentUserPermissions.includes('mute');
     const canManage = isOwner || currentUserPermissions.includes('manage_channels') || currentUserPermissions.includes('administrator');
-    
-    // Find if user is in a voice channel
     const memberVoiceSession = voiceSessions.find(s => s.user_id === member.user_id);
     const voiceChannels = server?.channels?.filter(c => c.type === 'voice') || [];
-    
-    const options = [];
-    
-    // Nickname
-    if (canGiveNicknames) {
-      options.push({
-        label: '✏️ Change Nickname',
-        color: 'text-cyan-400',
-        action: () => {
-          setEditingNickname(member.user_id);
-          setNicknameInput(member.nickname || '');
-        }
-      });
-      options.push({ separator: true });
-    }
-    
-    // Voice controls if in voice
-    if (memberVoiceSession) {
-      if (canMute) {
-        options.push({
-          label: memberVoiceSession.is_muted ? '🔊 Unmute' : '🔇 Server Mute',
-          color: 'text-blue-400',
-          action: () => {
-            muteMemberMutation.mutate({ 
-              sessionId: memberVoiceSession.id, 
-              isMuted: !memberVoiceSession.is_muted 
-            });
-          }
-        });
-        
-        options.push({
-          label: memberVoiceSession.is_deafened ? '👂 Undeafen' : '🙉 Server Deafen',
-          color: 'text-purple-400',
-          action: () => {
-            deafenMemberMutation.mutate({ 
-              sessionId: memberVoiceSession.id, 
-              isDeafened: !memberVoiceSession.is_deafened 
-            });
-          }
-        });
-      }
-      
-      if (canManage) {
-        options.push({
-          label: '📞 Disconnect from Voice',
-          color: 'text-red-400',
-          action: () => {
-            disconnectMemberMutation.mutate({ sessionId: memberVoiceSession.id });
-          }
-        });
-        
-        // Move to channel submenu
-        const otherChannels = voiceChannels.filter(vc => vc.id !== memberVoiceSession.channel_id);
-        if (otherChannels.length > 0) {
-          options.push({
-            label: '📍 Move to Channel ▸',
-            color: 'text-green-400',
-            submenu: otherChannels.map(vc => ({
-              label: `# ${vc.name}`,
-              action: () => {
-                moveMemberMutation.mutate({ 
-                  sessionId: memberVoiceSession.id, 
-                  channelId: vc.id 
-                });
-              }
-            }))
-          });
-        }
-      }
-      
-      options.push({ separator: true });
-    }
-    
-    // Kick & Ban
-    if (canKick) {
-      options.push({
-        label: '🚪 Kick from Server',
-        color: 'text-orange-400',
-        action: () => {
-          if (confirm(`Kick ${member.user_name || member.nickname || 'this member'} from the server?`)) {
-            kickMemberMutation.mutate({ memberId: member.user_id });
-          }
-        }
-      });
-      
-      options.push({
-        label: '🔨 Ban Permanently',
-        color: 'text-red-500',
-        action: () => {
-          if (confirm(`Ban ${member.user_name || member.nickname || 'this member'} permanently? They will not be able to rejoin.`)) {
-            banMemberMutation.mutate({ memberId: member.user_id });
-          }
-        }
-      });
-    }
-    
-    if (options.length > 0) {
-      showContextMenu(e.clientX, e.clientY, options, member);
-    }
+
+    setMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      type: 'server-member',
+      data: {
+        id: member.user_id,
+        name: member.nickname || member.user_name || 'Member',
+        avatar_url: member.user_avatar || '',
+        header_sub: memberVoiceSession ? 'In voice' : 'In server',
+        can_nickname: !!canGiveNicknames,
+        can_kick: !!canKick && member.user_id !== currentUser?.id,
+        can_mute: !!canMute,
+        can_manage: !!canManage,
+        in_voice: !!memberVoiceSession,
+        is_voice_muted: !!memberVoiceSession?.is_muted,
+        is_voice_deafened: !!memberVoiceSession?.is_deafened,
+        voice_session_id: memberVoiceSession?.id || null,
+        move_channels: memberVoiceSession
+          ? voiceChannels.filter(vc => vc.id !== memberVoiceSession.channel_id).map(vc => ({ id: vc.id, name: vc.name }))
+          : [],
+        nickname: member.nickname || '',
+      },
+    });
   };
 
-  const showContextMenu = (x, y, options, member) => {
-    // Remove any existing menus
-    document.querySelectorAll('[data-context-menu]').forEach(el => el.remove());
-    
-    const menuElement = document.createElement('div');
-    menuElement.setAttribute('data-context-menu', 'true');
-    menuElement.className = 'fixed bg-zinc-900/95 border border-red-500/40 rounded-lg shadow-2xl z-[9999] min-w-56 py-2 backdrop-blur-xl';
-    menuElement.style.top = y + 'px';
-    menuElement.style.left = x + 'px';
-    
-    // Add header with member name
-    if (member) {
-      const header = document.createElement('div');
-      header.className = 'px-4 py-2 border-b border-zinc-700 mb-1';
-      const nameNode = document.createElement('div');
-      nameNode.className = 'text-white font-semibold text-sm';
-      nameNode.textContent = member.nickname || member.user_name;
-      header.appendChild(nameNode);
-      menuElement.appendChild(header);
-    }
-    
-    options.forEach(opt => {
-      if (opt.separator) {
-        const separator = document.createElement('div');
-        separator.className = 'h-px bg-zinc-700 my-1';
-        menuElement.appendChild(separator);
-      } else if (opt.submenu) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'relative';
-        
-        const btn = document.createElement('button');
-        btn.className = `w-full text-left px-4 py-2 ${opt.color || 'text-white'} hover:bg-red-600/20 text-sm flex items-center justify-between group transition-colors`;
-        btn.textContent = opt.label;
-        
-        let submenuElement = null;
-        
-        btn.onmouseenter = () => {
-          // Remove other submenus
-          document.querySelectorAll('[data-submenu]').forEach(el => el.remove());
-          
-          const rect = btn.getBoundingClientRect();
-          submenuElement = document.createElement('div');
-          submenuElement.setAttribute('data-submenu', 'true');
-          submenuElement.className = 'fixed bg-zinc-900/95 border border-red-500/40 rounded-lg shadow-2xl z-[10000] min-w-44 py-1 backdrop-blur-xl';
-          submenuElement.style.top = rect.top + 'px';
-          submenuElement.style.left = (rect.right + 5) + 'px';
-          
-          opt.submenu.forEach(subOpt => {
-            const subBtn = document.createElement('button');
-            subBtn.className = 'w-full text-left px-4 py-2 text-white hover:bg-red-600/20 text-sm transition-colors';
-            subBtn.textContent = subOpt.label;
-            subBtn.onclick = () => {
-              subOpt.action();
-              removeAllMenus();
-            };
-            submenuElement.appendChild(subBtn);
-          });
-          
-          document.body.appendChild(submenuElement);
-        };
-        
-        wrapper.appendChild(btn);
-        menuElement.appendChild(wrapper);
-      } else {
-        const btn = document.createElement('button');
-        btn.className = `w-full text-left px-4 py-2.5 ${opt.color || 'text-white'} hover:bg-red-600/20 text-sm transition-colors font-medium`;
-        btn.textContent = opt.label;
-        btn.onclick = () => {
-          opt.action();
-          removeAllMenus();
-        };
-        menuElement.appendChild(btn);
+  // Execute tactical menu actions for this panel's members.
+  useEffect(() => {
+    const handler = (e) => {
+      const { action, data, type } = e.detail || {};
+      if (type !== 'server-member') return;
+      switch (action) {
+        case 'view-profile':
+          window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: data.id } }));
+          break;
+        case 'send-message':
+          window.dispatchEvent(new CustomEvent('spidr-open-dm', { detail: { userId: data.id, userName: data.name } }));
+          break;
+        case 'nickname':
+          setEditingNickname(data.id);
+          setNicknameInput(data.nickname || '');
+          break;
+        case 'server-mute':
+          if (data.voice_session_id) muteMemberMutation.mutate({ sessionId: data.voice_session_id, isMuted: !data.is_voice_muted });
+          break;
+        case 'server-deafen':
+          if (data.voice_session_id) deafenMemberMutation.mutate({ sessionId: data.voice_session_id, isDeafened: !data.is_voice_deafened });
+          break;
+        case 'disconnect-voice':
+          if (data.voice_session_id) disconnectMemberMutation.mutate({ sessionId: data.voice_session_id });
+          break;
+        case 'move-channel':
+          if (data.voice_session_id && data.channelId) moveMemberMutation.mutate({ sessionId: data.voice_session_id, channelId: data.channelId });
+          break;
+        case 'kick':
+          if (confirm(`Kick ${data.name} from the server?`)) kickMemberMutation.mutate({ memberId: data.id });
+          break;
+        case 'ban':
+          if (confirm(`Ban ${data.name} permanently? They will not be able to rejoin.`)) banMemberMutation.mutate({ memberId: data.id });
+          break;
+        default:
+          break;
       }
-    });
-    
-    document.body.appendChild(menuElement);
-    
-    // Adjust position if menu goes off screen
-    const rect = menuElement.getBoundingClientRect();
-    if (rect.right > window.innerWidth) {
-      menuElement.style.left = (x - rect.width) + 'px';
-    }
-    if (rect.bottom > window.innerHeight) {
-      menuElement.style.top = (y - rect.height) + 'px';
-    }
-    
-    const removeAllMenus = () => {
-      document.querySelectorAll('[data-context-menu], [data-submenu]').forEach(el => el.remove());
-      document.removeEventListener('click', removeAllMenus);
-      document.removeEventListener('contextmenu', removeAllMenus);
     };
-    
-    setTimeout(() => {
-      document.addEventListener('click', removeAllMenus);
-      document.addEventListener('contextmenu', removeAllMenus);
-    }, 10);
-  };
+    window.addEventListener('spidr-menu-action', handler);
+    return () => window.removeEventListener('spidr-menu-action', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleDragEnd = (result) => {
     if (!result.destination) return;
