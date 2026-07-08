@@ -198,7 +198,12 @@ export function NotificationProvider({ currentUser, children }) {
 
   const unread = items.filter((i) => !i.read).length;
   const unreadFeedReplies = items.filter((i) => !i.read && i.type === 'feed_reply').length;
-  const markAllRead = () => setItems((prev) => prev.map((i) => ({ ...i, read: true })));
+  const markAllRead = () => {
+    setItems((prev) => prev.map((i) => ({ ...i, read: true })));
+    // Checking the bell means "I've seen everything" — clear the persistent
+    // feed-reply glow set as well, or its badge portion sticks forever.
+    setUnreadFeedIds(new Set());
+  };
   const clearAll = () => setItems([]);
   const openItem = (note) => {
     setItems((prev) => prev.map((i) => (i.id === note.id ? { ...i, read: true } : i)));

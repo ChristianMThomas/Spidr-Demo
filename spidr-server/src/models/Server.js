@@ -1,11 +1,19 @@
 const { Schema, model } = require('mongoose');
 const s = new Schema({
   name:          { type: String, required: true },
+  // Discovery metadata — Signal Radar already filtered on these, but they
+  // were never in the schema so Mongoose silently dropped every write.
+  category: { type: String, default: '' },
+  tags:     { type: [String], default: [] }, // lowercase #tags, max 5 enforced client-side
   description:   String,
   icon_url:      String,
   banner_url:    String,
   owner_id:      { type: String, required: true },
   members:       [Schema.Types.Mixed],
+  // Ban list — user_ids barred from rejoining. The kick/ban flow has always
+  // written this; it was absent from the schema so strict mode dropped it and
+  // BANS NEVER PERSISTED (banned users could rejoin immediately).
+  banned_users: { type: [String], default: [] },
   channels:      [Schema.Types.Mixed],
   roles:         [Schema.Types.Mixed],
   emojis:        [Schema.Types.Mixed],

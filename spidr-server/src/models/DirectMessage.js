@@ -18,6 +18,24 @@ const s = new Schema({
   edited_at:       Date,
   text_effect:     { type: String, default: 'normal' },
   reply_to:        String,
+  // Recipient denormalization (mirrors sender_*) so conversation lists can
+  // label a thread even when the last message is outgoing.
+  recipient_name:      { type: String, default: '' },
+  recipient_avatar:    { type: String, default: '' },
+  // Server-invite DMs — the interactive invite card MessageItem renders.
+  // These fields were never in the schema, so invites persisted as plain
+  // empty messages: the card showed once optimistically, then vanished on
+  // reload for both sides.
+  is_server_invite:    { type: Boolean, default: false },
+  server_invite_data:  { type: require('mongoose').Schema.Types.Mixed, default: null },
+  server_id:           { type: String, default: '' },
+  server_name:         { type: String, default: '' },
+  server_icon:         { type: String, default: '' },
+  server_description:  { type: String, default: '' },
+  inviter_id:          { type: String, default: '' },
+  inviter_name:        { type: String, default: '' },
+  member_count:        { type: Number, default: 0 },
+  members_snapshot:    { type: [require('mongoose').Schema.Types.Mixed], default: [] },
   created_date:    { type: Date, default: Date.now },
 }, { timestamps: true });
 

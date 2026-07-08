@@ -23,13 +23,25 @@ const router = express.Router();
 // Catalog of items purchasable with biomass. Lives in code rather than DB so
 // pricing changes ship with a release and there's no risk of a runtime edit.
 const SHOP_CATALOG = [
-  { id: 'effect_glow',     name: 'Username Glow',       description: 'Soft halo behind your name.',    price: 200,  category: 'username' },
-  { id: 'effect_rainbow',  name: 'Rainbow Username',    description: 'Animated rainbow sweep.',         price: 800,  category: 'username' },
-  { id: 'effect_pulse',    name: 'Pulsing Username',    description: 'Subtle pulse animation.',         price: 400,  category: 'username' },
-  { id: 'effect_shimmer',  name: 'Shimmering Username', description: 'A light shimmer across letters.', price: 600,  category: 'username' },
-  { id: 'banner_neon',     name: 'Neon Banner Theme',   description: 'Neon grid banner background.',   price: 500,  category: 'profile' },
-  { id: 'banner_glitch',   name: 'Glitch Banner Theme', description: 'Distortion banner background.',   price: 500,  category: 'profile' },
-  { id: 'badge_legend',    name: 'Legend Badge',        description: 'Show off your spending.',         price: 5000, category: 'badge' },
+  // ── Custom titles — a nameplate flourish under/beside your username ──────
+  { id: 'title_apex_predator', name: 'Title: Apex Predator',  description: 'THE hunter of the web.',            price: 1200, category: 'title', value: 'APEX PREDATOR' },
+  { id: 'title_web_weaver',    name: 'Title: Web Weaver',     description: 'Architect of the strands.',          price: 800,  category: 'title', value: 'WEB WEAVER' },
+  { id: 'title_night_crawler', name: 'Title: Night Crawler',  description: 'Seen only when it wants to be.',     price: 800,  category: 'title', value: 'NIGHT CRAWLER' },
+  { id: 'title_silk_spinner',  name: 'Title: Silk Spinner',   description: 'Smooth in every thread.',            price: 600,  category: 'title', value: 'SILK SPINNER' },
+  { id: 'title_venom',         name: 'Title: Venomous',       description: 'Handle with care.',                  price: 1000, category: 'title', value: 'VENOMOUS' },
+  { id: 'title_broodmother',   name: 'Title: Broodmother',    description: 'The web answers to you.',            price: 2000, category: 'title', value: 'BROODMOTHER' },
+
+  // ── Chat colors — your message text, in your color ────────────────────────
+  { id: 'chat_color_crimson',  name: 'Chat Color: Crimson',   description: 'Spidr-red message text.',            price: 500,  category: 'chat_color', value: '#f87171' },
+  { id: 'chat_color_venom',    name: 'Chat Color: Venom',     description: 'Toxic green message text.',          price: 500,  category: 'chat_color', value: '#4ade80' },
+  { id: 'chat_color_royal',    name: 'Chat Color: Royal',     description: 'Deep purple message text.',          price: 500,  category: 'chat_color', value: '#c084fc' },
+  { id: 'chat_color_gold',     name: 'Chat Color: Gold',      description: 'Gilded message text.',               price: 750,  category: 'chat_color', value: '#facc15' },
+  { id: 'chat_color_ice',      name: 'Chat Color: Ice',       description: 'Frostbite-blue message text.',       price: 500,  category: 'chat_color', value: '#7dd3fc' },
+
+  // ── Chat fonts — your messages, your typeface ─────────────────────────────
+  { id: 'chat_font_mono',      name: 'Chat Font: Terminal',   description: 'Monospace hacker aesthetic.',        price: 600,  category: 'chat_font', value: "'JetBrains Mono', 'Courier New', monospace" },
+  { id: 'chat_font_serif',     name: 'Chat Font: Manuscript', description: 'Old-world serif elegance.',          price: 600,  category: 'chat_font', value: "Georgia, 'Times New Roman', serif" },
+  { id: 'chat_font_display',   name: 'Chat Font: Display',    description: 'Bold condensed impact.',             price: 800,  category: 'chat_font', value: "'Bebas Neue', 'Arial Narrow', sans-serif" },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -140,6 +152,42 @@ router.post('/shop/buy', authMW, async (req, res) => {
     pushTx(w, -item.price, `Bought ${item.name}`, itemId);
     await w.save();
     res.json({ balance: w.balance, item, wallet: w });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /biomass/equip — activate an owned cosmetic ────────────────────────
+// { itemId } equips it; { itemId: null, category } clears that slot.
+router.post('/equip', authMW, async (req, res) => {
+  try {
+    const { itemId, category } = req.body || {};
+    const UserProfile = require('../models/UserProfile');
+
+    // Clearing a slot
+    if (!itemId) {
+      const set = {};
+      if (category === 'title') set.active_title = '';
+      else if (category === 'chat_color') set['chat_style.color'] = '';
+      else if (category === 'chat_font') set['chat_style.font'] = '';
+      else return res.status(400).json({ error: 'category required to clear' });
+      await UserProfile.updateOne({ user_id: req.user.id }, { $set: set });
+      return res.json({ ok: true, cleared: category });
+    }
+
+    const item = SHOP_CATALOG.find(i => i.id === itemId);
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+    const w = await getOrCreateWallet(req.user.id);
+    if (!w.inventory.get(itemId)) return res.status(403).json({ error: 'Not owned' });
+
+    const set = {};
+    if (item.category === 'title') set.active_title = item.value;
+    else if (item.category === 'chat_color') set['chat_style.color'] = item.value;
+    else if (item.category === 'chat_font') set['chat_style.font'] = item.value;
+    else return res.status(400).json({ error: 'Item is not equippable' });
+
+    await UserProfile.updateOne({ user_id: req.user.id }, { $set: set });
+    res.json({ ok: true, equipped: item });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -14,6 +14,7 @@ import StreamSelector from './StreamSelector';
 import CinemaStage from './CinemaStage';
 import { useScreenShare } from './useScreenShare';
 import { useSpidrVoice } from './SpidrVoice';
+import { applySink } from '@/lib/mediaDevicePrefs';
 const ClipFeed = React.lazy(() => import('@/components/feed/ClipFeed'));
 import SpidrVoiceVisualizer from './SpidrVoice';
 import SpidrAIProfile, { SPIDR_AI_AVATAR } from './SpidrAIProfile';
@@ -63,6 +64,10 @@ export default function VoiceChannel({
   const audioUnlockedRef = useRef(false);
   const localVideoRef   = useRef(null);
   const remoteAudioRefs = useRef({});
+  // Deafen must survive re-renders and late joiners: a peer whose <audio>
+  // mounts AFTER you deafened used to come in UNMUTED (fresh element,
+  // default muted=false) — you'd hear them despite the headphones-off icon.
+  const isDeafenedRef = useRef(false);
   const screenTrackRef  = useRef(null);
   const queryClient     = useQueryClient();
   const spidrVoice      = useSpidrVoice();
@@ -300,6 +305,7 @@ export default function VoiceChannel({
       // AND persists the state to the VoiceSession so other members see the
       // deafened indicator on this user's tile (1.3 sync).
       const deaf = !!e.detail?.deafened;
+      isDeafenedRef.current = deaf;
       Object.values(remoteAudioRefs.current || {}).forEach((el) => { if (el) el.muted = deaf; });
       if (mySession) updateMutation.mutate({ id: mySession.id, data: { is_deafened: deaf } });
     };
@@ -335,6 +341,51 @@ export default function VoiceChannel({
   // single canonical event so every listener can resync. Without this the
   // minimized pill's local `muted` state could diverge from rtc.isMuted,
   // making subsequent toggles feel like no-ops.
+  // ── Local voice-activity broadcast (minimized-mode speaking ring) ────────
+  // MinimizedWebNode has always supported `speaking`/`amplitude` props, but
+  // the shell fed it a hardcoded false — the pill never animated. Analyse the
+  // local mic here (the only place the stream lives) and emit a throttled
+  // window event; the shell holds the state and drives the tick-ring.
+  useEffect(() => {
+    const stream = rtc.localStream;
+    if (!stream) return;
+    let ctx, raf, lastEmit = 0, lastSpeaking = null;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const srcNode = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      srcNode.connect(analyser);
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        raf = requestAnimationFrame(tick);
+        const now = performance.now();
+        if (now - lastEmit < 100) return; // ~10Hz is plenty for a UI pulse
+        lastEmit = now;
+        analyser.getByteFrequencyData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) sum += buf[i];
+        const amplitude = sum / buf.length / 255; // 0..1
+        const speaking = !rtc.isMuted && amplitude > 0.06;
+        // Emit on every state flip + periodically while speaking (amplitude).
+        if (speaking !== lastSpeaking || speaking) {
+          lastSpeaking = speaking;
+          window.dispatchEvent(new CustomEvent('spidr-call-voice-activity', {
+            detail: { speaking, amplitude },
+          }));
+        }
+      };
+      tick();
+    } catch (e) {
+      console.warn('[voice-activity] analyser unavailable:', e?.message);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      try { ctx?.close(); } catch {}
+      window.dispatchEvent(new CustomEvent('spidr-call-voice-activity', { detail: { speaking: false, amplitude: 0 } }));
+    };
+  }, [rtc.localStream, rtc.isMuted]);
+
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('spidr-call-state', {
       detail: {
@@ -574,6 +625,11 @@ export default function VoiceChannel({
               ref={el => {
                 if (!el) { delete remoteAudioRefs.current[socketId]; return; }
                 remoteAudioRefs.current[socketId] = el;
+                // Late-mounting elements inherit the current deafen state.
+                if (isDeafenedRef.current) el.muted = true;
+                // Route to the user's chosen output device (Settings → Voice
+                // & Video). No-op on browsers without setSinkId.
+                applySink(el);
                 el.srcObject = stream;
                 el.volume = 1;
                 el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });

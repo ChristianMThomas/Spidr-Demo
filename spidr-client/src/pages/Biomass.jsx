@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { biomass as biomassApi } from '@/api/apiClient';
+import { api, entities, biomass as biomassApi } from '@/api/apiClient';
 import { toast } from 'sonner';
 import { Zap, Sparkles, ShoppingBag, Clock, Check, Lock } from 'lucide-react';
 
@@ -17,9 +17,9 @@ import { Zap, Sparkles, ShoppingBag, Clock, Check, Lock } from 'lucide-react';
  * pre-provision anything from the client.
  */
 const CATEGORY_LABELS = {
-  username: 'Username Effects',
-  profile:  'Profile Themes',
-  badge:    'Badges',
+  title:      'Custom Titles',
+  chat_color: 'Chat Colors',
+  chat_font:  'Chat Fonts',
 };
 
 export default function BiomassPage() {
@@ -50,6 +50,29 @@ export default function BiomassPage() {
       const hours = err?.response?.data?.hoursLeft;
       toast.error(hours ? `${msg} — try again in ${hours}h` : msg);
     },
+  });
+
+  // Equipped state comes from the user's profile (active_title / chat_style)
+  const { data: myProfile } = useQuery({
+    queryKey: ['biomass-profile', currentUser?.id],
+    queryFn: () => entities.UserProfile.filter({ user_id: currentUser?.id }).then(p => p[0] || null),
+    enabled: !!currentUser?.id,
+  });
+  const isEquipped = (item) => {
+    if (!myProfile) return false;
+    if (item.category === 'title') return myProfile.active_title === item.value;
+    if (item.category === 'chat_color') return myProfile.chat_style?.color === item.value;
+    if (item.category === 'chat_font') return myProfile.chat_style?.font === item.value;
+    return false;
+  };
+  const equipItem = useMutation({
+    mutationFn: ({ itemId, category }) => api.post('/biomass/equip', { itemId, category }),
+    onSuccess: (_, { itemId }) => {
+      toast.success(itemId ? 'Equipped!' : 'Removed');
+      queryClient.invalidateQueries({ queryKey: ['biomass-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['profiles'] });
+    },
+    onError: (e) => toast.error(e?.message || 'Could not equip'),
   });
 
   const buyItem = useMutation({
@@ -184,9 +207,21 @@ export default function BiomassPage() {
                               {owned && <Check className="w-4 h-4 text-green-400 shrink-0 mt-0.5" />}
                             </div>
                             <p className="text-zinc-500 text-xs mb-4 leading-relaxed">{item.description}</p>
+                            {/* Live preview of what you're buying */}
+                            {item.category === 'title' && (
+                              <p className="mb-3 inline-block px-2 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-[9px] font-black uppercase tracking-[0.18em]">{item.value}</p>
+                            )}
+                            {item.category === 'chat_color' && (
+                              <p className="mb-3 text-sm font-medium" style={{ color: item.value }}>The web trembles when I type.</p>
+                            )}
+                            {item.category === 'chat_font' && (
+                              <p className="mb-3 text-sm text-zinc-300" style={{ fontFamily: item.value }}>The web trembles when I type.</p>
+                            )}
                             <button
-                              onClick={() => buyItem.mutate(item.id)}
-                              disabled={owned || !canAfford || buyItem.isPending}
+                              onClick={() => owned
+                                ? equipItem.mutate(isEquipped(item) ? { itemId: null, category: item.category } : { itemId: item.id, category: item.category })
+                                : buyItem.mutate(item.id)}
+                              disabled={(!owned && !canAfford) || buyItem.isPending || equipItem.isPending}
                               className={`w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-colors ${
                                 owned
                                   ? 'bg-green-500/15 text-green-400 cursor-default'
@@ -196,7 +231,7 @@ export default function BiomassPage() {
                               }`}
                             >
                               {owned ? (
-                                'Owned'
+                                isEquipped(item) ? '✓ Equipped — tap to remove' : 'Equip'
                               ) : !canAfford ? (
                                 <><Lock className="w-3.5 h-3.5" /> {item.price.toLocaleString()}</>
                               ) : (

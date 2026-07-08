@@ -516,13 +516,15 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                   onAddToServer={() => setShowAddToServer(true)}
                   onMessage={handleMessage}
                   onEnterWeb={() => {
-                    // Fire the global event the FeedPanel listens for, then
-                    // close this modal so the viewer lands directly in the
-                    // user's archive feed.
-                    window.dispatchEvent(new CustomEvent('spidr-open-user-clips', {
+                    // Route through the SHELL so this works from ANY page —
+                    // the old event only worked if THE WEB was already
+                    // mounted, which is why the button felt dead. Lands on
+                    // the user's full WEB profile (strands + relays).
+                    window.dispatchEvent(new CustomEvent('spidr-open-web-profile', {
                       detail: {
                         userId,
                         userName: userProfile?.full_name || userProfile?.username || 'this user',
+                        avatar: userProfile?.avatar_url || '',
                       },
                     }));
                     onClose();

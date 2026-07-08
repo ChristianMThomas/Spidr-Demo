@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
-export default function WebProfile({ currentUser, onUploadClick, targetUser = null, onBack = null }) {
+export default function WebProfile({ currentUser, onUploadClick, targetUser = null, onBack = null, onOpenClip = null }) {
   // Viewing mode: with no targetUser (or targeting yourself) this is the
   // owner's "MY NODE" editor view. With a targetUser it renders THAT user's
   // public WEB profile — their strands + relays — with all owner-only
@@ -160,6 +160,7 @@ export default function WebProfile({ currentUser, onUploadClick, targetUser = nu
               key={clip.id}
               clip={clip}
               index={i}
+              onClick={() => onOpenClip?.(clip.id)}
               isOwner={clip.author_id === currentUser?.id}
               onEdit={() => setEditingClip({ ...clip })}
               onDelete={() => {

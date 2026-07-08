@@ -97,7 +97,7 @@ async function request(method, path, { params, body, isFormData } = {}) {
   return data;
 }
 
-const api = {
+export const api = {
   get:    (path, opts)  => request('GET',    path, opts),
   post:   (path, body)  => request('POST',   path, { body }),
   patch:  (path, body)  => request('PATCH',  path, { body }),

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
@@ -26,6 +26,7 @@ import TelemetryDeck from './TelemetryDeck';
 import ApexVisuals from './ApexVisuals';
 import { USERNAME_FONTS, USERNAME_WEIGHTS, USERNAME_STYLES, USERNAME_EFFECTS, buildUsernameStyle } from '@/lib/usernameStyle';
 import { toast } from 'sonner';
+import { getMediaPrefs, setMediaPrefs } from '@/lib/mediaDevicePrefs';
 
 export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) {
   const { logout } = useAuth();
@@ -869,104 +870,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
           </TabsContent>
 
           <TabsContent value="voice" className="p-6 m-0">
-            <h2 className="text-2xl font-bold text-white mb-6">Voice & Video</h2>
-            <div className="space-y-6 max-w-lg">
-              <div className="bg-zinc-800 rounded-xl p-4">
-                <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                  <Mic className="w-5 h-5 text-red-500" /> Input Device
-                </h3>
-                <Select defaultValue="default">
-                  <SelectTrigger className="bg-zinc-700 border-zinc-600 text-white">
-                    <SelectValue placeholder="Select microphone" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="default">Default Microphone</SelectItem>
-                    <SelectItem value="headset">Headset Microphone</SelectItem>
-                    <SelectItem value="webcam">Webcam Microphone</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="mt-4">
-                  <div className="flex justify-between mb-2">
-                    <Label className="text-zinc-400">Input Volume</Label>
-                    <span className="text-zinc-400 text-sm">100%</span>
-                  </div>
-                  <Slider defaultValue={[100]} max={100} className="w-full" />
-                </div>
-                <div className="mt-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-white font-medium">Noise Suppression</p>
-                    <p className="text-zinc-500 text-sm">Reduce background noise</p>
-                  </div>
-                  <Switch defaultChecked />
-                </div>
-                <div className="mt-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-white font-medium">Echo Cancellation</p>
-                    <p className="text-zinc-500 text-sm">Prevent echo in calls</p>
-                  </div>
-                  <Switch defaultChecked />
-                </div>
-              </div>
-
-              <div className="bg-zinc-800 rounded-xl p-4">
-                <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                  <Volume2 className="w-5 h-5 text-red-500" /> Output Device
-                </h3>
-                <Select defaultValue="default">
-                  <SelectTrigger className="bg-zinc-700 border-zinc-600 text-white">
-                    <SelectValue placeholder="Select speakers" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="default">Default Speakers</SelectItem>
-                    <SelectItem value="headphones">Headphones</SelectItem>
-                    <SelectItem value="monitor">Monitor Speakers</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="mt-4">
-                  <div className="flex justify-between mb-2">
-                    <Label className="text-zinc-400">Output Volume</Label>
-                    <span className="text-zinc-400 text-sm">100%</span>
-                  </div>
-                  <Slider defaultValue={[100]} max={100} className="w-full" />
-                </div>
-              </div>
-
-              <div className="bg-zinc-800 rounded-xl p-4">
-                <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                  <Video className="w-5 h-5 text-red-500" /> Video Settings
-                </h3>
-                <Select defaultValue="default">
-                  <SelectTrigger className="bg-zinc-700 border-zinc-600 text-white">
-                    <SelectValue placeholder="Select camera" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-zinc-800 border-zinc-700">
-                    <SelectItem value="default">Default Camera</SelectItem>
-                    <SelectItem value="webcam">USB Webcam</SelectItem>
-                    <SelectItem value="virtual">Virtual Camera</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="mt-4 p-4 bg-zinc-900 rounded-lg flex items-center justify-center">
-                  <div className="text-center">
-                    <Video className="w-12 h-12 text-zinc-600 mx-auto mb-2" />
-                    <p className="text-zinc-500 text-sm">Camera preview</p>
-                  </div>
-                </div>
-                <div className="mt-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-white font-medium">Always show video preview</p>
-                    <p className="text-zinc-500 text-sm">Show preview before joining</p>
-                  </div>
-                  <Switch defaultChecked />
-                </div>
-                <div className="mt-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-white font-medium">Mirror video</p>
-                    <p className="text-zinc-500 text-sm">Flip your video horizontally</p>
-                  </div>
-                  <Switch />
-                </div>
-              </div>
-            </div>
+            <VoiceVideoSettings />
           </TabsContent>
 
           <TabsContent value="avlab" className="p-0 m-0 h-full">
@@ -1249,5 +1153,286 @@ function SidebarPositionCard() {
         />
       </div>
     </div>
+  );
+}
+
+
+/* ── Voice & Video — REAL device detection ──────────────────────────────────
+ * The old tab was a mock: hardcoded "Default / Headset / Webcam" options that
+ * detected nothing. This enumerates actual hardware via
+ * navigator.mediaDevices.enumerateDevices(), refreshes on hot-plug
+ * (devicechange), persists picks to the shared media-prefs store that
+ * useWebRTC + VoiceChannel consume, and adds a live mic meter + camera
+ * preview so users can verify the device actually works before a call.
+ * Note: browsers hide device LABELS until mic permission is granted once —
+ * the "Enable device access" button requests it and re-enumerates. */
+function VoiceVideoSettings() {
+  const [prefs, setPrefsState] = useState(() => getMediaPrefs());
+  const [devices, setDevices] = useState({ mics: [], speakers: [], cameras: [] });
+  const [permission, setPermission] = useState('unknown'); // unknown | granted | denied
+  const [micLevel, setMicLevel] = useState(0);
+  const [testingMic, setTestingMic] = useState(false);
+  const [previewOn, setPreviewOn] = useState(false);
+  const micStreamRef = useRef(null);
+  const micCtxRef = useRef(null);
+  const previewRef = useRef(null);
+  const previewStreamRef = useRef(null);
+
+  const setPref = (patch) => setPrefsState(setMediaPrefs(patch));
+
+  const enumerate = useCallback(async () => {
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      const labeled = list.some(d => d.label);
+      setPermission(labeled ? 'granted' : (permission === 'denied' ? 'denied' : 'unknown'));
+      setDevices({
+        mics:     list.filter(d => d.kind === 'audioinput'  && d.deviceId),
+        speakers: list.filter(d => d.kind === 'audiooutput' && d.deviceId),
+        cameras:  list.filter(d => d.kind === 'videoinput'  && d.deviceId),
+      });
+    } catch (e) {
+      console.warn('[devices] enumerate failed:', e?.message);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    enumerate();
+    navigator.mediaDevices?.addEventListener?.('devicechange', enumerate);
+    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', enumerate);
+  }, [enumerate]);
+
+  const requestAccess = async () => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach(t => t.stop());
+      setPermission('granted');
+      await enumerate();
+      toast.success('Device access granted');
+    } catch {
+      setPermission('denied');
+      toast.error('Device access denied — check system permissions');
+    }
+  };
+
+  // ── Mic test meter ──────────────────────────────────────────────────
+  const stopMicTest = useCallback(() => {
+    setTestingMic(false);
+    setMicLevel(0);
+    micStreamRef.current?.getTracks().forEach(t => t.stop());
+    micStreamRef.current = null;
+    try { micCtxRef.current?.close(); } catch {}
+    micCtxRef.current = null;
+  }, []);
+
+  const startMicTest = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          ...(prefs.micId ? { deviceId: { exact: prefs.micId } } : {}),
+          noiseSuppression: prefs.noiseSuppression,
+          echoCancellation: prefs.echoCancellation,
+        },
+      });
+      micStreamRef.current = stream;
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      micCtxRef.current = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      setTestingMic(true);
+      const tick = () => {
+        if (!micStreamRef.current) return;
+        analyser.getByteFrequencyData(buf);
+        let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i];
+        setMicLevel(Math.min(100, Math.round((sum / buf.length / 255) * 300)));
+        requestAnimationFrame(tick);
+      };
+      tick();
+      setPermission('granted');
+      enumerate();
+    } catch {
+      toast.error('Could not open microphone — check the selected device');
+    }
+  };
+
+  // ── Camera preview ──────────────────────────────────────────────────
+  const stopPreview = useCallback(() => {
+    setPreviewOn(false);
+    previewStreamRef.current?.getTracks().forEach(t => t.stop());
+    previewStreamRef.current = null;
+    if (previewRef.current) previewRef.current.srcObject = null;
+  }, []);
+
+  const startPreview = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: prefs.cameraId ? { deviceId: { exact: prefs.cameraId } } : true,
+      });
+      previewStreamRef.current = stream;
+      if (previewRef.current) previewRef.current.srcObject = stream;
+      setPreviewOn(true);
+      setPermission('granted');
+      enumerate();
+    } catch {
+      toast.error('Could not open camera — check the selected device');
+    }
+  };
+
+  useEffect(() => () => { stopMicTest(); stopPreview(); }, [stopMicTest, stopPreview]);
+
+  const label = (d, i, kind) => d.label || `${kind} ${i + 1}`;
+
+  return (
+    <>
+      <h2 className="text-2xl font-bold text-white mb-6">Voice & Video</h2>
+      <div className="space-y-6 max-w-lg">
+
+        {permission !== 'granted' && (
+          <div className="bg-amber-900/20 border border-amber-700/40 rounded-xl p-4 flex items-center justify-between gap-4">
+            <p className="text-amber-200/90 text-sm">
+              {permission === 'denied'
+                ? 'Device access is blocked. Enable microphone access in your system settings, then retry.'
+                : 'Grant device access once so Spidr can list your actual microphones, speakers, and cameras by name.'}
+            </p>
+            <Button onClick={requestAccess} className="bg-amber-600 hover:bg-amber-500 shrink-0" size="sm">
+              Enable device access
+            </Button>
+          </div>
+        )}
+
+        {/* Input */}
+        <div className="bg-zinc-800 rounded-xl p-4">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <Mic className="w-5 h-5 text-red-500" /> Input Device
+            <span className="ml-auto text-[10px] font-mono text-zinc-500">{devices.mics.length} detected</span>
+          </h3>
+          <Select value={prefs.micId || 'default'} onValueChange={(v) => setPref({ micId: v === 'default' ? '' : v })}>
+            <SelectTrigger className="bg-zinc-700 border-zinc-600 text-white">
+              <SelectValue placeholder="Select microphone" />
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-800 border-zinc-700 max-h-64">
+              <SelectItem value="default">System Default</SelectItem>
+              {devices.mics.map((d, i) => (
+                <SelectItem key={d.deviceId + i} value={d.deviceId}>{label(d, i, 'Microphone')}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Live mic meter */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-zinc-400">Mic Test</Label>
+              <Button size="sm" variant="outline"
+                className="h-7 text-xs border-zinc-600"
+                onClick={testingMic ? stopMicTest : startMicTest}>
+                {testingMic ? 'Stop' : "Let's check"}
+              </Button>
+            </div>
+            <div className="h-2 rounded-full bg-zinc-900 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-[width] duration-75"
+                style={{
+                  width: `${micLevel}%`,
+                  background: micLevel > 70 ? '#ef4444' : micLevel > 35 ? '#f59e0b' : '#22c55e',
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="flex justify-between mb-2">
+              <Label className="text-zinc-400">Input Volume</Label>
+              <span className="text-zinc-400 text-sm">{prefs.inputVolume}%</span>
+            </div>
+            <Slider value={[prefs.inputVolume]} onValueChange={([v]) => setPref({ inputVolume: v })} max={100} className="w-full" />
+          </div>
+          <div className="mt-4 flex items-center justify-between">
+            <div>
+              <p className="text-white font-medium">Noise Suppression</p>
+              <p className="text-zinc-500 text-sm">Reduce background noise</p>
+            </div>
+            <Switch checked={prefs.noiseSuppression} onCheckedChange={(v) => setPref({ noiseSuppression: v })} />
+          </div>
+          <div className="mt-4 flex items-center justify-between">
+            <div>
+              <p className="text-white font-medium">Echo Cancellation</p>
+              <p className="text-zinc-500 text-sm">Prevent echo in calls</p>
+            </div>
+            <Switch checked={prefs.echoCancellation} onCheckedChange={(v) => setPref({ echoCancellation: v })} />
+          </div>
+          <p className="mt-3 text-[10px] font-mono text-zinc-600 uppercase tracking-widest">
+            Device changes apply on your next call join
+          </p>
+        </div>
+
+        {/* Output */}
+        <div className="bg-zinc-800 rounded-xl p-4">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <Volume2 className="w-5 h-5 text-red-500" /> Output Device
+            <span className="ml-auto text-[10px] font-mono text-zinc-500">{devices.speakers.length} detected</span>
+          </h3>
+          <Select value={prefs.speakerId || 'default'} onValueChange={(v) => setPref({ speakerId: v === 'default' ? '' : v })}>
+            <SelectTrigger className="bg-zinc-700 border-zinc-600 text-white">
+              <SelectValue placeholder="Select speakers" />
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-800 border-zinc-700 max-h-64">
+              <SelectItem value="default">System Default</SelectItem>
+              {devices.speakers.map((d, i) => (
+                <SelectItem key={d.deviceId + i} value={d.deviceId}>{label(d, i, 'Speakers')}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {devices.speakers.length === 0 && permission === 'granted' && (
+            <p className="mt-2 text-[10px] text-zinc-500">Your browser doesn't expose output devices — System Default will be used.</p>
+          )}
+          <div className="mt-4">
+            <div className="flex justify-between mb-2">
+              <Label className="text-zinc-400">Output Volume</Label>
+              <span className="text-zinc-400 text-sm">{prefs.outputVolume}%</span>
+            </div>
+            <Slider value={[prefs.outputVolume]} onValueChange={([v]) => setPref({ outputVolume: v })} max={100} className="w-full" />
+          </div>
+        </div>
+
+        {/* Video */}
+        <div className="bg-zinc-800 rounded-xl p-4">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <Video className="w-5 h-5 text-red-500" /> Video Settings
+            <span className="ml-auto text-[10px] font-mono text-zinc-500">{devices.cameras.length} detected</span>
+          </h3>
+          <Select value={prefs.cameraId || 'default'} onValueChange={(v) => setPref({ cameraId: v === 'default' ? '' : v })}>
+            <SelectTrigger className="bg-zinc-700 border-zinc-600 text-white">
+              <SelectValue placeholder="Select camera" />
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-800 border-zinc-700 max-h-64">
+              <SelectItem value="default">System Default</SelectItem>
+              {devices.cameras.map((d, i) => (
+                <SelectItem key={d.deviceId + i} value={d.deviceId}>{label(d, i, 'Camera')}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="mt-4 rounded-lg overflow-hidden bg-zinc-900 aspect-video relative">
+            <video ref={previewRef} autoPlay playsInline muted className={`w-full h-full object-cover ${previewOn ? '' : 'hidden'}`} />
+            {!previewOn && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <Video className="w-12 h-12 text-zinc-600 mb-2" />
+                <Button size="sm" variant="outline" className="border-zinc-600 text-xs" onClick={startPreview}>
+                  Test camera
+                </Button>
+              </div>
+            )}
+            {previewOn && (
+              <Button size="sm" onClick={stopPreview}
+                className="absolute bottom-2 right-2 bg-black/70 hover:bg-black text-xs h-7">
+                Stop preview
+              </Button>
+            )}
+          </div>
+        </div>
+
+      </div>
+    </>
   );
 }

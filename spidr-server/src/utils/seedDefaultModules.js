@@ -65,6 +65,14 @@ const DEFAULT_MODULES = [
     payload: JSON.stringify({ query: "Latest Spotify charts top track", service: "spotify" }),
   },
   {
+    name: "Apple Music Now Playing",
+    description: "Show what you're playing on Apple Music — connect your account, broadcast full-track DJ sessions, and let visitors see your latest spin.",
+    type: "api_sync",
+    category: "audio",
+    tags: ["music", "apple music", "live"],
+    payload: JSON.stringify({ query: "Apple Music top charts", service: "apple_music" }),
+  },
+  {
     name: "Steam Now Playing",
     description: "Show what game you're currently playing on Steam with playtime stats.",
     type: "api_sync",

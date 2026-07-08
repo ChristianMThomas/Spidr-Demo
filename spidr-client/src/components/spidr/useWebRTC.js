@@ -181,10 +181,15 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
     try {
       // 2.2 — choose an explicit default mic so the browser doesn't grab an
       // iPhone/AirPods Continuity input over the desktop mic.
-      const micId = await pickDefaultMicId();
+      // Settings → Voice & Video picks win; the Continuity-avoidance
+      // heuristic only runs when the user hasn't chosen a mic explicitly.
+      const prefs = getMediaPrefs();
+      const micId = prefs.micId || await pickDefaultMicId();
       const audioConstraints = {
-        echoCancellation: true, noiseSuppression: true, sampleRate: 48000,
-        ...(micId ? { deviceId: { ideal: micId } } : {}),
+        echoCancellation: prefs.echoCancellation !== false,
+        noiseSuppression: prefs.noiseSuppression !== false,
+        sampleRate: 48000,
+        ...(micId ? { deviceId: prefs.micId ? { exact: micId } : { ideal: micId } } : {}),
       };
       // Get microphone (and optional camera)
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -382,7 +387,10 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
       // fires onnegotiationneeded on each pc, which now sends a fresh offer so
       // remote peers actually receive the new video stream (fixes 1.1).
       try {
-        const videoStream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+        const camPrefs = getMediaPrefs();
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720, ...(camPrefs.cameraId ? { deviceId: { exact: camPrefs.cameraId } } : {}) },
+        });
         const [newVideoTrack] = videoStream.getVideoTracks();
         localStreamRef.current.addTrack(newVideoTrack);
         setLocalStream(localStreamRef.current);

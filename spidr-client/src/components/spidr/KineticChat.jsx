@@ -622,13 +622,22 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           {inCall && onMinimizeCall && (
             <Button size="sm" variant="ghost" onClick={onMinimizeCall} className="text-zinc-500 hover:text-white text-[10px] shrink-0">↓ Min</Button>
           )}
-          <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="flex items-center gap-3 flex-1 min-w-0 relative">
+            {/* Group banner — subtle art wash behind the header row (image/gif) */}
+            {group?.banner_url && (
+              <div className="absolute -inset-x-3 -inset-y-2 overflow-hidden rounded-lg pointer-events-none" aria-hidden>
+                <img src={group.banner_url} alt="" className="w-full h-full object-cover opacity-25" />
+                <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-transparent to-black/70" />
+              </div>
+            )}
             <div className="relative w-9 h-9 rounded-full bg-gradient-to-br from-[#FF3333]/60 to-zinc-900 p-[1.5px] flex-shrink-0">
-              <div className="w-full h-full bg-zinc-900 rounded-full flex items-center justify-center">
-                <Users size={16} className="text-[#FF3333]" />
+              <div className="w-full h-full bg-zinc-900 rounded-full flex items-center justify-center overflow-hidden">
+                {(group?.avatar_url || group?.icon_url)
+                  ? <img src={group.avatar_url || group.icon_url} alt="" className="w-full h-full object-cover rounded-full" />
+                  : <Users size={16} className="text-[#FF3333]" />}
               </div>
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 relative">
               <h2 className="font-semibold text-white text-sm truncate">{group?.name || 'Group Chat'}</h2>
             </div>
           </div>

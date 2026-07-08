@@ -141,6 +141,12 @@ const s = new Schema({
 
   // Notification preferences (3.4 of Patch 1.2) — persisted toggle state.
   notification_prefs: { type: Schema.Types.Mixed, default: null },
+  // Presence status timer — "busy for 1 hour" style. When set and in the
+  // past, clients revert the visible status to online.
+  status_expires_at:  { type: Date, default: null },
+  // Biomass shop cosmetics — equipped state (ownership lives in the wallet).
+  active_title:       { type: String, default: '' },
+  chat_style:         { type: Schema.Types.Mixed, default: null }, // { color, font }
   // Sound settings (Settings → Notifications & Sounds). Schema-first so
   // strict mode does not silently drop the write.
   sound_prefs:        { type: Schema.Types.Mixed, default: null },

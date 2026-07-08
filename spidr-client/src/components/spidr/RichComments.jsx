@@ -109,13 +109,24 @@ function VoiceClip({ url, duration = 0 }) {
   );
 }
 
-function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, profilesMap = {}, level = 0 }) {
+function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, profilesMap = {}, level = 0, onOpenProfile = null }) {
   const queryClient = useQueryClient();
   const [showReplyForm, setShowReplyForm] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const menu = useMenu();
   const authorProfile = profilesMap[comment.author_id] || profilesMap[comment.user_id];
   const usernameStyle = authorProfile ? buildUsernameStyle(authorProfile) : {};
+
+  // Right-click → Reply dispatches 'spidr-comment-reply'; open OUR reply
+  // form when the id matches. (The event previously had no listener at all —
+  // the menu item was decorative.)
+  React.useEffect(() => {
+    const onReply = (e) => {
+      if (e.detail?.commentId === comment.id) setShowReplyForm(true);
+    };
+    window.addEventListener('spidr-comment-reply', onReply);
+    return () => window.removeEventListener('spidr-comment-reply', onReply);
+  }, [comment.id]);
 
   const likeMutation = useMutation({
     mutationFn: async () => {
@@ -155,7 +166,9 @@ function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, prof
         >
           <Avatar
             className="w-8 h-8 flex-shrink-0 cursor-pointer border border-white/10 hover:ring-2 hover:ring-red-500 transition-all"
-            onClick={() => setShowProfile(true)}
+            onClick={() => onOpenProfile
+              ? onOpenProfile({ id: comment.author_id || comment.user_id, full_name: comment.author_name || comment.user_name, avatar_url: comment.author_avatar || comment.user_avatar })
+              : setShowProfile(true)}
           >
             {(comment.author_avatar || comment.user_avatar) ? (
               <AvatarImage src={comment.author_avatar || comment.user_avatar} />
@@ -172,7 +185,9 @@ function CommentItem({ comment, clipId, currentUser, onReply, serverEmojis, prof
               <span
                 className="font-bold text-sm hover:underline cursor-pointer truncate"
                 style={usernameStyle}
-                onClick={() => setShowProfile(true)}
+                onClick={() => onOpenProfile
+                  ? onOpenProfile({ id: comment.author_id || comment.user_id, full_name: comment.author_name || comment.user_name, avatar_url: comment.author_avatar || comment.user_avatar })
+                  : setShowProfile(true)}
               >
                 {comment.author_name || comment.user_name}
               </span>
@@ -497,7 +512,7 @@ function CommentForm({ clipId, currentUser, parentCommentId = null, onSuccess, s
   );
 }
 
-export default function RichComments({ clipId, currentUser }) {
+export default function RichComments({ clipId, currentUser, onOpenProfile = null }) {
   const queryClient = useQueryClient();
   const { data: comments = [], isLoading } = useQuery({
     queryKey: ['comments', clipId],
@@ -579,6 +594,7 @@ export default function RichComments({ clipId, currentUser }) {
                   currentUser={currentUser}
                   serverEmojis={allServerEmojis}
                   profilesMap={profilesMap}
+                  onOpenProfile={onOpenProfile}
                   level={0}
                 />
                 
@@ -591,6 +607,7 @@ export default function RichComments({ clipId, currentUser }) {
                       currentUser={currentUser}
                       serverEmojis={allServerEmojis}
                       profilesMap={profilesMap}
+                      onOpenProfile={onOpenProfile}
                       level={1}
                     />
                     
@@ -603,6 +620,7 @@ export default function RichComments({ clipId, currentUser }) {
                         currentUser={currentUser}
                         serverEmojis={allServerEmojis}
                         profilesMap={profilesMap}
+                        onOpenProfile={onOpenProfile}
                         level={2}
                       />
                     ))}

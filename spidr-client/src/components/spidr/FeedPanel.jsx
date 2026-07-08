@@ -137,6 +137,22 @@ export default function FeedPanel({ currentUser }) {
     return () => window.removeEventListener('spidr-open-user-clips', handler);
   }, []);
 
+  // "Enter User Web" from anywhere in the app (profile modals in servers,
+  // friends, etc). The shell routes to /feed and stashes the target; we
+  // consume it here on mount + live, opening the full WEB profile view.
+  useEffect(() => {
+    const consume = () => {
+      const pending = window.__spidrPendingWebProfile;
+      if (!pending?.userId) return;
+      if (Date.now() - (pending.at || 0) > 30000) { window.__spidrPendingWebProfile = null; return; }
+      window.__spidrPendingWebProfile = null;
+      setViewingUser({ id: pending.userId, full_name: pending.userName || '', avatar_url: pending.avatar || '' });
+    };
+    consume();
+    window.addEventListener('spidr-pending-web-profile', consume);
+    return () => window.removeEventListener('spidr-pending-web-profile', consume);
+  }, []);
+
   // The clip list piped into ClipFeed for the main tab. Two layers:
   //   (a) user-archive mode wins (single-user view via ENTER USER WEB),
   //   (b) otherwise the search-bar `filteredClips` already narrows by
@@ -293,6 +309,7 @@ export default function FeedPanel({ currentUser }) {
                 currentUser={currentUser}
                 targetUser={viewingUser}
                 onBack={() => setViewingUser(null)}
+                onOpenClip={(id) => { setViewingUser(null); setJumpClipId(id); setActiveTab('main'); }}
               />
             </div>
           )}
@@ -343,7 +360,7 @@ export default function FeedPanel({ currentUser }) {
               : <ClipFeed clips={friendClips} currentUser={currentUser} onEditClip={setEditingClip} audioMap={audioMap} onOpenProfile={(u) => setViewingUser(u)} />
           )}
           {activeTab === 'recents'    && <RecentsTab profiles={recentProfiles} onClear={() => { setRecentIds([]); try { localStorage.removeItem('spidr_recent_profiles'); } catch {} }} />}
-          {activeTab === 'profile'     && <WebProfile currentUser={currentUser} onUploadClick={() => document.getElementById('vid-upload')?.click()} />}
+          {activeTab === 'profile'     && <WebProfile currentUser={currentUser} onUploadClick={() => document.getElementById('vid-upload')?.click()} onOpenClip={(id) => { setJumpClipId(id); setActiveTab('main'); }} />}
           {activeTab === 'signals'     && <WebSignalsInbox currentUser={currentUser} onOpenClip={(id) => { setJumpClipId(id); setActiveTab('main'); }} onOpenProfile={(u) => setViewingUser(u)} />}
           {activeTab === 'people'      && <div className="w-full h-full self-stretch"><PeopleSearch currentUser={currentUser} /></div>}
           {activeTab === 'sounds'      && <SoundsBrowser currentUser={currentUser} />}

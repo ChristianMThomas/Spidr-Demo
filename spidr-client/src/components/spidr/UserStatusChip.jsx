@@ -55,14 +55,53 @@ export default function UserStatusChip() {
   const subtitle = currentUser.custom_status || currentUser.bio || `@${currentUser.username || 'user'}`;
   const inCall = !!activeCall;
 
-  const setStatus = async (newStatus) => {
+  // Duration-aware status. Non-online statuses ask "for how long?" — a
+  // timed status stores status_expires_at; a watchdog flips you back to
+  // online when it lapses (client-side; roster viewers read the reverted
+  // value on their next profile refetch).
+  const [pendingStatus, setPendingStatus] = useState(null); // status awaiting a duration pick
+  const DURATIONS = [
+    { label: '30 minutes', ms: 30 * 60 * 1000 },
+    { label: '1 hour',     ms: 60 * 60 * 1000 },
+    { label: '4 hours',    ms: 4 * 60 * 60 * 1000 },
+    { label: 'Until I change it', ms: null },
+  ];
+
+  const setStatus = async (newStatus, durationMs = null) => {
     try {
       const profiles = await entities.UserProfile.filter({ user_id: currentUser.id });
-      if (profiles[0]) await entities.UserProfile.update(profiles[0].id, { status: newStatus });
+      const expires = durationMs ? new Date(Date.now() + durationMs).toISOString() : null;
+      if (profiles[0]) {
+        await entities.UserProfile.update(profiles[0].id, {
+          status: newStatus,
+          status_expires_at: newStatus === 'online' ? null : expires,
+        });
+      }
       window.dispatchEvent(new CustomEvent('spidr-profile-updated', { detail: { profile: { status: newStatus } } }));
       queryClient.invalidateQueries({ queryKey: ['profiles'] });
     } catch { /* non-fatal */ }
   };
+
+  // Expiry watchdog — checks every 30s; when a timed status lapses, revert
+  // to online automatically.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const tick = async () => {
+      try {
+        const profiles = await entities.UserProfile.filter({ user_id: currentUser.id });
+        const p = profiles[0];
+        if (p?.status_expires_at && p.status !== 'online' && new Date(p.status_expires_at).getTime() <= Date.now()) {
+          await entities.UserProfile.update(p.id, { status: 'online', status_expires_at: null });
+          window.dispatchEvent(new CustomEvent('spidr-profile-updated', { detail: { profile: { status: 'online' } } }));
+          queryClient.invalidateQueries({ queryKey: ['profiles'] });
+        }
+      } catch { /* non-fatal */ }
+    };
+    tick();
+    const t = setInterval(tick, 30000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
 
   const toggleMic = () => {
     const next = !muted;
@@ -186,7 +225,9 @@ export default function UserStatusChip() {
                 {STATUS_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
-                    onClick={() => setStatus(opt.id)}
+                    onClick={() => opt.id === 'online'
+                      ? (setPendingStatus(null), setStatus('online'))
+                      : setPendingStatus(pendingStatus === opt.id ? null : opt.id)}
                     className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
                       status === opt.id ? 'bg-white/10 ring-1 ring-white/20' : 'hover:bg-white/5'
                     }`}
@@ -196,6 +237,22 @@ export default function UserStatusChip() {
                   </button>
                 ))}
               </div>
+              {pendingStatus && (
+                <div className="mt-2 bg-black/40 rounded-xl p-2 space-y-1">
+                  <p className="text-[9px] font-mono uppercase tracking-widest text-zinc-500 px-1 pb-1">
+                    {(STATUS_OPTIONS.find(o => o.id === pendingStatus)?.label || 'Status')} — for how long?
+                  </p>
+                  {DURATIONS.map((d) => (
+                    <button
+                      key={d.label}
+                      onClick={() => { setStatus(pendingStatus, d.ms); setPendingStatus(null); }}
+                      className="w-full text-left px-2 py-1.5 rounded-lg text-[11px] text-zinc-300 hover:bg-white/10 hover:text-white transition-colors"
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Mic toggle */}

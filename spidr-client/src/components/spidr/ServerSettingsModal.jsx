@@ -22,7 +22,10 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
     name: server?.name || '',
     description: server?.description || '',
     icon_url: server?.icon_url || '',
-    banner_url: server?.banner_url || ''
+    banner_url: server?.banner_url || '',
+    // Discovery #tags — typed as "#gaming #anime", stored lowercase without
+    // the #, max 5. Signal Radar filters on these.
+    tagsInput: (server?.tags || []).map(t => `#${t}`).join(' '),
   });
   const [channels, setChannels] = useState(server?.channels || []);
   const [roles, setRoles] = useState(server?.roles || [
@@ -140,6 +143,12 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
       description: formData.description,
       icon_url: formData.icon_url,
       banner_url: formData.banner_url,
+      tags: [...new Set(
+        (formData.tagsInput || '')
+          .split(/[\s,]+/)
+          .map(t => t.replace(/^#/, '').toLowerCase().replace(/[^a-z0-9_-]/g, ''))
+          .filter(Boolean)
+      )].slice(0, 5),
       channels,
       roles,
       emojis,
@@ -478,6 +487,26 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                       className="bg-zinc-800 border-zinc-700 text-white"
                       disabled={!isOwner}
                     />
+                  </div>
+                  <div>
+                    <label className="text-sm text-zinc-400 mb-1 block">Discovery Tags</label>
+                    <Input
+                      value={formData.tagsInput}
+                      onChange={(e) => setFormData({ ...formData, tagsInput: e.target.value })}
+                      placeholder="#gaming #anime #esports (max 5)"
+                      className="bg-zinc-800 border-zinc-700 text-white font-mono text-sm"
+                      disabled={!isOwner}
+                    />
+                    <p className="text-[10px] text-zinc-600 mt-1">
+                      #tags make your server findable on Signal Radar — searchable and filterable by category.
+                    </p>
+                    {(formData.tagsInput || '').trim() && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {[...new Set((formData.tagsInput || '').split(/[\s,]+/).map(t => t.replace(/^#/, '').toLowerCase()).filter(Boolean))].slice(0, 5).map(t => (
+                          <span key={t} className="px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-[10px] font-mono">#{t}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>

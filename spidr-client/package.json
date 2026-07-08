@@ -155,7 +155,14 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.social-networking",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Spidr uses your microphone for voice calls.",
+        "NSCameraUsageDescription": "Spidr uses your camera for video calls."
+      }
     },
     "linux": {
       "target": "AppImage"

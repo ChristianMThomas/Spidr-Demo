@@ -14,6 +14,7 @@ import ContextableImage from '@/components/ui/ContextableImage';
 import { useMenu } from '@/components/MenuContext';
 import { toast } from 'sonner';
 import { entities } from '@/api/apiClient';
+import AIIconText from '@/lib/aiIconText';
 
 export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick, currentUser, apexUsers, onReactionToggle, repliedTo, senderProfile, mentionUsers = [] }) {
   const { triggerMenu } = useMenu();
@@ -252,6 +253,12 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                 >
                   {msg.sender_name}
                 </button>
+                {/* Biomass custom title — equipped nameplate flourish */}
+                {senderProfile?.active_title && (
+                  <span className="px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-[8px] font-black uppercase tracking-[0.15em] shrink-0">
+                    {senderProfile.active_title}
+                  </span>
+                )}
                 <span className="text-[9px] text-zinc-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
                   {(() => {
                     const d = new Date(msg.created_date);
@@ -269,14 +276,26 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
             )}
 
             {/* Message text */}
-            <div className={`text-[13px] leading-snug break-words
+            <div
+              className={`text-[13px] leading-snug break-words
               ${isOwnMessage ? 'text-zinc-200' : isApex ? 'text-zinc-200' : 'text-zinc-400'}
               ${msg.is_ghost ? 'font-mono text-purple-300/80' : ''}
-            `}>
+            `}
+              /* Biomass chat cosmetics — the sender's purchased color/font
+                 applies to THEIR message text everywhere it renders. */
+              style={{
+                ...(senderProfile?.chat_style?.color ? { color: senderProfile.chat_style.color } : {}),
+                ...(senderProfile?.chat_style?.font ? { fontFamily: senderProfile.chat_style.font } : {}),
+              }}
+            >
               {msg.is_ghost ? (
                 <GhostMessage text={msg.content} />
               ) : msg.text_effect && msg.text_effect !== 'normal' ? (
                 <KineticText text={msg.content} effect={msg.text_effect} />
+              ) : (msg.sender_name === 'SPIDR_AI' || msg.is_ai || String(msg.sender_id || '').startsWith('builtin:')) ? (
+                /* Spidr AI speaks in system iconography, not OS emojis —
+                   every known emoji renders as a custom inline icon. */
+                <AIIconText text={msg.content} />
               ) : (
                 <Linkify text={msg.content} users={mentionUsers} onMentionClick={(uid) => onProfileClick?.(uid)} />
               )}

@@ -1,3 +1,4 @@
+import AIIconText from '@/lib/aiIconText';
 import React, { useState, useEffect, useRef } from 'react';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { entities, integrations } from '@/api/apiClient';
@@ -765,7 +766,7 @@ function ChatTab({ currentUser }) {
                       toast.success('Copied to clipboard');
                     }}
                   >
-                    {msg.content}
+                    {msg.role === 'assistant' ? <AIIconText text={msg.content} /> : msg.content}
                     {/* Hover copy button */}
                     <button
                       onClick={() => { navigator.clipboard?.writeText(msg.content || '').catch(() => {}); toast.success('Copied'); }}

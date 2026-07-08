@@ -906,6 +906,31 @@ ipcMain.handle('game:get-icon', async (_evt, exePath) => {
 app.whenReady().then(() => {
   createSplash();
 
+  // ── Media permissions (fixes calling & streaming in the packaged app) ────
+  // Chromium asks the embedder to approve getUserMedia / display-capture.
+  // A browser shows its permission prompt; Electron has NO default UI and
+  // silently DENIES when no handler is registered — so mic/camera/screen
+  // requests failed inside the exe while working fine on web. Grant the
+  // media family for our own app content only.
+  try {
+    const ALLOWED = new Set([
+      'media',                 // microphone + camera
+      'display-capture',       // screen share (pairs with the request handler below)
+      'mediaKeySystem',
+      'notifications',
+      'clipboard-sanitized-write',
+      'fullscreen',
+      'pointerLock',
+      'speaker-selection',
+    ]);
+    session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
+      callback(ALLOWED.has(permission));
+    });
+    session.defaultSession.setPermissionCheckHandler((wc, permission) => ALLOWED.has(permission));
+  } catch (e) {
+    console.warn('permission handler registration:', e?.message);
+  }
+
   // ── Screen-share capture (fixes Electron streaming) ──────────────────────
   // In a browser, navigator.mediaDevices.getDisplayMedia() pops the native
   // picker. In Electron (contextIsolation: true, nodeIntegration: false) that

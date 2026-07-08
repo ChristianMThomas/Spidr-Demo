@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
+import { api, entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
 import { useTension } from '@/hooks/useTension';
 import { useStickyBoolean } from '@/hooks/useStickyBoolean';
 import { useAppShell } from '@/context/AppShellContext';
@@ -492,26 +492,32 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     }
   });
 
-  const markAsReadMutation = useMutation({
-    mutationFn: ({ id }) => entities.DirectMessage.update(id, { is_read: true }),
+  // Mark the whole conversation read in ONE recipient-scoped call. The old
+  // per-message PATCH loop was silently rejected by the ownership lockdown
+  // (recipient != sender_id owner), so is_read never flipped and the unread
+  // badges never went away.
+  const markConversationRead = useMutation({
+    mutationFn: () => api.post('/direct-messages/read-conversation', { conversation_id: conversationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['all-dms'] });
-    }
+      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
+      // THE "badge never goes away" bug: the friends-list unread badges read
+      // from ['unread-dms-friends', userId], which was never invalidated
+      // here — so the count stayed until a full reload even after the
+      // conversation was marked read. Prefix match covers the userId suffix.
+      queryClient.invalidateQueries({ queryKey: ['unread-dms-friends'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-dms'] });
+    },
   });
 
-  const unreadMsgIds = React.useMemo(() => {
-    return messages.filter(msg => msg.recipient_id === currentUser?.id && !msg.is_read).map(m => m.id);
-  }, [messages, currentUser?.id]);
-
-  const markedRef = useRef(new Set());
+  const hasUnreadIncoming = React.useMemo(
+    () => messages.some(msg => msg.recipient_id === currentUser?.id && !msg.is_read),
+    [messages, currentUser?.id]
+  );
   useEffect(() => {
-    unreadMsgIds.forEach(id => {
-      if (!markedRef.current.has(id)) {
-        markedRef.current.add(id);
-        markAsReadMutation.mutate({ id });
-      }
-    });
-  }, [unreadMsgIds]);
+    if (hasUnreadIncoming && conversationId) markConversationRead.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasUnreadIncoming, conversationId]);
 
   useEffect(() => {
     scrollToBottom();

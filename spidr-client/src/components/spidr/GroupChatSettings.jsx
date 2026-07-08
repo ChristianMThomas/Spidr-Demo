@@ -14,7 +14,9 @@ import ImageCropper from './ImageCropper';
 
 export default function GroupChatSettings({ open, onClose, group, currentUser }) {
   const [groupName, setGroupName] = useState(group?.name || '');
-  const [groupAvatar, setGroupAvatar] = useState(group?.avatar_url || '');
+  const [groupAvatar, setGroupAvatar] = useState(group?.avatar_url || group?.icon_url || '');
+  const [groupBanner, setGroupBanner] = useState(group?.banner_url || '');
+  const [bannerUploading, setBannerUploading] = useState(false);
   const [showImageCropper, setShowImageCropper] = useState(false);
   const [tempImage, setTempImage] = useState(null);
   const [showAddMember, setShowAddMember] = useState(false);
@@ -84,16 +86,38 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
     }
   });
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setTempImage(reader.result);
-        setShowImageCropper(true);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    // Animated GIFs skip the cropper — canvas re-encode would flatten the
+    // animation to a single PNG frame. Upload raw, keep it moving.
+    if (file.type === 'image/gif') {
+      try {
+        const { url } = await integrations.Core.UploadFile({ file });
+        setGroupAvatar(url);
+        toast.success('Animated avatar uploaded!');
+      } catch { toast.error('GIF upload failed'); }
+      e.target.value = null;
+      return;
     }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setTempImage(reader.result);
+      setShowImageCropper(true);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleBannerUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setBannerUploading(true);
+    try {
+      const { url } = await integrations.Core.UploadFile({ file });
+      setGroupBanner(url);
+      toast.success('Banner uploaded!');
+    } catch { toast.error('Banner upload failed'); }
+    finally { setBannerUploading(false); e.target.value = null; }
   };
 
   const handleSaveAvatar = async (croppedImage) => {
@@ -106,7 +130,7 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
   };
 
   const handleSaveSettings = async () => {
-    updateGroupMutation.mutate({ name: groupName, avatar_url: groupAvatar });
+    updateGroupMutation.mutate({ name: groupName, avatar_url: groupAvatar, banner_url: groupBanner });
   };
 
   const handleAddMember = async () => {
@@ -180,6 +204,33 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
 
             {/* General Settings */}
             <TabsContent value="general" className="space-y-6 mt-4">
+              {/* Banner — wide header art, image or animated gif */}
+              <div className="space-y-2">
+                <label className="relative block w-full h-28 rounded-xl overflow-hidden border border-white/10 bg-zinc-900 cursor-pointer group/banner">
+                  {groupBanner ? (
+                    <img src={groupBanner} alt="Group banner" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-r from-red-950/50 via-zinc-900 to-red-950/50">
+                      <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">No banner — tap to add (image or gif)</span>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover/banner:opacity-100 transition-opacity">
+                    <Upload className="w-6 h-6 text-white" />
+                    <span className="ml-2 text-xs font-bold text-white uppercase tracking-widest">{bannerUploading ? 'Uploading…' : 'Change banner'}</span>
+                  </div>
+                  <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={handleBannerUpload} className="hidden" disabled={bannerUploading} />
+                </label>
+                {groupBanner && (
+                  <button
+                    type="button"
+                    onClick={() => setGroupBanner('')}
+                    className="text-[10px] font-mono uppercase tracking-widest text-zinc-500 hover:text-red-400 transition-colors"
+                  >
+                    Remove banner
+                  </button>
+                )}
+              </div>
+
               {/* Avatar */}
               <div className="flex flex-col items-center gap-4">
                 <div className="relative group">

@@ -164,6 +164,18 @@ export default function SpidrShell() {
   // action that isn't already handled by an active chat panel.
   useGlobalMenuActions();
 
+  // Local voice activity (from VoiceChannel's analyser) drives the minimized
+  // pill's speaking ring — previously hardcoded speaking={false}.
+  const [voiceActivity, setVoiceActivity] = React.useState({ speaking: false, amplitude: 0 });
+  React.useEffect(() => {
+    const onActivity = (e) => setVoiceActivity({
+      speaking: !!e.detail?.speaking,
+      amplitude: Number(e.detail?.amplitude) || 0,
+    });
+    window.addEventListener('spidr-call-voice-activity', onActivity);
+    return () => window.removeEventListener('spidr-call-voice-activity', onActivity);
+  }, []);
+
   const activeTab = deriveTab(location.pathname);
 
   // ── Global "open a DM" intent ───────────────────────────────────────────
@@ -182,7 +194,19 @@ export default function SpidrShell() {
       window.dispatchEvent(new CustomEvent('spidr-pending-dm'));
     };
     window.addEventListener('spidr-open-dm', onOpenDM);
-    return () => window.removeEventListener('spidr-open-dm', onOpenDM);
+    // "Enter User Web" → land on THE WEB with that user's profile open.
+    const onOpenWebProfile = (e) => {
+      const { userId, userName, avatar } = e.detail || {};
+      if (!userId) return;
+      window.__spidrPendingWebProfile = { userId, userName, avatar, at: Date.now() };
+      if (deriveTab(location.pathname) !== 'feed') navigate('/feed');
+      window.dispatchEvent(new CustomEvent('spidr-pending-web-profile'));
+    };
+    window.addEventListener('spidr-open-web-profile', onOpenWebProfile);
+    return () => {
+      window.removeEventListener('spidr-open-dm', onOpenDM);
+      window.removeEventListener('spidr-open-web-profile', onOpenWebProfile);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
@@ -415,7 +439,8 @@ export default function SpidrShell() {
             <MinimizedWebNode
               call={activeCall || {}}
               apexColor={activeCall?.apexThreadColor || '#3f3f46'}
-              speaking={false}
+              speaking={voiceActivity.speaking}
+              amplitude={voiceActivity.amplitude}
               callStartedAt={callStartedAt}
               onExpand={() => {
                 // Navigate back to the call's surface BEFORE un-minimizing,

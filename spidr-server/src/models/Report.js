@@ -10,6 +10,10 @@ const s = new Schema({
   details:       String,
   evidence_url:  String,
   status:        { type: String, enum: ['pending','reviewed','resolved','dismissed'], default: 'pending', index: true },
+  // Moderator resolution — written by the admin panel; was schema-absent so
+  // resolutions saved as 200-OK no-ops.
+  resolution:   { type: String, default: '' },
+  resolved_by:  { type: String, default: '' },
   reviewer_id:   String,
   review_notes:  String,
   created_date:  { type: Date, default: Date.now },

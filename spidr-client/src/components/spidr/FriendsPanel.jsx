@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useMenu } from '@/components/MenuContext';
-import { togglePin, getPins, isPinned } from '@/lib/spidrWebPins';
+import { togglePin as libTogglePin, getPins as libGetPins } from '@/lib/spidrWebPins';
 import HolographicProfile from './HolographicProfile';
 import DirectMessages from './DirectMessages';
 import KineticChat from './KineticChat';
@@ -108,6 +108,24 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
       return ap - bp;
     });
   }, [myGroups, pinnedGroups]);
+
+  // ── Spidr Web pins ─────────────────────────────────────────────────────
+  // The pin-web context action previously called togglePin/isPinned which
+  // did not exist anywhere — a silent ReferenceError made "Pin to Spidr Web"
+  // an empty click. Real store: localStorage list of {kind,id,name,avatar},
+  // rendered as a PINNED strip at the top of the panel.
+  const [webPins, setWebPins] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('spidr_web_pins') || '[]'); } catch { return []; }
+  });
+  const isPinned = (id) => webPins.some(p => p.id === id);
+  // Delegate to the lib: localStorage + UserProfile.pinned_conversations sync
+  // + a change event — so pins survive reinstalls and other surfaces update.
+  const togglePin = (entry) => setWebPins(libTogglePin(entry));
+  useEffect(() => {
+    const onChange = (e) => setWebPins(Array.isArray(e.detail) ? e.detail : libGetPins());
+    window.addEventListener('spidr-web-pins-changed', onChange);
+    return () => window.removeEventListener('spidr-web-pins-changed', onChange);
+  }, []);
 
   // Handle right-click menu actions for group chats + friend pins.
   useEffect(() => {
@@ -295,9 +313,49 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id]);
 
+  // Consume the homepage's "open this group chat" hand-off (mirrors the
+  // pending-DM pattern; window global + event so it works whether we're
+  // already mounted or arriving via navigation).
+  useEffect(() => {
+    const consume = () => {
+      const pending = window.__spidrPendingGroup;
+      if (!pending?.groupId) return;
+      if (Date.now() - (pending.at || 0) > 30000) { window.__spidrPendingGroup = null; return; }
+      window.__spidrPendingGroup = null;
+      handleOpenGroup(pending.groupId);
+    };
+    consume();
+    window.addEventListener('spidr-pending-group', consume);
+    return () => window.removeEventListener('spidr-pending-group', consume);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleOpenDM = (friendId, conversationId) => {
     setActiveDM({ friendId, conversationId });
   };
+
+  // Cancel an outgoing friend request. Requests are stored as a mirrored
+  // pair (my pending_outgoing row + their pending_incoming row), so cancel
+  // deletes both — otherwise the target keeps a ghost request they can
+  // still "accept" into a one-sided friendship.
+  const cancelRequestMutation = useMutation({
+    mutationFn: async (friend) => {
+      await entities.Friend.delete(friend.id);
+      try {
+        const mirrored = await entities.Friend.filter({
+          user_id: friend.friend_id,
+          friend_id: currentUser?.id,
+          status: 'pending_incoming',
+        });
+        if (mirrored[0]) await entities.Friend.delete(mirrored[0].id);
+      } catch { /* their side may already be gone */ }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
+      toast.success('Request cancelled');
+    },
+    onError: () => toast.error('Could not cancel request'),
+  });
 
   const handleOpenGroup = (groupId) => {
     setActiveGroup(groupId);
@@ -376,6 +434,34 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
       </div>
 
       {/* Quick Heads - Story-style DM bubbles */}
+      {webPins.length > 0 && (
+        <div className="px-4 pt-3">
+          <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-zinc-600 mb-2">Pinned to your web</p>
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {webPins.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => p.kind === 'group'
+                  ? handleOpenGroup(p.id)
+                  : handleOpenDM(p.id, dmConversationId(currentUser?.id, p.id))}
+                onContextMenu={(e) => { e.preventDefault(); togglePin(p); }}
+                className="flex flex-col items-center gap-1 shrink-0 group"
+                title={`${p.name} — right-click to unpin`}
+              >
+                <div className="relative">
+                  <img
+                    src={p.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.id}`}
+                    alt=""
+                    className="w-11 h-11 rounded-full object-cover border-2 border-red-500/50 group-hover:border-red-400 transition-colors shrink-0"
+                  />
+                  <span className="absolute -top-1 -right-1 text-[9px]">📌</span>
+                </div>
+                <span className="text-[9px] text-zinc-400 max-w-[52px] truncate">{p.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <QuickHeads currentUser={currentUser} profiles={profiles} onOpenDM={handleOpenDM} onOpenGroup={handleOpenGroup} />
 
       <div className="flex-1 overflow-hidden">
@@ -600,6 +686,15 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                       </p>
                       <p className="text-xs text-zinc-500">Outgoing request</p>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => cancelRequestMutation.mutate(friend)}
+                      disabled={cancelRequestMutation.isPending}
+                      className="border-zinc-600 text-zinc-400 hover:text-red-400 hover:border-red-500/40 text-xs shrink-0"
+                    >
+                      Cancel
+                    </Button>
                   </motion.div>
                   );
                 })}

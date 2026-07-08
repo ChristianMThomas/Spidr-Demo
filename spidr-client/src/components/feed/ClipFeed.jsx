@@ -362,7 +362,7 @@ function ClipCard({
       } else if (action === 'sling') {
         setShareWeb(true);
       } else if (action === 'save' || action === 'encrypt') {
-        saveMut.mutate();
+        saveMut.mutate(null);
         if (action === 'encrypt') {
           setEncrypting(true);
           setTimeout(() => setEncrypting(false), 1400);
@@ -588,26 +588,50 @@ function ClipCard({
     },
   });
 
+  // ── Save to collection ────────────────────────────────────────────────
+  // The bookmark now opens a picker: choose WHICH collection (Saved is the
+  // default first entry), toggle membership per collection, or create a new
+  // one inline — instead of the old blind save-to-'Saved' only.
+  const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
+  const { data: myCollections = [] } = useQuery({
+    queryKey: ['collections', currentUser?.id],
+    queryFn: () => entities.Collection.filter({ user_id: currentUser?.id }),
+    enabled: !!currentUser?.id && collectionPickerOpen,
+  });
+
   const saveMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (collectionId = null) => {
       const cols = await entities.Collection.filter({ user_id: currentUser?.id });
-      let col = (cols || []).find(c => c.name === 'Saved');
+      let col = collectionId
+        ? (cols || []).find(c => c.id === collectionId)
+        : (cols || []).find(c => c.name === 'Saved');
       if (!col) {
         await entities.Collection.create({ user_id: currentUser?.id, name: 'Saved', clip_ids: [clip.id] });
-        return 'added';
+        return { action: 'added', name: 'Saved' };
       }
       const ids = col.clip_ids || [];
       const has = ids.includes(clip.id);
       await entities.Collection.update(col.id, {
         clip_ids: has ? ids.filter(id => id !== clip.id) : [...ids, clip.id],
       });
-      return has ? 'removed' : 'added';
+      return { action: has ? 'removed' : 'added', name: col.name };
     },
-    onSuccess: (action) => {
-      toast.success(action === 'removed' ? 'Removed from Saved' : 'Saved!');
+    onSuccess: ({ action, name }) => {
+      toast.success(action === 'removed' ? `Removed from ${name}` : `Saved to ${name}!`);
       queryClient.invalidateQueries({ queryKey: ['collections'] });
     },
     onError: () => toast.error('Could not save — try again'),
+  });
+
+  const [newCollectionName, setNewCollectionName] = useState('');
+  const createCollectionMut = useMutation({
+    mutationFn: (name) => entities.Collection.create({ user_id: currentUser?.id, name, clip_ids: [clip.id] }),
+    onSuccess: (_, name) => {
+      toast.success(`Created "${name}" and saved!`);
+      setNewCollectionName('');
+      queryClient.invalidateQueries({ queryKey: ['collections'] });
+    },
+    onError: () => toast.error('Could not create collection'),
   });
 
   const reactMut = useMutation({
@@ -1063,7 +1087,7 @@ function ClipCard({
               )}
             </AnimatePresence>
           </div>
-          <SideBtn onClick={() => saveMut.mutate()}><Bookmark className="w-5 h-5" /></SideBtn>
+          <SideBtn onClick={() => setCollectionPickerOpen(true)}><Bookmark className="w-5 h-5" /></SideBtn>
           {/* Theater mode toggle — desktop only. Wide videos in particular
               benefit; we surface the button for every aspect so it's a
               consistent control. Hidden on small viewports where mobile
@@ -1123,7 +1147,49 @@ function ClipCard({
             className="bg-zinc-900 border border-white/10 rounded-2xl overflow-hidden flex-shrink-0"
             style={{ height: '82vh' }}
           >
-            <RichComments clipId={clip.id} currentUser={currentUser} />
+            <RichComments clipId={clip.id} currentUser={currentUser} onOpenProfile={onOpenProfile} />
+
+            {/* Save-to-collection picker */}
+            {collectionPickerOpen && (
+              <div className="absolute inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end justify-center" onClick={() => setCollectionPickerOpen(false)}>
+                <div
+                  className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-t-2xl p-4 pb-6 space-y-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-500 pb-2">Save to collection</p>
+                  {(myCollections.length ? myCollections : [{ id: null, name: 'Saved', clip_ids: [] }]).map((c) => {
+                    const inCol = (c.clip_ids || []).includes(clip.id);
+                    return (
+                      <button
+                        key={c.id || 'saved-default'}
+                        onClick={() => { saveMut.mutate(c.id); setCollectionPickerOpen(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-white/5 text-left transition-colors"
+                      >
+                        <span className="text-sm text-white font-medium truncate">{c.name}</span>
+                        <span className={`text-[10px] font-mono uppercase tracking-widest shrink-0 ${inCol ? 'text-red-400' : 'text-zinc-600'}`}>
+                          {inCol ? 'Remove' : 'Add'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <div className="flex gap-2 pt-2 border-t border-white/5 mt-2">
+                    <input
+                      value={newCollectionName}
+                      onChange={(e) => setNewCollectionName(e.target.value)}
+                      placeholder="New collection…"
+                      className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-red-500/50"
+                    />
+                    <button
+                      onClick={() => { const n = newCollectionName.trim(); if (n) { createCollectionMut.mutate(n); setCollectionPickerOpen(false); } }}
+                      disabled={!newCollectionName.trim()}
+                      className="px-3 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold disabled:opacity-40 shrink-0"
+                    >
+                      Create
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
