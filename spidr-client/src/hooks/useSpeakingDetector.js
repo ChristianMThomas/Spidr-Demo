@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { getSharedAudioContext } from '@/lib/sharedAudioContext';
 
 /**
  * useSpeakingDetector — feeds a MediaStream's audio into a Web Audio
@@ -37,14 +38,16 @@ export function useSpeakingDetector(stream, { enabled = true, threshold = 0.04 }
       return;
     }
 
-    let audioContext;
+    // Shared app-wide context — see lib/sharedAudioContext.js for why we
+    // never construct (or close) per-detector contexts anymore.
+    const audioContext = getSharedAudioContext();
+    if (!audioContext) return;
+    let source;
     try {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      source = audioContext.createMediaStreamSource(stream);
     } catch {
-      // Web Audio not available; bail silently
-      return;
+      return; // stream ended between checks
     }
-    const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.7;
@@ -75,7 +78,7 @@ export function useSpeakingDetector(stream, { enabled = true, threshold = 0.04 }
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       try { source.disconnect(); } catch {}
-      try { audioContext.close(); } catch {}
+      // NEVER close the shared context — other analysers are using it.
     };
   }, [stream, enabled, threshold]);
 

@@ -433,35 +433,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         </div>
       </div>
 
-      {/* Quick Heads - Story-style DM bubbles */}
-      {webPins.length > 0 && (
-        <div className="px-4 pt-3">
-          <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-zinc-600 mb-2">Pinned to your web</p>
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {webPins.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => p.kind === 'group'
-                  ? handleOpenGroup(p.id)
-                  : handleOpenDM(p.id, dmConversationId(currentUser?.id, p.id))}
-                onContextMenu={(e) => { e.preventDefault(); togglePin(p); }}
-                className="flex flex-col items-center gap-1 shrink-0 group"
-                title={`${p.name} — right-click to unpin`}
-              >
-                <div className="relative">
-                  <img
-                    src={p.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.id}`}
-                    alt=""
-                    className="w-11 h-11 rounded-full object-cover border-2 border-red-500/50 group-hover:border-red-400 transition-colors shrink-0"
-                  />
-                  <span className="absolute -top-1 -right-1 text-[9px]">📌</span>
-                </div>
-                <span className="text-[9px] text-zinc-400 max-w-[52px] truncate">{p.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Quick Heads — the SPIDR WEB row (pins render inside it, pinned-first) */}
       <QuickHeads currentUser={currentUser} profiles={profiles} onOpenDM={handleOpenDM} onOpenGroup={handleOpenGroup} />
 
       <div className="flex-1 overflow-hidden">

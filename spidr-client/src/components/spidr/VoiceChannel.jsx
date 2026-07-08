@@ -15,6 +15,7 @@ import CinemaStage from './CinemaStage';
 import { useScreenShare } from './useScreenShare';
 import { useSpidrVoice } from './SpidrVoice';
 import { applySink } from '@/lib/mediaDevicePrefs';
+import { getSharedAudioContext } from '@/lib/sharedAudioContext';
 const ClipFeed = React.lazy(() => import('@/components/feed/ClipFeed'));
 import SpidrVoiceVisualizer from './SpidrVoice';
 import SpidrAIProfile, { SPIDR_AI_AVATAR } from './SpidrAIProfile';
@@ -346,13 +347,20 @@ export default function VoiceChannel({
   // the shell fed it a hardcoded false — the pill never animated. Analyse the
   // local mic here (the only place the stream lives) and emit a throttled
   // window event; the shell holds the state and drives the tick-ring.
+  const isMutedRef = useRef(false);
+  useEffect(() => { isMutedRef.current = !!rtc.isMuted; }, [rtc.isMuted]);
   useEffect(() => {
     const stream = rtc.localStream;
     if (!stream) return;
-    let ctx, raf, lastEmit = 0, lastSpeaking = null;
+    let raf, srcNode, lastEmit = 0, lastSpeaking = null;
     try {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const srcNode = ctx.createMediaStreamSource(stream);
+      // Shared app-wide AudioContext — creating one per effect run (and
+      // re-running on every mute flip) exhausted Chrome's ~6-context cap and
+      // killed EVERY speaking animation. Now: one context, one source per
+      // stream, mute read through a ref so this effect never re-runs.
+      const ctx = getSharedAudioContext();
+      if (!ctx) return;
+      srcNode = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
       srcNode.connect(analyser);
@@ -366,7 +374,7 @@ export default function VoiceChannel({
         let sum = 0;
         for (let i = 0; i < buf.length; i++) sum += buf[i];
         const amplitude = sum / buf.length / 255; // 0..1
-        const speaking = !rtc.isMuted && amplitude > 0.06;
+        const speaking = !isMutedRef.current && amplitude > 0.06;
         // Emit on every state flip + periodically while speaking (amplitude).
         if (speaking !== lastSpeaking || speaking) {
           lastSpeaking = speaking;
@@ -381,10 +389,10 @@ export default function VoiceChannel({
     }
     return () => {
       cancelAnimationFrame(raf);
-      try { ctx?.close(); } catch {}
+      try { srcNode?.disconnect(); } catch {}
       window.dispatchEvent(new CustomEvent('spidr-call-voice-activity', { detail: { speaking: false, amplitude: 0 } }));
     };
-  }, [rtc.localStream, rtc.isMuted]);
+  }, [rtc.localStream]);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('spidr-call-state', {
