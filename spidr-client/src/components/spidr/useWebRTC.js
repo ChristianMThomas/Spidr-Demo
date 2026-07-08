@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import api, { getSocket } from '@/api/apiClient';
+import { getMediaPrefs } from '@/lib/mediaDevicePrefs';
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },

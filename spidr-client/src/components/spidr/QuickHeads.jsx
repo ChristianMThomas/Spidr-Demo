@@ -386,11 +386,10 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
                 <Users className="w-7 h-7 text-white" />
               </div>
               
-          {pinned && (
-            <div className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-zinc-900 border-2 border-[#0a0a0a] flex items-center justify-center shadow-lg" title="Pinned to your web">
-              <Pin size={10} className="text-[#FF3333] fill-[#FF3333]" />
-            </div>
-          )}
+          {/* This map only renders pinned groups — badge is unconditional. */}
+          <div className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-zinc-900 border-2 border-[#0a0a0a] flex items-center justify-center shadow-lg z-10" title="Pinned to your web">
+            <Pin size={10} className="text-[#FF3333] fill-[#FF3333]" />
+          </div>
               {groupChat.unreadCount > 0 && (
                 <motion.div 
                   initial={{ scale: 0 }}
