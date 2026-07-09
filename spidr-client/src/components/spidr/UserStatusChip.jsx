@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQueryClient } from '@tanstack/react-query';
 import { entities } from '@/api/apiClient';
+import { toast } from 'sonner';
 import { useAppShell } from '@/context/AppShellContext';
 import { Mic, MicOff, Headphones, Settings as SettingsIcon, LogOut, User as UserIcon } from 'lucide-react';
 
@@ -71,15 +72,32 @@ export default function UserStatusChip() {
     try {
       const profiles = await entities.UserProfile.filter({ user_id: currentUser.id });
       const expires = durationMs ? new Date(Date.now() + durationMs).toISOString() : null;
-      if (profiles[0]) {
+      if (!profiles[0]) {
+        // No profile row → create one so subsequent status changes land.
+        // Was a real silent-fail path when a fresh account's profile was
+        // missing (auth created the User but not the UserProfile row).
+        await entities.UserProfile.create({
+          user_id: currentUser.id,
+          status: newStatus,
+          status_expires_at: newStatus === 'online' ? null : expires,
+        });
+      } else {
         await entities.UserProfile.update(profiles[0].id, {
           status: newStatus,
           status_expires_at: newStatus === 'online' ? null : expires,
         });
       }
-      window.dispatchEvent(new CustomEvent('spidr-profile-updated', { detail: { profile: { status: newStatus } } }));
+      // Refresh EVERY status-consuming query — profile ring, presence
+      // indicators on friend rows, and the current-user hook — so the pick
+      // takes visibly, not just server-side.
       queryClient.invalidateQueries({ queryKey: ['profiles'] });
-    } catch { /* non-fatal */ }
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['current-user'] });
+      window.dispatchEvent(new CustomEvent('spidr-profile-updated', { detail: { profile: { status: newStatus } } }));
+    } catch (err) {
+      // Was swallowed silently — surface so users know a click didn't take.
+      toast.error(err?.message || 'Could not update status');
+    }
   };
 
   // Expiry watchdog — checks every 30s; when a timed status lapses, revert

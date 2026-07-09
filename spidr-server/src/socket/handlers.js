@@ -476,10 +476,24 @@ module.exports = function registerHandlers(io) {
 
     // ── DM real-time relay (no DB write — just broadcasts to room) ───────────
     socket.on('dm:notify', ({ conversationId, recipientId }) => {
-      io.to(`dm:${conversationId}`).emit('dm:new', {});
+      // NOTIFICATION FIX: broadcasting dm:new to the whole conversation
+      // room (which includes the sender) with an empty payload caused the
+      // sender's OWN bell to fire on every message they sent (the
+      // "notifications fire when I send but not receive" bug). We now emit
+      // dm:new only to recipient sockets, with sender_id included so the
+      // bell's self-skip check has something concrete to filter on.
       const recvSockets = onlineUsers.get(recipientId);
       if (recvSockets) {
-        for (const sid of recvSockets) io.to(sid).emit('dm:notification', {});
+        for (const sid of recvSockets) {
+          io.to(sid).emit('dm:new', { conversation_id: conversationId, sender_id: userId, recipient_id: recipientId });
+          io.to(sid).emit('dm:notification', { conversation_id: conversationId, sender_id: userId });
+        }
+      }
+      // Sender's OWN sockets get a cache-refresh nudge (separate event so
+      // the bell listener never sees it).
+      const senderSockets = onlineUsers.get(userId);
+      if (senderSockets) {
+        for (const sid of senderSockets) io.to(sid).emit('dm:sent', { conversation_id: conversationId });
       }
     });
 

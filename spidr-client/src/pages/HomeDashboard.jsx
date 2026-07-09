@@ -449,67 +449,6 @@ export default function HomeDashboard() {
             )}
           </div>
 
-          {/* Quick access — recent DMs + group chats */}
-          {(recentConversations.length > 0 || myGroups.length > 0) && (
-            <div
-              className="relative overflow-hidden rounded-2xl p-5"
-              style={{
-                background: 'rgba(10, 10, 10, 0.60)',
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255, 255, 255, 0.05)',
-              }}
-            >
-              <div className="flex items-center gap-2 mb-4">
-                <span className="w-2 h-2 rounded-full bg-red-500" style={{ boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)' }} />
-                <h2 className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">Jump Back In</h2>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {recentConversations.slice(0, 4).map((c) => (
-                  <button
-                    key={c.conversationId}
-                    onClick={() => navigateToDM(c.friendId, c.conversationId)}
-                    className="flex items-center gap-3 p-2.5 rounded-xl text-left transition-all hover:bg-white/[0.05]"
-                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}
-                  >
-                    <img
-                      src={c.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${c.friendId}`}
-                      alt="" className="w-9 h-9 rounded-full object-cover border border-white/10 shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-white truncate">{c.name}</p>
-                      <p className="text-[11px] text-zinc-500 truncate">{c.last || 'Open conversation'}</p>
-                    </div>
-                    <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 shrink-0">DM</span>
-                  </button>
-                ))}
-                {myGroups.slice(0, 4).map((g) => (
-                  <button
-                    key={g.id}
-                    onClick={() => {
-                      window.__spidrPendingGroup = { groupId: g.id, at: Date.now() };
-                      navigate('/friends');
-                      window.dispatchEvent(new CustomEvent('spidr-pending-group'));
-                    }}
-                    className="flex items-center gap-3 p-2.5 rounded-xl text-left transition-all hover:bg-white/[0.05]"
-                    style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}
-                  >
-                    <div className="w-9 h-9 rounded-full overflow-hidden border border-white/10 shrink-0 bg-gradient-to-br from-red-900/60 to-zinc-900 flex items-center justify-center">
-                      {(g.avatar_url || g.icon_url)
-                        ? <img src={g.avatar_url || g.icon_url} alt="" className="w-full h-full object-cover" />
-                        : <Users className="w-4 h-4 text-red-400" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-white truncate">{g.name || 'Group Chat'}</p>
-                      <p className="text-[11px] text-zinc-500 truncate">{(g.members || []).length} members</p>
-                    </div>
-                    <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 shrink-0">GROUP</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Recent Servers */}
           {servers.length > 0 && (
             <div
@@ -607,6 +546,75 @@ export default function HomeDashboard() {
             />
           </div>
         </div>
+
+        {/* ── Right rail: recent DMs + group chats (jump back in) ───────────
+            Persistent on xl+ screens as a 320px column so hopping into an
+            active conversation is one click from the homepage. Hidden on
+            narrower widths to protect the main column. */}
+        <aside className="hidden xl:block w-[320px] shrink-0 sticky top-4 self-start">
+          <div
+            className="relative overflow-hidden rounded-2xl p-4"
+            style={{
+              background: 'rgba(10, 10, 10, 0.60)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.05)',
+            }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-2 h-2 rounded-full bg-red-500" style={{ boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)' }} />
+              <h2 className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">Jump Back In</h2>
+            </div>
+            <div className="space-y-1.5">
+              {recentConversations.slice(0, 6).map((c) => (
+                <button
+                  key={c.conversationId}
+                  onClick={() => navigateToDM(c.friendId, c.conversationId)}
+                  className="w-full flex items-center gap-3 p-2 rounded-xl text-left transition-all hover:bg-white/[0.05]"
+                  style={{ border: '1px solid rgba(255,255,255,0.04)' }}
+                >
+                  <img
+                    src={c.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${c.friendId}`}
+                    alt="" className="w-8 h-8 rounded-full object-cover border border-white/10 shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-white truncate">{c.name}</p>
+                    <p className="text-[10px] text-zinc-500 truncate">{c.last || 'Open conversation'}</p>
+                  </div>
+                  <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 shrink-0">DM</span>
+                </button>
+              ))}
+              {myGroups.slice(0, 6).map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => {
+                    window.__spidrPendingGroup = { groupId: g.id, at: Date.now() };
+                    navigate('/friends');
+                    window.dispatchEvent(new CustomEvent('spidr-pending-group'));
+                  }}
+                  className="w-full flex items-center gap-3 p-2 rounded-xl text-left transition-all hover:bg-white/[0.05]"
+                  style={{ border: '1px solid rgba(255,255,255,0.04)' }}
+                >
+                  <div className="w-8 h-8 rounded-full overflow-hidden border border-white/10 shrink-0 bg-gradient-to-br from-red-900/60 to-zinc-900 flex items-center justify-center">
+                    {(g.avatar_url || g.icon_url)
+                      ? <img src={g.avatar_url || g.icon_url} alt="" className="w-full h-full object-cover" />
+                      : <Users className="w-4 h-4 text-red-400" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-semibold text-white truncate">{g.name || 'Group Chat'}</p>
+                    <p className="text-[10px] text-zinc-500 truncate">{(g.members || []).length} members</p>
+                  </div>
+                  <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 shrink-0">GROUP</span>
+                </button>
+              ))}
+              {recentConversations.length === 0 && myGroups.length === 0 && (
+                <p className="text-[11px] text-zinc-500 text-center py-4">
+                  No recent conversations yet
+                </p>
+              )}
+            </div>
+          </div>
+        </aside>
       </div>
       <SpidrSystem />
     </div>

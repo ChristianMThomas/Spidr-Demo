@@ -168,9 +168,17 @@ export function NotificationProvider({ currentUser, children }) {
       });
     };
 
+    // dm:sent fires ONLY to the sender's own sockets (fixed direction bug),
+    // so bell listeners can safely ignore it — it's just a cache refresh
+    // signal. Wired here so DM lists update instantly after sending.
+    const onDMSent = () => {
+      // Cache invalidation happens via React Query listeners elsewhere;
+      // no notification is pushed for our own sent messages.
+    };
     socket.on('friend:incoming', onFriend);
     socket.on('message:new', onMessage);
     socket.on('dm:new', onDM);
+    socket.on('dm:sent', onDMSent);
     socket.on('feed:comment', onFeedComment);
     socket.on('feed:reply', onFeedReply);
 
@@ -190,6 +198,7 @@ export function NotificationProvider({ currentUser, children }) {
       socket.off('friend:incoming', onFriend);
       socket.off('message:new', onMessage);
       socket.off('dm:new', onDM);
+      socket.off('dm:sent', onDMSent);
       socket.off('feed:comment', onFeedComment);
       socket.off('feed:reply', onFeedReply);
       window.removeEventListener('spidr-notify', onWindowNotify);

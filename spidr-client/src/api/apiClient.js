@@ -278,6 +278,20 @@ export const algorithm = {
 // One wallet per user (auto-created on first fetch). Earn from in-app actions
 // (server grants automatically) or daily claim. Spend at the shop or via
 // direct spend calls. All endpoints return the updated wallet.
+// Account self-service + platform-admin moderation.
+// deleteMe cascades every user-owned collection server-side; admin methods
+// require User.role === 'admin' or is_admin === true.
+export const account = {
+  deleteMe:    () => api.delete('/account/me'),
+  admin: {
+    listUsers: (q = '') => api.get(`/account/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    ban:       (userId, reason) => api.post('/account/admin/ban', { userId, reason }),
+    unban:     (userId) => api.post('/account/admin/unban', { userId }),
+    remove:    (userId) => api.delete(`/account/admin/${userId}`),
+    setRole:   (userId, role) => api.post('/account/admin/role', { userId, role }),
+  },
+};
+
 export const biomass = {
   wallet:    ()                  => api.get('/biomass/wallet'),
   claimDaily:()                  => api.post('/biomass/daily', {}),

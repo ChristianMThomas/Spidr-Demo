@@ -51,6 +51,25 @@ async function getOrCreateWallet(userId) {
   return w;
 }
 
+// Mongoose Map → plain JSON object. The default JSON serializer emits Maps
+// as {} which broke inventory checks and the shop's "Owned" badges (the
+// "Biomass page not working" report — the shop rendered but every item
+// looked buyable because Object.keys(inventory) always returned []).
+function serializeWallet(w) {
+  const doc = w.toObject ? w.toObject({ flattenMaps: true }) : w;
+  if (doc.inventory && typeof doc.inventory === 'object' && !Array.isArray(doc.inventory)) {
+    // Ensure plain-object shape even when Mongoose skipped flattenMaps.
+    if (w?.inventory?.entries) {
+      const flat = {};
+      for (const [k, v] of w.inventory.entries()) flat[k] = v;
+      doc.inventory = flat;
+    }
+  } else {
+    doc.inventory = {};
+  }
+  return doc;
+}
+
 function pushTx(wallet, amount, reason, ref_id) {
   wallet.transactions.unshift({ amount, reason, ref_id, created_date: new Date() });
   if (wallet.transactions.length > 50) wallet.transactions.length = 50;
@@ -60,7 +79,7 @@ function pushTx(wallet, amount, reason, ref_id) {
 router.get('/wallet', authMW, async (req, res) => {
   try {
     const w = await getOrCreateWallet(req.user.id);
-    res.json(w);
+    res.json(serializeWallet(w));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -81,7 +100,7 @@ router.post('/daily', authMW, async (req, res) => {
     w.last_daily_claim = now;
     pushTx(w, amount, 'Daily login');
     await w.save();
-    res.json({ amount, balance: w.balance, wallet: w });
+    res.json({ amount, balance: w.balance, wallet: serializeWallet(w) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -106,7 +125,7 @@ router.post('/fly', authMW, async (req, res) => {
     w.lifetime_earned += reward;
     pushTx(w, reward, 'Caught a fly');
     await w.save();
-    res.json({ amount: reward, balance: w.balance, wallet: w });
+    res.json({ amount: reward, balance: w.balance, wallet: serializeWallet(w) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -123,7 +142,7 @@ router.post('/spend', authMW, async (req, res) => {
     w.balance -= n;
     pushTx(w, -n, reason || 'Spend', ref_id);
     await w.save();
-    res.json({ balance: w.balance, wallet: w });
+    res.json({ balance: w.balance, wallet: serializeWallet(w) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -151,7 +170,7 @@ router.post('/shop/buy', authMW, async (req, res) => {
     w.inventory.set(itemId, { unlocked_at: new Date() });
     pushTx(w, -item.price, `Bought ${item.name}`, itemId);
     await w.save();
-    res.json({ balance: w.balance, item, wallet: w });
+    res.json({ balance: w.balance, item, wallet: serializeWallet(w) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

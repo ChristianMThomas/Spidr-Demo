@@ -153,7 +153,22 @@
       "shortcutName": "Spidr"
     },
     "mac": {
-      "target": "dmg",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
       "category": "public.app-category.social-networking",
       "icon": "build/icon.icns",
       "hardenedRuntime": true,
@@ -162,10 +177,28 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Spidr uses your microphone for voice calls.",
         "NSCameraUsageDescription": "Spidr uses your camera for video calls."
-      }
+      },
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "linux": {
-      "target": "AppImage"
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "Network",
+      "maintainer": "Spidr <info@spidrapp.com>",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   }
 }

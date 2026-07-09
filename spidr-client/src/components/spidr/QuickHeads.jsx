@@ -4,6 +4,7 @@ import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion } from 'framer-motion';
 import { Users, Pin } from 'lucide-react';
 import { getPins, togglePin } from '@/lib/spidrWebPins';
+import { useMenu } from '@/components/MenuContext';
 
 const statusColors = {
   online: 'bg-green-500',
@@ -96,6 +97,11 @@ const QuickHeadItem = ({ friend, latestMessage, unreadCount, status = 'offline',
 };
 
 export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpenGroup }) {
+  // Tactical right-click menu — reuses the app-standard SpidrMenu with
+  // the existing 'friend' and 'web_group' types (View Profile, Send Message,
+  // Pin/Unpin, Remove Friend, Block, Copy ID for DMs; Open Group + Pin/Unpin
+  // for groups). Replaces the old contextmenu-only-toggles-pin behavior.
+  const { setMenu } = useMenu();
   const queryClient = useQueryClient();
 
   // ── Spidr Web pins ────────────────────────────────────────────────────
@@ -326,7 +332,20 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
               status={statusByUser[chat.otherUserId] || 'offline'}
               pinned
               onClick={() => onOpenDM(chat.friend.friend_id, chat.conversationId.startsWith('pin-') ? undefined : chat.conversationId)}
-              onContextMenu={(e) => { e.preventDefault(); togglePin(chat._pin); }}
+              onContextMenu={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                setMenu({
+                  visible: true, x: e.clientX, y: e.clientY, type: 'friend',
+                  data: {
+                    id: chat.otherUserId,
+                    friend_id: chat.otherUserId,
+                    name: chat.friend?.friend_name || 'Node',
+                    avatar_url: chat.friend?.friend_avatar || '',
+                    header_sub: 'Spidr Web · DM',
+                    is_pinned: true,
+                  },
+                });
+              }}
             />
           );
         })}
@@ -335,7 +354,20 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
           <div
             key={`pin-group-${groupChat.groupId}`}
             onClick={() => onOpenGroup(groupChat.groupId)}
-            onContextMenu={(e) => { e.preventDefault(); togglePin({ kind: 'group', id: groupChat.groupId, name: groupChat.group?.name || 'Group', avatar: groupChat.group?.avatar_url || groupChat.group?.icon_url || '' }); }}
+            onContextMenu={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              setMenu({
+                visible: true, x: e.clientX, y: e.clientY, type: 'web_group',
+                data: {
+                  id: groupChat.groupId,
+                  group_id: groupChat.groupId,
+                  name: groupChat.group?.name || 'Group',
+                  avatar_url: groupChat.group?.avatar_url || groupChat.group?.icon_url || '',
+                  header_sub: 'Spidr Web · Group',
+                  is_pinned: true,
+                },
+              });
+            }}
             className="flex flex-col items-center gap-1 min-w-[72px] cursor-pointer group"
             title={`${groupChat.group?.name || 'Group'} — right-click to unpin`}
           >
@@ -372,7 +404,20 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
           <div 
             key={groupChat.groupId}
             onClick={() => onOpenGroup(groupChat.groupId)}
-            onContextMenu={(e) => { e.preventDefault(); togglePin({ kind: 'group', id: groupChat.groupId, name: groupChat.group?.name || 'Group', avatar: groupChat.group?.avatar_url || groupChat.group?.icon_url || '' }); }}
+            onContextMenu={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              setMenu({
+                visible: true, x: e.clientX, y: e.clientY, type: 'web_group',
+                data: {
+                  id: groupChat.groupId,
+                  group_id: groupChat.groupId,
+                  name: groupChat.group?.name || 'Group',
+                  avatar_url: groupChat.group?.avatar_url || groupChat.group?.icon_url || '',
+                  header_sub: 'Spidr Web · Group',
+                  is_pinned: true,
+                },
+              });
+            }}
             title="Right-click to pin to your web"
             className="flex flex-col items-center gap-1 min-w-[72px] cursor-pointer group"
           >
@@ -421,7 +466,20 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
             unreadCount={chat.unreadCount}
             status={statusByUser[chat.otherUserId] || 'offline'}
             onClick={() => onOpenDM(chat.friend.friend_id, chat.conversationId)}
-            onContextMenu={(e) => { e.preventDefault(); togglePin({ kind: 'dm', id: chat.otherUserId, name: liveFriend.friend_name || 'Node', avatar: liveFriend.friend_avatar || '' }); }}
+            onContextMenu={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                setMenu({
+                  visible: true, x: e.clientX, y: e.clientY, type: 'friend',
+                  data: {
+                    id: chat.otherUserId,
+                    friend_id: chat.otherUserId,
+                    name: liveFriend.friend_name || 'Node',
+                    avatar_url: liveFriend.friend_avatar || '',
+                    header_sub: 'Spidr Web · DM',
+                    is_pinned: false,
+                  },
+                });
+              }}
           />
           );
         })}

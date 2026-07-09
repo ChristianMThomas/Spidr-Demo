@@ -356,6 +356,8 @@ export default function DJMatrix({
             isPlaying={!!np?.is_playing}
             busy={busy}
             hasSession={!!djSession}
+            volume={localVolume}
+            setVolume={setLocalVolume}
           />
         ) : djSession ? (
           <ListenerDock volume={localVolume} setVolume={setLocalVolume} />
@@ -498,7 +500,7 @@ function AudienceRoster({ participants = [], hostId, enabled }) {
 }
 
 // HostDock — DJ controls: pick track, play/pause hint, end session.
-function HostDock({ onPick, onEnd, isPlaying, busy, hasSession }) {
+function HostDock({ onPick, onEnd, isPlaying, busy, hasSession , volume, setVolume }) {
   return (
     <div
       className="flex items-center gap-2 p-2 rounded-2xl"

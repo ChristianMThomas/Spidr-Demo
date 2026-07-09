@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, integrations, getSocket, spotify } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Mic, MicOff, Video, VideoOff, Monitor, PhoneOff,
+  Mic, MicOff, Video, VideoOff, Monitor, PhoneOff, Headphones, HeadphoneOff,
   Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, AudioLines, ExternalLink, Maximize2, Tv
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -69,6 +69,7 @@ export default function VoiceChannel({
   // mounts AFTER you deafened used to come in UNMUTED (fresh element,
   // default muted=false) — you'd hear them despite the headphones-off icon.
   const isDeafenedRef = useRef(false);
+  const [isDeafened, setIsDeafened] = useState(false); // UI mirror of the ref
   const screenTrackRef  = useRef(null);
   const queryClient     = useQueryClient();
   const spidrVoice      = useSpidrVoice();
@@ -215,7 +216,23 @@ export default function VoiceChannel({
     mutationFn: (id) => entities.VoiceSession.delete(id),
   });
 
-  const mySession = voiceSessions.find(s => s.user_id === currentUser?.id);
+  // Auto-leave: if no HUMAN sessions remain but an AI session is present,
+  // remove it. Prevents the "AI keeps talking in an empty room" bug — and
+  // also stops any in-flight TTS locally so audio stops the moment the room
+  // empties, before the server round-trip completes.
+  useEffect(() => {
+    const humanSessions = (voiceSessions || []).filter(s => !s.is_spidr_ai);
+    const ai = (voiceSessions || []).find(s => s.is_spidr_ai);
+    if (humanSessions.length === 0 && ai) {
+      // Stop local TTS immediately.
+      try { window.speechSynthesis?.cancel(); } catch {}
+      // Delete the AI's session on the server (best-effort; no toast so it
+      // doesn't spam the departing user's screen on their way out).
+      entities.VoiceSession.delete(ai.id).catch(() => {});
+    }
+  }, [voiceSessions]);
+
+    const mySession = voiceSessions.find(s => s.user_id === currentUser?.id);
   const aiSession = voiceSessions.find(s => s.is_spidr_ai);
 
   // Dedupe by user_id so a user never appears twice in the deck even if two
@@ -307,6 +324,7 @@ export default function VoiceChannel({
       // deafened indicator on this user's tile (1.3 sync).
       const deaf = !!e.detail?.deafened;
       isDeafenedRef.current = deaf;
+      setIsDeafened(deaf);
       Object.values(remoteAudioRefs.current || {}).forEach((el) => { if (el) el.muted = deaf; });
       if (mySession) updateMutation.mutate({ id: mySession.id, data: { is_deafened: deaf } });
     };
@@ -405,6 +423,50 @@ export default function VoiceChannel({
     }));
   }, [rtc.isMuted, rtc.isVideoOn, isSharing, mySession?.is_deafened]);
 
+  // ── Per-peer speaking levels (drives active-speaker video swap) ─────────
+  // We keep an analyser per remote stream (shared AudioContext — see the
+  // sharedAudioContext singleton), sample RMS at ~5Hz, and expose the
+  // socketId of the currently loudest speaker with a video track available.
+  const [activeSpeakerSocketId, setActiveSpeakerSocketId] = useState(null);
+  useEffect(() => {
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
+    const analysers = new Map(); // socketId -> { analyser, srcNode, hasVideo }
+    const attach = (socketId, stream) => {
+      if (analysers.has(socketId) || !stream) return;
+      try {
+        const srcNode = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        srcNode.connect(analyser);
+        analysers.set(socketId, { analyser, srcNode, buf: new Uint8Array(analyser.frequencyBinCount) });
+      } catch {}
+    };
+    Object.entries(rtc.remoteStreams || {}).forEach(([sid, s]) => attach(sid, s));
+    // Poll: pick the loudest stream whose peer ALSO has a live video track.
+    // Voice-only mobile joiners never win — the swap only happens between
+    // peers whose camera is actually on, so the video area doesn't blink
+    // to a black tile.
+    const iv = setInterval(() => {
+      let best = { sid: null, level: 0 };
+      analysers.forEach((rec, sid) => {
+        const stream = rtc.remoteStreams?.[sid];
+        const hasVideo = stream && stream.getVideoTracks().some(t => t.enabled && !t.muted && t.readyState === 'live');
+        if (!hasVideo) return;
+        rec.analyser.getByteFrequencyData(rec.buf);
+        let sum = 0;
+        for (let i = 0; i < rec.buf.length; i++) sum += rec.buf[i];
+        const level = sum / rec.buf.length / 255;
+        if (level > best.level && level > 0.08) best = { sid, level };
+      });
+      setActiveSpeakerSocketId((prev) => best.sid ?? prev); // sticky — don't blank out on silence
+    }, 200);
+    return () => {
+      clearInterval(iv);
+      analysers.forEach((rec) => { try { rec.srcNode.disconnect(); } catch {} });
+    };
+  }, [rtc.remoteStreams]);
+
   // ── Broadcast the active video stream for the PiP ─────────────────────────
   // The minimized call widget (MinimizedWebNode) shows a tactical PiP of the
   // currently dominant video — preferring a peer's screen share, then the
@@ -416,18 +478,34 @@ export default function VoiceChannel({
   // minimized) can read the current stream immediately instead of waiting
   // for the next change event.
   useEffect(() => {
+    // Priority order for the minimized PiP video:
+    //   1. Any peer's screen share
+    //   2. Your own screen share
+    //   3. Whichever peer is CURRENTLY SPEAKING and has camera on
+    //      (this is the "video should switch to whoever is speaking" fix)
+    //   4. Any peer with camera on
+    //   5. Your own camera
     const remoteScreens = Object.values(rtc.screenStreams || {});
-    const active =
-      remoteScreens[0] ||
-      (isSharing && screenStream ? screenStream : null) ||
-      (rtc.isVideoOn && rtc.localStream ? rtc.localStream : null) ||
-      null;
+    let active = remoteScreens[0]
+      || (isSharing && screenStream ? screenStream : null);
+    if (!active) {
+      const speakerStream = activeSpeakerSocketId ? rtc.remoteStreams?.[activeSpeakerSocketId] : null;
+      const speakerHasVideo = speakerStream?.getVideoTracks().some(t => t.enabled && !t.muted && t.readyState === 'live');
+      if (speakerHasVideo) active = speakerStream;
+    }
+    if (!active) {
+      // Fall back to the first peer whose camera is on.
+      const cameraStream = Object.values(rtc.remoteStreams || {}).find(s =>
+        s.getVideoTracks().some(t => t.enabled && !t.muted && t.readyState === 'live')
+      );
+      active = cameraStream || (rtc.isVideoOn && rtc.localStream ? rtc.localStream : null);
+    }
     try { window.__spidrCallStream = active; } catch {}
     window.dispatchEvent(new CustomEvent('spidr-call-stream', { detail: { stream: active } }));
     return () => {
       try { if (window.__spidrCallStream === active) window.__spidrCallStream = null; } catch {}
     };
-  }, [rtc.screenStreams, rtc.isVideoOn, rtc.localStream, isSharing, screenStream]);
+  }, [rtc.screenStreams, rtc.isVideoOn, rtc.localStream, isSharing, screenStream, rtc.remoteStreams, activeSpeakerSocketId]);
 
   // ── Camera toggle (hardened) ─────────────────────────────────────────────
   // The previous toggleVideo could leave the user "kicked out" if
@@ -456,24 +534,25 @@ export default function VoiceChannel({
     if (mediaStream && mySession) {
       setIsScreenSharing(true);
       updateMutation.mutate({ id: mySession.id, data: { is_screen_sharing: true } });
-      // Push the screen-share video track to all peers so they can actually
-      // see/join the share (renegotiation handled inside useWebRTC).
-      const screenTrack = mediaStream.getVideoTracks()[0];
-      if (screenTrack) {
-        screenTrackRef.current = screenTrack;
-        rtc.addOutgoingTrack(screenTrack, mediaStream, 'screen');
-        // If the user ends the share via the browser's native control, clean up.
-        screenTrack.addEventListener('ended', handleStopStream, { once: true });
-      }
+      // Push EVERY screen track — video AND audio. Sending only the video
+      // track meant peers could see your share but couldn't hear the tab /
+      // system audio you were sharing (the "others can't hear me while
+      // streaming" bug). We keep refs to both so stopShare can remove them
+      // cleanly and the browser's native "Stop sharing" tears everything down.
+      const tracks = mediaStream.getTracks();
+      screenTrackRef.current = tracks; // now an array of MediaStreamTrack
+      tracks.forEach((t) => rtc.addOutgoingTrack(t, mediaStream, 'screen'));
+      const videoTrack = mediaStream.getVideoTracks()[0];
+      if (videoTrack) videoTrack.addEventListener('ended', handleStopStream, { once: true });
     }
   };
 
   const handleStopStream = () => {
-    // Stop sending the screen track to peers before tearing down the stream.
-    if (screenTrackRef.current) {
-      rtc.removeOutgoingTrack(screenTrackRef.current);
-      screenTrackRef.current = null;
-    }
+    // Stop sending ALL screen tracks (video + system audio) to peers.
+    const refVal = screenTrackRef.current;
+    if (Array.isArray(refVal)) refVal.forEach((t) => rtc.removeOutgoingTrack(t));
+    else if (refVal) rtc.removeOutgoingTrack(refVal);
+    screenTrackRef.current = null;
     stopShare();
     setIsScreenSharing(false);
     if (mySession) updateMutation.mutate({ id: mySession.id, data: { is_screen_sharing: false } });
@@ -857,17 +936,21 @@ export default function VoiceChannel({
                   const sessionProfile = profiles.find(p => p.user_id === session.user_id);
                   const isApexSess = sessionProfile?.apex_tier === 'apex';
                   const isSelf = session.user_id === currentUser?.id;
-                  // For remote peers: try to find their stream by user_id, with a
-                  // single-peer fallback. (The current useWebRTC mesh keys by
-                  // socketId, not user_id; tracking per-user would be a small
-                  // follow-up in useWebRTC. For now the first remote stream is
-                  // assigned to the first remote peer — fine for 1:1 voice.)
-                  const remoteStreams = Object.values(rtc.remoteStreams || {});
-                  const peerStream = isSelf ? rtc.localStream : (remoteStreams[0] || null);
-                  // Find the socketId for this peer's audio element so the
-                  // context menu's volume slider can target the right element.
-                  const peerSocketId = isSelf ? null : Object.keys(rtc.remoteStreams || {})
-                    .find(sid => rtc.remoteStreams[sid] === peerStream);
+                  // Match streams to sessions by user_id (peers map holds
+                  // socketId → { userId }). The old code returned
+                  // remoteStreams[0] for EVERY remote session, so with 3+
+                  // members everyone after the first bound to the same
+                  // stream and the third joiner's tile went blank (the
+                  // "phone joiners audible but invisible" bug).
+                  let peerSocketId = null;
+                  let peerStream = null;
+                  if (isSelf) {
+                    peerStream = rtc.localStream;
+                  } else {
+                    const peers = rtc.peers || {};
+                    peerSocketId = Object.keys(peers).find(sid => peers[sid]?.userId === session.user_id) || null;
+                    peerStream = peerSocketId ? (rtc.remoteStreams?.[peerSocketId] || null) : null;
+                  }
 
                   // During screen share, participants compress into compact
                   // horizontal status pills in the right sidebar (hidden if the
@@ -956,10 +1039,22 @@ export default function VoiceChannel({
                 <button onClick={() => setShowAIPanel(false)} className="text-zinc-500 hover:text-white"><X size={14} /></button>
               </div>
               <div className="flex-1 p-4 space-y-2.5 overflow-y-auto">
-                {[['music','🎵','Play Music'],['video','📺','Stream Video'],['movie','🎬','Watch Together']].map(([a,e,l]) => (
+                {[
+                  ['music', Music,    'Play Music',      '#c084fc'],
+                  ['video', MonitorUp,'Stream Video',    '#60a5fa'],
+                  ['movie', Tv,       'Watch Together',  '#f87171'],
+                ].map(([a, Icon, l, color]) => (
                   <button key={a} onClick={() => invokeSpidrAI(a)} disabled={isAILoading}
                     className="w-full flex items-center gap-3 px-3 py-2.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 rounded-xl text-white text-sm transition-colors border border-white/5 font-medium">
-                    <span className="text-base">{e}</span>{l}
+                    {/* Custom Spidr iconography instead of OS emoji — matches
+                        the AI icons used throughout messages/AIPanel. */}
+                    <span
+                      className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                      style={{ background: `${color}1a`, color }}
+                    >
+                      <Icon size={14} />
+                    </span>
+                    {l}
                   </button>
                 ))}
                 <div className="pt-2 border-t border-white/5">
@@ -1023,6 +1118,22 @@ export default function VoiceChannel({
             activeTint="#a855f7"
           >
             <MonitorUp size={18} className={isSharing ? 'text-purple-300' : 'text-white/40'} />
+          </DockBtn>
+          {/* Deafen — silences ALL incoming voice (and mic, Discord convention).
+              Fires the same window event the pill/chip use, so state stays
+              in sync everywhere. */}
+          <DockBtn
+            active={isDeafened}
+            onClick={() => {
+              const next = !isDeafened;
+              window.dispatchEvent(new CustomEvent('spidr-call-deafen-toggle', { detail: { deafened: next } }));
+            }}
+            title={isDeafened ? 'Undeafen' : 'Deafen'}
+            activeTint="#ef4444"
+          >
+            {isDeafened
+              ? <HeadphoneOff size={18} className="text-red-400" />
+              : <Headphones size={18} className="text-white/40" />}
           </DockBtn>
           {/* Sync Feed — Theater Mode. Toggles the channel into co-op
               scrolling mode, where the toggler becomes the host and

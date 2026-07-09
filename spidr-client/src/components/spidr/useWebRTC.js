@@ -90,8 +90,6 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
     pc.ontrack = (event) => {
       const [stream] = event.streams;
       if (!stream) return;
-      setRemoteStreams(prev => ({ ...prev, [socketId]: stream }));
-      setPeers(prev => ({ ...prev, [socketId]: { ...prev[socketId], stream } }));
       // Record this stream id under the peer so screen-meta can classify it.
       setPeerStreams(prev => {
         const forPeer = { ...(prev[socketId] || {}) };
@@ -100,10 +98,25 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
         peerStreamsRef.current = next;
         return next;
       });
-      // If screen-meta already arrived for this stream id, classify it now.
-      if (pendingScreenRef.current[socketId] === stream.id) {
+      // Screen streams must NEVER become the peer's remoteStreams entry —
+      // that entry feeds the hidden <audio> elements. Overwriting it with a
+      // video-only screen stream muted the sharer for the entire call.
+      const isKnownScreen = pendingScreenRef.current[socketId] === stream.id;
+      if (isKnownScreen) {
         delete pendingScreenRef.current[socketId];
         setScreenStreams(prev => ({ ...prev, [socketId]: stream }));
+      } else {
+        setRemoteStreams(prev => {
+          const existing = prev[socketId];
+          // Adopt this stream as the peer's AV stream when: it carries audio
+          // (authoritative mic stream), we have nothing yet, or it's the same
+          // stream object we already track (camera track added to it).
+          if (event.track.kind === 'audio' || !existing || existing.id === stream.id) {
+            return { ...prev, [socketId]: stream };
+          }
+          return prev; // video-only second stream, unclassified → wait for meta
+        });
+        setPeers(prev => ({ ...prev, [socketId]: { ...prev[socketId], stream } }));
       }
       // If a track inside a classified screen stream ends, drop the screen.
       stream.getVideoTracks().forEach(t => {
@@ -310,6 +323,16 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
         const stream = peerStreamsRef.current[socketId]?.[streamId];
         if (stream) {
           setScreenStreams(prev => ({ ...prev, [socketId]: stream }));
+          // If this screen stream had been (mis)adopted as the peer's AV
+          // stream before the meta arrived, hand the AV slot back to the
+          // stream that actually carries their mic.
+          setRemoteStreams(prev => {
+            if (prev[socketId]?.id !== streamId) return prev;
+            const candidates = Object.values(peerStreamsRef.current[socketId] || {});
+            const withAudio = candidates.find(s => s.id !== streamId && s.getAudioTracks().length > 0);
+            if (withAudio) return { ...prev, [socketId]: withAudio };
+            return prev;
+          });
         } else {
           // The meta arrived before ontrack — stash the pending id so a late
           // ontrack can resolve it.

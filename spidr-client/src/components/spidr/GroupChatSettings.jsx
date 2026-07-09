@@ -32,7 +32,10 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
       queryClient.invalidateQueries({ queryKey: ['group', group.id] });
       queryClient.invalidateQueries({ queryKey: ['user-groups'] });
       toast.success('Group updated successfully!');
-    }
+    },
+    onError: (err) => {
+      toast.error(err?.message || 'Save failed — try again');
+    },
   });
 
   const removeMemberMutation = useMutation({

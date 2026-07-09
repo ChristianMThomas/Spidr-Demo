@@ -27,6 +27,8 @@ import ApexVisuals from './ApexVisuals';
 import { USERNAME_FONTS, USERNAME_WEIGHTS, USERNAME_STYLES, USERNAME_EFFECTS, buildUsernameStyle } from '@/lib/usernameStyle';
 import { toast } from 'sonner';
 import { getMediaPrefs, setMediaPrefs } from '@/lib/mediaDevicePrefs';
+import { account } from '@/api/apiClient';
+import { AlertTriangle, Trash2 } from 'lucide-react';
 
 export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) {
   const { logout } = useAuth();
@@ -866,6 +868,12 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                 </div>
                 <Switch defaultChecked />
               </div>
+
+              {/* Danger Zone — permanent account deletion.
+                  Triggers the server-side cascade that removes every DM,
+                  message, clip, comment, friend link, group membership,
+                  wallet, and profile owned by the user. Irreversible. */}
+              <DangerZone />
             </div>
           </TabsContent>
 
@@ -1434,5 +1442,60 @@ function VoiceVideoSettings() {
 
       </div>
     </>
+  );
+}
+
+
+/* ── Danger Zone — permanent account deletion ────────────────────────────
+ * Requires typing the exact word DELETE. Calls /account/me which cascades:
+ * profile, wallet, DMs (sent + received), messages, clips, comments,
+ * friend links, group memberships, notifications, voice sessions,
+ * installed modules, saved audio, custom bots, and every server the user
+ * owned. Once done, the token is cleared and the user is routed to /login.
+ */
+function DangerZone() {
+  const [confirm, setConfirm] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const canDelete = confirm.trim() === 'DELETE';
+  const onDelete = async () => {
+    if (!canDelete || busy) return;
+    setBusy(true);
+    try {
+      await account.deleteMe();
+      try { localStorage.removeItem('spidr_token'); } catch {}
+      toast.success('Account deleted.');
+      setTimeout(() => { window.location.href = '/login'; }, 400);
+    } catch (err) {
+      toast.error(err?.message || 'Delete failed');
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-8 pt-6 border-t border-red-500/20">
+      <div className="rounded-xl border border-red-500/30 bg-red-500/[0.03] p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-red-400" />
+          <h3 className="text-red-300 font-black uppercase tracking-widest text-sm">Danger Zone</h3>
+        </div>
+        <p className="text-zinc-400 text-sm">
+          Deleting your account is <strong className="text-red-300">permanent</strong>. Every message, DM, clip, comment,
+          friendship, group membership, wallet, and profile is erased. Servers you own will be deleted.
+          There is no recovery. To continue, type <code className="px-1.5 py-0.5 bg-black/60 rounded text-red-300">DELETE</code> below.
+        </p>
+        <input
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder="Type DELETE to confirm"
+          className="w-full bg-black/60 border border-red-500/30 rounded-lg px-3 py-2 text-white text-sm placeholder:text-zinc-600 focus:outline-none focus:border-red-500/60"
+        />
+        <button
+          onClick={onDelete}
+          disabled={!canDelete || busy}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-black uppercase tracking-widest text-xs transition-colors"
+        >
+          <Trash2 className="w-4 h-4" /> {busy ? 'Deleting…' : 'Delete My Account Permanently'}
+        </button>
+      </div>
+    </div>
   );
 }

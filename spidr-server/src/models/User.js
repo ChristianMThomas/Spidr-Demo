@@ -9,6 +9,9 @@ const s = new Schema({
   bio:          String,
   status:       { type: String, default: 'online' },
   is_banned:    { type: Boolean, default: false },
+  // Platform-wide admin flag (parallel to role: 'admin'). Existing routes
+  // check either — legacy code reads is_admin, newer accountAdmin uses role.
+  is_admin:     { type: Boolean, default: false },
   is_verified:  { type: Boolean, default: false },
   twoFactorMethod: { type: String, enum: ['none','email','totp'], default: 'none' },
   twoFactorSecret: { type: String },

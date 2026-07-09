@@ -50,6 +50,7 @@ const Router = isElectron ? HashRouter : BrowserRouter;
 // Lazy-load every page so a fresh user only downloads the code they need.
 // Suspense fallback in SpidrShell.jsx shows a spinner during the chunk load.
 const HomeDashboard = lazy(() => import('@/pages/HomeDashboard'));
+const Admin = lazy(() => import('@/pages/Admin'));
 const FriendsPage   = lazy(() => import('@/pages/Friends'));
 const ServersPage   = lazy(() => import('@/pages/Servers'));
 const TheWebPage    = lazy(() => import('@/pages/TheWeb'));
@@ -117,6 +118,7 @@ function AppRoutes() {
         <Route path="/overlay/protocol" element={<ProtocolOverlay />} />
         <Route element={<AppShellProvider><MediaProvider><NowPlayingProvider><SpidrShell /></NowPlayingProvider></MediaProvider></AppShellProvider>}>
           <Route path="/home"            element={<HomeDashboard />} />
+          <Route path="/admin"           element={<Admin />} />
           <Route path="/friends"         element={<FriendsPage />} />
           <Route path="/friends/:tab"    element={<FriendsPage />} />
           <Route path="/servers"         element={<ServersPage />} />

@@ -133,7 +133,13 @@ router.post('/', authMiddleware, async (req, res) => {
     // Allowed — create normally
     const doc = await Message.create({ ...data, user_id: userId });
     const { _id, __v, ...out } = doc.toObject();
-    res.status(201).json({ id: _id.toString(), ...out });
+    const outWithId = { id: _id.toString(), ...out };
+    // BROADCAST — the socket handlers.js path emits message:new for socket-
+    // originating writes; REST-originating writes must also emit or the
+    // bell has nothing to fire on for @-mentions and channel replies.
+    const io = req.app.get('io');
+    io?.to(`channel:${data.server_id}:${data.channel_id}`).emit('message:new', outWithId);
+    res.status(201).json(outWithId);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
