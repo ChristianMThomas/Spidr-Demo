@@ -27,6 +27,7 @@ import ApexVisuals from './ApexVisuals';
 import { USERNAME_FONTS, USERNAME_WEIGHTS, USERNAME_STYLES, USERNAME_EFFECTS, buildUsernameStyle } from '@/lib/usernameStyle';
 import { toast } from 'sonner';
 import { getMediaPrefs, setMediaPrefs } from '@/lib/mediaDevicePrefs';
+import spidrApexBadge from '@/assets/spidr-apex-badge.png';
 import { account } from '@/api/apiClient';
 import { AlertTriangle, Trash2 } from 'lucide-react';
 
@@ -277,14 +278,27 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
               )}
             </TabsList>
             <div className="flex gap-2 ml-auto shrink-0">
-              <Button 
-                variant="ghost" 
-                size="sm"
-                className="text-yellow-400 hover:text-yellow-300 hover:bg-yellow-900/20"
+              {/* APEX Tier button — the crest is the button. Hover adds a
+                  soft gold aura; the badge sells the tier without needing
+                  a label next to it. */}
+              <button
                 onClick={() => setShowApexStore(true)}
+                title="APEX Tier"
+                aria-label="Open APEX Store"
+                className="group relative p-1 rounded-xl transition-transform hover:scale-[1.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/60"
               >
-                <SpiderLogo size={14} /> <span className="hidden sm:inline ml-1">APEX</span>
-              </Button>
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ boxShadow: '0 0 22px rgba(250, 204, 21, 0.35)' }}
+                />
+                <img
+                  src={spidrApexBadge}
+                  alt=""
+                  draggable={false}
+                  className="w-9 h-9 object-contain drop-shadow-[0_0_10px_rgba(250,204,21,0.35)]"
+                />
+              </button>
               <Button 
                 variant="ghost" 
                 size="sm"

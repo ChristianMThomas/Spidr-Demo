@@ -3,7 +3,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import SpiderLogo from './SpiderLogo';
 
-const SPIDR_AI_AVATAR = '/logo-bg.png';
+const SPIDR_AI_AVATAR = '/spidr-mascot.png';
 
 export { SPIDR_AI_AVATAR };
 

@@ -425,6 +425,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       sender_avatar: currentUser?.avatar_url || '',
       receiver_id: activeRecipientId,
       recipient_id: activeRecipientId,
+      // Denormalize recipient identity too — without these, DMs YOU sent
+      // couldn't be labeled in conversation lists (Jump Back In was showing
+      // "Node" as the fallback for every outgoing conversation).
+      recipient_name: displayName,
+      recipient_avatar: displayAvatar || '',
       content: message,
       attachments: attachments.map(att => att.url),
       is_read: false,
@@ -539,6 +544,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       sender_avatar: currentUser?.avatar_url || '',
       receiver_id: activeRecipientId,
       recipient_id: activeRecipientId,
+      // Denormalize recipient identity too — without these, DMs YOU sent
+      // couldn't be labeled in conversation lists (Jump Back In was showing
+      // "Node" as the fallback for every outgoing conversation).
+      recipient_name: displayName,
+      recipient_avatar: displayAvatar || '',
       content: message,
       is_read: false,
       is_ghost: ghostMode

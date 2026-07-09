@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { entities } from '@/api/apiClient';
 import { useAppShell } from '@/context/AppShellContext';
 import SpiderLogo from '@/components/spidr/SpiderLogo';
+import spidrMascot from '@/assets/spidr-mascot.png';
 import DiscoverUsers from '@/components/spidr/DiscoverUsers';
 import EnhancedFeed from '@/components/spidr/EnhancedFeed';
 import EngagementHub from '@/components/spidr/EngagementHub';
@@ -83,30 +84,52 @@ export default function HomeDashboard() {
     enabled: !!currentUser?.id,
     staleTime: 60_000,
   });
-  const recentConversations = React.useMemo(() => {
-    const seen = new Map();
-    for (const msg of allDMs) {
-      if (!msg.conversation_id || seen.has(msg.conversation_id)) continue;
-      const otherId = msg.sender_id === currentUser?.id ? msg.recipient_id : msg.sender_id;
-      seen.set(msg.conversation_id, {
-        conversationId: msg.conversation_id,
-        friendId: otherId,
-        name: (msg.sender_id === currentUser?.id ? msg.recipient_name : msg.sender_name) || 'Node',
-        avatar: (msg.sender_id === currentUser?.id ? msg.recipient_avatar : msg.sender_avatar) || '',
-        last: msg.content || (msg.media_url ? 'Media' : ''),
-        at: msg.created_date,
-      });
-      if (seen.size >= 6) break;
-    }
-    return [...seen.values()];
-  }, [allDMs, currentUser?.id]);
-
   const { data: friends = [] } = useQuery({
     queryKey: ['friends', currentUser?.id],
     queryFn: () => entities.Friend.filter({ user_id: currentUser?.id, status: 'accepted' }),
     enabled: !!currentUser?.id,
     staleTime: 60000,
   });
+  // Fast lookup by friend_id for resolving names on old DM rows whose
+  // denormalized recipient_name/avatar are empty.
+  const friendById = React.useMemo(() => {
+    const m = new Map();
+    for (const f of friends) m.set(f.friend_id, f);
+    return m;
+  }, [friends]);
+
+  const recentConversations = React.useMemo(() => {
+    const seen = new Map();
+    for (const msg of allDMs) {
+      if (!msg.conversation_id || seen.has(msg.conversation_id)) continue;
+      const otherId = msg.sender_id === currentUser?.id ? msg.recipient_id : msg.sender_id;
+      // Name resolution priority — the "Node" placeholder was landing here
+      // because outgoing DMs sent before the recipient_name schema field
+      // existed have empty denormalized fields. Look up the real name from
+      // the Friend list instead of trusting stale row data.
+      const iSent = msg.sender_id === currentUser?.id;
+      const friend = friendById.get(otherId);
+      const resolvedName =
+        (iSent ? msg.recipient_name : msg.sender_name) ||
+        friend?.friend_name ||
+        friend?.friend_username ||
+        'Unknown';
+      const resolvedAvatar =
+        (iSent ? msg.recipient_avatar : msg.sender_avatar) ||
+        friend?.friend_avatar ||
+        '';
+      seen.set(msg.conversation_id, {
+        conversationId: msg.conversation_id,
+        friendId: otherId,
+        name: resolvedName,
+        avatar: resolvedAvatar,
+        last: msg.content || (msg.media_url ? 'Media' : ''),
+        at: msg.created_date,
+      });
+      if (seen.size >= 6) break;
+    }
+    return [...seen.values()];
+  }, [allDMs, currentUser?.id, friendById]);
 
   // Best-effort first-name extraction for the greeting. Falls back to the
   // full name, then the username, then "spider".
@@ -298,7 +321,15 @@ export default function HomeDashboard() {
                       '0 0 18px rgba(239, 68, 68, 0.35), inset 0 0 14px rgba(168, 85, 247, 0.15)',
                   }}
                 >
-                  <SpiderLogo size={42} />
+                  {/* Real Spidr mascot (uploaded art) instead of the flat
+                      geometric SpiderLogo — same slot, same size, richer
+                      brand presence on the welcome slab. */}
+                  <img
+                    src={spidrMascot}
+                    alt="Spidr"
+                    className="w-16 h-16 object-contain drop-shadow-[0_0_18px_rgba(239,68,68,0.35)]"
+                    draggable={false}
+                  />
                 </div>
               </div>
 
