@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Sparkles, Server, User, Bot, Send, MessageCircle,
   Plus, Loader2, Wand2, Palette, Check, RotateCcw, X, Settings as SettingsIcon, Trash2, Copy
-} from 'lucide-react';
+, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { AI_PERSONALITIES, getPersonality } from '@/lib/roguePersonalities';
 import SpiderLogo from './SpiderLogo';
@@ -750,9 +750,15 @@ function ChatTab({ currentUser }) {
                   className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   {msg.role === 'assistant' && (
-                    <div className="w-8 h-8 rounded-full bg-red-600 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <SpiderLogo size={16} />
-                    </div>
+                    /* Transparent mascot render — no background tile, no
+                       square crop. The art floats with a soft red glow so it
+                       reads as a character, not an image file. */
+                    <img
+                      src="/spidr-mascot.png"
+                      alt="Spidr AI"
+                      draggable={false}
+                      className="w-9 h-9 object-contain flex-shrink-0 mt-0.5 drop-shadow-[0_0_8px_rgba(239,68,68,0.45)]"
+                    />
                   )}
                   <div
                     className={`max-w-[78%] min-w-0 rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere] group/msg relative ${
@@ -819,7 +825,7 @@ function ChatTab({ currentUser }) {
                 title="Summarize what you missed"
                 className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap border bg-gradient-to-r from-[#FF3333]/30 to-purple-500/20 border-[#FF3333]/50 text-white hover:from-[#FF3333]/40 transition-colors disabled:opacity-50 shrink-0"
               >
-                ⚡ Catch Me Up
+                <Zap size={12} className="text-yellow-300" /> Catch Me Up
               </button>
               <div className="w-px h-4 bg-white/10 shrink-0" />
               {AI_PERSONALITIES.map((p) => {
@@ -833,7 +839,10 @@ function ChatTab({ currentUser }) {
                       active ? 'bg-[#FF3333]/20 border-[#FF3333]/60 text-white' : 'bg-zinc-800/60 border-white/5 text-zinc-400 hover:text-white'
                     }`}
                   >
-                    <span>{p.emoji}</span>{p.name}
+                    {p.Icon
+                      ? <p.Icon size={12} style={{ color: p.iconColor || undefined }} />
+                      : <span>{p.emoji}</span>}
+                    {p.name}
                   </button>
                 );
               })}

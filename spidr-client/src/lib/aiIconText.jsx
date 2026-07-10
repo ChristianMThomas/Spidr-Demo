@@ -17,7 +17,7 @@ import {
  */
 
 // Bespoke spider mark for 🕷️/🕸️ — the AI's own sigil.
-const SpiderMark = ({ size = 14 }) => (
+export const SpiderMark = ({ size = 14 }) => (
   <svg viewBox="0 0 24 24" width={size} height={size} fill="none"
     stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
     <circle cx="12" cy="13" r="3.2" fill="currentColor" stroke="none" />
