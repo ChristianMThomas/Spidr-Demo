@@ -65,6 +65,9 @@ export default function VoiceChannel({
   const audioUnlockedRef = useRef(false);
   const localVideoRef   = useRef(null);
   const remoteAudioRefs = useRef({});
+  // Mobile autoplay gate — true when any remote <audio>.play() was blocked
+  // by the browser's gesture policy. The overlay's tap plays everything.
+  const [callAudioBlocked, setCallAudioBlocked] = useState(false);
   // Deafen must survive re-renders and late joiners: a peer whose <audio>
   // mounts AFTER you deafened used to come in UNMUTED (fresh element,
   // default muted=false) — you'd hear them despite the headphones-off icon.
@@ -708,6 +711,7 @@ export default function VoiceChannel({
             <audio
               key={socketId}
               autoPlay
+              playsInline
               muted={false}
               ref={el => {
                 if (!el) { delete remoteAudioRefs.current[socketId]; return; }
@@ -718,6 +722,11 @@ export default function VoiceChannel({
                 // & Video). No-op on browsers without setSinkId.
                 applySink(el);
                 el.srcObject = stream;
+                // Mobile autoplay policy: iOS Safari / mobile Chrome block
+                // WebRTC audio until a user gesture. Attempt playback and,
+                // if blocked, surface the tap-to-enable overlay instead of
+                // silently joining a call you can't hear.
+                el.play().catch(() => setCallAudioBlocked(true));
                 el.volume = 1;
                 el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
               }}

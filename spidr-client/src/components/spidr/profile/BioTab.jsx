@@ -1,13 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Globe, Clock, Terminal, Edit2, Check } from 'lucide-react';
+import { Globe, Clock, Terminal, Edit2, Check, Eye, EyeOff, Music } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { useQueryClient } from '@tanstack/react-query';
+import { entities } from '@/api/apiClient';
+import { toast } from 'sonner';
 import ProfileAnthem from '../ProfileAnthem';
 
 export default function BioTab({ userProfile, isOwnProfile, onWidgetSave, currentUser }) {
+  const queryClient = useQueryClient();
   const [localTime, setLocalTime] = useState('');
   const [tzLabel, setTzLabel] = useState('');
   const [editingActivity, setEditingActivity] = useState(false);
+  const widgetPrefs = userProfile?.profile_widget_prefs || {};
+  const showVibe = widgetPrefs.show_vibe_check !== false;
+  const showNeon = widgetPrefs.show_neon_sign !== false;
+  const toggleWidget = async (key) => {
+    try {
+      const next = { ...(userProfile?.profile_widget_prefs || {}), [key]: widgetPrefs[key] === false };
+      await entities.UserProfile.update(userProfile.id, { profile_widget_prefs: next });
+      queryClient.invalidateQueries({ queryKey: ['profiles'] });
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+    } catch { toast.error('Could not update widget visibility'); }
+  };
   const [editingPronouns, setEditingPronouns] = useState(false);
   const [activityVal, setActivityVal] = useState('');
   const [pronounsVal, setPronounsVal] = useState('');
@@ -106,10 +121,23 @@ export default function BioTab({ userProfile, isOwnProfile, onWidgetSave, curren
         currentUser={currentUser}
       />
 
+      {/* Widget visibility — owner can hide Vibe Check / Neon Sign from
+          visitors. Owner always sees the cards (dimmed when hidden) so the
+          toggle stays reachable; visitors see only what's enabled. */}
+      {/* eslint-disable-next-line no-unused-vars */}
       {/* Activity & Pronouns mini grid */}
       <div className="grid grid-cols-2 gap-2">
-        <div className="p-2.5 bg-white/[0.03] rounded-xl border border-white/[0.06]">
-          <div className="text-[9px] text-[#FF3333] uppercase font-bold tracking-widest">Vibe Check</div>
+        {(showVibe || isOwnProfile) && (
+        <div className={`p-2.5 bg-white/[0.03] rounded-xl border border-white/[0.06] ${!showVibe ? 'opacity-40' : ''}`}>
+          <div className="flex items-center justify-between">
+            <div className="text-[9px] text-[#FF3333] uppercase font-bold tracking-widest">Vibe Check</div>
+            {isOwnProfile && (
+              <button onClick={() => toggleWidget('show_vibe_check')} title={showVibe ? 'Hide from visitors' : 'Show to visitors'}
+                className="text-gray-600 hover:text-white transition-colors">
+                {showVibe ? <Eye size={11} /> : <EyeOff size={11} />}
+              </button>
+            )}
+          </div>
           {editingActivity && isOwnProfile ? (
             <div className="flex gap-1 mt-0.5">
               <Input
@@ -124,13 +152,25 @@ export default function BioTab({ userProfile, isOwnProfile, onWidgetSave, curren
             </div>
           ) : (
             <div className="flex items-center justify-between mt-0.5">
-              <span className="text-xs text-white truncate">{userProfile?.activity?.name ? `🎵 ${userProfile.activity.name}` : '🎵 –'}</span>
+              <span className="text-xs text-white truncate">{userProfile?.activity?.name
+                ? <><Music size={10} className="inline mr-1 text-[#FF3333]" />{userProfile.activity.name}</>
+                : <><Music size={10} className="inline mr-1 text-zinc-600" />–</>}</span>
               {isOwnProfile && <Edit2 className="w-3 h-3 text-gray-600 cursor-pointer hover:text-white flex-shrink-0" onClick={() => { setEditingActivity(true); setActivityVal(userProfile?.activity?.name || ''); }} />}
             </div>
           )}
         </div>
-        <div className="p-2.5 bg-white/[0.03] rounded-xl border border-white/[0.06]">
-          <div className="text-[9px] text-[#FF3333] uppercase font-bold tracking-widest">Neon Sign</div>
+        )}
+        {(showNeon || isOwnProfile) && (
+        <div className={`p-2.5 bg-white/[0.03] rounded-xl border border-white/[0.06] ${!showNeon ? 'opacity-40' : ''}`}>
+          <div className="flex items-center justify-between">
+            <div className="text-[9px] text-[#FF3333] uppercase font-bold tracking-widest">Neon Sign</div>
+            {isOwnProfile && (
+              <button onClick={() => toggleWidget('show_neon_sign')} title={showNeon ? 'Hide from visitors' : 'Show to visitors'}
+                className="text-gray-600 hover:text-white transition-colors">
+                {showNeon ? <Eye size={11} /> : <EyeOff size={11} />}
+              </button>
+            )}
+          </div>
           {editingPronouns && isOwnProfile ? (
             <div className="flex gap-1 mt-0.5">
               <Input
@@ -145,11 +185,12 @@ export default function BioTab({ userProfile, isOwnProfile, onWidgetSave, curren
             </div>
           ) : (
             <div className="flex items-center justify-between mt-0.5">
-              <span className="text-xs font-bold text-pink-500" style={{ textShadow: '0 0 8px rgba(236,72,153,0.6)' }}>{userProfile?.pronouns || '✨ Set sign'}</span>
+              <span className="text-xs font-bold text-pink-500" style={{ textShadow: '0 0 8px rgba(236,72,153,0.6)' }}>{userProfile?.pronouns || 'Set sign'}</span>
               {isOwnProfile && <Edit2 className="w-3 h-3 text-pink-800 cursor-pointer hover:text-pink-400 flex-shrink-0" onClick={() => { setEditingPronouns(true); setPronounsVal(userProfile?.pronouns || ''); }} />}
             </div>
           )}
         </div>
+        )}
       </div>
     </motion.div>
   );

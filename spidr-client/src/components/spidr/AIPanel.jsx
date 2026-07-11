@@ -490,7 +490,7 @@ function ChatTab({ currentUser }) {
     if (chatLogs.length > 0) {
       setMessages(chatLogs.map(l => ({ role: l.role, content: l.content })));
     } else if (selectedConvId) {
-      setMessages([{ role: 'assistant', content: "Hey there! 🕷️ I'm Spidr AI. Ask me anything — servers, Spidr features, or just chat!" }]);
+      setMessages([{ role: 'assistant', content: "Hey there! I'm Spidr AI. Ask me anything — servers, Spidr features, or just chat!" }]);
     }
   }, [chatLogs, selectedConvId]);
 
@@ -511,7 +511,7 @@ function ChatTab({ currentUser }) {
     onSuccess: (conv) => {
       queryClient.invalidateQueries({ queryKey: ['ai-conversations'] });
       setSelectedConvId(conv.id);
-      setMessages([{ role: 'assistant', content: "Hey there! 🕷️ I'm Spidr AI. Ask me anything!" }]);
+      setMessages([{ role: 'assistant', content: "Hey there! I'm Spidr AI. Ask me anything!" }]);
     },
   });
 
@@ -547,7 +547,7 @@ function ChatTab({ currentUser }) {
       if (selectedConvId === convId) {
         const remaining = conversations.filter(c => c.id !== convId);
         setSelectedConvId(remaining[0]?.id || null);
-        setMessages(remaining[0] ? [] : [{ role: 'assistant', content: "Hey there! 🕷️ I'm Spidr AI. Ask me anything!" }]);
+        setMessages(remaining[0] ? [] : [{ role: 'assistant', content: "Hey there! I'm Spidr AI. Ask me anything!" }]);
       }
       toast.success('Chat deleted');
     },
@@ -631,7 +631,7 @@ function ChatTab({ currentUser }) {
   const catchMeUp = async () => {
     if (loading || !selectedConvId) return;
     setLoading(true);
-    setMessages(prev => [...prev, { role: 'user', content: '⚡ Catch me up on what I missed.' }]);
+    setMessages(prev => [...prev, { role: 'user', content: 'Catch me up on what I missed.' }]);
     try {
       // Gather recent activity (best-effort; any source can be empty).
       let dms = [], groupMsgs = [];

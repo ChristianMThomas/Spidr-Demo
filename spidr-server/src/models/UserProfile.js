@@ -150,6 +150,9 @@ const s = new Schema({
   // Sound settings (Settings → Notifications & Sounds). Schema-first so
   // strict mode does not silently drop the write.
   sound_prefs:        { type: Schema.Types.Mixed, default: null },
+  // Profile widget visibility (Vibe Check / Neon Sign toggles). null = all
+  // visible. Schema-first so strict mode persists the write.
+  profile_widget_prefs: { type: Schema.Types.Mixed, default: null },
   // "Spidr Web" pinned conversations (Patch 1.4 §3.1) — array of refs like
   // { kind: 'dm'|'group', id, name, avatar } locked to a priority section.
   pinned_conversations: { type: [Schema.Types.Mixed], default: [] },

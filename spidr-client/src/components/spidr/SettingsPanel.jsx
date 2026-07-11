@@ -35,6 +35,12 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
   const { logout } = useAuth();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
+  // Deep-link: /settings?apex=1 opens the APEX store immediately — used by
+  // the dock's badge button so Apex is one tap from anywhere.
+  useEffect(() => {
+    if (searchParams.get('apex') === '1') setShowApexStore(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Spidr Protocol is the OS-level transparent HUD spawned by the Electron
   // app — there's no web equivalent (no transparent always-on-top windows
   // in a browser), so the tab is hidden in the web build entirely.

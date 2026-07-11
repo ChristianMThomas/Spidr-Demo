@@ -539,8 +539,8 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                     onClick={() => handleOpenGroup(group.id)}
                   >
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center text-white font-bold text-sm shrink-0">
-                      {group.icon_url ? (
-                        <img src={group.icon_url} alt={group.name} className="w-full h-full rounded-full object-cover" />
+                      {(group.avatar_url || group.icon_url) ? (
+                        <img src={group.avatar_url || group.icon_url} alt={group.name} className="w-full h-full rounded-full object-cover" />
                       ) : (
                         (group.name || 'G').charAt(0).toUpperCase()
                       )}

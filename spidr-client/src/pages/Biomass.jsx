@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api, entities, biomass as biomassApi } from '@/api/apiClient';
+import { useAppShell } from '@/context/AppShellContext';
 import { toast } from 'sonner';
 import { Zap, Sparkles, ShoppingBag, Clock, Check, Lock } from 'lucide-react';
 
@@ -23,6 +24,11 @@ const CATEGORY_LABELS = {
 };
 
 export default function BiomassPage() {
+  // THE Biomass white-screen fix: this page referenced `currentUser` in its
+  // queries (lines below) without ever defining it — a ReferenceError on
+  // first render crashed the whole route. Pull it from the shell context
+  // like every other page does.
+  const { currentUser } = useAppShell();
   const [activeTab, setActiveTab] = useState('wallet');
   const queryClient = useQueryClient();
 
