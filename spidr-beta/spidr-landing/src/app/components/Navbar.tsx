@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Menu, X, Sparkles } from "lucide-react";
 import logo from "../../assets/Spidr.png";
 
-const navLinks = ["Features", "Community"];
+const navLinks = ["Product", "Features", "Community", "FAQ"];
 
 function scrollToSection(id: string) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });

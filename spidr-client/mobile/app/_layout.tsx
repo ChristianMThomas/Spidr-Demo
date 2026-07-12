@@ -10,6 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { queryClient } from '../lib/queryClient';
 import { AuthProvider, useAuth } from '../lib/authContext';
 import { AppShellProvider } from '../lib/appShellContext';
+import IncomingCallModal from '../components/call/IncomingCallModal';
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoadingAuth } = useAuth();
@@ -44,6 +45,7 @@ export default function RootLayout() {
               <AuthGate>
                 <StatusBar style="light" />
                 <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#111111' } }} />
+                <IncomingCallModal />
               </AuthGate>
             </AppShellProvider>
           </AuthProvider>

@@ -162,6 +162,9 @@ function startSocketIO(withRedis) {
     maxHttpBufferSize: 5e6,
   });
   app.set('io', io);
+  // Hand the instance to code that runs outside req/socket context
+  // (model hooks, spidrSystem DMs) — see utils/realtime.js.
+  require('./utils/realtime').setIO(io);
   if (withRedis) {
     const pub = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
     const sub = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
@@ -223,6 +226,10 @@ mongoose
     seedDefaultModules();
     seedDefaultBots();
     syncInstallCounts();
+    // Spidr System account — the platform's own user; everyone's default
+    // friend and the source of update/notification DMs.
+    const { ensureSystemUser } = require('./utils/spidrSystem');
+    ensureSystemUser().catch((err) => console.warn('Spidr System seed failed:', err.message));
     // Auto-expire past server events (3.3) — runs on boot + every 6h.
     const { scheduleEventExpiry } = require('./utils/expireEvents');
     scheduleEventExpiry();

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useThemeColors } from '../../lib/theme';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -42,8 +43,10 @@ export default function Servers() {
     );
   }, [myServers, search]);
 
+  const colors = useThemeColors();
+
   return (
-    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#050505' }}>
+    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.bg }}>
       {/* Search */}
       <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 }}>
         <View
@@ -82,7 +85,6 @@ export default function Servers() {
         <FlashList
           data={filtered}
           keyExtractor={(s: any) => String(s.id || s._id)}
-          estimatedItemSize={72}
           refreshControl={
             <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor="#dc2626" />
           }

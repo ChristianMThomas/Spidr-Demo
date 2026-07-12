@@ -41,14 +41,6 @@ const DEFAULT_MODULES = [
     payload: JSON.stringify({ content: "The web is woven from light." }),
   },
   {
-    name: "Lo-fi Radio",
-    description: "Embed a mini lo-fi beats player on your profile for chill vibes.",
-    type: "live_feed",
-    category: "audio",
-    tags: ["music", "lofi", "radio"],
-    payload: JSON.stringify({ feed_title: "Lo-fi Stream", items: [{ title: "beats to study to", detail: "live" }] }),
-  },
-  {
     name: "Daily Streak Counter",
     description: "Track how many consecutive days you've been active on Spidr.",
     type: "display_widget",
@@ -93,10 +85,20 @@ const DEFAULT_MODULES = [
   },
 ];
 
+// Modules that used to ship but have been retired. On boot we hard-delete
+// them so their card stops appearing in the Module Nexus and they can't be
+// installed on any new profile.
+const RETIRED_MODULES = ["Lo-fi Radio"];
+
 async function seedDefaultModules() {
   try {
     let created = 0;
     let updated = 0;
+    let retired = 0;
+    for (const name of RETIRED_MODULES) {
+      const res = await Module.deleteMany({ name, author_id: SPIDR_AUTHOR_ID });
+      retired += res.deletedCount || 0;
+    }
     for (const def of DEFAULT_MODULES) {
       const existing = await Module.findOne({
         name: def.name,
@@ -133,8 +135,8 @@ async function seedDefaultModules() {
         created++;
       }
     }
-    if (created > 0 || updated > 0) {
-      console.log(`✓ Module seed: ${created} created, ${updated} updated`);
+    if (created > 0 || updated > 0 || retired > 0) {
+      console.log(`✓ Module seed: ${created} created, ${updated} updated, ${retired} retired`);
     }
   } catch (err) {
     console.warn('Module seed failed:', err?.message);

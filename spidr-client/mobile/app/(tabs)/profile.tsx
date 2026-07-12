@@ -19,12 +19,10 @@ import {
   Info,
 } from 'lucide-react-native';
 import { useAppShell } from '../../lib/appShellContext';
+import { useThemeColors } from '../../lib/theme';
 import { useAuth } from '../../lib/authContext';
 import { Avatar } from '../../components/ui/Avatar';
 import { Spinner } from '../../components/ui/Spinner';
-
-const phaseTwo = (label: string) =>
-  Alert.alert('Phase 2 — Coming soon', `${label} on mobile lands in Phase 2.`);
 
 interface Row {
   key: string;
@@ -44,6 +42,7 @@ export default function Settings() {
   const { currentUser, userLoaded } = useAppShell();
   const { logout } = useAuth();
   const router = useRouter();
+  const colors = useThemeColors();
 
   if (!userLoaded) return <Spinner />;
 
@@ -67,7 +66,7 @@ export default function Settings() {
           hint: 'Spotify, Steam, Twitch, etc.',
           Icon: Plug,
           color: '#a855f7',
-          onPress: () => phaseTwo('Connections'),
+          onPress: () => router.push('/settings/connections'),
         },
         {
           key: 'security',
@@ -75,7 +74,7 @@ export default function Settings() {
           hint: 'Password, two-factor, sessions',
           Icon: Shield,
           color: '#22c55e',
-          onPress: () => phaseTwo('Security'),
+          onPress: () => router.push('/settings/security'),
         },
       ],
     },
@@ -88,7 +87,7 @@ export default function Settings() {
           hint: 'Theme, accent color, layout',
           Icon: Palette,
           color: '#f97316',
-          onPress: () => phaseTwo('Appearance'),
+          onPress: () => router.push('/settings/appearance'),
         },
         {
           key: 'notifications',
@@ -96,7 +95,7 @@ export default function Settings() {
           hint: 'Push, sound, badge',
           Icon: Bell,
           color: '#eab308',
-          onPress: () => phaseTwo('Notifications'),
+          onPress: () => router.push('/settings/notifications'),
         },
         {
           key: 'privacy',
@@ -104,7 +103,7 @@ export default function Settings() {
           hint: 'Who can DM, friend, find you',
           Icon: Lock,
           color: '#60a5fa',
-          onPress: () => phaseTwo('Privacy'),
+          onPress: () => router.push('/settings/privacy'),
         },
       ],
     },
@@ -117,7 +116,7 @@ export default function Settings() {
           hint: 'Mic, camera, push-to-talk',
           Icon: Mic,
           color: '#ec4899',
-          onPress: () => phaseTwo('Voice & Video'),
+          onPress: () => router.push('/settings/voice-video'),
         },
         {
           key: 'avlab',
@@ -125,7 +124,7 @@ export default function Settings() {
           hint: 'Studio + clip uploader',
           Icon: Video,
           color: '#06b6d4',
-          onPress: () => phaseTwo('A/V Lab'),
+          onPress: () => router.push('/settings/avlab'),
         },
       ],
     },
@@ -138,7 +137,7 @@ export default function Settings() {
           hint: 'Network & socket diagnostics',
           Icon: Cpu,
           color: '#84cc16',
-          onPress: () => phaseTwo('Protocol'),
+          onPress: () => router.push('/settings/protocol'),
         },
         {
           key: 'widgets',
@@ -146,7 +145,7 @@ export default function Settings() {
           hint: 'Manage installed modules',
           Icon: Blocks,
           color: '#60a5fa',
-          onPress: () => phaseTwo('Widgets'),
+          onPress: () => router.push('/settings/widgets'),
         },
         ...(isApex
           ? [
@@ -156,7 +155,7 @@ export default function Settings() {
                 hint: 'Frame, nameplate, halo',
                 Icon: Crown,
                 color: '#eab308',
-                onPress: () => phaseTwo('APEX customization'),
+                onPress: () => router.push('/settings/apex'),
               } as Row,
             ]
           : []),
@@ -166,14 +165,14 @@ export default function Settings() {
           hint: 'Patch notes, version, credits',
           Icon: Info,
           color: '#a1a1aa',
-          onPress: () => phaseTwo('About'),
+          onPress: () => router.push('/settings/about'),
         },
       ],
     },
   ];
 
   return (
-    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#050505' }}>
+    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 32 }}>
         {/* Header */}
         <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14 }}>

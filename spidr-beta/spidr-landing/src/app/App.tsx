@@ -2,10 +2,12 @@ import { motion, useScroll, useTransform } from "motion/react";
 import { useRef, useState } from "react";
 import { useBetaStatus } from "./useBetaStatus";
 import Hero from "./components/Hero";
+import ProductShowcase from "./components/ProductShowcase";
 import WhySpidr from "./components/WhySpidr";
 import Features from "./components/Features";
 import Community from "./components/Community";
 import Platforms from "./components/Platforms";
+import FAQ from "./components/FAQ";
 import Footer from "./components/Footer";
 import Navbar from "./components/Navbar";
 import BetaSignupModal from "./components/BetaSignupModal";
@@ -69,10 +71,12 @@ export default function App() {
       <div className="relative z-10">
         <Navbar onOpenBeta={openBeta} />
         <Hero onOpenBeta={openBeta} betaStatus={betaStatus} />
+        <ProductShowcase />
         <WhySpidr />
         <Features />
-        <Community />
+        <Community betaStatus={betaStatus} />
         <Platforms onOpenBeta={openBeta} />
+        <FAQ onOpenBeta={openBeta} />
         <Footer />
       </div>
 

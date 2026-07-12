@@ -102,6 +102,9 @@ const s = new Schema({
   },
   // Notification preferences (3.4 of Patch 1.2) — persisted toggle state.
   notification_prefs: { type: Schema.Types.Mixed, default: null },
+  // Privacy preferences (Patch 1.9.x mobile settings) — persisted toggle state.
+  // Shape: { allow_dms, friend_requests, show_online, discoverable } booleans.
+  privacy_prefs: { type: Schema.Types.Mixed, default: null },
   // "Spidr Web" pinned conversations (Patch 1.4 §3.1) — array of refs like
   // { kind: 'dm'|'group', id, name, avatar } locked to a priority section.
   pinned_conversations: { type: [Schema.Types.Mixed], default: [] },

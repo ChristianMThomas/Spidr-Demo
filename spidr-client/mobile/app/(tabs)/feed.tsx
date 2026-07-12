@@ -82,7 +82,6 @@ export default function Feed() {
           ref={listRef}
           data={clips}
           keyExtractor={keyExtractor}
-          estimatedItemSize={cardHeight}
           pagingEnabled
           snapToInterval={cardHeight}
           decelerationRate="fast"
