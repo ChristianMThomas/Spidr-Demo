@@ -254,6 +254,11 @@ export const integrations = {
   },
 };
 
+// AI Scribe — server-side Whisper transcription of a voice-note audio URL.
+// Server caches per-URL; requires OPENAI_API_KEY on the server (503 with a
+// clear message otherwise, which the capsule surfaces verbatim).
+export const aiTranscribe = (audio_url) => api.post('/ai/transcribe', { audio_url });
+
 // ─── Algorithm / FYP ─────────────────────────────────────────────────────────
 export const searchUsers = (q) =>
   api.get('/users/search', { params: { q } }).catch(() => []);

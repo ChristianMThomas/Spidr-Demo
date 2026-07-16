@@ -160,7 +160,26 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
         setIsConnected(true);
-      } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+        // A recovered connection cancels any pending teardown.
+        clearTimeout(pc._discTimer);
+        pc._discTimer = null;
+      } else if (pc.connectionState === 'disconnected') {
+        // TRANSIENT-BLIP GUARD: 'disconnected' fires briefly during ICE
+        // re-checks — which renegotiation (screen share start/stop) can
+        // trigger. Tearing down instantly killed the peer's audio + video
+        // mid-share (the "streamer can't hear anyone once they share" bug:
+        // both sides dropped each other's streams on a blip that would have
+        // self-healed). Only tear down if still disconnected after 4s.
+        clearTimeout(pc._discTimer);
+        pc._discTimer = setTimeout(() => {
+          if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+            setRemoteStreams(prev => { const n = {...prev}; delete n[socketId]; return n; });
+            setPeers(prev => { const n = {...prev}; delete n[socketId]; return n; });
+          }
+        }, 4000);
+      } else if (['failed', 'closed'].includes(pc.connectionState)) {
+        // Hard failures tear down immediately.
+        clearTimeout(pc._discTimer);
         setRemoteStreams(prev => { const n = {...prev}; delete n[socketId]; return n; });
         setPeers(prev => { const n = {...prev}; delete n[socketId]; return n; });
       }

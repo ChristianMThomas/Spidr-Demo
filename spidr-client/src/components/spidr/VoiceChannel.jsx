@@ -65,9 +65,6 @@ export default function VoiceChannel({
   const audioUnlockedRef = useRef(false);
   const localVideoRef   = useRef(null);
   const remoteAudioRefs = useRef({});
-  // Mobile autoplay gate — true when any remote <audio>.play() was blocked
-  // by the browser's gesture policy. The overlay's tap plays everything.
-  const [callAudioBlocked, setCallAudioBlocked] = useState(false);
   // Deafen must survive re-renders and late joiners: a peer whose <audio>
   // mounts AFTER you deafened used to come in UNMUTED (fresh element,
   // default muted=false) — you'd hear them despite the headphones-off icon.
@@ -242,6 +239,29 @@ export default function VoiceChannel({
   // VoiceSession rows briefly exist (join/leave races, multiple tabs, or the
   // synthetic 'dm'/'group' server id sharing rows across conversations). Keep
   // the most-recently-updated row per user.
+  // Entry animations (entry_protocol: thunder/ripple/glitch) — the Settings
+  // picker + schema existed but the render half was lost in an old restore.
+  // Diff session user_ids; new joiners (post-mount) fire their overlay.
+  const [entryFx, setEntryFx] = useState(null);
+  const seenUsersRef = useRef(null);
+  useEffect(() => {
+    const ids = new Set((voiceSessions || []).filter(s => !s.is_spidr_ai).map(s => s.user_id));
+    if (seenUsersRef.current === null) { seenUsersRef.current = ids; return; }
+    for (const id of ids) {
+      if (!seenUsersRef.current.has(id) && id !== currentUser?.id) {
+        const prof = (profiles || []).find(p => p.user_id === id);
+        const protocol = prof?.apex_features?.entry_protocol;
+        if (protocol && protocol !== 'none') {
+          const sess = (voiceSessions || []).find(s => s.user_id === id);
+          setEntryFx({ protocol, name: sess?.user_name || 'A spider' });
+          setTimeout(() => setEntryFx(null), 1400);
+        }
+        break;
+      }
+    }
+    seenUsersRef.current = ids;
+  }, [voiceSessions, profiles, currentUser?.id]);
+
   const uniqueSessions = React.useMemo(() => {
     const byUser = new Map();
     for (const s of voiceSessions) {
@@ -694,7 +714,7 @@ export default function VoiceChannel({
 
       {/* ── MAIN STAGE ── center-stage flexbox with a red radial bleed
           behind the tiles. Bottom padding clears the floating tactical dock. */}
-      <div className="flex-1 flex overflow-hidden min-h-0 relative">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0 relative">
         {/* Ambient red bleed — draws the eye to the center, doesn't compete
             with the geometric matrix background underneath. */}
         <div
@@ -722,12 +742,10 @@ export default function VoiceChannel({
                 // & Video). No-op on browsers without setSinkId.
                 applySink(el);
                 el.srcObject = stream;
-                // Mobile autoplay policy: iOS Safari / mobile Chrome block
-                // WebRTC audio until a user gesture. Attempt playback and,
-                // if blocked, surface the tap-to-enable overlay instead of
-                // silently joining a call you can't hear.
-                el.play().catch(() => setCallAudioBlocked(true));
                 el.volume = 1;
+                // Mobile autoplay policy: iOS Safari / mobile Chrome block
+                // WebRTC audio until a user gesture. If blocked, the
+                // "Enable audio" pill below unlocks every element at once.
                 el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
               }}
               style={{ display: 'none' }} />
@@ -736,6 +754,40 @@ export default function VoiceChannel({
           {/* Browser blocked autoplay — one tap unlocks remote audio. Only
               clear the blocked flag once playback actually starts; otherwise
               the button would vanish while audio stayed muted (1.4 stuck fix). */}
+          {/* Entry protocol overlay — APEX joiners announce themselves */}
+          <AnimatePresence>
+            {entryFx && (
+              <motion.div key="entry-fx" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="absolute inset-0 z-30 pointer-events-none flex items-center justify-center overflow-hidden">
+                {entryFx.protocol === 'thunder' && (
+                  <motion.div className="absolute inset-0 bg-white"
+                    initial={{ opacity: 0.9 }} animate={{ opacity: [0.9, 0, 0.5, 0] }}
+                    transition={{ duration: 0.6, times: [0, 0.3, 0.5, 1] }} />
+                )}
+                {entryFx.protocol === 'ripple' && (
+                  <>
+                    {[0, 1, 2].map(i => (
+                      <motion.div key={i} className="absolute rounded-full border-2 border-red-500/60"
+                        initial={{ width: 40, height: 40, opacity: 0.8 }}
+                        animate={{ width: 900, height: 900, opacity: 0 }}
+                        transition={{ duration: 1.1, delay: i * 0.18, ease: 'easeOut' }} />
+                    ))}
+                  </>
+                )}
+                {entryFx.protocol === 'glitch' && (
+                  <motion.div className="absolute inset-0"
+                    animate={{ x: [0, -8, 6, -3, 0], filter: ['hue-rotate(0deg)', 'hue-rotate(90deg)', 'hue-rotate(-60deg)', 'hue-rotate(30deg)', 'hue-rotate(0deg)'] }}
+                    transition={{ duration: 0.5 }}
+                    style={{ background: 'repeating-linear-gradient(0deg, rgba(239,68,68,0.08) 0 2px, transparent 2px 5px)' }} />
+                )}
+                <motion.p initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+                  className="relative font-black uppercase tracking-[0.3em] text-white text-sm drop-shadow-[0_0_16px_rgba(239,68,68,0.8)]">
+                  {entryFx.name} entered the web
+                </motion.p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {audioBlocked && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20">
               <button
@@ -745,6 +797,7 @@ export default function VoiceChannel({
                   );
                   // Resume any suspended AudioContext as part of the same user
                   // gesture (some browsers suspend it until interaction).
+                  try { getSharedAudioContext()?.resume(); } catch {}
                   const anyPlaying = results.some(r => r.status === 'fulfilled');
                   if (anyPlaying || results.length === 0) { audioUnlockedRef.current = true; setAudioBlocked(false); }
                 }}
@@ -913,6 +966,27 @@ export default function VoiceChannel({
                     ref={v => { if (v && stream && v.srcObject !== stream) { v.srcObject = stream; v.play?.().catch(() => {}); } }}
                     autoPlay playsInline muted
                     className="w-full h-full object-contain" />
+                  {/* Stream AUDIO — the <video> stays muted for autoplay
+                      policy, so the share's system audio plays through this
+                      dedicated element. Registered under screen-{sid} so
+                      deafen, setSinkId routing, and the tap-to-enable
+                      overlay treat it exactly like a voice stream. */}
+                  {stream.getAudioTracks().length > 0 && (
+                    <audio
+                      autoPlay
+                      playsInline
+                      ref={el => {
+                        const key = `screen-${sid}`;
+                        if (!el) { delete remoteAudioRefs.current[key]; return; }
+                        remoteAudioRefs.current[key] = el;
+                        if (isDeafenedRef.current) el.muted = true;
+                        applySink(el);
+                        if (el.srcObject !== stream) el.srcObject = stream;
+                        el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
+                      }}
+                      className="hidden"
+                    />
+                  )}
                   {peerIsApex && (
                     <SymbioteStreamHUD
                       stream={stream}
@@ -1903,7 +1977,7 @@ function CommPanel({ sessions, profiles, rtc, currentUser, channelId, serverId, 
 
   return (
     <aside
-      className="w-80 flex-shrink-0 flex flex-col rounded-2xl overflow-hidden"
+      className="w-full lg:w-80 flex-shrink-0 flex flex-col rounded-2xl overflow-hidden max-lg:mt-3 max-lg:h-[38vh]"
       style={{
         background: 'rgba(0, 0, 0, 0.40)',
         backdropFilter: 'blur(24px)',
