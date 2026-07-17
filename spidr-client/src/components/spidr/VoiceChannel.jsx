@@ -633,6 +633,62 @@ export default function VoiceChannel({
 
   return (
     <div className="flex-1 flex flex-col bg-transparent relative overflow-hidden">
+      {/* ───────────────────────────────────────────────────────────────────
+          INVISIBLE AUDIO SPINE — DO NOT MOVE THIS BLOCK
+
+          Remote voice + screen audio <audio> tags live at the ROOT of the
+          VoiceChannel component tree, above every conditional layout
+          branch (focus/spider/theater/streaming). When a user starts
+          sharing their screen, the stage's internal layout swaps — if the
+          audio elements were nested inside that swappable region, React
+          unmounted them during reconciliation and the streamer went deaf
+          to everyone else the moment they hit "Share." (This exact bug
+          was reported twice; hoisting is the only permanent fix.)
+
+          Every remote voice stream renders a hidden <audio>. Every remote
+          screen stream that carries an audio track ALSO renders one here
+          (keyed screen-{sid} so deafen, output-device routing, and the
+          Enable-audio unlock all treat it uniformly). Nothing about the
+          UI branches below can unmount these.
+      ─────────────────────────────────────────────────────────────────── */}
+      {Object.entries(rtc.remoteStreams || {}).map(([socketId, stream]) => (
+        <audio
+          key={`voice-${socketId}`}
+          autoPlay
+          playsInline
+          muted={false}
+          ref={el => {
+            if (!el) { delete remoteAudioRefs.current[socketId]; return; }
+            remoteAudioRefs.current[socketId] = el;
+            if (isDeafenedRef.current) el.muted = true;
+            applySink(el);
+            if (el.srcObject !== stream) el.srcObject = stream;
+            el.volume = 1;
+            el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
+          }}
+          style={{ display: 'none' }}
+        />
+      ))}
+      {Object.entries(rtc.screenStreams || {}).map(([sid, stream]) => (
+        stream.getAudioTracks().length > 0 ? (
+          <audio
+            key={`screen-${sid}`}
+            autoPlay
+            playsInline
+            muted={false}
+            ref={el => {
+              const key = `screen-${sid}`;
+              if (!el) { delete remoteAudioRefs.current[key]; return; }
+              remoteAudioRefs.current[key] = el;
+              if (isDeafenedRef.current) el.muted = true;
+              applySink(el);
+              if (el.srcObject !== stream) el.srcObject = stream;
+              el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
+            }}
+            style={{ display: 'none' }}
+          />
+        ) : null
+      ))}
       {/* Cinema Stage for streams */}
       <AnimatePresence>
         {aiSession?.stream_url && showCinema && (
@@ -725,31 +781,7 @@ export default function VoiceChannel({
               'radial-gradient(ellipse 30% 25% at 50% 50%, rgba(239, 68, 68, 0.05), transparent 70%)',
           }}
         />
-        <div className="flex-1 relative overflow-y-auto px-6 pt-6 pb-28 flex items-center justify-center">
-          {/* Remote audio elements (hidden, for audio output) */}
-          {Object.entries(rtc.remoteStreams).map(([socketId, stream]) => (
-            <audio
-              key={socketId}
-              autoPlay
-              playsInline
-              muted={false}
-              ref={el => {
-                if (!el) { delete remoteAudioRefs.current[socketId]; return; }
-                remoteAudioRefs.current[socketId] = el;
-                // Late-mounting elements inherit the current deafen state.
-                if (isDeafenedRef.current) el.muted = true;
-                // Route to the user's chosen output device (Settings → Voice
-                // & Video). No-op on browsers without setSinkId.
-                applySink(el);
-                el.srcObject = stream;
-                el.volume = 1;
-                // Mobile autoplay policy: iOS Safari / mobile Chrome block
-                // WebRTC audio until a user gesture. If blocked, the
-                // "Enable audio" pill below unlocks every element at once.
-                el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
-              }}
-              style={{ display: 'none' }} />
-          ))}
+        <div className="flex-1 min-h-0 relative overflow-y-auto px-4 lg:px-6 pt-4 lg:pt-6 pb-28 flex items-center justify-center max-lg:min-h-[45vh]">
 
           {/* Browser blocked autoplay — one tap unlocks remote audio. Only
               clear the blocked flag once playback actually starts; otherwise
@@ -922,7 +954,11 @@ export default function VoiceChannel({
                   <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     style={screenActive ? { gridColumn: 1, gridRow: 1 } : undefined}
                     className={`${screenActive ? '' : 'col-span-full'} aspect-video rounded-xl overflow-hidden border border-white/5 shadow-[0_0_50px_rgba(0,0,0,0.8)] bg-black relative`}>
-                  <video ref={v => { if (v && screenStream) v.srcObject = screenStream; }} autoPlay muted
+                  {/* playsInline is CRITICAL on mobile — without it iOS
+                      tries to hijack the stream into its native fullscreen
+                      media player, which fails and leaves you with a black
+                      frame for your own share preview. */}
+                  <video ref={v => { if (v && screenStream) v.srcObject = screenStream; }} autoPlay muted playsInline
                     className="w-full h-full object-contain" />
                   {/* APEX Symbiote HUD over your own stream */}
                   {isApexUser && (
@@ -966,27 +1002,6 @@ export default function VoiceChannel({
                     ref={v => { if (v && stream && v.srcObject !== stream) { v.srcObject = stream; v.play?.().catch(() => {}); } }}
                     autoPlay playsInline muted
                     className="w-full h-full object-contain" />
-                  {/* Stream AUDIO — the <video> stays muted for autoplay
-                      policy, so the share's system audio plays through this
-                      dedicated element. Registered under screen-{sid} so
-                      deafen, setSinkId routing, and the tap-to-enable
-                      overlay treat it exactly like a voice stream. */}
-                  {stream.getAudioTracks().length > 0 && (
-                    <audio
-                      autoPlay
-                      playsInline
-                      ref={el => {
-                        const key = `screen-${sid}`;
-                        if (!el) { delete remoteAudioRefs.current[key]; return; }
-                        remoteAudioRefs.current[key] = el;
-                        if (isDeafenedRef.current) el.muted = true;
-                        applySink(el);
-                        if (el.srcObject !== stream) el.srcObject = stream;
-                        el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
-                      }}
-                      className="hidden"
-                    />
-                  )}
                   {peerIsApex && (
                     <SymbioteStreamHUD
                       stream={stream}
@@ -1007,7 +1022,7 @@ export default function VoiceChannel({
                 <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                   style={screenActive ? { gridColumn: 2 } : undefined}
                   className="relative aspect-video rounded-2xl overflow-hidden border-2 border-[#FF3333]/60 bg-black">
-                  <video ref={localVideoRef} autoPlay muted className="w-full h-full object-cover" />
+                  <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
                   <div className="absolute bottom-0 inset-x-0 px-2.5 py-1.5 bg-gradient-to-t from-black/80 to-transparent">
                     <span className="text-white text-xs font-bold">{currentUser?.full_name?.split(' ')[0] || 'You'} <span className="text-[#FF3333] text-[9px]">(you)</span></span>
                   </div>
@@ -1845,7 +1860,7 @@ function ScreenShareStage({
         {rtc.isVideoOn && rtc.localStream && (
           <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="aspect-video max-w-xs rounded-2xl overflow-hidden border-2 border-[#FF3333]/60 bg-black relative">
-            <video ref={localVideoRef} autoPlay muted className="w-full h-full object-cover" />
+            <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
             <div className="absolute bottom-0 inset-x-0 px-2.5 py-1.5 bg-gradient-to-t from-black/80 to-transparent">
               <span className="text-white text-xs font-bold">
                 {currentUser?.full_name?.split(' ')[0] || 'You'}{' '}

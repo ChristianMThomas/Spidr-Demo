@@ -37,7 +37,15 @@ export const useScreenShare = () => {
     try {
       const mediaStream = await navigator.mediaDevices.getDisplayMedia({
         video: { cursor: "always" },
-        audio: true
+        // Preserve high-fidelity system audio — the default filters mangle
+        // game/music audio because they assume voice input. When someone
+        // streams Fortnite or a Spotify track, the tab audio should reach
+        // viewers with its full spectrum intact, not squashed into a mic.
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        }
       });
 
       streamRef.current = mediaStream;
