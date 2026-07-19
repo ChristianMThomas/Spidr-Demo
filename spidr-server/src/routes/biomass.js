@@ -39,12 +39,9 @@
     { id: 'chat_color_ice',      name: 'Chat Color: Ice',       description: 'Frostbite-blue message text.',       price: 500,  category: 'chat_color', value: '#7dd3fc' },
 
     // ── Chat fonts — your messages, your typeface ─────────────────────────────
-    { id: 'chat_font_mono',      name: 'Chat Font: Terminal',   description: 'Monospace hacker aesthetic.',        price: 600,  category: 'chat_font', value: "'JetBrains Mono', 'Courier
-  New', monospace" },
-    { id: 'chat_font_serif',     name: 'Chat Font: Manuscript', description: 'Old-world serif elegance.',          price: 600,  category: 'chat_font', value: "Georgia, 'Times New
-  Roman', serif" },
-    { id: 'chat_font_display',   name: 'Chat Font: Display',    description: 'Bold condensed impact.',             price: 800,  category: 'chat_font', value: "'Bebas Neue', 'Arial
-  Narrow', sans-serif" },
+    { id: 'chat_font_mono',      name: 'Chat Font: Terminal',   description: 'Monospace hacker aesthetic.',        price: 600,  category: 'chat_font', value: "'JetBrains Mono', 'Courier New', monospace" },
+    { id: 'chat_font_serif',     name: 'Chat Font: Manuscript', description: 'Old-world serif elegance.',          price: 600,  category: 'chat_font', value: "Georgia, 'Times New Roman', serif" },
+    { id: 'chat_font_display',   name: 'Chat Font: Display',    description: 'Bold condensed impact.',             price: 800,  category: 'chat_font', value: "'Bebas Neue', 'Arial Narrow', sans-serif" },
   ];
 
   // ── Helpers ────────────────────────────────────────────────────────────────
