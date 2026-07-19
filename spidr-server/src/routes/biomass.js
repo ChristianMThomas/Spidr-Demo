@@ -235,3 +235,5 @@
     }
   });
 
+module.exports = router;
+
