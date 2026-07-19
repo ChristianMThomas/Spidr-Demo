@@ -141,6 +141,9 @@ const s = new Schema({
 
   // Notification preferences (3.4 of Patch 1.2) — persisted toggle state.
   notification_prefs: { type: Schema.Types.Mixed, default: null },
+  // Privacy preferences (Patch 1.9.x mobile settings) — persisted toggle state.
+  // Shape: { allow_dms, friend_requests, show_online, discoverable } booleans.
+  privacy_prefs: { type: Schema.Types.Mixed, default: null },
   // Presence status timer — "busy for 1 hour" style. When set and in the
   // past, clients revert the visible status to online.
   status_expires_at:  { type: Date, default: null },

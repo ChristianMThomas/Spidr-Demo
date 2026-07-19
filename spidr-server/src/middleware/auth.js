@@ -17,6 +17,16 @@ module.exports = async (req, res, next) => {
     if (!user) return res.status(401).json({ error: 'User not found' });
 
     req.user = user;
+
+    // Every user gets Spidr System as an accepted friend. Fire-and-forget —
+    // the util keeps an in-memory per-boot set so this is a no-op Set lookup
+    // on all but the first request per user, and must never delay or fail
+    // the actual request.
+    try {
+      const { ensureSystemFriendship } = require('../utils/spidrSystem');
+      ensureSystemFriendship(user._id.toString()).catch(() => {});
+    } catch { /* never block auth */ }
+
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });

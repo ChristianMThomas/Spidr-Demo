@@ -8,8 +8,12 @@ import {
   RefreshControl,
   Image,
   Alert,
+  Modal,
+  Pressable,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useThemeColors } from '../../lib/theme';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import {
@@ -21,11 +25,13 @@ import {
   Check,
   X as XIcon,
   Ban,
+  ChevronRight,
 } from 'lucide-react-native';
-import { entities } from '../../lib/apiClient';
+import { entities, searchUsers } from '../../lib/apiClient';
 import { useAuth } from '../../lib/authContext';
 import { Avatar } from '../../components/ui/Avatar';
-import { dmConversationId } from '../../lib/utils';
+import { dmConversationId, isSystemFriend } from '../../lib/utils';
+import { useUnread } from '../../lib/unreadContext';
 
 type TabKey = 'all' | 'online' | 'groups' | 'pending' | 'blocked' | 'signals' | 'add';
 
@@ -165,7 +171,9 @@ function FriendCard({
   bio,
   avatar,
   banner,
+  unread,
   onMessage,
+  onAvatarPress,
 }: {
   name: string;
   discriminator?: string;
@@ -173,7 +181,9 @@ function FriendCard({
   bio?: string;
   avatar?: string;
   banner?: string;
+  unread?: number;
   onMessage: () => void;
+  onAvatarPress?: () => void;
 }) {
   const statusColor = STATUS_COLORS[status || 'offline'] || STATUS_COLORS.offline;
   return (
@@ -212,7 +222,12 @@ function FriendCard({
       />
 
       <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 12 }}>
-        <View style={{ position: 'relative' }}>
+        <TouchableOpacity
+          style={{ position: 'relative' }}
+          disabled={!onAvatarPress}
+          onPress={onAvatarPress}
+          hitSlop={6}
+        >
           <Avatar uri={avatar} name={name} size={52} />
           <View
             style={{
@@ -227,7 +242,7 @@ function FriendCard({
               borderColor: '#0a0a0a',
             }}
           />
-        </View>
+        </TouchableOpacity>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }} numberOfLines={1}>
             {name}
@@ -243,6 +258,22 @@ function FriendCard({
             </Text>
           ) : null}
         </View>
+        {!!unread && unread > 0 && (
+          <View
+            style={{
+              backgroundColor: '#dc2626',
+              borderRadius: 999,
+              minWidth: 22,
+              paddingHorizontal: 6,
+              paddingVertical: 3,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '900' }}>
+              {unread > 99 ? '99+' : unread}
+            </Text>
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -254,6 +285,7 @@ export default function Friends() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<TabKey>('all');
+  const { counts: unreadCounts } = useUnread();
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [addInput, setAddInput] = useState('');
@@ -274,10 +306,121 @@ export default function Friends() {
   const getProfile = (userId: string) =>
     (profiles as any[]).find((p) => p.user_id === userId);
 
+  // Group chats where the current user is owner or member — same client-side
+  // membership filter the web FriendsPanel applies to GroupChat.list().
+  const { data: groupChats = [] } = useQuery({
+    queryKey: ['group-chats', user?.id],
+    queryFn: () => entities.GroupChat.list('-created_date', 100),
+    enabled: !!user?.id,
+    staleTime: 30_000,
+  });
+  const myGroups = useMemo(
+    () =>
+      (groupChats as any[]).filter(
+        (g) =>
+          !g.is_archived &&
+          (g.owner_id === user?.id ||
+            (g.member_ids || []).includes(user?.id) ||
+            (g.members || []).some(
+              (m: any) => (typeof m === 'string' ? m : m?.user_id) === user?.id,
+            )),
+      ),
+    [groupChats, user?.id],
+  );
+
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [sendingRequest, setSendingRequest] = useState(false);
+
+  // Wire the Add tab for real: resolve the username/email through
+  // /users/search, then create BOTH Friend rows (web sendFriendRequest
+  // parity). The pending_incoming row triggers the recipient's Spidr System
+  // "friend request" DM server-side.
+  const sendFriendRequest = async () => {
+    const q = addInput.trim();
+    if (!q || sendingRequest) return;
+    setSendingRequest(true);
+    try {
+      const results = (await searchUsers(q)) as any[];
+      const exact =
+        results.find(
+          (r) =>
+            r.username?.toLowerCase() === q.toLowerCase() ||
+            r.email?.toLowerCase() === q.toLowerCase(),
+        ) || results[0];
+      if (!exact) {
+        Alert.alert('No user found', `Nobody on the web matches "${q}".`);
+        return;
+      }
+      const existing = (friends as any[]).find((f) => f.friend_id === exact.id);
+      if (existing) {
+        Alert.alert(
+          'Already linked',
+          existing.status === 'accepted'
+            ? `You're already friends with ${exact.username || exact.full_name}.`
+            : `A connection with ${exact.username || exact.full_name} is already ${existing.status.replace('_', ' ')}.`,
+        );
+        return;
+      }
+      const myProfile = getProfile(user?.id || '');
+      const myName = myProfile?.display_name || user?.full_name || user?.username || 'User';
+      await entities.Friend.create({
+        user_id: user?.id,
+        friend_id: exact.id,
+        friend_name: exact.full_name || exact.username,
+        friend_avatar: exact.avatar_url || '',
+        status: 'pending_outgoing',
+      });
+      await entities.Friend.create({
+        user_id: exact.id,
+        friend_id: user?.id,
+        friend_name: myName,
+        friend_avatar: myProfile?.avatar_url || '',
+        status: 'pending_incoming',
+      });
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
+      setAddInput('');
+      Alert.alert('Signal sent', `Friend request sent to ${exact.full_name || exact.username}.`);
+    } catch (err: any) {
+      Alert.alert(
+        'Could not send request',
+        err?.status === 409 ? 'A connection between you two already exists.' : err?.message || 'Try again.',
+      );
+    } finally {
+      setSendingRequest(false);
+    }
+  };
+
   const accepted = (friends as any[]).filter((f) => f.status === 'accepted');
   const pendingIncoming = (friends as any[]).filter((f) => f.status === 'pending_incoming');
   const pendingOutgoing = (friends as any[]).filter((f) => f.status === 'pending_outgoing');
   const blocked = (friends as any[]).filter((f) => f.status === 'blocked');
+
+  // Signals — DMs the user has received from non-friends. Groups by sender so
+  // multiple messages from the same stranger show as one row. Loads only when
+  // the Signals tab is opened to avoid a wide DM query on every friends visit.
+  const { data: incomingDMs = [] } = useQuery({
+    queryKey: ['signal-dms', user?.id],
+    queryFn: () => entities.DirectMessage.filter({ receiver_id: user?.id }, '-created_date', 200),
+    enabled: !!user?.id && tab === 'signals',
+    staleTime: 30_000,
+  });
+  const signals = useMemo(() => {
+    const knownIds = new Set(
+      (friends as any[])
+        .filter((f) => f.status === 'accepted' || f.status === 'pending_incoming' || f.status === 'pending_outgoing')
+        .map((f) => f.friend_id),
+    );
+    knownIds.add(user?.id);
+    const bySender: Record<string, any> = {};
+    for (const dm of incomingDMs as any[]) {
+      const sid = dm.sender_id;
+      if (!sid || knownIds.has(sid)) continue;
+      if (!bySender[sid] || new Date(dm.created_date) > new Date(bySender[sid].created_date)) {
+        bySender[sid] = dm;
+      }
+    }
+    return Object.values(bySender);
+  }, [incomingDMs, friends, user?.id]);
 
   const updateFriend = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => entities.Friend.update(id, data),
@@ -339,16 +482,16 @@ export default function Friends() {
 
   const activeCount = webHeads.filter((h) => h.status !== 'offline').length;
 
+  const colors = useThemeColors();
+
   return (
-    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#050505' }}>
+    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.bg }}>
       {/* Header */}
       <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text style={{ color: '#fff', fontSize: 26, fontWeight: '900' }}>Friends</Text>
           <TouchableOpacity
-            onPress={() =>
-              Alert.alert('Coming soon', 'Group chats from mobile are landing in a follow-up patch.')
-            }
+            onPress={() => setShowCreateGroup(true)}
             style={{
               backgroundColor: '#7c3aed',
               paddingHorizontal: 14,
@@ -418,7 +561,7 @@ export default function Friends() {
               letterSpacing: 2,
             }}
           >
-            SPIDR WEB
+            RECENTS
           </Text>
           <Text style={{ color: '#71717a', fontSize: 11 }}>{activeCount} active</Text>
         </View>
@@ -458,6 +601,7 @@ export default function Friends() {
           active={tab === 'groups'}
           onPress={() => setTab('groups')}
           label="Groups"
+          badge={myGroups.length}
           icon={<UsersIcon size={13} color={tab === 'groups' ? '#fff' : '#a1a1aa'} />}
         />
         <TabPill
@@ -472,6 +616,7 @@ export default function Friends() {
           onPress={() => setTab('signals')}
           label="Signals"
           color="#ca8a04"
+          badge={signals.length}
           icon={<ShieldAlert size={13} color={tab === 'signals' ? '#fff' : '#a1a1aa'} />}
         />
         <TabPill
@@ -509,9 +654,11 @@ export default function Friends() {
                     bio={p?.bio}
                     avatar={p?.avatar_url || f.friend_avatar}
                     banner={p?.banner_url}
+                    unread={unreadCounts[dmConversationId(user?.id, f.friend_id)]}
                     onMessage={() =>
                       openDM(f.friend_id, p?.display_name || f.friend_name || 'Friend')
                     }
+                    onAvatarPress={() => router.push(`/user/${f.friend_id}`)}
                   />
                 );
               })
@@ -520,9 +667,66 @@ export default function Friends() {
         )}
 
         {tab === 'groups' && (
-          <Text style={{ color: '#52525b', textAlign: 'center', paddingVertical: 40, fontSize: 13 }}>
-            Group chats from mobile are coming in a follow-up patch.
-          </Text>
+          <View style={{ paddingHorizontal: 14 }}>
+            {myGroups.length === 0 ? (
+              <Text style={{ color: '#52525b', textAlign: 'center', paddingVertical: 40, fontSize: 13 }}>
+                No group chats yet — spin one up with Create Group.
+              </Text>
+            ) : (
+              myGroups.map((g: any) => {
+                const memberCount = (g.members || g.member_ids || []).length;
+                return (
+                  <TouchableOpacity
+                    key={g.id}
+                    onPress={() => router.push(`/group/${g.id}`)}
+                    activeOpacity={0.85}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      backgroundColor: '#0d0d0d',
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 8,
+                      borderWidth: 1,
+                      borderColor: 'rgba(124,58,237,0.2)',
+                      gap: 12,
+                    }}
+                  >
+                    {g.icon_url ? (
+                      <Image source={{ uri: g.icon_url }} style={{ width: 44, height: 44, borderRadius: 22 }} />
+                    ) : (
+                      <View
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          backgroundColor: 'rgba(124,58,237,0.25)',
+                          borderWidth: 1,
+                          borderColor: 'rgba(124,58,237,0.5)',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Text style={{ color: '#a78bfa', fontSize: 17, fontWeight: '900' }}>
+                          {(g.name || 'G').charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }} numberOfLines={1}>
+                        {g.name || 'Untitled group'}
+                      </Text>
+                      <Text style={{ color: '#71717a', fontSize: 11 }}>
+                        {memberCount} member{memberCount !== 1 ? 's' : ''}
+                        {g.owner_id === user?.id ? ' · you own this web' : ''}
+                      </Text>
+                    </View>
+                    <ChevronRight size={16} color="#52525b" />
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </View>
         )}
 
         {tab === 'pending' && (
@@ -701,15 +905,69 @@ export default function Friends() {
         )}
 
         {tab === 'signals' && (
-          <View style={{ paddingHorizontal: 24, paddingTop: 40, alignItems: 'center' }}>
-            <ShieldAlert size={36} color="#ca8a04" />
-            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginTop: 12 }}>
-              Signal requests
-            </Text>
-            <Text style={{ color: '#71717a', fontSize: 12, textAlign: 'center', marginTop: 6 }}>
-              Encrypted DM requests from non-friends will appear here. Coming to mobile in a follow-up patch.
-            </Text>
+          <View style={{ paddingHorizontal: 14 }}>
+            {signals.length === 0 ? (
+              <View style={{ paddingHorizontal: 24, paddingTop: 40, alignItems: 'center' }}>
+                <ShieldAlert size={36} color="#ca8a04" />
+                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginTop: 12 }}>
+                  No signals waiting
+                </Text>
+                <Text style={{ color: '#71717a', fontSize: 12, textAlign: 'center', marginTop: 6 }}>
+                  Incoming DMs from users you haven't linked with will land here.
+                </Text>
+              </View>
+            ) : (
+              signals.map((dm: any) => {
+                const p = getProfile(dm.sender_id);
+                const name = p?.display_name || dm.sender_name || 'Unknown';
+                return (
+                  <TouchableOpacity
+                    key={dm.id}
+                    onPress={() => openDM(dm.sender_id, name)}
+                    activeOpacity={0.85}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      backgroundColor: '#0d0d0d',
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 8,
+                      borderWidth: 1,
+                      borderColor: 'rgba(202,138,4,0.25)',
+                      gap: 10,
+                    }}
+                  >
+                    <Avatar uri={p?.avatar_url || dm.sender_avatar} name={name} size={44} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }} numberOfLines={1}>
+                        {name}
+                      </Text>
+                      <Text style={{ color: '#a1a1aa', fontSize: 11 }} numberOfLines={1}>
+                        {dm.content || '[attachment]'}
+                      </Text>
+                    </View>
+                    <ShieldAlert size={14} color="#ca8a04" />
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </View>
+        )}
+
+        {showCreateGroup && (
+          <CreateGroupSheet
+            visible={showCreateGroup}
+            onClose={() => setShowCreateGroup(false)}
+            accepted={accepted.filter((f: any) => !isSystemFriend(f, getProfile(f.friend_id)))}
+            getProfile={getProfile}
+            currentUser={user}
+            myProfile={getProfile(user?.id || '')}
+            onCreated={(group) => {
+              queryClient.invalidateQueries({ queryKey: ['group-chats'] });
+              setShowCreateGroup(false);
+              router.push(`/group/${group.id}`);
+            }}
+          />
         )}
 
         {tab === 'add' && (
@@ -738,25 +996,234 @@ export default function Friends() {
                 style={{ flex: 1, color: '#fff', fontSize: 14, paddingVertical: 10, marginLeft: 8 }}
               />
               <TouchableOpacity
-                onPress={() =>
-                  Alert.alert(
-                    'Coming soon',
-                    'Sending friend requests from mobile is landing in the next patch — use the web for now.'
-                  )
-                }
+                onPress={sendFriendRequest}
+                disabled={sendingRequest || !addInput.trim()}
                 style={{
-                  backgroundColor: '#16a34a',
+                  backgroundColor: addInput.trim() ? '#16a34a' : '#3f3f46',
                   paddingHorizontal: 12,
                   paddingVertical: 6,
                   borderRadius: 999,
+                  opacity: sendingRequest ? 0.6 : 1,
                 }}
               >
-                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>Send</Text>
+                {sendingRequest ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>Send</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+// ── Create Group sheet — mobile twin of CreateGroupChatModal.jsx ─────────────
+// Name + multi-select accepted friends. Creates the GroupChat with the same
+// members[] shape the web writes, PLUS owner_id/member_ids so the socket
+// membership check (join:group) matches on every field it knows about.
+function CreateGroupSheet({
+  visible,
+  onClose,
+  accepted,
+  getProfile,
+  currentUser,
+  myProfile,
+  onCreated,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  accepted: any[];
+  getProfile: (userId: string) => any;
+  currentUser: any;
+  myProfile: any;
+  onCreated: (group: any) => void;
+}) {
+  const [groupName, setGroupName] = useState('');
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [creating, setCreating] = useState(false);
+
+  const toggle = (friendId: string) =>
+    setSelected((prev) => ({ ...prev, [friendId]: !prev[friendId] }));
+
+  const create = async () => {
+    const name = groupName.trim();
+    if (!name) {
+      Alert.alert('Name required', 'Give your group a name first.');
+      return;
+    }
+    if (creating) return;
+    setCreating(true);
+    try {
+      const myName =
+        myProfile?.display_name || currentUser?.full_name || currentUser?.username || 'User';
+      const picked = accepted.filter((f: any) => selected[f.friend_id]);
+      const members = [
+        {
+          user_id: currentUser?.id,
+          user_name: myName,
+          user_avatar: myProfile?.avatar_url || '',
+          role: 'admin',
+        },
+        ...picked.map((f: any) => {
+          const p = getProfile(f.friend_id);
+          return {
+            user_id: f.friend_id,
+            user_name: p?.display_name || f.friend_name || 'Member',
+            user_avatar: p?.avatar_url || f.friend_avatar || '',
+            role: 'member',
+          };
+        }),
+      ];
+      const group = await entities.GroupChat.create({
+        name,
+        owner_id: currentUser?.id,
+        member_ids: members.map((m) => m.user_id),
+        members,
+      });
+      setGroupName('');
+      setSelected({});
+      onCreated(group);
+    } catch (err: any) {
+      Alert.alert('Could not create group', err?.message || 'Try again.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const selectedCount = Object.values(selected).filter(Boolean).length;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }} onPress={onClose} />
+      <View
+        style={{
+          maxHeight: 560,
+          backgroundColor: '#0a0a0a',
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
+          borderTopWidth: 1,
+          borderColor: 'rgba(124,58,237,0.4)',
+          padding: 16,
+          paddingBottom: 28,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <UsersIcon size={16} color="#a78bfa" />
+          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 1 }}>
+            CREATE GROUP CHAT
+          </Text>
+        </View>
+
+        <TextInput
+          value={groupName}
+          onChangeText={setGroupName}
+          placeholder="Enter group name..."
+          placeholderTextColor="#52525b"
+          style={{
+            backgroundColor: '#18181b',
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.07)',
+            color: '#fff',
+            fontSize: 14,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            marginBottom: 12,
+          }}
+        />
+
+        <Text style={{ color: '#a1a1aa', fontSize: 11, marginBottom: 8 }}>
+          Select friends ({selectedCount} selected) — optional for solo testing
+        </Text>
+
+        <ScrollView style={{ maxHeight: 280 }}>
+          {accepted.length === 0 ? (
+            <Text style={{ color: '#52525b', fontSize: 12, textAlign: 'center', paddingVertical: 20 }}>
+              No friends to add yet.
+            </Text>
+          ) : (
+            accepted.map((f: any) => {
+              const p = getProfile(f.friend_id);
+              const name = p?.display_name || f.friend_name || 'Friend';
+              const isSelected = !!selected[f.friend_id];
+              return (
+                <TouchableOpacity
+                  key={f.id}
+                  onPress={() => toggle(f.friend_id)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: 8,
+                    borderRadius: 12,
+                    marginBottom: 6,
+                    backgroundColor: isSelected ? 'rgba(124,58,237,0.15)' : 'rgba(255,255,255,0.02)',
+                    borderWidth: 1,
+                    borderColor: isSelected ? 'rgba(124,58,237,0.5)' : 'rgba(255,255,255,0.05)',
+                  }}
+                >
+                  <Avatar uri={p?.avatar_url || f.friend_avatar} name={name} size={38} />
+                  <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600', flex: 1 }} numberOfLines={1}>
+                    {name}
+                  </Text>
+                  {isSelected && (
+                    <View
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 10,
+                        backgroundColor: '#7c3aed',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Check size={12} color="#fff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </ScrollView>
+
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+          <TouchableOpacity
+            onPress={onClose}
+            style={{
+              flex: 1,
+              paddingVertical: 12,
+              borderRadius: 12,
+              backgroundColor: 'rgba(255,255,255,0.05)',
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.1)',
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: '#a1a1aa', fontSize: 12, fontWeight: '800' }}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={create}
+            disabled={creating || !groupName.trim()}
+            style={{
+              flex: 1,
+              paddingVertical: 12,
+              borderRadius: 12,
+              backgroundColor: groupName.trim() ? '#7c3aed' : '#3f3f46',
+              alignItems: 'center',
+              opacity: creating ? 0.6 : 1,
+            }}
+          >
+            {creating ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>Create Group</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }

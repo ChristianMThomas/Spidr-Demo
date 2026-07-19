@@ -156,6 +156,10 @@ module.exports = function registerHandlers(io) {
     const userId = socket.userId;
     const wasOffline = !onlineUsers.has(userId);
     addSocket(userId, socket.id);
+    // Per-user room — lets REST/model-hook code (utils/realtime.js) reach
+    // every tab/device this user has open without touching onlineUsers,
+    // and works across instances under the Redis adapter.
+    socket.join(`user:${userId}`);
     if (wasOffline) {
       io.emit('user:online', { userId });
     }
@@ -495,6 +499,17 @@ module.exports = function registerHandlers(io) {
       if (senderSockets) {
         for (const sid of senderSockets) io.to(sid).emit('dm:sent', { conversation_id: conversationId });
       }
+    });
+
+    // ── Group chat relay — REST-created messages wake the room ──────────────
+    // Mirror of dm:notify: clients that POST a GroupChatMessage over REST emit
+    // this so every member's client refetches. Empty payload = "re-fetch"
+    // signal (same convention the DM path uses). Only members ever joined the
+    // `group:<id>` room, so the broadcast can't leak outside the group.
+    socket.on('group:notify', ({ groupId }) => {
+      if (!socketRateLimit(socket)) return;
+      if (typeof groupId !== 'string' || !groupId) return;
+      io.to(`group:${groupId}`).emit('group:message', {});
     });
 
     // ── DM call signaling ─────────────────────────────────────────────────────

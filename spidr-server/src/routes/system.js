@@ -1,7 +1,7 @@
-const express = require('express');
-const router = express.Router();
+ const express = require('express');
+  const router = express.Router();
 
-/**
+  /**
  * GET /system/news — Spidr System announcements (patch notes, alerts, fixes).
  *
  * Server-curated list. Newest first. Each item:
@@ -11,6 +11,13 @@ const router = express.Router();
  * so the terminal renders instantly even if this route is unreachable.
  */
 const NEWS = [
+  {
+      id: 'p196',
+      title: 'Patch 1.9.6 — Store-compliance hardening',
+      date: '2026-07-19',
+      type: 'UPDATE',
+      description: 'Closing the last engineering blockers before App Store + Google Play submission. The moderation queue is now real: /reports is admin-gated end to end — any signed-in user can file a report (reporter_id is forced server-side so nobody can spoof somebody else\'s complaint), but listing, reading, patching, and deleting the queue require role: "admin", so the whole moderation surface is off-limits to regular accounts. Status transitions are validated against pending → reviewed → resolved / dismissed and every patch stamps reviewer_id automatically. The web admin console at /global-reports now has a real backend behind it instead of a bare crudRouter. A public takedown SLA lives in the Terms page — reports of harassment, threats, CSAM, or illegal content are acknowledged within 24 hours and acted on within 72, with an escalation email path.',
+  },
   {
     id: 'p1925',
     title: 'Patch 1.9.25 — Spidr Apex + platform hardening',
@@ -209,8 +216,10 @@ const NEWS = [
   },
 ];
 
-router.get('/news', (_req, res) => {
-  res.json(NEWS);
-});
+  router.get('/news', (_req, res) => {
+    res.json(NEWS);
+  });
 
-module.exports = router;
+  module.exports = router;
+  // Exposed so boot code can announce the newest entry as a Spidr System DM.
+  module.exports.NEWS = NEWS;

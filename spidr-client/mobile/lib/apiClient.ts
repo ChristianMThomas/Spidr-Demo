@@ -256,6 +256,12 @@ export const biomass = {
   buy:       (itemId: string)                => api.post('/biomass/shop/buy', { itemId }),
 };
 
+// ─── Account lifecycle (Apple 5.1.1(v) / Play deletion policy) ───────────────
+export const account = {
+  deactivate: () => api.post('/users/me/deactivate', {}),
+  deleteAccount: () => api.delete('/users/me'),
+};
+
 // ─── Tension (XP / leveling) ─────────────────────────────────────────────────
 export const tension = {
   me:     ()                                                    => api.get('/tension/me'),
@@ -286,7 +292,7 @@ export const spotify = {
   nowPlaying: (userId: string) =>
     api.get(`/spotify/now-playing/${userId}`).catch(() => null),
   authUrl: () => api.get('/spotify/auth/url').catch(() => null),
-  disconnect: () => api.delete('/spotify/auth').catch(() => null),
+  disconnect: () => api.delete('/spotify/auth/disconnect').catch(() => null),
   djSession: {
     get:   (channelId: string) => api.get(`/voice-channels/${channelId}/dj-session`).catch(() => null),
     start: (channelId: string, track_id: string) =>
@@ -296,6 +302,11 @@ export const spotify = {
     end:   (channelId: string) =>
       api.delete(`/voice-channels/${channelId}/dj-session`),
   },
+};
+
+// ─── Spidr System (patch notes) ──────────────────────────────────────────────
+export const system = {
+  news: () => api.get('/system/news').catch(() => []),
 };
 
 export const base44 = { entities, auth, integrations };

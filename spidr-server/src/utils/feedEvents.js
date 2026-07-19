@@ -72,23 +72,50 @@ exports.mention = ({
   context,
   server_id, server_name, channel_id, channel_name, message_id,
   snippet,
-}) =>
-  safeCreate({
+}) => {
+  const title = context === 'server' && server_name && channel_name
+    ? `Mentioned you in #${channel_name} (${server_name})`
+    : context === 'group'
+      ? 'Mentioned you in a group chat'
+      : context === 'comment'
+        ? 'Mentioned you in a comment'
+        : 'Mentioned you in a DM';
+
+  const result = safeCreate({
     type: 'mention',
     user_id: sender_id,
     user_name: sender_name || 'Someone',
     user_avatar: sender_avatar || '',
     recipient_ids: [recipient_id],
-    title: context === 'server' && server_name && channel_name
-      ? `Mentioned you in #${channel_name} (${server_name})`
-      : context === 'group'
-        ? 'Mentioned you in a group chat'
-        : context === 'comment'
-          ? 'Mentioned you in a comment'
-          : 'Mentioned you in a DM',
+    title,
     content: snippet || '',
     server_id, channel_id, target_id: message_id, message_id,
   });
+
+  // Targeted notifications ALSO land as a Spidr System DM — the notification
+  // center's face on mobile, and a persistent inbox everywhere else.
+  // Loop guards: the system's own DMs must never re-trigger this path
+  // (mention → system DM → DM mention scanner → …), so (a) skip when either
+  // side IS the system account, and (b) strip '@' from the echoed snippet so
+  // the DM mention scanner can't match the recipient's name inside it.
+  (async () => {
+    try {
+      const spidrSystem = require('./spidrSystem');
+      const sysId = await spidrSystem.ensureSystemUser();
+      if (String(sender_id) === sysId || String(recipient_id) === sysId) return;
+      const where = title.replace(/^Mentioned you/, 'mentioned you');
+      const clean = String(snippet || '').replace(/@/g, '').slice(0, 140);
+      await spidrSystem.sendSystemDM(
+        recipient_id,
+        `🕷️ ${sender_name || 'Someone'} ${where}${clean ? `\n> ${clean}` : ''}`,
+      );
+    } catch (err) {
+      console.warn('System mention DM failed:', err?.message);
+    }
+  })();
+
+  return result;
+};
 
 /**
  * Profile update — when someone updates their display_name / bio / avatar /

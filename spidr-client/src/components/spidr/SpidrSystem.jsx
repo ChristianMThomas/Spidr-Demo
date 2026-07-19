@@ -1,19 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { X, Terminal } from 'lucide-react';
-import { useIsMobile } from '@/hooks/use-mobile';
 
-/**
- * SpidrSystem — a "system terminal" news/patch feed anchored bottom-right of the
- * home page. Collapsed: a one-line ticker. Expanded: a scrollable panel of
- * announcements with a typewriter intro on the newest note.
- *
- * Data: ships with mock notes so it renders instantly, then tries to refresh
- * from GET {API}/system/news. A glowing "Spider-Sense" badge appears when there
- * are unread notes (tracked by the newest id in localStorage).
- */
+  import React, { useEffect, useRef, useState } from 'react';
+  import { motion, AnimatePresence } from 'framer-motion';
+  import { X, Terminal } from 'lucide-react';
+  import { useIsMobile } from '@/hooks/use-mobile';
 
-const MOCK_NEWS = [
+  /**
+   * SpidrSystem — a "system terminal" news/patch feed anchored bottom-right of the
+   * home page. Collapsed: a one-line ticker. Expanded: a scrollable panel of
+   * announcements with a typewriter intro on the newest note.
+   *
+   * Data: ships with mock notes so it renders instantly, then tries to refresh
+   * from GET {API}/system/news. A glowing "Spider-Sense" badge appears when there
+   * are unread notes (tracked by the newest id in localStorage).
+   */
+
+ const MOCK_NEWS = [
+  { id: 'p196', title: 'Patch 1.9.6 — Store-compliance hardening', date: '2026-07-19', type: 'UPDATE', description: 'Closing the last engineering blockers before App Store + Google Play submission. The moderation queue is now real: /reports is admin-gated end to end — any signed-in user can file a report (reporter_id is forced server-side so nobody can spoof somebody else\'s complaint), but listing, reading, patching, and deleting the queue require role: "admin", so the whole moderation surface is off-limits to regular accounts. Status transitions are validated against pending → reviewed → resolved / dismissed and every patch stamps reviewer_id automatically. The web admin console at /global-reports now has a real backend behind it instead of a bare crudRouter. A public takedown SLA lives in the Terms page — reports of harassment, threats, CSAM, or illegal content are acknowledged within 24 hours and acted on within 72, with an escalation email path.' },
   { id: 'p1945', title: 'Patch 1.9.45 — WebRTC audio hoisted permanently', date: '2026-07-16', type: 'FIX', description: 'Fixed the deafness-during-share bug at its ROOT this time. Traced the audio elements in VoiceChannel — they were nested inside the scrollable stage container, which is exactly the region that swaps layouts when someone starts sharing their screen. When the layout swapped, React unmounted the audio elements during reconciliation and the streamer stopped hearing everyone else instantly. Every remote voice audio element AND every remote screen-share audio element now lives at the ROOT of the VoiceChannel tree, above every conditional layout branch (focus/spider/theater/streaming); nothing about the UI below can ever unmount them again. Mobile stream visibility: caught the missing playsInline on the local screen-share preview and both local camera renders — without it iOS silently hijacks the stream into fullscreen media playback which fails and shows a black frame. Every video and audio element in the call now carries playsInline. Mobile stage sizing: previously stage and chat sidebar both had flex-1 in the column layout, so on a phone the stage collapsed to a tiny slice; forced the stage to a 45vh minimum on mobile so streams have real vertical space to render. Screen-audio quality: getDisplayMedia was requesting audio: true, letting the browser apply voice filters that mangle game and music audio — now requests audio with echo cancellation, noise suppression, and auto-gain-control OFF so streamed audio reaches viewers with its full spectrum. Reminder for viewers on Chrome/Edge: you must check Share tab audio or Share system audio in the browser share picker or no sound will ever reach the room, regardless of code.' },
   { id: 'p1944', title: 'Patch 1.9.44 — AI Scribe transcribes voice messages', date: '2026-07-15', type: 'UPDATE', description: 'The AI Scribe pane on voice-message capsules is live — tap the sparkles on any voice note and Spidr AI transcribes it to text. Real speech-to-text via Whisper, proxied through the Spidr server: transcription is lazy (nothing is transcribed until someone actually opens the Scribe, so silent capsules cost nothing), cached per-URL on the server (the second person to open a note gets the transcript instantly, no re-processing), and capped at 25MB of audio. The pane shows a live Transcribing indicator while working, renders the transcript in place of the old placeholder when done, and if the server is missing its speech key it says so plainly instead of pretending. Works everywhere capsules render: DMs, group chats, and server channels. Server setup note: requires OPENAI_API_KEY in the server env (documented in .env.example) — Whisper is an OpenAI service; chat AI continues to run on whichever provider you have configured.' },
   { id: 'p1943', title: 'Patch 1.9.43 — Mobile streams, stream audio, share stability', date: '2026-07-11', type: 'FIX', description: 'Three compounding streaming bugs down. Mobile viewers could not see streams AT ALL — the in-call chat sidebar was a fixed-width column beside the stage, and on a phone it consumed the entire viewport, squeezing the stage (tiles, cameras, screen shares) to zero width; you saw the roster and chat and nothing else. The layout now stacks on phones: stage first with the stream fully visible, chat below. Stream audio was inaudible for EVERYONE, every platform — remote screen-share videos are muted for autoplay policy, and the system-audio track the sharer forwards died with them. Every remote share now pairs a dedicated hidden audio element that obeys deafen, your chosen output device, and the mobile tap-to-enable overlay just like any voice stream. And the big one: starting a screen share could kill the STREAMER\'s incoming audio — share start/stop triggers WebRTC renegotiation, which can blip connections into a transient disconnected state that self-heals in a second; the old handler tore the peer down INSTANTLY on that blip, dropping their audio and video mid-share on both sides. Transient disconnects now get a four-second grace before teardown (hard failures still tear down immediately). One infrastructure reminder for full cross-network reliability, especially phone-to-desktop: set the TURN relay env on the server (TURN_URLS / TURN_USERNAME / TURN_CREDENTIAL — see .env.example); STUN alone cannot cross strict mobile carrier NATs.' },
@@ -64,151 +66,152 @@ const MOCK_NEWS = [
   { id: 'trending', title: 'Trending server join flow', date: '2026-05-22', type: 'FIX', description: 'Opening a server from Trending no longer 404s. Non-members now see a proper Join / Request Invite screen.' },
 ];
 
-const API_BASE = (import.meta.env.VITE_API_URL) || 'http://localhost:4000';
-const TYPE_COLORS = {
-  UPDATE: 'text-[#FF3333] border-[#FF3333]/40',
-  ALERT:  'text-amber-400 border-amber-400/40',
-  FIX:    'text-emerald-400 border-emerald-400/40',
-};
+  const API_BASE = (import.meta.env.VITE_API_URL) || 'http://localhost:4000';
+  const TYPE_COLORS = {
+    UPDATE: 'text-[#FF3333] border-[#FF3333]/40',
+    ALERT:  'text-amber-400 border-amber-400/40',
+    FIX:    'text-emerald-400 border-emerald-400/40',
+  };
 
-export default function SpidrSystem() {
-  const isMobile = useIsMobile();
-  const [open, setOpen] = useState(false);
-  // On <md, the X button fully dismisses the terminal (ticker disappears too)
-  // instead of just collapsing it. Re-opening is then only possible via the
-  // sidebar's "Spidr System" row (which fires `spidr-system-open`). On desktop
-  // we keep the original collapse-to-ticker behavior since desktop has no
-  // sidebar trigger to bring it back from a full dismiss.
-  const [dismissed, setDismissed] = useState(false);
-  const [news, setNews] = useState(MOCK_NEWS);
-  const [hasUnread, setHasUnread] = useState(false);
-  const [typed, setTyped] = useState('');
-  const typeTimer = useRef(null);
+  export default function SpidrSystem() {
+    const isMobile = useIsMobile();
+    const [open, setOpen] = useState(false);
+    // On <md, the X button fully dismisses the terminal (ticker disappears too)
+    // instead of just collapsing it. Re-opening is then only possible via the
+    // sidebar's "Spidr System" row (which fires `spidr-system-open`). On desktop
+    // we keep the original collapse-to-ticker behavior since desktop has no
+    // sidebar trigger to bring it back from a full dismiss.
+    const [dismissed, setDismissed] = useState(false);
+    const [news, setNews] = useState(MOCK_NEWS);
+    const [hasUnread, setHasUnread] = useState(false);
+    const [typed, setTyped] = useState('');
+    const typeTimer = useRef(null);
 
-  // Fetch live news (best-effort; falls back to mock).
-  useEffect(() => {
-    let alive = true;
-    fetch(`${API_BASE}/system/news`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (alive && Array.isArray(data) && data.length) setNews(data); })
-      .catch(() => { /* keep mock */ });
-    return () => { alive = false; };
-  }, []);
+    // Fetch live news (best-effort; falls back to mock).
+    useEffect(() => {
+      let alive = true;
+      fetch(`${API_BASE}/system/news`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (alive && Array.isArray(data) && data.length) setNews(data); })
+        .catch(() => { /* keep mock */ });
+      return () => { alive = false; };
+    }, []);
 
-  // Unread = newest id differs from the last one the user saw.
-  useEffect(() => {
-    const newestId = news[0]?.id;
-    if (!newestId) return;
-    let seen = null;
-    try { seen = localStorage.getItem('spidr_system_seen'); } catch {}
-    setHasUnread(seen !== newestId);
-  }, [news]);
+    // Unread = newest id differs from the last one the user saw.
+    useEffect(() => {
+      const newestId = news[0]?.id;
+      if (!newestId) return;
+      let seen = null;
+      try { seen = localStorage.getItem('spidr_system_seen'); } catch {}
+      setHasUnread(seen !== newestId);
+    }, [news]);
 
-  // External open trigger — any component can fire `spidr-system-open` to
-  // pop the terminal open (e.g. the MobileMenuPanel row). Also un-dismisses
-  // so the sidebar can resurrect the terminal after the user X'd it on mobile.
-  useEffect(() => {
-    const handler = () => { setDismissed(false); setOpen(true); };
-    window.addEventListener('spidr-system-open', handler);
-    return () => window.removeEventListener('spidr-system-open', handler);
-  }, []);
+    // External open trigger — any component can fire `spidr-system-open` to
+    // pop the terminal open (e.g. the MobileMenuPanel row). Also un-dismisses
+    // so the sidebar can resurrect the terminal after the user X'd it on mobile.
+    useEffect(() => {
+      const handler = () => { setDismissed(false); setOpen(true); };
+      window.addEventListener('spidr-system-open', handler);
+      return () => window.removeEventListener('spidr-system-open', handler);
+    }, []);
 
-  // Typewriter the newest note's description when the terminal opens.
-  useEffect(() => {
-    clearInterval(typeTimer.current);
-    if (!open) { setTyped(''); return; }
-    const full = news[0]?.description || '';
-    let i = 0;
-    typeTimer.current = setInterval(() => {
-      i += 2;
-      setTyped(full.slice(0, i));
-      if (i >= full.length) clearInterval(typeTimer.current);
-    }, 16);
-    // Mark newest as seen.
-    try { if (news[0]?.id) localStorage.setItem('spidr_system_seen', news[0].id); } catch {}
-    setHasUnread(false);
-    return () => clearInterval(typeTimer.current);
-  }, [open, news]);
+    // Typewriter the newest note's description when the terminal opens.
+    useEffect(() => {
+      clearInterval(typeTimer.current);
+      if (!open) { setTyped(''); return; }
+      const full = news[0]?.description || '';
+      let i = 0;
+      typeTimer.current = setInterval(() => {
+        i += 2;
+        setTyped(full.slice(0, i));
+        if (i >= full.length) clearInterval(typeTimer.current);
+      }, 16);
+      // Mark newest as seen.
+      try { if (news[0]?.id) localStorage.setItem('spidr_system_seen', news[0].id); } catch {}
+      setHasUnread(false);
+      return () => clearInterval(typeTimer.current);
+    }, [open, news]);
 
-  const latest = news[0];
+    const latest = news[0];
 
-  // On mobile, the user has explicitly told the terminal to go away — render
-  // nothing until the sidebar resurrects it via `spidr-system-open`.
-  if (dismissed && isMobile) return null;
+    // On mobile, the user has explicitly told the terminal to go away — render
+    // nothing until the sidebar resurrects it via `spidr-system-open`.
+    if (dismissed && isMobile) return null;
 
-  return (
-    <div className="fixed bottom-20 md:bottom-4 right-4 z-50">
-      <AnimatePresence mode="wait">
-        {open ? (
-          <motion.div
-            key="expanded"
-            initial={{ opacity: 0, y: 30, height: 0 }}
-            animate={{ opacity: 1, y: 0, height: 384 }}
-            exit={{ opacity: 0, y: 30, height: 0 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 30 }}
-            className="w-80 bg-[#050505]/90 backdrop-blur-md border border-red-900/30 rounded-lg overflow-hidden flex flex-col shadow-2xl shadow-black/60"
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-red-900/30">
-              <span className="flex items-center gap-2 font-mono text-xs text-[#FF3333]">
-                <Terminal size={13} /> SPIDR_SYS
-              </span>
-              <button
-                onClick={() => { if (isMobile) setDismissed(true); else setOpen(false); }}
-                className="text-zinc-500 hover:text-white transition-colors"
-              >
-                <X size={14} />
-              </button>
-            </div>
+    return (
+      <div className="fixed bottom-20 md:bottom-4 right-4 z-50">
+        <AnimatePresence mode="wait">
+          {open ? (
+            <motion.div
+              key="expanded"
+              initial={{ opacity: 0, y: 30, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: 384 }}
+              exit={{ opacity: 0, y: 30, height: 0 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+              className="w-80 bg-[#050505]/90 backdrop-blur-md border border-red-900/30 rounded-lg overflow-hidden flex flex-col shadow-2xl shadow-black/60"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-3 py-2 border-b border-red-900/30">
+                <span className="flex items-center gap-2 font-mono text-xs text-[#FF3333]">
+                  <Terminal size={13} /> SPIDR_SYS
+                </span>
+                <button
+                  onClick={() => { if (isMobile) setDismissed(true); else setOpen(false); }}
+                  className="text-zinc-500 hover:text-white transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
 
-            {/* Scrollable list */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3 font-mono text-xs">
-              {news.map((item, idx) => (
-                <div key={item.id} className={idx > 0 ? 'pt-3 border-t border-red-900/20' : ''}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold ${TYPE_COLORS[item.type] || TYPE_COLORS.UPDATE}`}>
-                      {item.type}
-                    </span>
-                    <span className="text-zinc-600 text-[10px]">{item.date}</span>
+              {/* Scrollable list */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-3 font-mono text-xs">
+                {news.map((item, idx) => (
+                  <div key={item.id} className={idx > 0 ? 'pt-3 border-t border-red-900/20' : ''}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold ${TYPE_COLORS[item.type] || TYPE_COLORS.UPDATE}`}>
+                        {item.type}
+                      </span>
+                      <span className="text-zinc-600 text-[10px]">{item.date}</span>
+                    </div>
+                    <p className="text-zinc-200 font-bold text-[11px]">{item.title}</p>
+                    <p className="text-zinc-400 mt-0.5 leading-relaxed">
+                      {idx === 0 ? typed : item.description}
+                      {idx === 0 && typed.length < (item.description?.length || 0) && (
+                        <span className="inline-block w-1.5 h-3 bg-[#FF3333] ml-0.5 animate-pulse align-middle" />
+                      )}
+                    </p>
                   </div>
-                  <p className="text-zinc-200 font-bold text-[11px]">{item.title}</p>
-                  <p className="text-zinc-400 mt-0.5 leading-relaxed">
-                    {idx === 0 ? typed : item.description}
-                    {idx === 0 && typed.length < (item.description?.length || 0) && (
-                      <span className="inline-block w-1.5 h-3 bg-[#FF3333] ml-0.5 animate-pulse align-middle" />
-                    )}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        ) : (
-          <motion.button
-            key="collapsed"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setOpen(true)}
-            className="relative bg-[#050505]/80 backdrop-blur-md border border-red-900/30 rounded-md px-4 py-2 flex items-center gap-2 max-w-[320px] hover:border-red-900/50 transition-colors"
-          >
-            <span className="font-mono text-xs text-[#FF3333] shrink-0">{'>'} SPIDR_SYS:</span>
-            <span className="font-mono text-xs text-zinc-300 truncate">{latest?.title || 'All systems nominal.'}</span>
+                ))}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.button
+              key="collapsed"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setOpen(true)}
+              className="relative bg-[#050505]/80 backdrop-blur-md border border-red-900/30 rounded-md px-4 py-2 flex items-center gap-2 max-w-[320px] hover:border-red-900/50
+  transition-colors"
+            >
+              <span className="font-mono text-xs text-[#FF3333] shrink-0">{'>'} SPIDR_SYS:</span>
+              <span className="font-mono text-xs text-zinc-300 truncate">{latest?.title || 'All systems nominal.'}</span>
 
-            {/* Spider-Sense unread badge — glowing node + jagged line */}
-            {hasUnread && (
-              <span className="absolute -top-1.5 -right-1.5">
-                <svg width="20" height="20" viewBox="0 0 20 20">
-                  <path d="M4 14 L8 10 L6 8 L11 4" fill="none" stroke="#FF3333" strokeWidth="1.2" opacity="0.8" />
-                  <circle cx="14" cy="6" r="4" fill="#FF3333">
-                    <animate attributeName="opacity" values="1;0.4;1" dur="1.2s" repeatCount="indefinite" />
-                  </circle>
-                  <circle cx="14" cy="6" r="6" fill="none" stroke="#FF3333" strokeWidth="1" opacity="0.4" />
-                </svg>
-              </span>
-            )}
-          </motion.button>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
+              {/* Spider-Sense unread badge — glowing node + jagged line */}
+              {hasUnread && (
+                <span className="absolute -top-1.5 -right-1.5">
+                  <svg width="20" height="20" viewBox="0 0 20 20">
+                    <path d="M4 14 L8 10 L6 8 L11 4" fill="none" stroke="#FF3333" strokeWidth="1.2" opacity="0.8" />
+                    <circle cx="14" cy="6" r="4" fill="#FF3333">
+                      <animate attributeName="opacity" values="1;0.4;1" dur="1.2s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="14" cy="6" r="6" fill="none" stroke="#FF3333" strokeWidth="1" opacity="0.4" />
+                  </svg>
+                </span>
+              )}
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }

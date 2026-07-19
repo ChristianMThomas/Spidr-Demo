@@ -23,7 +23,6 @@ import PCSpecsFlex        from './PCSpecsFlex';
 import SpotifyNowPlaying  from './SpotifyNowPlaying';
 import AppleMusicNowPlaying from './AppleMusicNowPlaying';
 import SteamNowPlaying    from './SteamNowPlaying';
-import LofiRadio          from './LofiRadio';
 
 export const BUILTIN_WIDGETS = {
   'Symbiote Entity Pet':    SymbiotePet,
@@ -32,7 +31,6 @@ export const BUILTIN_WIDGETS = {
   'Spotify Now Playing':    SpotifyNowPlaying,
   'Apple Music Now Playing': AppleMusicNowPlaying,
   'Steam Now Playing':      SteamNowPlaying,
-  'Lo-fi Radio':            LofiRadio,
 };
 
 const SPIDR_OFFICIAL = 'spidr-official';

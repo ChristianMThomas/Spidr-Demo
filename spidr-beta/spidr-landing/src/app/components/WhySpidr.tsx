@@ -76,16 +76,16 @@ export default function WhySpidr() {
         </div>
         <HrLight />
         <p className="max-w-[50ch] text-[clamp(1rem,2.5vw,2rem)] font-normal leading-relaxed">
-          Real-time messaging channels with rich embeds, reactions, threads, and unlimited
-          history. KineticChat is built for speed — zero lag, every message, every time.
+          Real-time messaging channels with rich embeds, reactions, replies, and searchable
+          history. KineticChat is built socket-first — messages land live on every device.
         </p>
         <HrLight />
         <div className="flex flex-wrap gap-[3vw]">
           {[
-            { label: 'Threaded Conversations', desc: 'Keep discussions organised. Reply in threads without disrupting the main channel flow.' },
-            { label: 'Rich Media Embeds', desc: 'Links, images, videos, code snippets — everything previews inline, natively.' },
-            { label: 'Real-Time Sync', desc: 'Messages land instantly across all your devices. No refresh, no delay.' },
-            { label: 'Unlimited History', desc: 'Search and scroll back to any message, forever. Nothing gets lost.' },
+            { label: 'Replies & Reactions', desc: 'Quote-reply, react with any emoji — including your server\'s custom ones.' },
+            { label: 'Rich Media Embeds', desc: 'Links, images, GIFs, voice notes, code snippets — everything previews inline, natively.' },
+            { label: 'Real-Time Sync', desc: 'Socket-driven delivery across web, desktop, and mobile. No refresh, no delay.' },
+            { label: 'Searchable History', desc: 'Full-text search across your channels. Scroll back and find that one message.' },
           ].map(({ label, desc }) => (
             <div key={label} className="min-w-[180px] flex-1">
               <p className="mb-2 text-sm font-bold uppercase tracking-wider">{label}</p>
@@ -133,8 +133,8 @@ export default function WhySpidr() {
         <HrDark />
         <div className="flex flex-wrap gap-[3vw]">
           {[
-            { label: 'HD Video Calls', desc: 'Group video with up to your entire server — crisp, low-latency, and stable.' },
-            { label: 'Spatial Voice Channels', desc: 'Always-on voice rooms. Drop in, hang out, leave whenever — just like a real room.' },
+            { label: 'Group Video Calls', desc: 'Peer-to-peer group video with screen share — crisp, low-latency, and stable.' },
+            { label: 'Drop-In Voice Rooms', desc: 'Always-on voice channels. Drop in, hang out, leave whenever — just like a real room.' },
             { label: 'Screen Sharing', desc: 'Share your screen with one click. Co-work, watch, or just show off what you built.' },
             { label: 'Cross-Platform', desc: 'Voice from desktop, mobile, or web. Everyone connects, regardless of device.' },
           ].map(({ label, desc }) => (
@@ -171,13 +171,13 @@ export default function WhySpidr() {
         </div>
         <HrDark />
         <p className="max-w-[50ch] text-[clamp(1rem,2.5vw,2rem)] font-normal leading-relaxed">
-          Scroll through a curated feed of clips, projects, tutorials, and drops from the
-          communities you're part of. Your world, your content — no algorithm deciding what you see.
+          Scroll through a feed of clips, projects, tutorials, and drops from the
+          communities you're part of. Ranked by what you actually watch — never by who paid.
         </p>
         <HrDark />
         <div className="flex flex-wrap gap-[3vw]">
           {[
-            { label: 'Algorithm-Free Discovery', desc: 'No black-box ranking. Your feed is shaped by your communities, not engagement bait.' },
+            { label: 'You-Tuned Ranking', desc: 'The feed learns from your watch time and follows — no ads, no sponsored slots, ever.' },
             { label: 'Community Curated', desc: 'Content posted by real people in your servers rises to the top organically.' },
             { label: 'Short-Form Video', desc: 'Post and watch clips, highlights, tutorials, and builds — all native to the platform.' },
             { label: 'Drop Culture', desc: 'Announce releases, share launches, and celebrate moments with your whole community.' },
@@ -323,9 +323,9 @@ export default function WhySpidr() {
         <HrDark />
         <div className="flex flex-wrap gap-[3vw]">
           {[
-            { label: 'End-to-End Encryption', desc: 'Direct messages and sensitive data are encrypted end-to-end. Not even we can read them.' },
+            { label: 'Encrypted In Transit & At Rest', desc: 'TLS everywhere, encrypted storage. E2E for DMs is on the public roadmap — we\'ll say when it ships, not before.' },
             { label: 'Zero Data Selling', desc: 'We will never sell, rent, or trade your personal information to third parties. Full stop.' },
-            { label: 'No Third-Party Brokers', desc: 'No ad networks. No data brokers. No hidden pipelines feeding your activity elsewhere.' },
+            { label: 'No Ad Networks', desc: 'No ad SDKs, no trackers, no data brokers. There is no advertiser to optimize you for.' },
             { label: 'Full Transparency', desc: 'Plain-language privacy policy. Know exactly what we collect, why, and how to delete it.' },
           ].map(({ label, desc }) => (
             <div key={label} className="min-w-[180px] flex-1">

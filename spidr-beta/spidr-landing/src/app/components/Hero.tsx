@@ -180,13 +180,13 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
             transition={{ duration: 0.5, delay: 0.5 }}
           >
             <div className="font-mono text-[0.6rem] text-[#C41E3A] tracking-widest">
-              PRE-LAUNCH / AUGUST 2026
+              CLOSED BETA — INVITES ROLLING OUT
             </div>
             <div
               className="font-mono text-[0.6rem] tracking-widest mt-0.5"
               style={{ color: "rgba(196,30,58,0.55)" }}
             >
-              PLATFORMS: ALL
+              PUBLIC LAUNCH: AUGUST 2026
             </div>
           </motion.div>
 
@@ -231,8 +231,13 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 1.2 }}
           >
-            <div>
-              <p className="font-mono text-[0.7rem] text-zinc-500 tracking-widest mb-3">
+            <div className="max-w-md">
+              {/* What-is-this line — the 5-second answer a skeptic needs */}
+              <p className="text-zinc-300 text-sm leading-relaxed mb-2">
+                One app for your whole community — organized chat, drop-in voice,
+                a short-form video feed, and AI + bots built in. No plugins, no hosting.
+              </p>
+              <p className="font-mono text-[0.65rem] text-zinc-500 tracking-widest mb-3">
                 VOICE · SPIDR AI · BOT LAB · THE WEB FEED
               </p>
 
@@ -254,16 +259,21 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
                 </div>
               )}
 
-              {/* CTA button */}
+              {/* CTA button + expectation-setting */}
               {!betaStatus?.isFull && (
-                <button
-                  onClick={onOpenBeta}
-                  className="inline-flex items-center gap-2 bg-[#C41E3A] hover:bg-[#a01830] text-white font-bold text-xs px-5 py-2.5 tracking-widest transition-colors cursor-pointer"
-                  style={{ fontFamily: "Inter, sans-serif", letterSpacing: "0.08em" }}
-                >
-                  CLAIM YOUR SPOT
-                  <ArrowRight size={12} />
-                </button>
+                <>
+                  <button
+                    onClick={onOpenBeta}
+                    className="inline-flex items-center gap-2 bg-[#C41E3A] hover:bg-[#a01830] text-white font-bold text-xs px-5 py-2.5 tracking-widest transition-colors cursor-pointer"
+                    style={{ fontFamily: "Inter, sans-serif", letterSpacing: "0.08em" }}
+                  >
+                    CLAIM YOUR SPOT
+                    <ArrowRight size={12} />
+                  </button>
+                  <p className="font-mono text-[0.6rem] text-zinc-600 tracking-wide mt-2">
+                    Free · takes ~30 seconds · invite lands in your email
+                  </p>
+                </>
               )}
             </div>
 
@@ -290,7 +300,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
           >
             <span className="w-2 h-2 bg-[#C41E3A] rounded-full animate-pulse" />
             <span className="text-[#C41E3A] text-sm font-semibold tracking-wide">
-              Pre-Launch Beta
+              Closed Beta — Invites Rolling Out
             </span>
           </motion.div>
 
@@ -310,7 +320,8 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.25 }}
           >
-            Voice, Spidr AI, bots, and a social feed — built for every crew.
+            One app for your whole community — organized chat, drop-in voice, a
+            short-form video feed, and AI + bots built in.
           </motion.p>
 
           <motion.div

@@ -3,12 +3,12 @@ import { useRef } from "react";
 import { Globe, Smartphone, Monitor, Sparkles } from "lucide-react";
 
 const platforms = [
-  { name: "Windows", icon: Monitor, color: "#60A5FA" },
-  { name: "macOS", icon: Monitor, color: "#A2AAAD" },
-  { name: "Linux", icon: Monitor, color: "#FCD34D" },
-  { name: "Web", icon: Globe, color: "#C41E3A" },
-  { name: "iOS", icon: Smartphone, color: "#60A5FA" },
-  { name: "Android", icon: Smartphone, color: "#4ADE80" },
+  { name: "Web", icon: Globe, color: "#C41E3A", status: "in beta", live: true },
+  { name: "Windows", icon: Monitor, color: "#60A5FA", status: "in beta", live: true },
+  { name: "iOS", icon: Smartphone, color: "#60A5FA", status: "in beta", live: true },
+  { name: "Android", icon: Smartphone, color: "#4ADE80", status: "in beta", live: true },
+  { name: "macOS", icon: Monitor, color: "#A2AAAD", status: "in beta", live: true },
+  { name: "Linux", icon: Monitor, color: "#FCD34D", status: "at launch", live: false },
 ];
 
 interface PlatformsProps {
@@ -49,14 +49,15 @@ export default function Platforms({ onOpenBeta }: PlatformsProps) {
             <div className="flex-1 text-center md:text-left">
               <div className="inline-flex items-center gap-2 bg-[#8B0000]/15 border border-[#8B0000]/40 rounded-full px-3 py-1.5 mb-5">
                 <span className="w-1.5 h-1.5 bg-[#C41E3A] rounded-full animate-pulse" />
-                <span className="text-[#C41E3A] text-xs font-black tracking-[0.12em]">COMING SOON</span>
+                <span className="text-[#C41E3A] text-xs font-black tracking-[0.12em]">5 OF 6 PLATFORMS IN BETA</span>
               </div>
 
               <h2 className="text-4xl md:text-5xl font-black text-white mb-4 leading-tight">
-                Launching everywhere, soon.
+                Already on your devices.
               </h2>
               <p className="text-zinc-400 text-lg mb-8 leading-relaxed">
-                Spidr will be available across every major platform. Sign up for beta access and be first in line when we launch.
+                Web, Windows desktop, and the iOS/Android beta are live today — beta invites
+                get you in immediately. macOS and Linux builds land at the August 2026 launch.
               </p>
               <motion.button
                 className="bg-[#8B0000] text-white px-8 py-4 rounded-full text-base font-bold inline-flex items-center gap-3 min-h-[52px]"
@@ -94,8 +95,12 @@ export default function Platforms({ onOpenBeta }: PlatformsProps) {
                     <span className="text-white text-xs font-semibold relative z-10">
                       {platform.name}
                     </span>
-                    <span className="text-zinc-600 text-[10px] uppercase tracking-wider relative z-10">
-                      Soon
+                    <span
+                      className="text-[10px] uppercase tracking-wider relative z-10 flex items-center gap-1"
+                      style={{ color: platform.live ? "#4ADE80" : "#52525b" }}
+                    >
+                      {platform.live && <span className="w-1 h-1 rounded-full bg-green-400 animate-pulse" />}
+                      {platform.status}
                     </span>
                   </motion.div>
                 ))}

@@ -10,6 +10,8 @@ import { StatusBar } from 'expo-status-bar';
 import { queryClient } from '../lib/queryClient';
 import { AuthProvider, useAuth } from '../lib/authContext';
 import { AppShellProvider } from '../lib/appShellContext';
+import { UnreadProvider } from '../lib/unreadContext';
+import IncomingCallModal from '../components/call/IncomingCallModal';
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoadingAuth } = useAuth();
@@ -41,10 +43,13 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <AppShellProvider>
+              <UnreadProvider>
               <AuthGate>
                 <StatusBar style="light" />
                 <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#111111' } }} />
+                <IncomingCallModal />
               </AuthGate>
+              </UnreadProvider>
             </AppShellProvider>
           </AuthProvider>
         </QueryClientProvider>
