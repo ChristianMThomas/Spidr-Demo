@@ -117,6 +117,9 @@ export default function IncomingCallModal() {
         id: c.conversationId,
         friendId: c.callerId,
         friendName: c.caller?.name || 'Caller',
+        // Tells the DM screen to render the in-call banner so the callee
+        // has confirmation they joined + a hang-up affordance.
+        inCall: '1',
       },
     });
   };

@@ -172,10 +172,46 @@ async function ensureSystemFriendship(userId) {
   }
 }
 
+/**
+ * Announce the newest patch note as a Spidr System DM to every user, once per
+ * patch id. Called on boot after Mongo connects; the SystemState marker makes
+ * repeat boots (and multi-instance deploys racing each other) near-idempotent.
+ */
+async function announceLatestPatch(latest) {
+  if (!latest?.id || !latest?.title) return;
+  const SystemState = require('../models/SystemState');
+  const KEY = 'last_announced_patch_id';
+
+  const state = await SystemState.findOne({ key: KEY }).lean();
+  if (state?.value === latest.id) return;
+
+  // Claim the marker BEFORE fanning out — if two instances boot at once only
+  // the loser re-sends, and a crash mid-fanout doesn't re-DM everyone forever.
+  await SystemState.updateOne({ key: KEY }, { $set: { value: latest.id } }, { upsert: true });
+
+  const sysId = await ensureSystemUser();
+  const message = [
+    `📡 ${latest.title}`,
+    '',
+    'A new update just landed on the web. Open Settings → About to read the full patch log.',
+  ].join('\n');
+
+  const users = await User.find({ _id: { $ne: sysId } }).select('_id').lean();
+  let sent = 0;
+  for (const u of users) {
+    try {
+      await sendSystemDM(u._id.toString(), message);
+      sent++;
+    } catch { /* one bad user must not stop the fanout */ }
+  }
+  console.log(`[spidr-system] Announced ${latest.id} to ${sent}/${users.length} users`);
+}
+
 module.exports = {
   ensureSystemUser,
   ensureSystemFriendship,
   sendSystemDM,
+  announceLatestPatch,
   SYSTEM_EMAIL,
   SYSTEM_USERNAME,
   SYSTEM_DISPLAY_NAME,

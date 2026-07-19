@@ -31,6 +31,7 @@ import { Modal, Pressable, TextInput } from 'react-native';
 import { entities, integrations } from '../../lib/apiClient';
 import { getSocket } from '../../lib/socket';
 import { useAuth } from '../../lib/authContext';
+import { useUnread } from '../../lib/unreadContext';
 import { Avatar } from '../../components/ui/Avatar';
 import { MessageBubble } from '../../components/chat/MessageBubble';
 import { MessageInput } from '../../components/chat/MessageInput';
@@ -191,11 +192,17 @@ function DateDivider({ label }: { label: string }) {
 
 // ── Screen ───────────────────────────────────────────────────────────────────
 export default function DM() {
-  const { id: conversationId, friendId, friendName } = useLocalSearchParams<{
+  const { id: conversationId, friendId, friendName, inCall: inCallParam } = useLocalSearchParams<{
     id: string;
     friendId?: string;
     friendName?: string;
+    inCall?: string;
   }>();
+  // `inCall=1` is set by IncomingCallModal when accepting a call, so the DM
+  // screen can show an in-call banner (media stream itself needs a WebRTC
+  // dev build — Phase 2). Toggled off by the "Hang up" chip below.
+  const [callActive, setCallActive] = useState(inCallParam === '1');
+  useEffect(() => { setCallActive(inCallParam === '1'); }, [inCallParam, conversationId]);
   const { user } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -267,6 +274,13 @@ export default function DM() {
   });
 
   useEffect(() => { setExtra([]); }, [conversationId]);
+
+  // Clear the unread badge for this thread whenever it's open and new data
+  // lands (covers both entering the screen and receiving while inside it).
+  const { markConversationRead } = useUnread();
+  useEffect(() => {
+    if (conversationId) markConversationRead(String(conversationId));
+  }, [conversationId, data, markConversationRead]);
 
   useEffect(() => {
     let mounted = true;
@@ -461,6 +475,40 @@ export default function DM() {
         </TouchableOpacity>
       </View>
 
+      {/* In-call banner — shown after accepting an incoming call. Media
+          stream is a Phase-2 (WebRTC dev build) task; the banner lets the
+          user confirm they joined and hang up. */}
+      {callActive && (
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', gap: 8,
+          marginHorizontal: 10, marginTop: 6,
+          paddingHorizontal: 12, paddingVertical: 8,
+          backgroundColor: 'rgba(34,197,94,0.12)',
+          borderWidth: 1, borderColor: 'rgba(34,197,94,0.35)',
+          borderRadius: 10,
+        }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' }} />
+          <Text style={{ color: '#4ade80', fontSize: 11, fontWeight: '800', letterSpacing: 1, flex: 1 }}>
+            IN CALL WITH {(friendName || 'FRIEND').toUpperCase()}
+          </Text>
+          <TouchableOpacity
+            onPress={async () => {
+              try {
+                const socket = await getSocket();
+                socket.emit('call:cancel', { recipientId: friendId, conversationId });
+              } catch { /* non-fatal */ }
+              setCallActive(false);
+            }}
+            style={{
+              paddingHorizontal: 10, paddingVertical: 4,
+              backgroundColor: '#dc2626', borderRadius: 6,
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900', letterSpacing: 1 }}>HANG UP</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Inline search bar */}
       {searchOpen && (
         <View style={{ paddingHorizontal: 10, paddingTop: 8 }}>
@@ -553,7 +601,7 @@ export default function DM() {
           visible={!!callKind}
           kind={callKind}
           onClose={() => setCallKind(null)}
-          onAccepted={() => setCallKind(null)}
+          onAccepted={() => { setCallKind(null); setCallActive(true); }}
           recipientId={friendId}
           recipientName={displayName}
           recipientAvatar={headerAvatar}
@@ -581,6 +629,10 @@ export default function DM() {
         onViewProfile={() => { setShowMoreMenu(false); friendId && router.push(`/user/${friendId}`); }}
         onGhostToggle={() => { setShowMoreMenu(false); setGhostMode((g) => !g); }}
         ghostMode={ghostMode}
+        currentUser={user}
+        friendId={friendId ? String(friendId) : undefined}
+        friendName={displayName}
+        friendRow={friendRow}
       />
     </SafeAreaView>
   );
@@ -655,17 +707,107 @@ function StickyWebSheet({
   );
 }
 
+// Same reason list the web ReportModal + mobile profile ReportSheet ship.
+const REPORT_REASONS = [
+  { id: 'spam', label: 'Spam / Bot Activity', severity: 'low' },
+  { id: 'harassment', label: 'Harassment / Abuse', severity: 'medium' },
+  { id: 'nsfw', label: 'Inappropriate Content (NSFW)', severity: 'medium' },
+  { id: 'impersonation', label: 'Impersonation', severity: 'medium' },
+  { id: 'threats', label: 'Threats / Violence', severity: 'high' },
+  { id: 'underage', label: 'Underage User', severity: 'high' },
+  { id: 'hacking', label: 'Hacking / Exploits', severity: 'critical' },
+  { id: 'doxxing', label: 'Doxxing / Leaking Personal Info', severity: 'critical' },
+  { id: 'other', label: 'Other', severity: 'medium' },
+];
+
 // ── More options sheet ────────────────────────────────────────────────────
 function MoreMenuSheet({
   visible, onClose, onViewProfile, onGhostToggle, ghostMode,
+  currentUser, friendId, friendName, friendRow,
 }: {
   visible: boolean;
   onClose: () => void;
   onViewProfile: () => void;
   onGhostToggle: () => void;
   ghostMode: boolean;
+  currentUser: any;
+  friendId?: string;
+  friendName: string;
+  friendRow: any;
 }) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const [muted, setMuted] = useState(false);
+  const [reporting, setReporting] = useState(false);
+  const [reason, setReason] = useState<string | null>(null);
+  const [details, setDetails] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const closeAll = () => {
+    setReporting(false);
+    setReason(null);
+    setDetails('');
+    onClose();
+  };
+
+  // Real report — same Report entity + shape the web ReportModal writes.
+  const submitReport = async () => {
+    if (!reason || submitting || !friendId) return;
+    setSubmitting(true);
+    try {
+      const reasonObj = REPORT_REASONS.find((r) => r.id === reason);
+      await entities.Report.create({
+        reporter_id: currentUser?.id,
+        reporter_name: currentUser?.full_name || currentUser?.username,
+        target_type: 'user',
+        target_id: friendId,
+        target_name: friendName,
+        reason,
+        details,
+        severity: reasonObj?.severity || 'medium',
+        status: 'pending',
+      });
+      closeAll();
+      Alert.alert('Report submitted', 'The Spidr team will review it.');
+    } catch (err: any) {
+      Alert.alert('Could not submit report', err?.message || 'Try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Real block — flips the existing Friend row to blocked (or creates one),
+  // same model the profile-view Sever action uses.
+  const blockUser = () => {
+    if (!friendId) return;
+    Alert.alert('Block user?', `${friendName} won't be able to message you or see your activity.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Block',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            if (friendRow?.id) {
+              await entities.Friend.update(friendRow.id, { status: 'blocked' });
+            } else {
+              await entities.Friend.create({
+                user_id: currentUser?.id,
+                friend_id: friendId,
+                friend_name: friendName,
+                status: 'blocked',
+              });
+            }
+            queryClient.invalidateQueries({ queryKey: ['friends'] });
+            queryClient.invalidateQueries({ queryKey: ['friend-row'] });
+            closeAll();
+            router.back();
+          } catch (err: any) {
+            Alert.alert('Could not block', err?.message || 'Try again.');
+          }
+        },
+      },
+    ]);
+  };
   const item = (Icon: any, label: string, onPress: () => void, color = '#fff') => (
     <TouchableOpacity onPress={onPress} style={{
       flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -680,29 +822,100 @@ function MoreMenuSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }} onPress={onClose} />
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }} onPress={closeAll} />
         <View style={{
           backgroundColor: '#0a0a0a', borderTopLeftRadius: 20, borderTopRightRadius: 20,
           borderTopWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
           padding: 16, paddingBottom: 28,
         }}>
-          <Text style={{ color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 1.5, marginBottom: 12 }}>
-            MORE OPTIONS
-          </Text>
-          {item(UserIcon, 'View profile', onViewProfile)}
-          {item(
-            () => <Sparkles size={17} color={ghostMode ? '#a855f7' : '#a1a1aa'} />,
-            ghostMode ? 'Ghost mode: ON' : 'Ghost mode: OFF',
-            onGhostToggle,
-            ghostMode ? '#a855f7' : '#fff',
+          {!reporting ? (
+            <>
+              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 1.5, marginBottom: 12 }}>
+                MORE OPTIONS
+              </Text>
+              {item(UserIcon, 'View profile', onViewProfile)}
+              {item(
+                () => <Sparkles size={17} color={ghostMode ? '#a855f7' : '#a1a1aa'} />,
+                ghostMode ? 'Ghost mode: ON' : 'Ghost mode: OFF',
+                onGhostToggle,
+                ghostMode ? '#a855f7' : '#fff',
+              )}
+              {item(
+                VolumeX,
+                muted ? 'Unmute notifications' : 'Mute notifications',
+                () => { setMuted((m) => !m); Alert.alert(muted ? 'Unmuted' : 'Muted', 'This DM will ' + (muted ? 'resume' : 'stop') + ' notifying you.'); onClose(); },
+              )}
+              {item(Flag, 'Report user', () => setReporting(true), '#f97316')}
+              {item(UserX, 'Block user', blockUser, '#ef4444')}
+            </>
+          ) : (
+            <>
+              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 1.5, marginBottom: 12 }}>
+                REPORT {friendName.toUpperCase()}
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                {REPORT_REASONS.map((r) => {
+                  const active = reason === r.id;
+                  return (
+                    <TouchableOpacity
+                      key={r.id}
+                      onPress={() => setReason(r.id)}
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 7,
+                        borderRadius: 999,
+                        backgroundColor: active ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.04)',
+                        borderWidth: 1,
+                        borderColor: active ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.06)',
+                      }}
+                    >
+                      <Text style={{ color: active ? '#ef4444' : '#a1a1aa', fontSize: 11, fontWeight: '700' }}>
+                        {r.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={details}
+                onChangeText={setDetails}
+                placeholder="Add details (optional)..."
+                placeholderTextColor="#52525b"
+                multiline
+                style={{
+                  backgroundColor: '#18181b',
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: 'rgba(255,255,255,0.07)',
+                  color: '#fff',
+                  fontSize: 13,
+                  padding: 10,
+                  minHeight: 64,
+                  textAlignVertical: 'top',
+                  marginBottom: 12,
+                }}
+              />
+              <TouchableOpacity
+                onPress={submitReport}
+                disabled={!reason || submitting}
+                style={{
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  backgroundColor: reason ? '#dc2626' : '#3f3f46',
+                  alignItems: 'center',
+                  opacity: submitting ? 0.6 : 1,
+                }}
+              >
+                {submitting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900', letterSpacing: 2 }}>
+                    SUBMIT REPORT
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </>
           )}
-          {item(
-            VolumeX,
-            muted ? 'Unmute notifications' : 'Mute notifications',
-            () => { setMuted((m) => !m); Alert.alert(muted ? 'Unmuted' : 'Muted', 'This DM will ' + (muted ? 'resume' : 'stop') + ' notifying you.'); onClose(); },
-          )}
-          {item(Flag, 'Report user', () => { onClose(); Alert.alert('Reported', 'Thanks — the Spidr team will review.'); }, '#f97316')}
-          {item(UserX, 'Block user', () => { onClose(); Alert.alert('Block', 'Blocking flow lands in a follow-up patch.'); }, '#ef4444')}
         </View>
       </View>
     </Modal>

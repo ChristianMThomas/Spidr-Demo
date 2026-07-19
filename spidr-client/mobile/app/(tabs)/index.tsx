@@ -638,9 +638,7 @@ export default function Home() {
           <QuickAction
             title="Try Spidr AI"
             subtitle="Create servers & customize"
-            onPress={() => {
-              /* AI route doesn't exist on mobile yet */
-            }}
+            onPress={() => router.push('/spidr-ai')}
           />
         </View>
 

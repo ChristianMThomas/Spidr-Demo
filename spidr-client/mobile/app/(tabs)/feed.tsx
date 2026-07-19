@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { View, Dimensions, RefreshControl } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
 import { useAuth } from '../../lib/authContext';
 import { useClipFeed, useFriendsClipFeed } from '../../lib/feedQueries';
@@ -19,6 +20,9 @@ export default function Feed() {
   const TAB_BAR_HEIGHT = 82; // matches (tabs)/_layout.tsx
   const cardHeight = screenHeight - TAB_BAR_HEIGHT;
 
+  // When the WEB tab loses focus (user switches to another tab), no clip may
+  // keep playing/audible in the background.
+  const isFocused = useIsFocused();
   const [tab, setTab] = useState<FeedTab>('web');
   const [activeIndex, setActiveIndex] = useState(0);
   const [muted, setMuted] = useState(true); // start muted, mobile default
@@ -99,7 +103,7 @@ export default function Feed() {
           renderItem={({ item, index }) => (
             <ClipCard
               clip={item}
-              active={index === activeIndex}
+              active={isFocused && index === activeIndex}
               height={cardHeight}
               muted={muted}
               onToggleMute={() => setMuted((m) => !m)}

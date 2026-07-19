@@ -256,6 +256,12 @@ export const biomass = {
   buy:       (itemId: string)                => api.post('/biomass/shop/buy', { itemId }),
 };
 
+// ─── Account lifecycle (Apple 5.1.1(v) / Play deletion policy) ───────────────
+export const account = {
+  deactivate: () => api.post('/users/me/deactivate', {}),
+  deleteAccount: () => api.delete('/users/me'),
+};
+
 // ─── Tension (XP / leveling) ─────────────────────────────────────────────────
 export const tension = {
   me:     ()                                                    => api.get('/tension/me'),

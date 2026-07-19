@@ -3,7 +3,6 @@ import { View, Text, TouchableOpacity, Alert, Linking, TextInput, ScrollView, Ac
 import { Image } from 'expo-image';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Location from 'expo-location';
 import {
   Blocks, FileText, Globe, Radio, Clock, Music, Cpu, MemoryStick, HardDrive, Monitor,
   Gamepad2, Trophy, Search, ChevronRight, Skull, Edit2, Check, X, Flame,
@@ -496,7 +495,10 @@ function interpretWeatherCode(code: number) {
 function WeatherWidget({ mod, userId, isOwnProfile }: { mod: any; userId: string; isOwnProfile: boolean }) {
   const queryClient = useQueryClient();
   const [useF, setUseF] = useState(false);
-  const [geoError, setGeoError] = useState<string | null>(null);
+  // No device-location prompt on mobile — coords are set from the web widget
+  // (or a future in-app city picker). Keeps us off Play's sensitive
+  // permissions list and lets us drop expo-location entirely.
+  const geoError: string | null = null;
 
   const { data: ownerProfile, isLoading: loadingProfile } = useQuery({
     queryKey: ['weather-profile', userId],
@@ -510,24 +512,6 @@ function WeatherWidget({ mod, userId, isOwnProfile }: { mod: any; userId: string
   const savedCoords = ownerProfile?.weather_coords?.lat != null && ownerProfile?.weather_coords?.lon != null
     ? { lat: ownerProfile.weather_coords.lat, lon: ownerProfile.weather_coords.lon }
     : null;
-
-  // Only the profile owner triggers a location prompt.
-  useEffect(() => {
-    if (!isOwnProfile || !ownerProfile?.id || savedCoords) return;
-    (async () => {
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (!perm.granted) { setGeoError('denied'); return; }
-      try {
-        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        await entities.UserProfile.update(ownerProfile.id, {
-          weather_coords: { lat: pos.coords.latitude, lon: pos.coords.longitude, updated_at: new Date() },
-        });
-        queryClient.invalidateQueries({ queryKey: ['weather-profile', userId] });
-      } catch {
-        setGeoError('failed');
-      }
-    })();
-  }, [isOwnProfile, ownerProfile?.id, savedCoords, queryClient, userId]);
 
   const { data: weather, isLoading: fetching } = useQuery({
     queryKey: ['weather-live', savedCoords?.lat, savedCoords?.lon],
@@ -575,7 +559,7 @@ function WeatherWidget({ mod, userId, isOwnProfile }: { mod: any; userId: string
         </View>
       ) : !savedCoords ? (
         <Text style={{ color: '#71717a', fontSize: 10, fontFamily: 'monospace', letterSpacing: 1, marginTop: 12 }}>
-          {isOwnProfile ? (geoError === 'denied' ? 'LOCATION ACCESS DENIED — ENABLE IN SETTINGS' : 'WEATHER NOT CONFIGURED') : 'WEATHER NOT CONFIGURED'}
+          {isOwnProfile ? 'SET LOCATION FROM THE WEB APP TO ENABLE' : 'WEATHER NOT CONFIGURED'}
         </Text>
       ) : weather && cond ? (
         <>

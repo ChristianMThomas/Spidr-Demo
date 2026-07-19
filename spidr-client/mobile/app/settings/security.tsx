@@ -9,7 +9,7 @@ import * as Clipboard from 'expo-clipboard';
 import {
   ArrowLeft, ShieldCheck, Key, Lock, Smartphone, Check, X, LogOut, AlertTriangle, Eye, EyeOff, Copy,
 } from 'lucide-react-native';
-import { auth } from '../../lib/apiClient';
+import { auth, account } from '../../lib/apiClient';
 import { useAppShell } from '../../lib/appShellContext';
 import { useAuth } from '../../lib/authContext';
 import { useThemeColors } from '../../lib/theme';
@@ -27,6 +27,7 @@ export default function Security() {
   const colors = useThemeColors();
   const [showPassword, setShowPassword] = useState(false);
   const [show2FA, setShow2FA] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
 
   const totpEnabled = currentUser?.twoFactorMethod === 'totp';
   const accountAge = currentUser?.created_date
@@ -101,7 +102,7 @@ export default function Security() {
             </View>
           </View>
           <BigButton
-            label={totpEnabled ? 'MANAGE AUTHENTICATOR' : 'GENERATE SYNC MATRIX'}
+            label={totpEnabled ? 'MANAGE AUTHENTICATOR' : 'GENERATE SYNC'}
             red={!totpEnabled}
             onPress={() => setShow2FA(true)}
           />
@@ -129,7 +130,7 @@ export default function Security() {
           </View>
           <TouchableOpacity
             onPress={() =>
-              Alert.alert('Sever neural link?', 'This will log you out of this device.', [
+              Alert.alert('Log out?', 'This will log you out of this device.', [
                 { text: 'Cancel', style: 'cancel' },
                 { text: 'Log out', style: 'destructive', onPress: () => logout() },
               ])
@@ -141,11 +142,63 @@ export default function Security() {
             }}
           >
             <LogOut size={14} color="#f87171" />
-            <Text style={{ color: '#f87171', fontSize: 11, fontWeight: '800', letterSpacing: 2 }}>SEVER NEURAL LINK</Text>
+            <Text style={{ color: '#f87171', fontSize: 11, fontWeight: '800', letterSpacing: 2 }}>LOGOUT</Text>
+          </TouchableOpacity>
+
+          {/* Deactivate — reversible; account goes dark until you log back in */}
+          <TouchableOpacity
+            onPress={() =>
+              Alert.alert(
+                'Deactivate account?',
+                'Your profile goes offline and hidden. Logging back in restores everything — nothing is deleted.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Deactivate',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        await account.deactivate();
+                        await logout();
+                      } catch (err: any) {
+                        Alert.alert('Could not deactivate', err?.message || 'Try again.');
+                      }
+                    },
+                  },
+                ],
+              )
+            }
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+              paddingVertical: 11, borderRadius: 10, backgroundColor: 'rgba(239,68,68,0.1)',
+              borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', marginTop: 8,
+            }}
+          >
+            <EyeOff size={14} color="#f87171" />
+            <Text style={{ color: '#f87171', fontSize: 11, fontWeight: '800', letterSpacing: 2 }}>DEACTIVATE ACCOUNT</Text>
+          </TouchableOpacity>
+
+          {/* Delete — permanent; Apple 5.1.1(v) / Play deletion requirement */}
+          <TouchableOpacity
+            onPress={() => setShowDelete(true)}
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+              paddingVertical: 11, borderRadius: 10, backgroundColor: '#7f1d1d',
+              borderWidth: 1, borderColor: 'rgba(239,68,68,0.5)', marginTop: 8,
+            }}
+          >
+            <AlertTriangle size={14} color="#fff" />
+            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '800', letterSpacing: 2 }}>DELETE ACCOUNT PERMANENTLY</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
 
+      <DeleteAccountModal
+        visible={showDelete}
+        onClose={() => setShowDelete(false)}
+        username={currentUser?.username || currentUser?.display_name || ''}
+        onDeleted={() => logout()}
+      />
       <PasswordModal visible={showPassword} onClose={() => setShowPassword(false)} />
       <TwoFAModal
         visible={show2FA}
@@ -220,6 +273,74 @@ function SheetShell({ visible, onClose, title, children }: { visible: boolean; o
         </View>
       </View>
     </Modal>
+  );
+}
+
+// ── Delete account — type-to-confirm, irreversible ──────────────────────────
+function DeleteAccountModal({
+  visible, onClose, username, onDeleted,
+}: { visible: boolean; onClose: () => void; username: string; onDeleted: () => void }) {
+  const [confirm, setConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
+  const expected = 'DELETE';
+
+  const close = () => { setConfirm(''); onClose(); };
+
+  const submit = async () => {
+    if (confirm !== expected || loading) return;
+    setLoading(true);
+    try {
+      await account.deleteAccount();
+      close();
+      Alert.alert('Account deleted', 'Your account and data have been removed.');
+      onDeleted();
+    } catch (err: any) {
+      Alert.alert('Deletion failed', err?.data?.error || err?.message || 'Try again.');
+    }
+    setLoading(false);
+  };
+
+  return (
+    <SheetShell visible={visible} onClose={close} title="Delete Account Permanently">
+      <View style={{ gap: 12 }}>
+        <View style={{ padding: 12, backgroundColor: 'rgba(239,68,68,0.08)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)', borderRadius: 12 }}>
+          <Text style={{ color: '#f87171', fontSize: 12, lineHeight: 18 }}>
+            This permanently deletes {username ? `@${username}'s` : 'your'} account: profile, friends,
+            clips, and wallet. Your messages are anonymized. This cannot be undone.
+          </Text>
+        </View>
+        <Text style={{ color: '#a1a1aa', fontSize: 11, fontWeight: '700' }}>
+          Type <Text style={{ color: '#fff', fontFamily: 'monospace' }}>{expected}</Text> to confirm
+        </Text>
+        <TextInput
+          value={confirm}
+          onChangeText={setConfirm}
+          autoCapitalize="characters"
+          placeholder={expected}
+          placeholderTextColor="#3f3f46"
+          style={{
+            backgroundColor: '#18181b', borderWidth: 1,
+            borderColor: confirm === expected ? '#ef4444' : '#3f3f46', borderRadius: 10,
+            color: '#fff', paddingHorizontal: 12, paddingVertical: 10, fontSize: 14,
+            fontFamily: 'monospace', letterSpacing: 2,
+          }}
+        />
+        <TouchableOpacity
+          onPress={submit}
+          disabled={confirm !== expected || loading}
+          style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+            paddingVertical: 12, borderRadius: 12, backgroundColor: '#7f1d1d',
+            opacity: confirm !== expected || loading ? 0.4 : 1,
+          }}
+        >
+          {loading ? <ActivityIndicator size="small" color="#fff" /> : <AlertTriangle size={14} color="#fff" />}
+          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>
+            {loading ? 'DELETING…' : 'DELETE MY ACCOUNT'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </SheetShell>
   );
 }
 

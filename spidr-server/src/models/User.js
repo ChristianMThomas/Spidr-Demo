@@ -9,6 +9,7 @@ const s = new Schema({
   bio:          String,
   status:       { type: String, default: 'online' },
   is_banned:    { type: Boolean, default: false },
+  is_deactivated: { type: Boolean, default: false },
   is_verified:  { type: Boolean, default: false },
   twoFactorMethod: { type: String, enum: ['none','email','totp'], default: 'none' },
   twoFactorSecret: { type: String },

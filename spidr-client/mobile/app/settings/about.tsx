@@ -1,10 +1,10 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
-import { ArrowLeft, Info, Terminal } from 'lucide-react-native';
+import { ArrowLeft, Info, Terminal, Mail, FileText, ShieldCheck } from 'lucide-react-native';
 import { system } from '../../lib/apiClient';
 import { useThemeColors } from '../../lib/theme';
 
@@ -75,6 +75,32 @@ export default function About() {
           </Text>
         </View>
 
+        {/* Support + legal */}
+        <View style={card}>
+          <Text style={{ color: '#71717a', fontSize: 9, fontWeight: '900', letterSpacing: 2, marginBottom: 10 }}>
+            SUPPORT & LEGAL
+          </Text>
+          <LinkRow
+            Icon={Mail}
+            label="Contact support"
+            value="christhomas0634@gmail.com"
+            onPress={() => Linking.openURL('mailto:christhomas0634@gmail.com?subject=Spidr%20support')}
+          />
+          <LinkRow
+            Icon={ShieldCheck}
+            label="Privacy Policy"
+            value="spidrapp.infinitetechteam.com/privacy"
+            onPress={() => Linking.openURL('https://spidrapp.infinitetechteam.com/privacy')}
+          />
+          <LinkRow
+            Icon={FileText}
+            label="Terms of Service"
+            value="spidrapp.infinitetechteam.com/terms"
+            onPress={() => Linking.openURL('https://spidrapp.infinitetechteam.com/terms')}
+            last
+          />
+        </View>
+
         {/* Patch notes */}
         <Text style={{ color: '#71717a', fontSize: 10, fontWeight: '900', letterSpacing: 2, marginLeft: 4 }}>
           SPIDR_SYS // PATCH LOG
@@ -124,6 +150,28 @@ function NewsCard({ item }: { item: NewsItem }) {
           {expanded ? 'SHOW LESS' : 'READ MORE'}
         </Text>
       )}
+    </TouchableOpacity>
+  );
+}
+
+function LinkRow({
+  Icon, label, value, onPress, last,
+}: { Icon: any; label: string; value: string; onPress: () => void; last?: boolean }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={{
+        flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10,
+        borderBottomWidth: last ? 0 : 1, borderBottomColor: 'rgba(255,255,255,0.05)',
+      }}
+    >
+      <Icon size={16} color="#a1a1aa" />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>{label}</Text>
+        <Text style={{ color: '#71717a', fontSize: 10, fontFamily: 'monospace' }} numberOfLines={1}>
+          {value}
+        </Text>
+      </View>
     </TouchableOpacity>
   );
 }

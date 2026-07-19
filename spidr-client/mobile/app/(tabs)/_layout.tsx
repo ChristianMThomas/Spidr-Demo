@@ -1,9 +1,11 @@
 import { Tabs } from 'expo-router';
 import { Home, Users, Server, Film, Settings as SettingsIcon } from 'lucide-react-native';
 import { useThemeColors } from '../../lib/theme';
+import { useUnread } from '../../lib/unreadContext';
 
 export default function TabsLayout() {
   const colors = useThemeColors();
+  const { total: unreadTotal } = useUnread();
 
   return (
     <Tabs
@@ -39,6 +41,8 @@ export default function TabsLayout() {
         options={{
           title: 'FRIENDS',
           tabBarIcon: ({ color, size }) => <Users color={color} size={size - 2} />,
+          tabBarBadge: unreadTotal > 0 ? (unreadTotal > 99 ? '99+' : unreadTotal) : undefined,
+          tabBarBadgeStyle: { backgroundColor: '#dc2626', color: '#fff', fontSize: 10 },
         }}
       />
       <Tabs.Screen

@@ -30,7 +30,8 @@ import {
 import { entities, searchUsers } from '../../lib/apiClient';
 import { useAuth } from '../../lib/authContext';
 import { Avatar } from '../../components/ui/Avatar';
-import { dmConversationId } from '../../lib/utils';
+import { dmConversationId, isSystemFriend } from '../../lib/utils';
+import { useUnread } from '../../lib/unreadContext';
 
 type TabKey = 'all' | 'online' | 'groups' | 'pending' | 'blocked' | 'signals' | 'add';
 
@@ -170,6 +171,7 @@ function FriendCard({
   bio,
   avatar,
   banner,
+  unread,
   onMessage,
   onAvatarPress,
 }: {
@@ -179,6 +181,7 @@ function FriendCard({
   bio?: string;
   avatar?: string;
   banner?: string;
+  unread?: number;
   onMessage: () => void;
   onAvatarPress?: () => void;
 }) {
@@ -255,6 +258,22 @@ function FriendCard({
             </Text>
           ) : null}
         </View>
+        {!!unread && unread > 0 && (
+          <View
+            style={{
+              backgroundColor: '#dc2626',
+              borderRadius: 999,
+              minWidth: 22,
+              paddingHorizontal: 6,
+              paddingVertical: 3,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '900' }}>
+              {unread > 99 ? '99+' : unread}
+            </Text>
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -266,6 +285,7 @@ export default function Friends() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<TabKey>('all');
+  const { counts: unreadCounts } = useUnread();
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [addInput, setAddInput] = useState('');
@@ -541,7 +561,7 @@ export default function Friends() {
               letterSpacing: 2,
             }}
           >
-            SPIDR WEB
+            RECENTS
           </Text>
           <Text style={{ color: '#71717a', fontSize: 11 }}>{activeCount} active</Text>
         </View>
@@ -634,6 +654,7 @@ export default function Friends() {
                     bio={p?.bio}
                     avatar={p?.avatar_url || f.friend_avatar}
                     banner={p?.banner_url}
+                    unread={unreadCounts[dmConversationId(user?.id, f.friend_id)]}
                     onMessage={() =>
                       openDM(f.friend_id, p?.display_name || f.friend_name || 'Friend')
                     }
@@ -937,7 +958,7 @@ export default function Friends() {
           <CreateGroupSheet
             visible={showCreateGroup}
             onClose={() => setShowCreateGroup(false)}
-            accepted={accepted}
+            accepted={accepted.filter((f: any) => !isSystemFriend(f, getProfile(f.friend_id)))}
             getProfile={getProfile}
             currentUser={user}
             myProfile={getProfile(user?.id || '')}

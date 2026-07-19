@@ -1,4 +1,4 @@
-import React, { lazy, useEffect } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
@@ -63,6 +63,8 @@ const GlobalReports = lazy(() => import('@/pages/GlobalReports'));
 const RadarPage     = lazy(() => import('@/pages/Radar'));
 const BiomassPage   = lazy(() => import('@/pages/Biomass'));
 const PopoutCall    = lazy(() => import('@/pages/PopoutCall'));
+const PrivacyPolicy = lazy(() => import('@/pages/Legal').then((m) => ({ default: m.PrivacyPolicy })));
+const TermsOfService = lazy(() => import('@/pages/Legal').then((m) => ({ default: m.TermsOfService })));
 const ProtocolOverlay = lazy(() => import('@/pages/ProtocolOverlay'));
 
 function AppRoutes() {
@@ -107,6 +109,10 @@ function AppRoutes() {
       <Route path="/" element={isAuthenticated ? <Navigate to="/home" replace /> : <LandingPage />} />
       <Route path="/login" element={isAuthenticated ? <Navigate to="/home" replace /> : <LoginPage />} />
       <Route path="/join/:code" element={isAuthenticated ? <JoinServer /> : <Navigate to="/login" replace />} />
+      {/* Legal pages — must stay public (store listings link here logged-out).
+          Local Suspense: these routes render outside SpidrShell's boundary. */}
+      <Route path="/privacy" element={<Suspense fallback={null}><PrivacyPolicy /></Suspense>} />
+      <Route path="/terms" element={<Suspense fallback={null}><TermsOfService /></Suspense>} />
 
       {/* Protected — the AppShell wraps everything below it */}
       {isAuthenticated ? (

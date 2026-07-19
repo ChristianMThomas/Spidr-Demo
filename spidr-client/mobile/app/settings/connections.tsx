@@ -1,10 +1,10 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Alert, Linking } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, Alert, Linking, TextInput, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Gamepad2, Twitch, Check, X, ExternalLink, Unlink, Music } from 'lucide-react-native';
-import { entities, spotify } from '../../lib/apiClient';
+import { ArrowLeft, Gamepad2, Twitch, ExternalLink, Unlink, Music } from 'lucide-react-native';
+import api, { entities, spotify } from '../../lib/apiClient';
 import { useAppShell } from '../../lib/appShellContext';
 import { useThemeColors } from '../../lib/theme';
 import { BASE_URL } from '../../lib/config';
@@ -12,7 +12,9 @@ import { BASE_URL } from '../../lib/config';
 // ── Connections (mobile) ─────────────────────────────────────────────────────
 // Small-screen port of spidr-client/src/components/spidr/NeuralConfig.jsx.
 // Spotify uses real OAuth (opens the server's /spotify/auth/start in the
-// browser); Steam and Twitch are simple neural_links booleans on UserProfile.
+// browser); Steam verifies a SteamID64 against the live /steam API before it
+// counts as connected; Twitch has no backend yet so its card is inert
+// (Apple 2.3.1 — no fake integrations in the binary).
 
 function openHttps(url: string) {
   try {
@@ -42,19 +44,13 @@ export default function Connections() {
   const profileId = profile?.id;
   const neuralLinks = profile?.neural_links || {};
 
-  const toggleLink = async (key: string) => {
-    const newVal = !neuralLinks[key];
-    const updated = { ...neuralLinks, [key]: newVal };
-    try {
-      if (profileId) {
-        await entities.UserProfile.update(profileId, { neural_links: updated });
-      } else {
-        await entities.UserProfile.create({ user_id: currentUser?.id, neural_links: updated });
-      }
-      queryClient.invalidateQueries({ queryKey: ['user-profile', currentUser?.id] });
-    } catch {
-      Alert.alert('Failed to update neural link');
+  const saveLinks = async (updated: Record<string, any>) => {
+    if (profileId) {
+      await entities.UserProfile.update(profileId, { neural_links: updated });
+    } else {
+      await entities.UserProfile.create({ user_id: currentUser?.id, neural_links: updated });
     }
+    queryClient.invalidateQueries({ queryKey: ['user-profile', currentUser?.id] });
   };
 
   const handleSpotifyConnect = () => {
@@ -96,21 +92,22 @@ export default function Connections() {
           onDisconnect={handleSpotifyDisconnect}
         />
 
-        <ToggleCard
-          label="Steam Game Protocol"
-          Icon={Gamepad2}
-          description="Link Steam to display your library activity and recently played games on your profile."
-          connected={!!neuralLinks.steam}
-          onToggle={() => toggleLink('steam')}
-          color="#66c0f4"
+        <SteamCard
+          connected={!!neuralLinks.steam && !!neuralLinks.steam_id}
+          steamId={neuralLinks.steam_id}
+          onConnect={async (steamId: string) => {
+            await saveLinks({ ...neuralLinks, steam: true, steam_id: steamId });
+          }}
+          onDisconnect={async () => {
+            const { steam_id: _drop, ...rest } = neuralLinks;
+            await saveLinks({ ...rest, steam: false });
+          }}
         />
 
-        <ToggleCard
+        <ComingSoonCard
           label="Twitch Live Feed"
           Icon={Twitch}
-          description="Connect Twitch to show when you're live and let friends tune in directly from your profile."
-          connected={!!neuralLinks.twitch}
-          onToggle={() => toggleLink('twitch')}
+          description="Twitch integration isn't wired up yet. When it ships, you'll be able to show when you're live and let friends tune in from your profile."
           color="#9146FF"
         />
       </ScrollView>
@@ -177,56 +174,149 @@ function SpotifyCard({
   );
 }
 
-// ── Simple boolean toggle card (Steam, Twitch) ───────────────────────────────
-function ToggleCard({
-  label, Icon, description, connected, onToggle, color,
-}: { label: string; Icon: any; description: string; connected: boolean; onToggle: () => void; color: string }) {
+// ── Steam — real connection: SteamID64 verified against the live Steam API ───
+function SteamCard({
+  connected, steamId, onConnect, onDisconnect,
+}: {
+  connected: boolean;
+  steamId?: string;
+  onConnect: (steamId: string) => Promise<void>;
+  onDisconnect: () => Promise<void>;
+}) {
+  const color = '#66c0f4';
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState('');
+  const [verifying, setVerifying] = useState(false);
+
+  const verifyAndSave = async () => {
+    const id = input.trim();
+    if (!/^\d{1,20}$/.test(id)) {
+      Alert.alert('Invalid SteamID', 'Enter your numeric SteamID64 — find it at steamid.io.');
+      return;
+    }
+    setVerifying(true);
+    try {
+      // Real check: the server hits Steam's API. Empty games list still counts
+      // (private profiles return no data), but a 4xx/5xx means bad id or an
+      // unconfigured server — surface that instead of faking "connected".
+      await api.get('/steam/games', { params: { steamid: id } });
+      await onConnect(id);
+      setEditing(false);
+      setInput('');
+      Alert.alert('Steam linked', 'Your Steam library is now available to profile modules.');
+    } catch (err: any) {
+      Alert.alert(
+        'Could not link Steam',
+        err?.status === 503
+          ? 'Steam integration is not configured on the server yet.'
+          : err?.data?.error || err?.message || 'Check the SteamID and try again.',
+      );
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   return (
     <View style={{ backgroundColor: '#111', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', borderRadius: 14, padding: 16, gap: 12 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
-          <View
-            style={{
-              width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-              backgroundColor: connected ? color + '22' : '#1a1a1a',
-            }}
-          >
-            <Icon size={20} color={connected ? color : '#555'} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }} numberOfLines={1}>{label}</Text>
-            <Text
-              style={{ color: connected ? '#22c55e' : '#555', fontSize: 9, fontFamily: 'monospace', letterSpacing: 2, marginTop: 2 }}
-            >
-              {connected ? 'LINK ESTABLISHED' : 'NO SIGNAL'}
-            </Text>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          onPress={onToggle}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View
           style={{
-            width: 52, height: 30, borderRadius: 999, backgroundColor: '#0a0a0a',
-            borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', justifyContent: 'center',
+            width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+            backgroundColor: connected ? color + '22' : '#1a1a1a',
           }}
         >
-          <View
-            style={{
-              width: 22, height: 22, borderRadius: 999, alignItems: 'center', justifyContent: 'center',
-              backgroundColor: connected ? color : '#333',
-              marginLeft: connected ? 26 : 3,
-            }}
-          >
-            {connected
-              ? <Check size={11} strokeWidth={4} color="#fff" />
-              : <X size={11} strokeWidth={4} color="#777" />}
-          </View>
-        </TouchableOpacity>
+          <Gamepad2 size={20} color={connected ? color : '#555'} />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>Steam Game Protocol</Text>
+          <Text style={{ color: connected ? '#22c55e' : '#555', fontSize: 9, fontFamily: 'monospace', letterSpacing: 2, marginTop: 2 }}>
+            {connected ? `LINKED · ${steamId}` : 'NO SIGNAL'}
+          </Text>
+        </View>
       </View>
 
-      <Text style={{ color: '#52525b', fontSize: 11, lineHeight: 16 }}>{description}</Text>
+      <Text style={{ color: '#52525b', fontSize: 11, lineHeight: 16 }}>
+        {connected
+          ? 'Your Steam library and playtime feed the Steam profile module.'
+          : 'Link your SteamID64 to show library activity and playtime on your profile. Your Steam profile must be public.'}
+      </Text>
+
+      {connected ? (
+        <TouchableOpacity
+          onPress={() => onDisconnect().catch(() => Alert.alert('Failed to disconnect'))}
+          style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+            paddingVertical: 10, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)',
+            borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)',
+          }}
+        >
+          <Unlink size={12} color="#f87171" />
+          <Text style={{ color: '#f87171', fontSize: 11, fontWeight: '800', letterSpacing: 2 }}>DISCONNECT</Text>
+        </TouchableOpacity>
+      ) : editing ? (
+        <View style={{ gap: 8 }}>
+          <TextInput
+            value={input}
+            onChangeText={setInput}
+            placeholder="7656119…  (SteamID64 — steamid.io)"
+            placeholderTextColor="#3f3f46"
+            keyboardType="number-pad"
+            style={{
+              backgroundColor: '#18181b', borderWidth: 1, borderColor: '#3f3f46', borderRadius: 10,
+              color: '#fff', paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, fontFamily: 'monospace',
+            }}
+          />
+          <TouchableOpacity
+            onPress={verifyAndSave}
+            disabled={verifying || !input.trim()}
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+              paddingVertical: 10, borderRadius: 10, backgroundColor: color,
+              opacity: verifying || !input.trim() ? 0.5 : 1,
+            }}
+          >
+            {verifying && <ActivityIndicator size="small" color="#000" />}
+            <Text style={{ color: '#000', fontSize: 11, fontWeight: '900', letterSpacing: 2 }}>
+              {verifying ? 'VERIFYING…' : 'VERIFY & LINK'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity
+          onPress={() => setEditing(true)}
+          style={{
+            flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+            paddingVertical: 10, borderRadius: 10, backgroundColor: color,
+          }}
+        >
+          <Text style={{ color: '#000', fontSize: 11, fontWeight: '900', letterSpacing: 2 }}>CONNECT STEAM</Text>
+          <ExternalLink size={12} color="#000" />
+        </TouchableOpacity>
+      )}
 
       {connected && <View style={{ height: 2, borderRadius: 1, backgroundColor: color }} />}
+    </View>
+  );
+}
+
+// ── Inert "Coming Soon" card — no fake toggle (Apple 2.3.1) ──────────────────
+function ComingSoonCard({
+  label, Icon, description, color,
+}: { label: string; Icon: any; description: string; color: string }) {
+  return (
+    <View style={{ backgroundColor: '#111', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)', borderRadius: 14, padding: 16, gap: 12, opacity: 0.7 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={{ width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a' }}>
+          <Icon size={20} color="#555" />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }} numberOfLines={1}>{label}</Text>
+          <Text style={{ color: color, fontSize: 9, fontFamily: 'monospace', letterSpacing: 2, marginTop: 2 }}>
+            COMING SOON
+          </Text>
+        </View>
+      </View>
+      <Text style={{ color: '#52525b', fontSize: 11, lineHeight: 16 }}>{description}</Text>
     </View>
   );
 }

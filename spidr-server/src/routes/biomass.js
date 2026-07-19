@@ -90,11 +90,30 @@ router.post('/fly', authMW, async (req, res) => {
     if (earnedFromFliesToday >= 200) {
       return res.status(429).json({ error: 'Daily fly reward cap reached', balance: w.balance, capped: true });
     }
+    const firstFlyToday = earnedFromFliesToday === 0;
     w.balance += reward;
     w.lifetime_earned += reward;
     pushTx(w, reward, 'Caught a fly');
     await w.save();
     res.json({ amount: reward, balance: w.balance, wallet: w });
+
+    // Spidr System DM — once on the first fly of the day and once when the
+    // daily cap lands, so the inbox tracks earnings without per-fly spam.
+    try {
+      const { sendSystemDM } = require('../utils/spidrSystem');
+      const totalToday = earnedFromFliesToday + reward;
+      if (firstFlyToday) {
+        await sendSystemDM(
+          req.user.id,
+          `🪰 First fly of the day caught! +${reward} biomass (balance: ${w.balance}). You can earn up to 200 biomass from flies each day.`,
+        );
+      } else if (totalToday >= 200) {
+        await sendSystemDM(
+          req.user.id,
+          `🕸️ Daily fly harvest complete — 200 biomass banked today (balance: ${w.balance}). The web resets at midnight.`,
+        );
+      }
+    } catch { /* notification must never break the reward */ }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

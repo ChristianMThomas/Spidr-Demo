@@ -228,8 +228,14 @@ mongoose
     syncInstallCounts();
     // Spidr System account — the platform's own user; everyone's default
     // friend and the source of update/notification DMs.
-    const { ensureSystemUser } = require('./utils/spidrSystem');
-    ensureSystemUser().catch((err) => console.warn('Spidr System seed failed:', err.message));
+    const { ensureSystemUser, announceLatestPatch } = require('./utils/spidrSystem');
+    ensureSystemUser()
+      .then(() => {
+        // DM every user the newest patch note, once per patch id.
+        const { NEWS } = require('./routes/system');
+        return announceLatestPatch(NEWS?.[0]);
+      })
+      .catch((err) => console.warn('Spidr System seed failed:', err.message));
     // Auto-expire past server events (3.3) — runs on boot + every 6h.
     const { scheduleEventExpiry } = require('./utils/expireEvents');
     scheduleEventExpiry();

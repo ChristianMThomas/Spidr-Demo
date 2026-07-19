@@ -35,10 +35,12 @@ export default function OutgoingCallModal({
   useEffect(() => {
     if (!visible) return;
     let mounted = true;
+    let cleanupListeners: (() => void) | undefined;
     setStatus('calling');
     (async () => {
       try {
         const socket = await getSocket();
+        if (!mounted) return;
         socket.emit('call:invite', {
           recipientId,
           conversationId,
@@ -55,13 +57,19 @@ export default function OutgoingCallModal({
         socket.on('call:accepted', onAccepted_);
         socket.on('call:declined', onDeclined);
 
-        return () => {
+        // Hoist teardown so the actual useEffect cleanup runs it — the
+        // `return` inside this async IIFE would otherwise be discarded and
+        // listeners would leak (accumulating one pair per open→close cycle).
+        cleanupListeners = () => {
           socket.off('call:accepted', onAccepted_);
           socket.off('call:declined', onDeclined);
         };
       } catch { /* non-fatal */ }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+      cleanupListeners?.();
+    };
   }, [visible, recipientId, conversationId, kind, caller.id, caller.name, caller.avatar, onAccepted, onClose]);
 
   // Pulse the avatar while ringing.

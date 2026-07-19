@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p196',
+    title: 'Patch 1.9.6 — Store-compliance hardening',
+    date: '2026-07-19',
+    type: 'UPDATE',
+    description: 'Closing the last engineering blockers before App Store + Google Play submission. The moderation queue is now real: /reports is admin-gated end to end — any signed-in user can file a report (reporter_id is forced server-side so nobody can spoof somebody else\'s complaint), but listing, reading, patching, and deleting the queue require role: "admin", so the whole moderation surface is off-limits to regular accounts. Status transitions are validated against pending → reviewed → resolved / dismissed and every patch stamps reviewer_id automatically. The web admin console at /global-reports now has a real backend behind it instead of a bare crudRouter. A public takedown SLA lives in the Terms page — reports of harassment, threats, CSAM, or illegal content are acknowledged within 24 hours and acted on within 72, with an escalation email path. This is the moderation surface Apple Guideline 1.2 requires; combined with the earlier account-delete cascade, R2 blob purge, real report + block in DMs and on THE WEB clips, and expo-location fully removed from mobile, every §1 engineering item on the compliance checklist is done. Remaining ship gate is store paperwork — Apple / Play developer accounts, EAS build, screenshots, icons — not code.',
+  },
+  {
     id: 'p195m',
     title: 'Patch 1.9.5 — Spidr Mobile (Phase 2) is now live',
     date: '2026-07-06',
@@ -172,3 +179,5 @@ router.get('/news', (_req, res) => {
 });
 
 module.exports = router;
+// Exposed so boot code can announce the newest entry as a Spidr System DM.
+module.exports.NEWS = NEWS;
