@@ -3,8 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, integrations, getSocket, spotify } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Mic, MicOff, Video, VideoOff, Monitor, PhoneOff,
-  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, ExternalLink, Maximize2, Tv
+  Mic, MicOff, Video, VideoOff, Monitor, PhoneOff, Headphones, HeadphoneOff,
+  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, AudioLines, ExternalLink, Maximize2, Tv
 } from 'lucide-react';
 import { toast } from 'sonner';
 import SpiderLogo from './SpiderLogo';
@@ -14,6 +14,9 @@ import StreamSelector from './StreamSelector';
 import CinemaStage from './CinemaStage';
 import { useScreenShare } from './useScreenShare';
 import { useSpidrVoice } from './SpidrVoice';
+import { applySink } from '@/lib/mediaDevicePrefs';
+import { getSharedAudioContext } from '@/lib/sharedAudioContext';
+const ClipFeed = React.lazy(() => import('@/components/feed/ClipFeed'));
 import SpidrVoiceVisualizer from './SpidrVoice';
 import SpidrAIProfile, { SPIDR_AI_AVATAR } from './SpidrAIProfile';
 import CallAVControls from './CallAVControls';
@@ -62,6 +65,11 @@ export default function VoiceChannel({
   const audioUnlockedRef = useRef(false);
   const localVideoRef   = useRef(null);
   const remoteAudioRefs = useRef({});
+  // Deafen must survive re-renders and late joiners: a peer whose <audio>
+  // mounts AFTER you deafened used to come in UNMUTED (fresh element,
+  // default muted=false) — you'd hear them despite the headphones-off icon.
+  const isDeafenedRef = useRef(false);
+  const [isDeafened, setIsDeafened] = useState(false); // UI mirror of the ref
   const screenTrackRef  = useRef(null);
   const queryClient     = useQueryClient();
   const spidrVoice      = useSpidrVoice();
@@ -158,7 +166,14 @@ export default function VoiceChannel({
       queryClient.invalidateQueries({ queryKey: ['djSession', channel.id] });
     };
     socket.on('voice:dj-session-changed', onDjChanged);
+    const onAISpeak = (data) => {
+      if (!data || data.channel_id !== channel.id) return;
+      if (data.from && data.from === currentUser?.id) return; // we already spoke it
+      if (data.text) spidrVoice.speak(String(data.text));
+    };
+    socket.on('voice:ai-speak', onAISpeak);
     return () => socket.off('voice:dj-session-changed', onDjChanged);
+      socket.off('voice:ai-speak', onAISpeak);
   }, [channel?.id, queryClient]);
 
   const handleStartDJ = () => setDjPickerOpen(true);
@@ -169,7 +184,19 @@ export default function VoiceChannel({
   const handleSelectDJTrack = async (track) => {
     if (!channel?.id || !track?.id) return;
     try {
-      await spotify.djSession.start(channel.id, track.id);
+      // Metadata ride-along is what makes the booth AUDIBLE — the session
+      // caches preview_url so every client can play it. Starting with just
+      // the id (the old behavior here) produced a silent session even after
+      // DJMatrix learned to send metadata on track changes.
+      await spotify.djSession.start(channel.id, track.id, {
+        track_name:    track.name || '',
+        track_artist:  track.artist || '',
+        album_art_url: track.album_art_url || '',
+        preview_url:   track.preview_url || '',
+        external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
+        duration_ms:   track.duration_ms || 0,
+        source:        track.source === 'apple' ? 'apple' : 'spotify',
+      });
       setDjPickerOpen(false);
       toast.success(`Now spinning: ${track.name}`);
     } catch (err) {
@@ -189,13 +216,52 @@ export default function VoiceChannel({
     mutationFn: (id) => entities.VoiceSession.delete(id),
   });
 
-  const mySession = voiceSessions.find(s => s.user_id === currentUser?.id);
+  // Auto-leave: if no HUMAN sessions remain but an AI session is present,
+  // remove it. Prevents the "AI keeps talking in an empty room" bug — and
+  // also stops any in-flight TTS locally so audio stops the moment the room
+  // empties, before the server round-trip completes.
+  useEffect(() => {
+    const humanSessions = (voiceSessions || []).filter(s => !s.is_spidr_ai);
+    const ai = (voiceSessions || []).find(s => s.is_spidr_ai);
+    if (humanSessions.length === 0 && ai) {
+      // Stop local TTS immediately.
+      try { window.speechSynthesis?.cancel(); } catch {}
+      // Delete the AI's session on the server (best-effort; no toast so it
+      // doesn't spam the departing user's screen on their way out).
+      entities.VoiceSession.delete(ai.id).catch(() => {});
+    }
+  }, [voiceSessions]);
+
+    const mySession = voiceSessions.find(s => s.user_id === currentUser?.id);
   const aiSession = voiceSessions.find(s => s.is_spidr_ai);
 
   // Dedupe by user_id so a user never appears twice in the deck even if two
   // VoiceSession rows briefly exist (join/leave races, multiple tabs, or the
   // synthetic 'dm'/'group' server id sharing rows across conversations). Keep
   // the most-recently-updated row per user.
+  // Entry animations (entry_protocol: thunder/ripple/glitch) — the Settings
+  // picker + schema existed but the render half was lost in an old restore.
+  // Diff session user_ids; new joiners (post-mount) fire their overlay.
+  const [entryFx, setEntryFx] = useState(null);
+  const seenUsersRef = useRef(null);
+  useEffect(() => {
+    const ids = new Set((voiceSessions || []).filter(s => !s.is_spidr_ai).map(s => s.user_id));
+    if (seenUsersRef.current === null) { seenUsersRef.current = ids; return; }
+    for (const id of ids) {
+      if (!seenUsersRef.current.has(id) && id !== currentUser?.id) {
+        const prof = (profiles || []).find(p => p.user_id === id);
+        const protocol = prof?.apex_features?.entry_protocol;
+        if (protocol && protocol !== 'none') {
+          const sess = (voiceSessions || []).find(s => s.user_id === id);
+          setEntryFx({ protocol, name: sess?.user_name || 'A spider' });
+          setTimeout(() => setEntryFx(null), 1400);
+        }
+        break;
+      }
+    }
+    seenUsersRef.current = ids;
+  }, [voiceSessions, profiles, currentUser?.id]);
+
   const uniqueSessions = React.useMemo(() => {
     const byUser = new Map();
     for (const s of voiceSessions) {
@@ -280,6 +346,8 @@ export default function VoiceChannel({
       // AND persists the state to the VoiceSession so other members see the
       // deafened indicator on this user's tile (1.3 sync).
       const deaf = !!e.detail?.deafened;
+      isDeafenedRef.current = deaf;
+      setIsDeafened(deaf);
       Object.values(remoteAudioRefs.current || {}).forEach((el) => { if (el) el.muted = deaf; });
       if (mySession) updateMutation.mutate({ id: mySession.id, data: { is_deafened: deaf } });
     };
@@ -315,6 +383,58 @@ export default function VoiceChannel({
   // single canonical event so every listener can resync. Without this the
   // minimized pill's local `muted` state could diverge from rtc.isMuted,
   // making subsequent toggles feel like no-ops.
+  // ── Local voice-activity broadcast (minimized-mode speaking ring) ────────
+  // MinimizedWebNode has always supported `speaking`/`amplitude` props, but
+  // the shell fed it a hardcoded false — the pill never animated. Analyse the
+  // local mic here (the only place the stream lives) and emit a throttled
+  // window event; the shell holds the state and drives the tick-ring.
+  const isMutedRef = useRef(false);
+  useEffect(() => { isMutedRef.current = !!rtc.isMuted; }, [rtc.isMuted]);
+  useEffect(() => {
+    const stream = rtc.localStream;
+    if (!stream) return;
+    let raf, srcNode, lastEmit = 0, lastSpeaking = null;
+    try {
+      // Shared app-wide AudioContext — creating one per effect run (and
+      // re-running on every mute flip) exhausted Chrome's ~6-context cap and
+      // killed EVERY speaking animation. Now: one context, one source per
+      // stream, mute read through a ref so this effect never re-runs.
+      const ctx = getSharedAudioContext();
+      if (!ctx) return;
+      srcNode = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      srcNode.connect(analyser);
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        raf = requestAnimationFrame(tick);
+        const now = performance.now();
+        if (now - lastEmit < 100) return; // ~10Hz is plenty for a UI pulse
+        lastEmit = now;
+        analyser.getByteFrequencyData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) sum += buf[i];
+        const amplitude = sum / buf.length / 255; // 0..1
+        const speaking = !isMutedRef.current && amplitude > 0.06;
+        // Emit on every state flip + periodically while speaking (amplitude).
+        if (speaking !== lastSpeaking || speaking) {
+          lastSpeaking = speaking;
+          window.dispatchEvent(new CustomEvent('spidr-call-voice-activity', {
+            detail: { speaking, amplitude },
+          }));
+        }
+      };
+      tick();
+    } catch (e) {
+      console.warn('[voice-activity] analyser unavailable:', e?.message);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      try { srcNode?.disconnect(); } catch {}
+      window.dispatchEvent(new CustomEvent('spidr-call-voice-activity', { detail: { speaking: false, amplitude: 0 } }));
+    };
+  }, [rtc.localStream]);
+
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('spidr-call-state', {
       detail: {
@@ -325,6 +445,50 @@ export default function VoiceChannel({
       },
     }));
   }, [rtc.isMuted, rtc.isVideoOn, isSharing, mySession?.is_deafened]);
+
+  // ── Per-peer speaking levels (drives active-speaker video swap) ─────────
+  // We keep an analyser per remote stream (shared AudioContext — see the
+  // sharedAudioContext singleton), sample RMS at ~5Hz, and expose the
+  // socketId of the currently loudest speaker with a video track available.
+  const [activeSpeakerSocketId, setActiveSpeakerSocketId] = useState(null);
+  useEffect(() => {
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
+    const analysers = new Map(); // socketId -> { analyser, srcNode, hasVideo }
+    const attach = (socketId, stream) => {
+      if (analysers.has(socketId) || !stream) return;
+      try {
+        const srcNode = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        srcNode.connect(analyser);
+        analysers.set(socketId, { analyser, srcNode, buf: new Uint8Array(analyser.frequencyBinCount) });
+      } catch {}
+    };
+    Object.entries(rtc.remoteStreams || {}).forEach(([sid, s]) => attach(sid, s));
+    // Poll: pick the loudest stream whose peer ALSO has a live video track.
+    // Voice-only mobile joiners never win — the swap only happens between
+    // peers whose camera is actually on, so the video area doesn't blink
+    // to a black tile.
+    const iv = setInterval(() => {
+      let best = { sid: null, level: 0 };
+      analysers.forEach((rec, sid) => {
+        const stream = rtc.remoteStreams?.[sid];
+        const hasVideo = stream && stream.getVideoTracks().some(t => t.enabled && !t.muted && t.readyState === 'live');
+        if (!hasVideo) return;
+        rec.analyser.getByteFrequencyData(rec.buf);
+        let sum = 0;
+        for (let i = 0; i < rec.buf.length; i++) sum += rec.buf[i];
+        const level = sum / rec.buf.length / 255;
+        if (level > best.level && level > 0.08) best = { sid, level };
+      });
+      setActiveSpeakerSocketId((prev) => best.sid ?? prev); // sticky — don't blank out on silence
+    }, 200);
+    return () => {
+      clearInterval(iv);
+      analysers.forEach((rec) => { try { rec.srcNode.disconnect(); } catch {} });
+    };
+  }, [rtc.remoteStreams]);
 
   // ── Broadcast the active video stream for the PiP ─────────────────────────
   // The minimized call widget (MinimizedWebNode) shows a tactical PiP of the
@@ -337,18 +501,34 @@ export default function VoiceChannel({
   // minimized) can read the current stream immediately instead of waiting
   // for the next change event.
   useEffect(() => {
+    // Priority order for the minimized PiP video:
+    //   1. Any peer's screen share
+    //   2. Your own screen share
+    //   3. Whichever peer is CURRENTLY SPEAKING and has camera on
+    //      (this is the "video should switch to whoever is speaking" fix)
+    //   4. Any peer with camera on
+    //   5. Your own camera
     const remoteScreens = Object.values(rtc.screenStreams || {});
-    const active =
-      remoteScreens[0] ||
-      (isSharing && screenStream ? screenStream : null) ||
-      (rtc.isVideoOn && rtc.localStream ? rtc.localStream : null) ||
-      null;
+    let active = remoteScreens[0]
+      || (isSharing && screenStream ? screenStream : null);
+    if (!active) {
+      const speakerStream = activeSpeakerSocketId ? rtc.remoteStreams?.[activeSpeakerSocketId] : null;
+      const speakerHasVideo = speakerStream?.getVideoTracks().some(t => t.enabled && !t.muted && t.readyState === 'live');
+      if (speakerHasVideo) active = speakerStream;
+    }
+    if (!active) {
+      // Fall back to the first peer whose camera is on.
+      const cameraStream = Object.values(rtc.remoteStreams || {}).find(s =>
+        s.getVideoTracks().some(t => t.enabled && !t.muted && t.readyState === 'live')
+      );
+      active = cameraStream || (rtc.isVideoOn && rtc.localStream ? rtc.localStream : null);
+    }
     try { window.__spidrCallStream = active; } catch {}
     window.dispatchEvent(new CustomEvent('spidr-call-stream', { detail: { stream: active } }));
     return () => {
       try { if (window.__spidrCallStream === active) window.__spidrCallStream = null; } catch {}
     };
-  }, [rtc.screenStreams, rtc.isVideoOn, rtc.localStream, isSharing, screenStream]);
+  }, [rtc.screenStreams, rtc.isVideoOn, rtc.localStream, isSharing, screenStream, rtc.remoteStreams, activeSpeakerSocketId]);
 
   // ── Camera toggle (hardened) ─────────────────────────────────────────────
   // The previous toggleVideo could leave the user "kicked out" if
@@ -377,24 +557,25 @@ export default function VoiceChannel({
     if (mediaStream && mySession) {
       setIsScreenSharing(true);
       updateMutation.mutate({ id: mySession.id, data: { is_screen_sharing: true } });
-      // Push the screen-share video track to all peers so they can actually
-      // see/join the share (renegotiation handled inside useWebRTC).
-      const screenTrack = mediaStream.getVideoTracks()[0];
-      if (screenTrack) {
-        screenTrackRef.current = screenTrack;
-        rtc.addOutgoingTrack(screenTrack, mediaStream, 'screen');
-        // If the user ends the share via the browser's native control, clean up.
-        screenTrack.addEventListener('ended', handleStopStream, { once: true });
-      }
+      // Push EVERY screen track — video AND audio. Sending only the video
+      // track meant peers could see your share but couldn't hear the tab /
+      // system audio you were sharing (the "others can't hear me while
+      // streaming" bug). We keep refs to both so stopShare can remove them
+      // cleanly and the browser's native "Stop sharing" tears everything down.
+      const tracks = mediaStream.getTracks();
+      screenTrackRef.current = tracks; // now an array of MediaStreamTrack
+      tracks.forEach((t) => rtc.addOutgoingTrack(t, mediaStream, 'screen'));
+      const videoTrack = mediaStream.getVideoTracks()[0];
+      if (videoTrack) videoTrack.addEventListener('ended', handleStopStream, { once: true });
     }
   };
 
   const handleStopStream = () => {
-    // Stop sending the screen track to peers before tearing down the stream.
-    if (screenTrackRef.current) {
-      rtc.removeOutgoingTrack(screenTrackRef.current);
-      screenTrackRef.current = null;
-    }
+    // Stop sending ALL screen tracks (video + system audio) to peers.
+    const refVal = screenTrackRef.current;
+    if (Array.isArray(refVal)) refVal.forEach((t) => rtc.removeOutgoingTrack(t));
+    else if (refVal) rtc.removeOutgoingTrack(refVal);
+    screenTrackRef.current = null;
     stopShare();
     setIsScreenSharing(false);
     if (mySession) updateMutation.mutate({ id: mySession.id, data: { is_screen_sharing: false } });
@@ -422,6 +603,10 @@ export default function VoiceChannel({
         const answer = result.answer || 'Try asking again!';
         toast.success(answer);
         spidrVoice.speak(answer);
+        // Relay to everyone else in this voice channel — before this, only
+        // the invoker's client had the text, so only they ever heard the TTS
+        // (the "users can't hear Spidr AI" bug). Receivers speak it locally.
+        try { getSocket()?.emit('voice:ai-speak', { channel_id: channel.id, text: answer }); } catch {}
       } else if (['music','video','movie'].includes(action)) {
         const url = prompt(`Enter a YouTube or Twitch URL:`);
         if (url) {
@@ -448,6 +633,62 @@ export default function VoiceChannel({
 
   return (
     <div className="flex-1 flex flex-col bg-transparent relative overflow-hidden">
+      {/* ───────────────────────────────────────────────────────────────────
+          INVISIBLE AUDIO SPINE — DO NOT MOVE THIS BLOCK
+
+          Remote voice + screen audio <audio> tags live at the ROOT of the
+          VoiceChannel component tree, above every conditional layout
+          branch (focus/spider/theater/streaming). When a user starts
+          sharing their screen, the stage's internal layout swaps — if the
+          audio elements were nested inside that swappable region, React
+          unmounted them during reconciliation and the streamer went deaf
+          to everyone else the moment they hit "Share." (This exact bug
+          was reported twice; hoisting is the only permanent fix.)
+
+          Every remote voice stream renders a hidden <audio>. Every remote
+          screen stream that carries an audio track ALSO renders one here
+          (keyed screen-{sid} so deafen, output-device routing, and the
+          Enable-audio unlock all treat it uniformly). Nothing about the
+          UI branches below can unmount these.
+      ─────────────────────────────────────────────────────────────────── */}
+      {Object.entries(rtc.remoteStreams || {}).map(([socketId, stream]) => (
+        <audio
+          key={`voice-${socketId}`}
+          autoPlay
+          playsInline
+          muted={false}
+          ref={el => {
+            if (!el) { delete remoteAudioRefs.current[socketId]; return; }
+            remoteAudioRefs.current[socketId] = el;
+            if (isDeafenedRef.current) el.muted = true;
+            applySink(el);
+            if (el.srcObject !== stream) el.srcObject = stream;
+            el.volume = 1;
+            el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
+          }}
+          style={{ display: 'none' }}
+        />
+      ))}
+      {Object.entries(rtc.screenStreams || {}).map(([sid, stream]) => (
+        stream.getAudioTracks().length > 0 ? (
+          <audio
+            key={`screen-${sid}`}
+            autoPlay
+            playsInline
+            muted={false}
+            ref={el => {
+              const key = `screen-${sid}`;
+              if (!el) { delete remoteAudioRefs.current[key]; return; }
+              remoteAudioRefs.current[key] = el;
+              if (isDeafenedRef.current) el.muted = true;
+              applySink(el);
+              if (el.srcObject !== stream) el.srcObject = stream;
+              el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
+            }}
+            style={{ display: 'none' }}
+          />
+        ) : null
+      ))}
       {/* Cinema Stage for streams */}
       <AnimatePresence>
         {aiSession?.stream_url && showCinema && (
@@ -529,7 +770,7 @@ export default function VoiceChannel({
 
       {/* ── MAIN STAGE ── center-stage flexbox with a red radial bleed
           behind the tiles. Bottom padding clears the floating tactical dock. */}
-      <div className="flex-1 flex overflow-hidden min-h-0 relative">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0 relative">
         {/* Ambient red bleed — draws the eye to the center, doesn't compete
             with the geometric matrix background underneath. */}
         <div
@@ -540,26 +781,45 @@ export default function VoiceChannel({
               'radial-gradient(ellipse 30% 25% at 50% 50%, rgba(239, 68, 68, 0.05), transparent 70%)',
           }}
         />
-        <div className="flex-1 relative overflow-y-auto px-6 pt-6 pb-28 flex items-center justify-center">
-          {/* Remote audio elements (hidden, for audio output) */}
-          {Object.entries(rtc.remoteStreams).map(([socketId, stream]) => (
-            <audio
-              key={socketId}
-              autoPlay
-              muted={false}
-              ref={el => {
-                if (!el) { delete remoteAudioRefs.current[socketId]; return; }
-                remoteAudioRefs.current[socketId] = el;
-                el.srcObject = stream;
-                el.volume = 1;
-                el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
-              }}
-              style={{ display: 'none' }} />
-          ))}
+        <div className="flex-1 min-h-0 relative overflow-y-auto px-4 lg:px-6 pt-4 lg:pt-6 pb-28 flex items-center justify-center max-lg:min-h-[45vh]">
 
           {/* Browser blocked autoplay — one tap unlocks remote audio. Only
               clear the blocked flag once playback actually starts; otherwise
               the button would vanish while audio stayed muted (1.4 stuck fix). */}
+          {/* Entry protocol overlay — APEX joiners announce themselves */}
+          <AnimatePresence>
+            {entryFx && (
+              <motion.div key="entry-fx" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="absolute inset-0 z-30 pointer-events-none flex items-center justify-center overflow-hidden">
+                {entryFx.protocol === 'thunder' && (
+                  <motion.div className="absolute inset-0 bg-white"
+                    initial={{ opacity: 0.9 }} animate={{ opacity: [0.9, 0, 0.5, 0] }}
+                    transition={{ duration: 0.6, times: [0, 0.3, 0.5, 1] }} />
+                )}
+                {entryFx.protocol === 'ripple' && (
+                  <>
+                    {[0, 1, 2].map(i => (
+                      <motion.div key={i} className="absolute rounded-full border-2 border-red-500/60"
+                        initial={{ width: 40, height: 40, opacity: 0.8 }}
+                        animate={{ width: 900, height: 900, opacity: 0 }}
+                        transition={{ duration: 1.1, delay: i * 0.18, ease: 'easeOut' }} />
+                    ))}
+                  </>
+                )}
+                {entryFx.protocol === 'glitch' && (
+                  <motion.div className="absolute inset-0"
+                    animate={{ x: [0, -8, 6, -3, 0], filter: ['hue-rotate(0deg)', 'hue-rotate(90deg)', 'hue-rotate(-60deg)', 'hue-rotate(30deg)', 'hue-rotate(0deg)'] }}
+                    transition={{ duration: 0.5 }}
+                    style={{ background: 'repeating-linear-gradient(0deg, rgba(239,68,68,0.08) 0 2px, transparent 2px 5px)' }} />
+                )}
+                <motion.p initial={{ y: 14, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+                  className="relative font-black uppercase tracking-[0.3em] text-white text-sm drop-shadow-[0_0_16px_rgba(239,68,68,0.8)]">
+                  {entryFx.name} entered the web
+                </motion.p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {audioBlocked && (
             <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20">
               <button
@@ -569,6 +829,7 @@ export default function VoiceChannel({
                   );
                   // Resume any suspended AudioContext as part of the same user
                   // gesture (some browsers suspend it until interaction).
+                  try { getSharedAudioContext()?.resume(); } catch {}
                   const anyPlaying = results.some(r => r.status === 'fulfilled');
                   if (anyPlaying || results.length === 0) { audioUnlockedRef.current = true; setAudioBlocked(false); }
                 }}
@@ -621,6 +882,7 @@ export default function VoiceChannel({
                   <TheaterFeedSlot
                     isHost={theaterHostId === currentUser?.id}
                     hostUserName={theaterHostName}
+                    currentUser={currentUser}
                   />
                 </TheaterStage>
               ) : djSession ? (
@@ -692,7 +954,11 @@ export default function VoiceChannel({
                   <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     style={screenActive ? { gridColumn: 1, gridRow: 1 } : undefined}
                     className={`${screenActive ? '' : 'col-span-full'} aspect-video rounded-xl overflow-hidden border border-white/5 shadow-[0_0_50px_rgba(0,0,0,0.8)] bg-black relative`}>
-                  <video ref={v => { if (v && screenStream) v.srcObject = screenStream; }} autoPlay muted
+                  {/* playsInline is CRITICAL on mobile — without it iOS
+                      tries to hijack the stream into its native fullscreen
+                      media player, which fails and leaves you with a black
+                      frame for your own share preview. */}
+                  <video ref={v => { if (v && screenStream) v.srcObject = screenStream; }} autoPlay muted playsInline
                     className="w-full h-full object-contain" />
                   {/* APEX Symbiote HUD over your own stream */}
                   {isApexUser && (
@@ -756,7 +1022,7 @@ export default function VoiceChannel({
                 <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                   style={screenActive ? { gridColumn: 2 } : undefined}
                   className="relative aspect-video rounded-2xl overflow-hidden border-2 border-[#FF3333]/60 bg-black">
-                  <video ref={localVideoRef} autoPlay muted className="w-full h-full object-cover" />
+                  <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
                   <div className="absolute bottom-0 inset-x-0 px-2.5 py-1.5 bg-gradient-to-t from-black/80 to-transparent">
                     <span className="text-white text-xs font-bold">{currentUser?.full_name?.split(' ')[0] || 'You'} <span className="text-[#FF3333] text-[9px]">(you)</span></span>
                   </div>
@@ -768,17 +1034,21 @@ export default function VoiceChannel({
                   const sessionProfile = profiles.find(p => p.user_id === session.user_id);
                   const isApexSess = sessionProfile?.apex_tier === 'apex';
                   const isSelf = session.user_id === currentUser?.id;
-                  // For remote peers: try to find their stream by user_id, with a
-                  // single-peer fallback. (The current useWebRTC mesh keys by
-                  // socketId, not user_id; tracking per-user would be a small
-                  // follow-up in useWebRTC. For now the first remote stream is
-                  // assigned to the first remote peer — fine for 1:1 voice.)
-                  const remoteStreams = Object.values(rtc.remoteStreams || {});
-                  const peerStream = isSelf ? rtc.localStream : (remoteStreams[0] || null);
-                  // Find the socketId for this peer's audio element so the
-                  // context menu's volume slider can target the right element.
-                  const peerSocketId = isSelf ? null : Object.keys(rtc.remoteStreams || {})
-                    .find(sid => rtc.remoteStreams[sid] === peerStream);
+                  // Match streams to sessions by user_id (peers map holds
+                  // socketId → { userId }). The old code returned
+                  // remoteStreams[0] for EVERY remote session, so with 3+
+                  // members everyone after the first bound to the same
+                  // stream and the third joiner's tile went blank (the
+                  // "phone joiners audible but invisible" bug).
+                  let peerSocketId = null;
+                  let peerStream = null;
+                  if (isSelf) {
+                    peerStream = rtc.localStream;
+                  } else {
+                    const peers = rtc.peers || {};
+                    peerSocketId = Object.keys(peers).find(sid => peers[sid]?.userId === session.user_id) || null;
+                    peerStream = peerSocketId ? (rtc.remoteStreams?.[peerSocketId] || null) : null;
+                  }
 
                   // During screen share, participants compress into compact
                   // horizontal status pills in the right sidebar (hidden if the
@@ -867,10 +1137,22 @@ export default function VoiceChannel({
                 <button onClick={() => setShowAIPanel(false)} className="text-zinc-500 hover:text-white"><X size={14} /></button>
               </div>
               <div className="flex-1 p-4 space-y-2.5 overflow-y-auto">
-                {[['music','🎵','Play Music'],['video','📺','Stream Video'],['movie','🎬','Watch Together']].map(([a,e,l]) => (
+                {[
+                  ['music', Music,    'Play Music',      '#c084fc'],
+                  ['video', MonitorUp,'Stream Video',    '#60a5fa'],
+                  ['movie', Tv,       'Watch Together',  '#f87171'],
+                ].map(([a, Icon, l, color]) => (
                   <button key={a} onClick={() => invokeSpidrAI(a)} disabled={isAILoading}
                     className="w-full flex items-center gap-3 px-3 py-2.5 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 rounded-xl text-white text-sm transition-colors border border-white/5 font-medium">
-                    <span className="text-base">{e}</span>{l}
+                    {/* Custom Spidr iconography instead of OS emoji — matches
+                        the AI icons used throughout messages/AIPanel. */}
+                    <span
+                      className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                      style={{ background: `${color}1a`, color }}
+                    >
+                      <Icon size={14} />
+                    </span>
+                    {l}
                   </button>
                 ))}
                 <div className="pt-2 border-t border-white/5">
@@ -935,6 +1217,22 @@ export default function VoiceChannel({
           >
             <MonitorUp size={18} className={isSharing ? 'text-purple-300' : 'text-white/40'} />
           </DockBtn>
+          {/* Deafen — silences ALL incoming voice (and mic, Discord convention).
+              Fires the same window event the pill/chip use, so state stays
+              in sync everywhere. */}
+          <DockBtn
+            active={isDeafened}
+            onClick={() => {
+              const next = !isDeafened;
+              window.dispatchEvent(new CustomEvent('spidr-call-deafen-toggle', { detail: { deafened: next } }));
+            }}
+            title={isDeafened ? 'Undeafen' : 'Deafen'}
+            activeTint="#ef4444"
+          >
+            {isDeafened
+              ? <HeadphoneOff size={18} className="text-red-400" />
+              : <Headphones size={18} className="text-white/40" />}
+          </DockBtn>
           {/* Sync Feed — Theater Mode. Toggles the channel into co-op
               scrolling mode, where the toggler becomes the host and
               everyone else watches their THE WEB feed in sync.
@@ -996,7 +1294,10 @@ export default function VoiceChannel({
             title="Soundboard"
             activeTint="#FF3333"
           >
-            <Music size={18} className={showSoundboard ? 'text-red-300' : 'text-white/40'} />
+            {/* AudioLines, not Music — the DJ Booth button two slots over
+                already uses Music, and two identical glyphs in one dock read
+                as a duplicate-render bug. */}
+            <AudioLines size={18} className={showSoundboard ? 'text-red-300' : 'text-white/40'} />
           </DockBtn>
           {isApexUser && (
             <DockBtn
@@ -1086,7 +1387,9 @@ export default function VoiceChannel({
         title="Start DJ Session"
         subtitle="Spidr DJ"
         actionLabel="Spin"
-        emptyHint="Pick any track on Spotify. Everyone in the call sees the DJ matrix and listens along from their own Spotify."
+        requirePreview
+        allowAppleMusic
+        emptyHint="Pick a track — only songs with a playable 30s preview are shown, so everyone in the call actually hears it."
       />
     </div>
   );
@@ -1557,7 +1860,7 @@ function ScreenShareStage({
         {rtc.isVideoOn && rtc.localStream && (
           <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="aspect-video max-w-xs rounded-2xl overflow-hidden border-2 border-[#FF3333]/60 bg-black relative">
-            <video ref={localVideoRef} autoPlay muted className="w-full h-full object-cover" />
+            <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
             <div className="absolute bottom-0 inset-x-0 px-2.5 py-1.5 bg-gradient-to-t from-black/80 to-transparent">
               <span className="text-white text-xs font-bold">
                 {currentUser?.full_name?.split(' ')[0] || 'You'}{' '}
@@ -1689,7 +1992,7 @@ function CommPanel({ sessions, profiles, rtc, currentUser, channelId, serverId, 
 
   return (
     <aside
-      className="w-80 flex-shrink-0 flex flex-col rounded-2xl overflow-hidden"
+      className="w-full lg:w-80 flex-shrink-0 flex flex-col rounded-2xl overflow-hidden max-lg:mt-3 max-lg:h-[38vh]"
       style={{
         background: 'rgba(0, 0, 0, 0.40)',
         backdropFilter: 'blur(24px)',
@@ -1801,27 +2104,43 @@ function CommPanel({ sessions, profiles, rtc, currentUser, channelId, serverId, 
 //      pointer-events disabled by TheaterStage's outer wrapper, so their
 //      copy of the feed scrolls but doesn't accept clicks.
 // ─────────────────────────────────────────────────────────────────────────────
-function TheaterFeedSlot({ isHost, hostUserName }) {
-  return (
-    <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center">
-      <div
-        className="w-16 h-16 rounded-full mb-4 flex items-center justify-center"
-        style={{
-          background: 'rgba(239, 68, 68, 0.10)',
-          border: '1px solid rgba(239, 68, 68, 0.30)',
-          boxShadow: '0 0 20px rgba(239, 68, 68, 0.25)',
-        }}
-      >
-        <Tv className="w-8 h-8 text-red-400" />
+function TheaterFeedSlot({ isHost, hostUserName, currentUser }) {
+  // The REAL feed, finally mounted. This slot used to be a placeholder card
+  // ("mount your feed component here…"), which is why Sync Feed showed
+  // nothing. Host and guests both mount the same global clip list; the
+  // host's scroll drives guests via TheaterStage's scroll relay.
+  const { data: clips = [], isLoading } = useQuery({
+    queryKey: ['clips'],
+    queryFn: () => entities.Clip.list('-created_date', 50),
+    staleTime: 30_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+        <Loader2 className="w-6 h-6 text-red-500 animate-spin" />
+        <p className="text-zinc-500 text-xs font-mono uppercase tracking-widest">Weaving the feed…</p>
       </div>
-      <p className="text-white font-bold text-lg mb-1">
-        {isHost ? 'You are broadcasting' : `Watching ${hostUserName || 'host'}`}
-      </p>
-      <p className="text-zinc-500 text-xs font-mono uppercase tracking-widest max-w-[280px] leading-relaxed">
-        {isHost
-          ? 'Mount your feed component as TheaterStage children to start the broadcast.'
-          : 'Waiting for the host\'s feed stream.'}
-      </p>
-    </div>
+    );
+  }
+  if (!clips.length) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center">
+        <Tv className="w-8 h-8 text-red-400 mb-3" />
+        <p className="text-white font-bold">THE WEB is empty</p>
+        <p className="text-zinc-500 text-xs mt-1">No strands to broadcast yet.</p>
+      </div>
+    );
+  }
+  return (
+    <React.Suspense fallback={
+      <div className="w-full h-full flex items-center justify-center">
+        <Loader2 className="w-6 h-6 text-red-500 animate-spin" />
+      </div>
+    }>
+      <div className="w-full h-full">
+        <ClipFeed clips={clips} currentUser={currentUser} audioMap={{}} />
+      </div>
+    </React.Suspense>
   );
 }

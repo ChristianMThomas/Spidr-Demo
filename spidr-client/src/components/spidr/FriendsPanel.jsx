@@ -10,7 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useMenu } from '@/components/MenuContext';
-import { togglePin, getPins, isPinned } from '@/lib/spidrWebPins';
+import { togglePin as libTogglePin, getPins as libGetPins } from '@/lib/spidrWebPins';
 import HolographicProfile from './HolographicProfile';
 import DirectMessages from './DirectMessages';
 import KineticChat from './KineticChat';
@@ -18,6 +18,7 @@ import ErrorBoundary from './ErrorBoundary';
 import CreateGroupChatModal from './CreateGroupChatModal';
 import QuickHeads from './QuickHeads';
 import { toast } from 'sonner';
+import { dmConversationId } from '@/lib/utils';
 import SignalRequests from './SignalRequests';
 import NameplateBackground from './NameplateBackground';
 
@@ -108,6 +109,24 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     });
   }, [myGroups, pinnedGroups]);
 
+  // ── Spidr Web pins ─────────────────────────────────────────────────────
+  // The pin-web context action previously called togglePin/isPinned which
+  // did not exist anywhere — a silent ReferenceError made "Pin to Spidr Web"
+  // an empty click. Real store: localStorage list of {kind,id,name,avatar},
+  // rendered as a PINNED strip at the top of the panel.
+  const [webPins, setWebPins] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('spidr_web_pins') || '[]'); } catch { return []; }
+  });
+  const isPinned = (id) => webPins.some(p => p.id === id);
+  // Delegate to the lib: localStorage + UserProfile.pinned_conversations sync
+  // + a change event — so pins survive reinstalls and other surfaces update.
+  const togglePin = (entry) => setWebPins(libTogglePin(entry));
+  useEffect(() => {
+    const onChange = (e) => setWebPins(Array.isArray(e.detail) ? e.detail : libGetPins());
+    window.addEventListener('spidr-web-pins-changed', onChange);
+    return () => window.removeEventListener('spidr-web-pins-changed', onChange);
+  }, []);
+
   // Handle right-click menu actions for group chats + friend pins.
   useEffect(() => {
     const handler = (e) => {
@@ -127,6 +146,34 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         toast.success(wasPinned ? 'Unpinned from Spidr Web' : 'Pinned to Spidr Web');
       } else if (type === 'web_group' && action === 'open-group') {
         handleOpenGroup(data.id);
+      } else if (type === 'friend') {
+        // Friend-row context actions — previously only pin-web worked; the
+        // rest of the menu was decorative.
+        const uid = data.user_id || data.id;
+        if (action === 'view-profile') {
+          window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: uid } }));
+        } else if (action === 'send-message' || action === 'mention') {
+          // Mention rides the DM composer too — opens the conversation ready to type.
+          window.dispatchEvent(new CustomEvent('spidr-open-dm', { detail: { userId: uid, name: data.name } }));
+        } else if (action === 'copy-user-id') {
+          navigator.clipboard?.writeText(uid || '').then(
+            () => toast.success('User ID copied'),
+            () => toast.error('Could not copy')
+          );
+        } else if (action === 'remove-friend') {
+          if (!confirm(`Remove ${data.name || 'this friend'} from your web?`)) return;
+          (async () => {
+            try {
+              const rows = await entities.Friend.filter({ user_id: currentUser?.id, friend_id: uid });
+              if (rows[0]) await entities.Friend.delete(rows[0].id);
+              queryClient.invalidateQueries({ queryKey: ['friends'] });
+              toast.success('Friend removed');
+            } catch { toast.error('Could not remove friend'); }
+          })();
+        } else if (action === 'mute' || action === 'block-user') {
+          // No mute/block backend exists yet — say so instead of pretending.
+          toast.info('Mute & block are coming in a future patch.');
+        }
       }
     };
     window.addEventListener('spidr-menu-action', handler);
@@ -249,9 +296,66 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     }
   };
 
+  // Consume the shell's pending "open a DM" intent (context-menu Send
+  // Message from anywhere in the app). Checked on mount and whenever the
+  // shell re-announces while we're already mounted.
+  useEffect(() => {
+    const consume = () => {
+      const pending = window.__spidrPendingDM;
+      if (!pending?.userId || !currentUser?.id) return;
+      if (Date.now() - (pending.at || 0) > 30000) { window.__spidrPendingDM = null; return; }
+      window.__spidrPendingDM = null;
+      handleOpenDM(pending.userId, dmConversationId(currentUser.id, pending.userId));
+    };
+    consume();
+    window.addEventListener('spidr-pending-dm', consume);
+    return () => window.removeEventListener('spidr-pending-dm', consume);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id]);
+
+  // Consume the homepage's "open this group chat" hand-off (mirrors the
+  // pending-DM pattern; window global + event so it works whether we're
+  // already mounted or arriving via navigation).
+  useEffect(() => {
+    const consume = () => {
+      const pending = window.__spidrPendingGroup;
+      if (!pending?.groupId) return;
+      if (Date.now() - (pending.at || 0) > 30000) { window.__spidrPendingGroup = null; return; }
+      window.__spidrPendingGroup = null;
+      handleOpenGroup(pending.groupId);
+    };
+    consume();
+    window.addEventListener('spidr-pending-group', consume);
+    return () => window.removeEventListener('spidr-pending-group', consume);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleOpenDM = (friendId, conversationId) => {
     setActiveDM({ friendId, conversationId });
   };
+
+  // Cancel an outgoing friend request. Requests are stored as a mirrored
+  // pair (my pending_outgoing row + their pending_incoming row), so cancel
+  // deletes both — otherwise the target keeps a ghost request they can
+  // still "accept" into a one-sided friendship.
+  const cancelRequestMutation = useMutation({
+    mutationFn: async (friend) => {
+      await entities.Friend.delete(friend.id);
+      try {
+        const mirrored = await entities.Friend.filter({
+          user_id: friend.friend_id,
+          friend_id: currentUser?.id,
+          status: 'pending_incoming',
+        });
+        if (mirrored[0]) await entities.Friend.delete(mirrored[0].id);
+      } catch { /* their side may already be gone */ }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['friends'] });
+      toast.success('Request cancelled');
+    },
+    onError: () => toast.error('Could not cancel request'),
+  });
 
   const handleOpenGroup = (groupId) => {
     setActiveGroup(groupId);
@@ -288,21 +392,24 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
 
   return (
     <div className="flex-1 flex flex-col bg-zinc-900">
-      {/* Header — pr-[200px] reserves space for the shell's top-right cluster
-          (notifications + biomass pill + status chip) so the search input
-          doesn't get covered. */}
-      <div className="h-14 border-b border-red-900/20 flex items-center px-4 pr-[200px] gap-4">
+      {/* Header — md:pr-[200px] reserves space for the shell's top-right
+          cluster on desktop only. On <md the cluster collapses, so the header
+          reclaims full width. Create Group shrinks to an icon button and the
+          search input drops to its own row below. */}
+      <div className="h-14 border-b border-red-900/20 flex items-center px-3 pr-2 md:px-4 md:pr-[200px] gap-2 md:gap-4">
         <h2 className="font-semibold text-white">Friends</h2>
         <div className="flex-1" />
-        <Button 
-          size="sm" 
+        <Button
+          size="sm"
           onClick={() => setShowCreateGroup(true)}
-          className="bg-purple-600 hover:bg-purple-700"
+          className="bg-purple-600 hover:bg-purple-700 shrink-0"
+          title="Create Group"
         >
-          <Users className="w-4 h-4 mr-2" />
-          Create Group
+          <Users className="w-4 h-4 md:mr-2" />
+          <span className="hidden md:inline">Create Group</span>
         </Button>
-        <div className="relative">
+        {/* Search — visible on md+ only (mobile shows it in its own row below). */}
+        <div className="relative hidden md:block">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
           <Input
             placeholder="Search friends..."
@@ -313,26 +420,43 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         </div>
       </div>
 
-      {/* Quick Heads - Story-style DM bubbles */}
+      {/* Mobile-only search row — full-width, sits directly under the header. */}
+      <div className="md:hidden px-3 py-2 border-b border-red-900/10">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <Input
+            placeholder="Search friends..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 bg-zinc-800 border-zinc-700 text-white w-full"
+          />
+        </div>
+      </div>
+
+      {/* Quick Heads — the SPIDR WEB row (pins render inside it, pinned-first) */}
       <QuickHeads currentUser={currentUser} profiles={profiles} onOpenDM={handleOpenDM} onOpenGroup={handleOpenGroup} />
 
       <div className="flex-1 overflow-hidden">
         <Tabs value={tab} onValueChange={(t) => { setTab(t); onTabChange?.(t); }} className="h-full flex flex-col">
-          <div className="px-4 pt-4">
-            <TabsList className="bg-zinc-800/50 border border-red-900/20">
-              <TabsTrigger value="all" className="data-[state=active]:bg-red-600">All</TabsTrigger>
-              <TabsTrigger value="online" className="data-[state=active]:bg-red-600">Online</TabsTrigger>
-              <TabsTrigger value="groups" className="data-[state=active]:bg-red-600">
+          {/* Tab strip — horizontally scrollable on <md so all 7 tabs stay
+              reachable instead of falling off the right edge. scrollbar-hide
+              keeps the strip clean on browsers that show overflow scrollbars
+              (the inline <style> below defines the class). */}
+          <div className="px-4 pt-4 overflow-x-auto scrollbar-hide">
+            <TabsList className="bg-zinc-800/50 border border-red-900/20 inline-flex w-max">
+              <TabsTrigger value="all" className="data-[state=active]:bg-red-600 shrink-0">All</TabsTrigger>
+              <TabsTrigger value="online" className="data-[state=active]:bg-red-600 shrink-0">Online</TabsTrigger>
+              <TabsTrigger value="groups" className="data-[state=active]:bg-red-600 shrink-0">
                 <Users className="w-4 h-4 mr-1" /> Groups
               </TabsTrigger>
-              <TabsTrigger value="pending" className="data-[state=active]:bg-red-600">
+              <TabsTrigger value="pending" className="data-[state=active]:bg-red-600 shrink-0">
                 Pending {pendingIncoming.length > 0 && `(${pendingIncoming.length})`}
               </TabsTrigger>
-              <TabsTrigger value="blocked" className="data-[state=active]:bg-red-600">Blocked</TabsTrigger>
-              <TabsTrigger value="requests" className="data-[state=active]:bg-yellow-600">
+              <TabsTrigger value="blocked" className="data-[state=active]:bg-red-600 shrink-0">Blocked</TabsTrigger>
+              <TabsTrigger value="requests" className="data-[state=active]:bg-yellow-600 shrink-0">
                 <ShieldAlert className="w-4 h-4 mr-1" /> Signals
               </TabsTrigger>
-              <TabsTrigger value="add" className="data-[state=active]:bg-green-600" id="add-friend-tab">
+              <TabsTrigger value="add" className="data-[state=active]:bg-green-600 shrink-0" id="add-friend-tab">
                 <UserPlus className="w-4 h-4 mr-1" /> Add
               </TabsTrigger>
             </TabsList>
@@ -415,8 +539,8 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                     onClick={() => handleOpenGroup(group.id)}
                   >
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center text-white font-bold text-sm shrink-0">
-                      {group.icon_url ? (
-                        <img src={group.icon_url} alt={group.name} className="w-full h-full rounded-full object-cover" />
+                      {(group.avatar_url || group.icon_url) ? (
+                        <img src={group.avatar_url || group.icon_url} alt={group.name} className="w-full h-full rounded-full object-cover" />
                       ) : (
                         (group.name || 'G').charAt(0).toUpperCase()
                       )}
@@ -534,6 +658,15 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                       </p>
                       <p className="text-xs text-zinc-500">Outgoing request</p>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => cancelRequestMutation.mutate(friend)}
+                      disabled={cancelRequestMutation.isPending}
+                      className="border-zinc-600 text-zinc-400 hover:text-red-400 hover:border-red-500/40 text-xs shrink-0"
+                    >
+                      Cancel
+                    </Button>
                   </motion.div>
                   );
                 })}
@@ -634,6 +767,12 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         currentUser={currentUser}
         onGroupCreated={(group) => setActiveGroup(group.id)}
       />
+
+      {/* scrollbar-hide utility for the horizontally-scrollable tab strip. */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      ` }} />
     </div>
   );
 }

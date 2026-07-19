@@ -6,6 +6,20 @@ const s = new Schema({
   host_user_name:  String,
   host_user_avatar:String,
   track_id:        { type: String, required: true },
+  // Which catalog the track came from — 'apple' sessions let connected
+  // Apple Music subscribers play the FULL track in sync (previews for
+  // everyone else); 'spotify' sessions play the 30s preview.
+  source:          { type: String, enum: ['spotify', 'apple'], default: 'spotify' },
+  // Full track metadata cached at start/next time (schema-first — Mongoose
+  // strict mode drops unknown fields). This is what lets every listener's
+  // client actually PLAY audio: the 30s preview URL is broadcast with the
+  // session instead of listeners passively watching the host's now-playing.
+  track_name:      { type: String, default: '' },
+  track_artist:    { type: String, default: '' },
+  album_art_url:   { type: String, default: '' },
+  preview_url:     { type: String, default: '' },
+  external_url:    { type: String, default: '' },
+  duration_ms:     { type: Number, default: 0 },
   started_at:      { type: Date, default: Date.now },
 }, { timestamps: true });
 

@@ -60,10 +60,36 @@ const createNoiseBuffer = () => {
   return buffer;
 };
 
+// User sound preferences (Settings → Notifications & Sounds). Read fresh on
+// every play so toggles apply instantly without a reload. Shape:
+// { master, volume(0-100), send, receive, join_leave, ui }
+const soundPrefs = () => {
+  try {
+    const raw = localStorage.getItem('spidr_sound_prefs');
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+// Which pref switch governs each sound type.
+const SOUND_CATEGORY = {
+  send: 'send', sent: 'send',
+  message: 'receive', receive: 'receive', notification: 'receive', ping: 'receive',
+  join: 'join_leave', leave: 'join_leave', 'user-join': 'join_leave', 'user-leave': 'join_leave',
+  toggle: 'ui', click: 'ui', hover: 'ui', open: 'ui', close: 'ui', pop: 'ui',
+};
+
 export const playSound = (type) => {
   // Gate notification sounds on user status. dnd = Do Not Disturb = "busy".
   if (_currentStatus === 'dnd' && NOTIFICATION_SOUND_TYPES.has(type)) {
     return;
+  }
+  // Gate on the user's saved sound settings — these switches used to be
+  // decorative; now they actually silence their category (and Master mutes
+  // everything).
+  const prefs = soundPrefs();
+  if (prefs) {
+    if (prefs.master === false) return;
+    const cat = SOUND_CATEGORY[type];
+    if (cat && prefs[cat] === false) return;
   }
   try {
     initAudio();
@@ -78,7 +104,8 @@ export const playSound = (type) => {
 
     const t = ctx.currentTime;
     const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(0.6, t);
+    const userVol = prefs && typeof prefs.volume === 'number' ? Math.max(0, Math.min(1, prefs.volume / 100)) : 1;
+    masterGain.gain.setValueAtTime(0.6 * userVol, t);
     masterGain.connect(ctx.destination);
 
     if (type === 'message') {

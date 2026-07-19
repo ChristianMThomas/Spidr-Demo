@@ -9,7 +9,6 @@ import Sidebar from '@/components/spidr/Sidebar';
 import { MenuProvider } from '@/components/MenuContext';
 import SpidrMenu from '@/components/ui/SpidrMenu';
 import HolographicProfile from '@/components/spidr/HolographicProfile';
-import GlobalGhostOverlay from '@/components/spidr/GlobalGhostOverlay';
 import MobileBottomBar from '@/components/spidr/MobileBottomBar';
 import MobileMenuPanel from '@/components/spidr/MobileMenuPanel';
 import MinimizedWebNode from '@/components/spidr/MinimizedWebNode';
@@ -165,7 +164,51 @@ export default function SpidrShell() {
   // action that isn't already handled by an active chat panel.
   useGlobalMenuActions();
 
+  // Local voice activity (from VoiceChannel's analyser) drives the minimized
+  // pill's speaking ring — previously hardcoded speaking={false}.
+  const [voiceActivity, setVoiceActivity] = React.useState({ speaking: false, amplitude: 0 });
+  React.useEffect(() => {
+    const onActivity = (e) => setVoiceActivity({
+      speaking: !!e.detail?.speaking,
+      amplitude: Number(e.detail?.amplitude) || 0,
+    });
+    window.addEventListener('spidr-call-voice-activity', onActivity);
+    return () => window.removeEventListener('spidr-call-voice-activity', onActivity);
+  }, []);
+
   const activeTab = deriveTab(location.pathname);
+
+  // ── Global "open a DM" intent ───────────────────────────────────────────
+  // 'spidr-open-dm' is dispatched from context menus all over the app
+  // (server member lists, message avatars, friend rows) but nothing ever
+  // listened — "Send Message" was silently dead outside the Friends panel.
+  // The shell owns navigation, so it routes to /friends and stashes the
+  // target; FriendsPanel picks it up on mount (or live if already mounted).
+  React.useEffect(() => {
+    const onOpenDM = (e) => {
+      const { userId, name } = e.detail || {};
+      if (!userId) return;
+      window.__spidrPendingDM = { userId, name, at: Date.now() };
+      if (deriveTab(location.pathname) !== 'friends') navigate('/friends');
+      // Re-announce for an already-mounted FriendsPanel.
+      window.dispatchEvent(new CustomEvent('spidr-pending-dm'));
+    };
+    window.addEventListener('spidr-open-dm', onOpenDM);
+    // "Enter User Web" → land on THE WEB with that user's profile open.
+    const onOpenWebProfile = (e) => {
+      const { userId, userName, avatar } = e.detail || {};
+      if (!userId) return;
+      window.__spidrPendingWebProfile = { userId, userName, avatar, at: Date.now() };
+      if (deriveTab(location.pathname) !== 'feed') navigate('/feed');
+      window.dispatchEvent(new CustomEvent('spidr-pending-web-profile'));
+    };
+    window.addEventListener('spidr-open-web-profile', onOpenWebProfile);
+    return () => {
+      window.removeEventListener('spidr-open-dm', onOpenDM);
+      window.removeEventListener('spidr-open-web-profile', onOpenWebProfile);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
   const setActiveTab = (tab) => {
     const route = TAB_TO_ROUTE[tab];
@@ -207,8 +250,12 @@ export default function SpidrShell() {
     <MenuProvider>
       <NotificationProvider currentUser={currentUser}>
       <div className="w-full h-[100dvh] flex flex-col overflow-hidden text-white">
-        {/* Custom title bar — Electron only (frameless window) */}
-        {window.electronAPI?.isElectron && <TitleBar />}
+        {/* Custom title bar — Electron only (frameless window). Owns the
+            NotificationBell + BiomassBalancePill + UserStatusChip cluster
+            on desktop app users, so the floating cluster below is hidden
+            when Electron is present (see the isElectron gate on the
+            fixed cluster). */}
+        {window.electronAPI?.isElectron && <TitleBar currentUser={currentUser} />}
 
         {/* Main layout area — fills remaining height */}
         <div
@@ -304,7 +351,11 @@ export default function SpidrShell() {
             buttons and search inputs.
             Hidden on mobile (<md): on small screens these controls live inside
             the MobileMenuPanel drawer instead, so they don't crowd the top. */}
-        {currentUser && (
+        {/* On Electron this cluster lives inside the TitleBar (see above),
+            so we skip rendering the floating version to avoid a duplicate
+            row on the right and the visual overlap between the two. On
+            web (no TitleBar) it stays floating over the page headers. */}
+        {currentUser && !window.electronAPI?.isElectron && (
           <div className="fixed top-[10px] right-4 z-40 hidden md:flex items-center gap-2">
             <NotificationBell />
             <BiomassBalancePill />
@@ -339,7 +390,18 @@ export default function SpidrShell() {
               : 'hidden'}
             aria-hidden={!(voiceDeckExpanded && !isCallMinimized)}
           >
-            <SpidrBackground className="flex-1 flex flex-col">
+            {/* Simple red/black brand gradient — replaced the geometric
+                SpidrBackground web pattern that read as busy/AI-generated
+                behind expanded calls. */}
+            <div
+              className="flex-1 flex flex-col"
+              style={{
+                background:
+                  'radial-gradient(ellipse 85% 60% at 50% -8%, rgba(220, 38, 38, 0.14), transparent 60%),' +
+                  'radial-gradient(ellipse 70% 50% at 50% 112%, rgba(127, 29, 29, 0.18), transparent 60%),' +
+                  'linear-gradient(180deg, #0a0505 0%, #050202 55%, #080404 100%)',
+              }}
+            >
               <VoiceChannel
                 deckHidden={!(voiceDeckExpanded && !isCallMinimized)}
                 server={voiceSession.server}
@@ -365,7 +427,7 @@ export default function SpidrShell() {
                   // TODO: emit `theater:stop` over the channel socket.
                 }}
               />
-            </SpidrBackground>
+            </div>
           </div>
         )}
 
@@ -377,7 +439,8 @@ export default function SpidrShell() {
             <MinimizedWebNode
               call={activeCall || {}}
               apexColor={activeCall?.apexThreadColor || '#3f3f46'}
-              speaking={false}
+              speaking={voiceActivity.speaking}
+              amplitude={voiceActivity.amplitude}
               callStartedAt={callStartedAt}
               onExpand={() => {
                 // Navigate back to the call's surface BEFORE un-minimizing,
@@ -423,12 +486,6 @@ export default function SpidrShell() {
 
         {/* APEX entrance flash (thunder / ripple / glitch) */}
         <ApexEntrance />
-
-        {/* Spidr Protocol overlay — survives route changes so the gaming
-            overlay keeps showing messages even when navigating between
-            servers/feed/settings. Chat panels dispatch `spidr-ghost-*`
-            events to drive it. */}
-        <GlobalGhostOverlay />
 
         {/* Global profile modal — opened from any right-click → View Profile.
             Mounted at the shell level so it works on every page. */}

@@ -97,7 +97,7 @@ async function request(method, path, { params, body, isFormData } = {}) {
   return data;
 }
 
-const api = {
+export const api = {
   get:    (path, opts)  => request('GET',    path, opts),
   post:   (path, body)  => request('POST',   path, { body }),
   patch:  (path, body)  => request('PATCH',  path, { body }),
@@ -154,7 +154,13 @@ export const entities = {
   Comment:          entity('comments'),
   Report:           entity('reports'),
   AudioTrack:       entity('audio-tracks'),
-  Clip:             entity('clips'),
+  Clip: {
+    ...entity('clips'),
+    // Atomic server-side view increment ($inc). Returns { id, views }.
+    registerView: (id) => api.post(`/clips/${id}/view`, {}),
+    // Atomic Signal Relay (repost) toggle. Returns { id, relays, relayed }.
+    relay:        (id) => api.post(`/clips/${id}/relay`, {}),
+  },
   SavedAudio:       entity('saved-audio'),
   Collection:       entity('collections'),
   CommunityAsset:   entity('community-assets'),
@@ -248,6 +254,11 @@ export const integrations = {
   },
 };
 
+// AI Scribe — server-side Whisper transcription of a voice-note audio URL.
+// Server caches per-URL; requires OPENAI_API_KEY on the server (503 with a
+// clear message otherwise, which the capsule surfaces verbatim).
+export const aiTranscribe = (audio_url) => api.post('/ai/transcribe', { audio_url });
+
 // ─── Algorithm / FYP ─────────────────────────────────────────────────────────
 export const searchUsers = (q) =>
   api.get('/users/search', { params: { q } }).catch(() => []);
@@ -272,6 +283,20 @@ export const algorithm = {
 // One wallet per user (auto-created on first fetch). Earn from in-app actions
 // (server grants automatically) or daily claim. Spend at the shop or via
 // direct spend calls. All endpoints return the updated wallet.
+// Account self-service + platform-admin moderation.
+// deleteMe cascades every user-owned collection server-side; admin methods
+// require User.role === 'admin' or is_admin === true.
+export const account = {
+  deleteMe:    () => api.delete('/account/me'),
+  admin: {
+    listUsers: (q = '') => api.get(`/account/admin/users${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+    ban:       (userId, reason) => api.post('/account/admin/ban', { userId, reason }),
+    unban:     (userId) => api.post('/account/admin/unban', { userId }),
+    remove:    (userId) => api.delete(`/account/admin/${userId}`),
+    setRole:   (userId, role) => api.post('/account/admin/role', { userId, role }),
+  },
+};
+
 export const biomass = {
   wallet:    ()                  => api.get('/biomass/wallet'),
   claimDaily:()                  => api.post('/biomass/daily', {}),
@@ -303,6 +328,25 @@ export const follows = {
   status:     (userId)        => api.get(`/follows/status/${userId}`),
   follow:     (payload)       => api.post('/follows', payload),
   unfollow:   (userId)        => api.delete(`/follows/${userId}`),
+};
+
+// ─── Daily-login streak ──────────────────────────────────────────────────────
+// ping() is fired once per session from AuthContext; server dedupes same-day
+// pings so re-mounts or focus refetches don't corrupt the streak.
+export const streak = {
+  ping:  ()       => api.post('/streak/ping'),
+  me:    ()       => api.get('/streak/me'),
+  get:   (userId) => api.get(`/streak/${userId}`),
+};
+
+// ─── Stripe payments (Apex subscriptions) ────────────────────────────────────
+// createCheckoutSession returns { url } — client redirects the user to
+// Stripe-hosted checkout so cards never touch our app (zero PCI scope).
+// createPortalSession returns { url } for the Billing Portal (manage/cancel).
+// The actual Apex activation happens server-side in the webhook, not here.
+export const payments = {
+  createCheckoutSession: (planType) => api.post('/payments/create-checkout-session', { planType }),
+  createPortalSession:   ()         => api.post('/payments/create-portal-session'),
 };
 
 // ─── Named export matching old base44 import shape ───────────────────────────
@@ -358,6 +402,25 @@ export const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '';
 //
 // The .catch returns an empty list so a flaky backend doesn't blow up the
 // search modal — the user sees "No matches" instead of a crash.
+// Apple Music (MusicKit) — Spidr's Discord differentiator.
+export const appleMusic = {
+  devToken:       ()      => api.get('/apple-music/dev-token'),
+  search:         (q, limit = 12) => api.get(`/apple-music/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  saveUserToken:  (music_user_token) => api.post('/apple-music/user-token', { music_user_token }),
+  recentlyPlayed: ()      => api.get('/apple-music/recently-played'),
+  disconnect:     ()      => api.delete('/apple-music/disconnect'),
+};
+
+// THE WEB "Sling to DM" lane — separate from real DMs on purpose.
+export const webMessages = {
+  inbox:    ()   => api.get('/web-messages?box=inbox'),
+  sent:     ()   => api.get('/web-messages?box=sent'),
+  unread:   ()   => api.get('/web-messages/unread-count'),
+  sling:    (d)  => api.post('/web-messages', d),
+  markRead: (id) => api.patch(`/web-messages/${id}/read`, {}),
+  remove:   (id) => api.delete(`/web-messages/${id}`),
+};
+
 export const spotify = {
   search: (q, limit = 12) =>
     api.get('/spotify/search', { params: { q, limit } }).catch(() => ({ tracks: [] })),
@@ -400,11 +463,14 @@ export const spotify = {
   // socket room so all members re-render with the DJ matrix.
   djSession: {
     get:   (channelId) => api.get(`/voice-channels/${channelId}/dj-session`).catch(() => null),
-    start: (channelId, track_id) =>
-      api.post(`/voice-channels/${channelId}/dj-session`, { track_id })
+    // meta = { track_name, track_artist, album_art_url, preview_url,
+    // external_url, duration_ms } — cached on the session so LISTENERS can
+    // actually play the 30s preview instead of just watching the host.
+    start: (channelId, track_id, meta = {}) =>
+      api.post(`/voice-channels/${channelId}/dj-session`, { track_id, ...meta })
          .catch((err) => { throw err; }),
-    next:  (channelId, track_id) =>
-      api.patch(`/voice-channels/${channelId}/dj-session`, { track_id })
+    next:  (channelId, track_id, meta = {}) =>
+      api.patch(`/voice-channels/${channelId}/dj-session`, { track_id, ...meta })
          .catch((err) => { throw err; }),
     end:   (channelId) =>
       api.delete(`/voice-channels/${channelId}/dj-session`)

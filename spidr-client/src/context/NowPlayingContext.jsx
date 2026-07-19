@@ -6,7 +6,7 @@ const NowPlayingContext = createContext(null);
 
 // Map the server's flat presence payload onto the camelCase shape downstream
 // consumers (SpotifyNowPlaying widget) already expect.
-function toLegacyShape(payload) {
+export function toLegacyShape(payload) {
   if (!payload || payload.connected === false || !payload.track_id) return null;
   return {
     source:     'spotify-web',

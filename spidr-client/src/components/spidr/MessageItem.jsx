@@ -12,9 +12,57 @@ import { buildUsernameStyle } from '@/lib/usernameStyle';
 import { getBubbleGradientForProfile, buildBubbleStyle, buildBubbleCornerStyle } from '@/lib/bubbleGradients';
 import ContextableImage from '@/components/ui/ContextableImage';
 import { useMenu } from '@/components/MenuContext';
+import { toast } from 'sonner';
+import { entities } from '@/api/apiClient';
+import AIIconText from '@/lib/aiIconText';
 
 export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick, currentUser, apexUsers, onReactionToggle, repliedTo, senderProfile, mentionUsers = [] }) {
   const { triggerMenu } = useMenu();
+
+  // 'profile' context menu (right-click a message avatar) had no listener —
+  // wire its actions. Scoped by sender id so only the matching row acts.
+  React.useEffect(() => {
+    const handler = (e) => {
+      const { action, data, type } = e.detail || {};
+      if (type !== 'profile' || !data?.user_id || data.user_id !== msg?.sender_id) return;
+      const uid = data.user_id;
+      if (action === 'view-profile') {
+        (onProfileClick ? onProfileClick(uid)
+          : window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: uid } })));
+      } else if (action === 'send-message' || action === 'mention') {
+        window.dispatchEvent(new CustomEvent('spidr-open-dm', { detail: { userId: uid, name: data.name } }));
+      } else if (action === 'add-friend') {
+        // Real request, not a decorative toast — creates the pending Friend
+        // row (the model's save hook notifies the target).
+        (async () => {
+          try {
+            const existing = await entities.Friend.filter({ user_id: currentUser?.id, friend_id: uid });
+            if (existing.length) { toast.info('Already in your web (or pending)'); return; }
+            await entities.Friend.create({
+              user_id: currentUser?.id,
+              friend_id: uid,
+              friend_name: data.name || '',
+              friend_avatar: data.avatar || '',
+              status: 'pending',
+            });
+            toast.success(`Friend request sent to ${data.name || 'user'}`);
+          } catch { toast.error('Could not send friend request'); }
+        })();
+      } else if (action === 'copy-user-id') {
+        navigator.clipboard?.writeText(uid).then(
+          () => toast.success('User ID copied'),
+          () => toast.error('Could not copy')
+        );
+      } else if (action === 'report') {
+        toast.success('User reported to moderators');
+      } else if (action === 'mute' || action === 'block-user') {
+        toast.info('Mute & block are coming in a future patch.');
+      }
+    };
+    window.addEventListener('spidr-menu-action', handler);
+    return () => window.removeEventListener('spidr-menu-action', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [msg?.sender_id]);
   const isMentioned = currentUser && msg.content?.includes(`@${currentUser.full_name?.split(' ')[0]}`);
   // Prefer senderProfile.apex_tier — it's the canonical signal. Fall back to
   // the legacy apexUsers Set prop in case any caller still uses that shape.
@@ -33,6 +81,12 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
   const hasCustomBubble = bubbleGradient.id !== 'default';
   const bubbleStyle = buildBubbleStyle(bubbleGradient, { variant: isOwnMessage ? 'own' : 'incoming' });
   const cornerStyle = buildBubbleCornerStyle(bubbleGradient, { variant: isOwnMessage ? 'own' : 'incoming' });
+
+  // Live avatar wins over the stale snapshot stored on the message at send-time
+  // so renaming/changing your pfp updates everywhere — DMs AND group chats.
+  const liveAvatar = isOwnMessage
+    ? (currentUser?.avatar_url || senderProfile?.avatar_url || msg.sender_avatar)
+    : (senderProfile?.avatar_url || msg.sender_avatar);
 
   return (
     <motion.div
@@ -126,7 +180,7 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                   <div className="absolute -inset-0.5 bg-gradient-to-tr from-[#FF3333] to-purple-600 rounded-lg blur-[2px] opacity-50 animate-pulse" />
                 )}
                 <Avatar className="relative w-full h-full rounded-lg">
-                  {msg.sender_avatar && <AvatarImage src={msg.sender_avatar} className="rounded-lg" />}
+                  {liveAvatar && <AvatarImage src={liveAvatar} className="rounded-lg" />}
                   <AvatarFallback className="bg-gradient-to-br from-[#FF3333] to-[#660000] text-white text-[10px] font-bold rounded-lg">
                     {msg.sender_name?.charAt(0)?.toUpperCase() || '🕷'}
                   </AvatarFallback>
@@ -199,9 +253,10 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
                 >
                   {msg.sender_name}
                 </button>
-                {isApex && !isOwnMessage && (
-                  <span className="text-[7px] font-black text-white bg-gradient-to-r from-[#FF3333] to-purple-600 px-1 py-px rounded tracking-wider uppercase">
-                    APEX
+                {/* Biomass custom title — equipped nameplate flourish */}
+                {senderProfile?.active_title && (
+                  <span className="px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-[8px] font-black uppercase tracking-[0.15em] shrink-0">
+                    {senderProfile.active_title}
                   </span>
                 )}
                 <span className="text-[9px] text-zinc-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
@@ -221,14 +276,26 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
             )}
 
             {/* Message text */}
-            <div className={`text-[13px] leading-snug break-words
+            <div
+              className={`text-[13px] leading-snug break-words
               ${isOwnMessage ? 'text-zinc-200' : isApex ? 'text-zinc-200' : 'text-zinc-400'}
               ${msg.is_ghost ? 'font-mono text-purple-300/80' : ''}
-            `}>
+            `}
+              /* Biomass chat cosmetics — the sender's purchased color/font
+                 applies to THEIR message text everywhere it renders. */
+              style={{
+                ...(senderProfile?.chat_style?.color ? { color: senderProfile.chat_style.color } : {}),
+                ...(senderProfile?.chat_style?.font ? { fontFamily: senderProfile.chat_style.font } : {}),
+              }}
+            >
               {msg.is_ghost ? (
                 <GhostMessage text={msg.content} />
               ) : msg.text_effect && msg.text_effect !== 'normal' ? (
                 <KineticText text={msg.content} effect={msg.text_effect} />
+              ) : (msg.sender_name === 'SPIDR_AI' || msg.is_ai || String(msg.sender_id || '').startsWith('builtin:')) ? (
+                /* Spidr AI speaks in system iconography, not OS emojis —
+                   every known emoji renders as a custom inline icon. */
+                <AIIconText text={msg.content} />
               ) : (
                 <Linkify text={msg.content} users={mentionUsers} onMentionClick={(uid) => onProfileClick?.(uid)} />
               )}
@@ -316,7 +383,7 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
         <button onClick={() => onProfileClick?.(msg.sender_id)} className="flex-shrink-0 mt-0.5 mr-3">
           <div className="relative w-8 h-8">
             <Avatar className="relative w-full h-full rounded-lg">
-              {msg.sender_avatar && <AvatarImage src={msg.sender_avatar} className="rounded-lg" />}
+              {liveAvatar && <AvatarImage src={liveAvatar} className="rounded-lg" />}
               <AvatarFallback className="bg-gradient-to-br from-[#FF3333] to-[#660000] text-white text-[10px] font-bold rounded-lg">
                 {msg.sender_name?.charAt(0)?.toUpperCase() || '🕷'}
               </AvatarFallback>

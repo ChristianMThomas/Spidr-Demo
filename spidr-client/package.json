@@ -1,7 +1,7 @@
 {
   "name": "spidr-client",
   "version": "1.0.0",
-  "description": "Spidr — Discord-style communication platform",
+  "description": "Spidr \u2014 Discord-style communication platform",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -111,13 +111,14 @@
     "copyright": "Copyright 2026 Spidr",
     "asar": false,
     "directories": {
-      "buildResources": "public",
+      "buildResources": "build",
       "output": "dist_installer"
     },
     "files": [
       "dist/**/*",
       "electron/main.js",
       "electron/preload.js",
+      "electron/splash.html",
       "package.json"
     ],
     "extraResources": [
@@ -127,7 +128,7 @@
       }
     ],
     "win": {
-      "icon": "src/assets/spidr-app-desktop.png",
+      "icon": "build/icon.ico",
       "artifactName": "${productName}Setup-${version}.${ext}",
       "target": [
         {
@@ -152,11 +153,52 @@
       "shortcutName": "Spidr"
     },
     "mac": {
-      "target": "dmg",
-      "category": "public.app-category.social-networking"
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.social-networking",
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Spidr uses your microphone for voice calls.",
+        "NSCameraUsageDescription": "Spidr uses your camera for video calls."
+      },
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "linux": {
-      "target": "AppImage"
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "Network",
+      "maintainer": "Spidr <info@spidrapp.com>",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   }
 }

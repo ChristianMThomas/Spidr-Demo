@@ -82,6 +82,9 @@ router.get('/', authMW, async (req, res) => {
 // generic CRUD router. Mounting at '/' means the route order matters:
 // our custom GET / above is matched first; the generic router only handles
 // what we didn't intercept.
-router.use('/', crudRouter(Feed));
+// ownerField: 'user_id' locks PATCH/DELETE to the item's actor. System-generated
+// events set user_id: 'system' — no real user's id equals 'system', so those
+// items are automatically immutable from user-facing CRUD.
+router.use('/', crudRouter(Feed, { ownerField: 'user_id' }));
 
 module.exports = router;

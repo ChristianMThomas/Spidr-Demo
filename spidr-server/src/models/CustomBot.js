@@ -18,6 +18,9 @@ const s = new Schema({
   author_name:  String,
   owner_id:     String,                                // who owns this instance (for cloned bots)
   name:         { type: String, required: true },
+  source:            { type: String, default: '' },           // 'discord-import' | 'native'
+  discord_client_id: { type: String, default: '' },
+  scan_report:       { type: require('mongoose').Schema.Types.Mixed, default: null },
   avatar_url:   String,
   icon_emoji:   String,                                // fallback when no avatar_url
   description:  String,

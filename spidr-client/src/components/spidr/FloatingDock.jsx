@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Server, Settings, Film, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import SpiderLogo from './SpiderLogo';
+import spidrApexBadge from '@/assets/spidr-apex-badge.png';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 /**
@@ -15,6 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
  * above it) so users can tuck it away without going into Settings.
  */
 export default function FloatingDock({ activeTab, setActiveTab, onCreateServer }) {
+  const navigate = useNavigate();
   const [enabled, setEnabled] = useState(() => {
     try { return localStorage.getItem('spidr_dock_enabled') !== 'false'; } catch { return true; }
   });
@@ -133,6 +136,25 @@ export default function FloatingDock({ activeTab, setActiveTab, onCreateServer }
                 ))}
 
                 <div className="w-px h-8 bg-red-900/30 mx-1" />
+
+                {/* APEX Tier — the shield badge IS the button. Routes to
+                    Settings with ?apex=1 which auto-opens the APEX store. */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <motion.button
+                      onClick={() => navigate('/settings?apex=1')}
+                      className="w-12 h-12 rounded-xl flex items-center justify-center transition-all hover:bg-yellow-500/10"
+                      whileHover={{ y: -8, scale: 1.12 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <img src={spidrApexBadge} alt="APEX Tier" draggable={false}
+                        className="w-9 h-9 object-contain drop-shadow-[0_0_10px_rgba(250,204,21,0.4)]" />
+                    </motion.button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="bg-zinc-900 border-yellow-500/30">
+                    <p>APEX Tier</p>
+                  </TooltipContent>
+                </Tooltip>
 
                 {/* Add Server */}
                 <Tooltip>

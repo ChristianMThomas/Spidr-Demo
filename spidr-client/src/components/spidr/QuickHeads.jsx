@@ -2,7 +2,9 @@ import React, { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket } from '@/api/apiClient';
 import { motion } from 'framer-motion';
-import { Users } from 'lucide-react';
+import { Users, Pin } from 'lucide-react';
+import { getPins, togglePin } from '@/lib/spidrWebPins';
+import { useMenu } from '@/components/MenuContext';
 
 const statusColors = {
   online: 'bg-green-500',
@@ -12,7 +14,7 @@ const statusColors = {
   offline: 'bg-zinc-500',
 };
 
-const QuickHeadItem = ({ friend, latestMessage, unreadCount, status = 'offline', onClick }) => {
+const QuickHeadItem = ({ friend, latestMessage, unreadCount, status = 'offline', onClick, pinned = false, onContextMenu }) => {
   const isTyping = false; // Can be extended later with real-time typing detection
   const hasUnread = unreadCount > 0;
   
@@ -28,6 +30,7 @@ const QuickHeadItem = ({ friend, latestMessage, unreadCount, status = 'offline',
   return (
     <div 
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className="flex flex-col items-center gap-1 min-w-[72px] cursor-pointer group"
     >
       <motion.div 
@@ -94,7 +97,25 @@ const QuickHeadItem = ({ friend, latestMessage, unreadCount, status = 'offline',
 };
 
 export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpenGroup }) {
+  // Tactical right-click menu — reuses the app-standard SpidrMenu with
+  // the existing 'friend' and 'web_group' types (View Profile, Send Message,
+  // Pin/Unpin, Remove Friend, Block, Copy ID for DMs; Open Group + Pin/Unpin
+  // for groups). Replaces the old contextmenu-only-toggles-pin behavior.
+  const { setMenu } = useMenu();
   const queryClient = useQueryClient();
+
+  // ── Spidr Web pins ────────────────────────────────────────────────────
+  // The right-click "Pin to Web" action (friend rows, group rows) stores
+  // entries via lib/spidrWebPins. Pinned conversations render FIRST in this
+  // row with a pin badge — one surface, one source of truth. Right-click a
+  // head to toggle its pin.
+  const [pins, setPins] = React.useState(() => getPins());
+  useEffect(() => {
+    const onChange = (e) => setPins(e.detail || getPins());
+    window.addEventListener('spidr-web-pins-changed', onChange);
+    return () => window.removeEventListener('spidr-web-pins-changed', onChange);
+  }, []);
+  const pinnedIds = React.useMemo(() => new Set(pins.map(p => p.id)), [pins]);
 
   // Map user_id → presence status so the avatar dot reflects real online state.
   const statusByUser = React.useMemo(() => {
@@ -255,13 +276,37 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
       .slice(0, 10);
   }, [allDMs, currentUser?.id]);
 
-  const totalCount = recentChats.length + recentGroups.length;
+  // Pinned entries lead; recents that are already pinned are folded into the
+  // pinned block (keeping their unread counts) instead of appearing twice.
+  const pinnedGroupHeads = React.useMemo(() =>
+    pins.filter(p => p.kind === 'group').map(p => {
+      const live = recentGroups.find(g => g.groupId === p.id);
+      const group = live?.group || groups.find(g => g.id === p.id) || { id: p.id, name: p.name, avatar_url: p.avatar };
+      return { groupId: p.id, group, unreadCount: live?.unreadCount || 0 };
+    }), [pins, recentGroups, groups]);
+  const pinnedDMHeads = React.useMemo(() =>
+    pins.filter(p => p.kind === 'dm').map(p => {
+      const live = recentChats.find(c => c.otherUserId === p.id);
+      return live
+        ? { ...live, _pin: p }
+        : {
+            conversationId: `pin-${p.id}`,
+            otherUserId: p.id,
+            friend: { friend_id: p.id, friend_name: p.name, friend_avatar: p.avatar },
+            latestMessage: null,
+            unreadCount: 0,
+            _pin: p,
+          };
+    }), [pins, recentChats]);
+  const unpinnedGroups = React.useMemo(() => recentGroups.filter(g => !pinnedIds.has(g.groupId)), [recentGroups, pinnedIds]);
+  const unpinnedChats  = React.useMemo(() => recentChats.filter(c => !pinnedIds.has(c.otherUserId)), [recentChats, pinnedIds]);
+
+  const totalCount = pinnedGroupHeads.length + pinnedDMHeads.length + unpinnedGroups.length + unpinnedChats.length;
 
   return (
     <div className="w-full border-b border-red-900/20 bg-zinc-900/50 backdrop-blur-md py-4">
       <div className="px-4 mb-3 flex justify-between items-center">
         <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Spidr Web</h3>
-        <span className="text-xs text-zinc-500">{totalCount} active</span>
       </div>
       
       {totalCount === 0 ? (
@@ -270,10 +315,110 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
         </div>
       ) : (
         <div className="flex overflow-x-auto gap-3 px-4 pb-1 scrollbar-hide">
-        {recentGroups.map(groupChat => (
+        {/* Pinned DMs — always first */}
+        {pinnedDMHeads.map(chat => {
+          const liveProfile = profileByUser[chat.otherUserId];
+          const liveFriend = liveProfile ? {
+            ...chat.friend,
+            friend_avatar: liveProfile.avatar_url || chat.friend.friend_avatar,
+            friend_name: liveProfile.display_name || chat.friend.friend_name,
+          } : chat.friend;
+          return (
+            <QuickHeadItem
+              key={`pin-dm-${chat.otherUserId}`}
+              friend={liveFriend}
+              latestMessage={chat.latestMessage}
+              unreadCount={chat.unreadCount}
+              status={statusByUser[chat.otherUserId] || 'offline'}
+              pinned
+              onClick={() => onOpenDM(chat.friend.friend_id, chat.conversationId.startsWith('pin-') ? undefined : chat.conversationId)}
+              onContextMenu={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                setMenu({
+                  visible: true, x: e.clientX, y: e.clientY, type: 'friend',
+                  data: {
+                    id: chat.otherUserId,
+                    friend_id: chat.otherUserId,
+                    name: chat.friend?.friend_name || 'Node',
+                    avatar_url: chat.friend?.friend_avatar || '',
+                    header_sub: 'Spidr Web · DM',
+                    is_pinned: true,
+                  },
+                });
+              }}
+            />
+          );
+        })}
+        {/* Pinned groups */}
+        {pinnedGroupHeads.map(groupChat => (
+          <div
+            key={`pin-group-${groupChat.groupId}`}
+            onClick={() => onOpenGroup(groupChat.groupId)}
+            onContextMenu={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              setMenu({
+                visible: true, x: e.clientX, y: e.clientY, type: 'web_group',
+                data: {
+                  id: groupChat.groupId,
+                  group_id: groupChat.groupId,
+                  name: groupChat.group?.name || 'Group',
+                  avatar_url: groupChat.group?.avatar_url || groupChat.group?.icon_url || '',
+                  header_sub: 'Spidr Web · Group',
+                  is_pinned: true,
+                },
+              });
+            }}
+            className="flex flex-col items-center gap-1 min-w-[72px] cursor-pointer group"
+            title={`${groupChat.group?.name || 'Group'} — right-click to unpin`}
+          >
+            <motion.div
+              whileTap={{ scale: 0.9 }}
+              whileHover={{ scale: 1.05 }}
+              className="relative p-[3px] rounded-full"
+              style={{ background: 'linear-gradient(135deg, #FF3333, #9900FF)' }}
+            >
+              <div className="w-14 h-14 rounded-full border-2 border-[#0a0a0a] overflow-hidden bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center">
+                {(groupChat.group?.avatar_url || groupChat.group?.icon_url)
+                  ? <img src={groupChat.group.avatar_url || groupChat.group.icon_url} alt="" className="w-full h-full object-cover" />
+                  : <Users className="w-7 h-7 text-white" />}
+              </div>
+              <div className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-zinc-900 border-2 border-[#0a0a0a] flex items-center justify-center shadow-lg" title="Pinned to your web">
+                <Pin size={10} className="text-[#FF3333] fill-[#FF3333]" />
+              </div>
+              {groupChat.unreadCount > 0 && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="absolute -bottom-1 -right-1 bg-[#FF3333] min-w-5 h-5 px-1 rounded-full flex items-center justify-center border-2 border-[#0a0a0a] text-[10px] font-bold text-white shadow-lg"
+                >
+                  {groupChat.unreadCount > 99 ? '99+' : groupChat.unreadCount}
+                </motion.div>
+              )}
+            </motion.div>
+            <span className="text-xs font-medium truncate max-w-[72px] text-white group-hover:text-[#FF3333] transition-colors">
+              {groupChat.group?.name || 'Group'}
+            </span>
+          </div>
+        ))}
+        {unpinnedGroups.map(groupChat => (
           <div 
             key={groupChat.groupId}
             onClick={() => onOpenGroup(groupChat.groupId)}
+            onContextMenu={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              setMenu({
+                visible: true, x: e.clientX, y: e.clientY, type: 'web_group',
+                data: {
+                  id: groupChat.groupId,
+                  group_id: groupChat.groupId,
+                  name: groupChat.group?.name || 'Group',
+                  avatar_url: groupChat.group?.avatar_url || groupChat.group?.icon_url || '',
+                  header_sub: 'Spidr Web · Group',
+                  is_pinned: true,
+                },
+              });
+            }}
+            title="Right-click to pin to your web"
             className="flex flex-col items-center gap-1 min-w-[72px] cursor-pointer group"
           >
             <motion.div 
@@ -286,6 +431,10 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
                 <Users className="w-7 h-7 text-white" />
               </div>
               
+          {/* This map only renders pinned groups — badge is unconditional. */}
+          <div className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-zinc-900 border-2 border-[#0a0a0a] flex items-center justify-center shadow-lg z-10" title="Pinned to your web">
+            <Pin size={10} className="text-[#FF3333] fill-[#FF3333]" />
+          </div>
               {groupChat.unreadCount > 0 && (
                 <motion.div 
                   initial={{ scale: 0 }}
@@ -302,7 +451,7 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
             </span>
           </div>
         ))}
-        {recentChats.map(chat => {
+        {unpinnedChats.map(chat => {
           const liveProfile = profileByUser[chat.otherUserId];
           const liveFriend = liveProfile ? {
             ...chat.friend,
@@ -317,6 +466,20 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
             unreadCount={chat.unreadCount}
             status={statusByUser[chat.otherUserId] || 'offline'}
             onClick={() => onOpenDM(chat.friend.friend_id, chat.conversationId)}
+            onContextMenu={(e) => {
+                e.preventDefault(); e.stopPropagation();
+                setMenu({
+                  visible: true, x: e.clientX, y: e.clientY, type: 'friend',
+                  data: {
+                    id: chat.otherUserId,
+                    friend_id: chat.otherUserId,
+                    name: liveFriend.friend_name || 'Node',
+                    avatar_url: liveFriend.friend_avatar || '',
+                    header_sub: 'Spidr Web · DM',
+                    is_pinned: false,
+                  },
+                });
+              }}
           />
           );
         })}

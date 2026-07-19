@@ -1,19 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations, getSocket } from '@/api/apiClient';
+import { api, entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
 import { useTension } from '@/hooks/useTension';
+import { useStickyBoolean } from '@/hooks/useStickyBoolean';
 import { useAppShell } from '@/context/AppShellContext';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import CatchMeUpBar from './CatchMeUpBar';
-import { Send, Image as ImageIcon, Smile, MoreVertical, Phone, Video, Ghost, Pin, Archive, CornerUpLeft, X } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, Phone, Video, Ghost, Pin, Archive, CornerUpLeft, X, Search, Menu } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import StickyWeb from './StickyWeb';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import HolographicProfile from './HolographicProfile';
-import GhostOverlay from './GhostOverlay';
 import MessageItem from './MessageItem';
 import CallAVControls from './CallAVControls';
 import CallOverlay from './CallOverlay';
@@ -25,6 +33,7 @@ import ReportModal from './ReportModal';
 import CallDeck from '../voice/CallDeck';
 import VoiceChannel from './VoiceChannel';
 import SpidrAIChat from './SpidrAIChat';
+import { SPIDR_AI_AVATAR } from './SpidrAIProfile';
 import SpiderLogo from './SpiderLogo';
 import SignalTracker from './SignalTracker';
 
@@ -35,8 +44,12 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const [message, setMessage] = useState('');
   const [reportTarget, setReportTarget] = useState(null);
   const [isTyping, setIsTyping] = useState(false);
+  // 350ms linger so the WEB_VIBRATION_DETECTED banner doesn't flicker on
+  // brief typing pauses between keystrokes.
+  const showTypingBanner = useStickyBoolean(isTyping, 350);
   const [showProfile, setShowProfile] = useState(false);
   const [ghostMode, setGhostMode] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [selectedProfileUserId, setSelectedProfileUserId] = useState(null);
   const { startVoiceSession, endVoiceSession, voiceSession } = useAppShell();
   const activeConversationId = conversationId || conversation?.conversationId;
@@ -241,32 +254,27 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const displayName = conversation?.friendName || recipientProfile?.display_name || 'User';
   const displayAvatar = conversation?.friendAvatar || recipientProfile?.avatar_url;
 
-  // ── Spidr Protocol (gaming overlay): drive the GLOBAL overlay via events ──
-  // so it survives navigation and supports pinning (the old local overlay did
-  // neither, and rendering both caused the "double").
+  // ── Spidr Protocol — Electron-only OS-level chat HUD (Discord-style) ──
+  // The HUD is a separate frameless transparent BrowserWindow that floats
+  // over games; it re-reads messages itself via the same socket, so we only
+  // need to open/close it with the conversation context. Web has no HUD —
+  // the Ghost button isn't rendered there.
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
   useEffect(() => {
+    if (!isElectron) return;
     if (ghostMode) {
-      window.dispatchEvent(new CustomEvent('spidr-ghost-activate', {
-        detail: { conversationName: displayName },
-      }));
+      window.electronAPI.openProtocol?.({ conversationId: activeConversationId || '' });
     } else {
-      window.dispatchEvent(new Event('spidr-ghost-deactivate'));
+      window.electronAPI.closeProtocol?.();
     }
-  }, [ghostMode, displayName]);
+  }, [ghostMode, activeConversationId, isElectron]);
 
+  // Keep local toggle state in sync if the user closes the HUD from its own X.
   useEffect(() => {
-    if (!ghostMode || messages.length === 0) return;
-    const last = messages[messages.length - 1];
-    if (!last?.id) return;
-    window.dispatchEvent(new CustomEvent('spidr-ghost-message', {
-      detail: {
-        id: last.id,
-        sender_name: last.sender_name || last.user_name,
-        sender_avatar: last.sender_avatar || last.user_avatar,
-        content: last.content,
-      },
-    }));
-  }, [ghostMode, messages]);
+    if (!isElectron) return;
+    const off = window.electronAPI.onProtocolClosed?.(() => setGhostMode(false));
+    return () => { if (typeof off === 'function') off(); };
+  }, [isElectron]);
 
   useEffect(() => {
     if (!activeConversationId) return;
@@ -417,6 +425,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       sender_avatar: currentUser?.avatar_url || '',
       receiver_id: activeRecipientId,
       recipient_id: activeRecipientId,
+      // Denormalize recipient identity too — without these, DMs YOU sent
+      // couldn't be labeled in conversation lists (Jump Back In was showing
+      // "Node" as the fallback for every outgoing conversation).
+      recipient_name: displayName,
+      recipient_avatar: displayAvatar || '',
       content: message,
       attachments: attachments.map(att => att.url),
       is_read: false,
@@ -427,17 +440,34 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     setReplyingTo(null);
   };
 
-  const handleFlyCatch = (userName) => {
-    toast.success('🕷️ You caught the fly! +10 Biomass');
-    sendMessageMutation.mutate({
-      conversation_id: activeConversationId,
-      sender_id: 'system',
+  const handleFlyCatch = async (userName) => {
+    if (!currentUser?.id) return;
+    let granted = 10;
+    try {
+      const res = await biomassApi.catchFly();
+      granted = res?.amount ?? 10;
+      queryClient.invalidateQueries({ queryKey: ['biomass-wallet'] });
+    } catch (err) {
+      if (err?.response?.data?.capped) {
+        toast.info('Caught it! (daily biomass cap reached)');
+        return;
+      }
+    }
+    // Route the catch into the Spidr System DM thread instead of the
+    // active DM conversation.
+    const spidrId = 'spidr-ai';
+    const ids = [String(currentUser.id), spidrId].sort();
+    const convId = `dm_${ids[0]}_${ids[1]}`;
+    entities.DirectMessage.create({
+      conversation_id: convId,
+      sender_id: spidrId,
       sender_name: 'Spidr System',
-      sender_avatar: '',
-      recipient_id: currentUser?.id,
-      content: `🕷️ ${userName} caught the fly! +10 Biomass`,
-      is_read: true
-    });
+      sender_avatar: SPIDR_AI_AVATAR,
+      receiver_id: String(currentUser.id),
+      recipient_id: String(currentUser.id),
+      content: `${userName} caught the fly! +${granted} Biomass`
+    }).catch(() => {});
+    toast.success(`You caught the fly! +${granted} Biomass`);
   };
 
   const { data: currentProfile } = useQuery({
@@ -467,26 +497,32 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     }
   });
 
-  const markAsReadMutation = useMutation({
-    mutationFn: ({ id }) => entities.DirectMessage.update(id, { is_read: true }),
+  // Mark the whole conversation read in ONE recipient-scoped call. The old
+  // per-message PATCH loop was silently rejected by the ownership lockdown
+  // (recipient != sender_id owner), so is_read never flipped and the unread
+  // badges never went away.
+  const markConversationRead = useMutation({
+    mutationFn: () => api.post('/direct-messages/read-conversation', { conversation_id: conversationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['all-dms'] });
-    }
+      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
+      // THE "badge never goes away" bug: the friends-list unread badges read
+      // from ['unread-dms-friends', userId], which was never invalidated
+      // here — so the count stayed until a full reload even after the
+      // conversation was marked read. Prefix match covers the userId suffix.
+      queryClient.invalidateQueries({ queryKey: ['unread-dms-friends'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-dms'] });
+    },
   });
 
-  const unreadMsgIds = React.useMemo(() => {
-    return messages.filter(msg => msg.recipient_id === currentUser?.id && !msg.is_read).map(m => m.id);
-  }, [messages, currentUser?.id]);
-
-  const markedRef = useRef(new Set());
+  const hasUnreadIncoming = React.useMemo(
+    () => messages.some(msg => msg.recipient_id === currentUser?.id && !msg.is_read),
+    [messages, currentUser?.id]
+  );
   useEffect(() => {
-    unreadMsgIds.forEach(id => {
-      if (!markedRef.current.has(id)) {
-        markedRef.current.add(id);
-        markAsReadMutation.mutate({ id });
-      }
-    });
-  }, [unreadMsgIds]);
+    if (hasUnreadIncoming && conversationId) markConversationRead.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasUnreadIncoming, conversationId]);
 
   useEffect(() => {
     scrollToBottom();
@@ -508,6 +544,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       sender_avatar: currentUser?.avatar_url || '',
       receiver_id: activeRecipientId,
       recipient_id: activeRecipientId,
+      // Denormalize recipient identity too — without these, DMs YOU sent
+      // couldn't be labeled in conversation lists (Jump Back In was showing
+      // "Node" as the fallback for every outgoing conversation).
+      recipient_name: displayName,
+      recipient_avatar: displayAvatar || '',
       content: message,
       is_read: false,
       is_ghost: ghostMode
@@ -558,11 +599,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           as the shared MinimizedWebNode at the shell, and the full deck is the
           VoiceChannel overlay above.) */}
       
-      {/* Neural Header — pr-[200px] reserves space for the shell's top-right
-          cluster (notifications + biomass pill + status chip) so the search
-          and action icons don't slide under it. */}
+      {/* Neural Header — md:pr-[200px] reserves space for the shell's top-right
+          cluster (notifications + biomass pill + status chip) on desktop only.
+          On <md the cluster collapses and the header reclaims the full width. */}
       <div
-        className="h-14 flex items-center justify-between px-4 pr-[200px] border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-20 flex-shrink-0 transition-all duration-500"
+        className="h-14 flex items-center justify-between px-3 pr-2 md:px-4 md:pr-[200px] border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-20 flex-shrink-0 transition-all duration-500"
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {onBack && (
@@ -586,7 +627,12 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
             </div>
             <div className="min-w-0">
               <h2 className="font-semibold text-white text-sm truncate">{displayName}</h2>
-              <div className="flex items-center gap-1.5">
+              {/* Status label hidden until lg — the status dot on the
+                  avatar already communicates online/offline, and on tablet
+                  the cramped header doesn't have room for the redundant
+                  text. (Was hidden sm:flex previously; tablet now matches
+                  mobile and joins the compact-header tier.) */}
+              <div className="hidden lg:flex items-center gap-1.5">
                 <span className="text-[9px] text-zinc-500 font-mono uppercase tracking-widest">
                   {isTyping ? '/// TYPING' : recipientProfile?.status?.toUpperCase() || 'OFFLINE'}
                 </span>
@@ -595,7 +641,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           </button>
         </div>
 
-        <div className="flex items-center gap-0.5">
+        {/* Desktop cluster — full action row visible at lg+ only. Tablets
+            (md→lg) used to share this row but it crowded against the
+            floating top-right cluster; tablet now joins the compact
+            hamburger tier below. */}
+        <div className="hidden lg:flex items-center gap-0.5">
           <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Call'}>
             <Phone size={17} />
           </button>
@@ -611,9 +661,14 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
             <SpiderLogo size={17} />
           </button>
           <div className="w-px h-4 bg-white/[0.06] mx-1" />
-          <button onClick={() => setGhostMode(!ghostMode)} className={`p-2 rounded-lg transition-all ${ghostMode ? 'text-purple-400 bg-purple-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
-            <Ghost size={17} />
-          </button>
+          {/* Spidr Protocol (Ghost mode) — desktop-only. The Electron app
+              spawns a transparent OS-level HUD over your game; the web
+              build has no equivalent, so this button is hidden there. */}
+          {isElectron && (
+            <button onClick={() => setGhostMode(!ghostMode)} className={`p-2 rounded-lg transition-all ${ghostMode ? 'text-purple-400 bg-purple-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title="Spidr Protocol — desktop chat overlay">
+              <Ghost size={17} />
+            </button>
+          )}
           <button onClick={() => setShowStickyWeb(!showStickyWeb)} className={`p-2 rounded-lg transition-all ${showStickyWeb ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}>
             <Archive size={17} />
           </button>
@@ -622,7 +677,74 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
             <MoreVertical size={17} />
           </button>
         </div>
+
+        {/* Compact cluster — mobile AND tablet (< lg). Search toggles a
+            full-width row below the header; everything else collapses into
+            a hamburger dropdown. Spidr Protocol (Ghost mode) is
+            intentionally omitted at this tier — it's a laptop+ feature
+            only, per spec. */}
+        <div className="flex lg:hidden items-center gap-0.5">
+          <button
+            onClick={() => setMobileSearchOpen(v => !v)}
+            className={`p-2 rounded-lg transition-all ${mobileSearchOpen ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+            title="Search DM"
+          >
+            <Search size={17} />
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Quick actions" aria-label="Quick actions">
+                <Menu size={17} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52 bg-[#0a0a0a] border-white/10 text-white">
+              <DropdownMenuItem onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className="gap-2">
+                <Phone size={15} className={inCall ? 'text-green-500' : 'text-zinc-400'} />
+                {inCall ? 'Toggle Call Deck' : 'Voice Call'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className="gap-2">
+                <Video size={15} className={inCall ? 'text-green-500' : 'text-zinc-400'} />
+                {inCall ? 'Toggle Call Deck' : 'Video Call'}
+              </DropdownMenuItem>
+              {inCall && (
+                <DropdownMenuItem onClick={handleEndCall} className="gap-2 text-red-500 focus:text-red-500 focus:bg-red-500/10">
+                  <Phone size={15} className="rotate-[135deg]" />
+                  End Call
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator className="bg-white/5" />
+              <DropdownMenuItem onClick={() => setShowStickyWeb(!showStickyWeb)} className="gap-2">
+                <Archive size={15} className={showStickyWeb ? 'text-[#FF3333]' : 'text-zinc-400'} />
+                Memory Web
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowSpidrAI(!showSpidrAI)} className="gap-2">
+                <SpiderLogo size={15} className={showSpidrAI ? 'text-[#FF3333]' : 'text-zinc-400'} />
+                Summon Spidr AI
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
+
+      {/* Slide-down search row — appears below the header on <lg when the
+          Search button is toggled. Reuses SignalTracker; the inner input
+          takes full width via the wrapper so it isn't constrained to
+          SignalTracker's default w-44/w-72. Was md:hidden previously;
+          tablet now shares the compact-header tier with mobile. */}
+      {mobileSearchOpen && (
+        <div className="lg:hidden flex items-center gap-2 px-3 py-2 border-b border-white/[0.04] bg-[#050505]/80 backdrop-blur-xl z-10">
+          <div className="flex-1 [&>div]:!w-full [&>div>div]:!w-full">
+            <SignalTracker placeholder="Search DM..." messages={messages} users={[]} onResultClick={() => {}} />
+          </div>
+          <button
+            onClick={() => setMobileSearchOpen(false)}
+            className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all shrink-0"
+            title="Close search"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       {/* Active-call presence banner — symmetric with KineticChat. Lets a
           recipient who missed/dismissed the IncomingCallBanner still join
@@ -791,7 +913,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       </div>
 
       {/* Web Sense Typing Indicator */}
-      {isTyping && (
+      {showTypingBanner && (
         <div className="bg-black flex items-center px-4 py-2 relative z-10">
           <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10 bg-[#111] pr-2">
             <span className="text-[9px] font-mono uppercase tracking-widest text-[#FF3333]">
@@ -878,9 +1000,6 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         userId={selectedProfileUserId}
         currentUser={currentUser}
       />
-
-      {/* Spidr Protocol overlay renders globally (GlobalGhostOverlay at the
-          shell); this view dispatches activate/message/deactivate to it. */}
 
       <AnimatePresence>
         {inCall && !showCallDeck && <CallAVControls onClose={() => setInCall(false)} />}

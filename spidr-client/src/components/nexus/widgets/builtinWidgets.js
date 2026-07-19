@@ -21,6 +21,7 @@ import SymbiotePet        from './SymbiotePet';
 import GamingUplink       from './GamingUplink';
 import PCSpecsFlex        from './PCSpecsFlex';
 import SpotifyNowPlaying  from './SpotifyNowPlaying';
+import AppleMusicNowPlaying from './AppleMusicNowPlaying';
 import SteamNowPlaying    from './SteamNowPlaying';
 
 export const BUILTIN_WIDGETS = {
@@ -28,6 +29,7 @@ export const BUILTIN_WIDGETS = {
   'Gaming Uplink Card':     GamingUplink,
   'PC Specs Flex':          PCSpecsFlex,
   'Spotify Now Playing':    SpotifyNowPlaying,
+  'Apple Music Now Playing': AppleMusicNowPlaying,
   'Steam Now Playing':      SteamNowPlaying,
 };
 

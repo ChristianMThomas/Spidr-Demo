@@ -8,6 +8,7 @@ const s = new Schema({
   group_id:         String,
   conversation_id:  String,
   is_muted:         { type: Boolean, default: false },
+  is_speaking:  { type: Boolean, default: false },
   is_deafened:      { type: Boolean, default: false },
   is_video_on:      { type: Boolean, default: false },
   is_screen_sharing:{ type: Boolean, default: false },

@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Play, Pause, Sparkles } from 'lucide-react';
+import { Play, Pause, Sparkles, Loader2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { aiTranscribe } from '@/api/apiClient';
 
 /**
  * VoiceMessageCapsule — Spidr's "Holographic Audio Capsule" for voice
@@ -82,6 +84,22 @@ export default function VoiceMessageCapsule({ url, isSelf = false, transcription
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [transcribeOpen, setTranscribeOpen] = useState(false);
+
+  // AI Scribe — real speech-to-text. Lazy: only transcribes when the pane
+  // is opened (no cost for capsules nobody expands). The server proxies
+  // Whisper and caches per-URL, so repeat opens are instant for everyone.
+  const {
+    data: scribeData,
+    isLoading: scribeLoading,
+    error: scribeError,
+  } = useQuery({
+    queryKey: ['voice-transcription', url],
+    queryFn: () => aiTranscribe(url),
+    enabled: transcribeOpen && !transcription && !!url,
+    staleTime: Infinity,
+    retry: 1,
+  });
+  const liveTranscription = transcription || scribeData?.text || null;
 
   const bars = useMemo(() => generateBars(url), [url]);
   const progress = duration > 0 ? currentTime / duration : 0;
@@ -251,13 +269,19 @@ export default function VoiceMessageCapsule({ url, isSelf = false, transcription
                   AI Scribe
                 </span>
               </div>
-              {transcription ? (
-                <p className="text-white/85 whitespace-pre-wrap">{transcription}</p>
+              {liveTranscription ? (
+                <p className="text-white/85 whitespace-pre-wrap">{liveTranscription}</p>
+              ) : scribeLoading ? (
+                <p className="text-purple-300/70 italic flex items-center gap-1.5">
+                  <Loader2 size={11} className="animate-spin" /> Transcribing…
+                </p>
+              ) : scribeError ? (
+                <p className="text-zinc-500 italic">
+                  {scribeError?.message || 'Transcription failed — try again in a moment.'}
+                </p>
               ) : (
                 <p className="text-zinc-500 italic">
-                  Transcription pending — wire a speech-to-text endpoint to
-                  Spidr AI so the message text appears here. Until then,
-                  hit play above to listen.
+                  Opening the Scribe…
                 </p>
               )}
             </div>

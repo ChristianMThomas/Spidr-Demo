@@ -75,17 +75,62 @@ export default function SpidrMenu() {
         ];
 
       // ─── THE WEB: right-click a post / clip ─────────────────────────────
+      // ─── Server member (right-click in the community/member list) ───────
+      // Replaces the legacy emoji DOM menu. Options derive from capability
+      // flags in data; tones follow the tactical palette — neutral actions
+      // white, reversible moderation orange, destructive red.
+      case 'server-member': {
+        const d = menu.data || {};
+        const items = [
+          { icon: User, label: 'Profile', color: 'text-white', action: 'view-profile' },
+          { icon: MessageSquare, label: 'Direct Message', color: 'text-white', action: 'send-message' },
+        ];
+        if (d.can_nickname) {
+          items.push({ separator: true });
+          items.push({ icon: Pencil, label: 'Change Nickname', color: 'text-white', action: 'nickname' });
+        }
+        if (d.in_voice) {
+          items.push({ separator: true });
+          if (d.can_mute) {
+            items.push({ icon: d.is_voice_muted ? Volume2 : VolumeX, label: d.is_voice_muted ? 'Server Unmute' : 'Server Mute', color: 'text-white', action: 'server-mute' });
+            items.push({ icon: d.is_voice_deafened ? Bell : BellOff, label: d.is_voice_deafened ? 'Server Undeafen' : 'Server Deafen', color: 'text-white', action: 'server-deafen' });
+          }
+          if (d.can_manage) {
+            items.push({ icon: LogOut, label: 'Disconnect from Voice', color: 'text-orange-400', tone: 'warn', action: 'disconnect-voice' });
+            if (Array.isArray(d.move_channels) && d.move_channels.length) {
+              items.push({
+                icon: Hash, label: 'Move to Channel', color: 'text-white', submenu: d.move_channels.map(vc => ({
+                  icon: Volume2, label: vc.name, color: 'text-white', action: 'move-channel', payload: { channelId: vc.id },
+                })),
+              });
+            }
+          }
+        }
+        if (d.can_kick) {
+          items.push({ separator: true });
+          items.push({ icon: LogOut, label: 'Kick from Server', color: 'text-orange-400', tone: 'warn', action: 'kick' });
+          items.push({ icon: Ban, label: 'Ban Permanently', color: 'text-red-500', tone: 'danger', action: 'ban' });
+        }
+        return items;
+      }
+
       case 'web_post':
         return [
           { icon: Copy, label: 'Copy Link', color: 'text-white', action: 'copy-link' },
           { icon: Share2, label: 'Sling to DMs', color: 'text-white', action: 'sling' },
           { icon: Lock, label: 'Encrypt (Save)', color: 'text-white', action: 'encrypt' },
+          { icon: Bookmark, label: 'Save to Collection…', color: 'text-white', action: 'save-to-collection' },
+          { icon: Share2, label: menu.data?.is_relayed ? 'Un-Relay' : 'Relay to Your Web', color: 'text-white', action: 'relay' },
           { separator: true },
           { icon: Zap, label: '[APEX] Web-Strike', color: 'text-[#FF3333]', action: 'web-strike' },
           { icon: Zap, label: '[APEX] Overclock Post', color: 'text-orange-400', action: 'overclock' },
           { separator: true },
-          { icon: User, label: 'View Creator', color: 'text-white', action: 'profile' },
+          { icon: User, label: 'View Their Web', color: 'text-white', action: 'profile' },
           { icon: Flag, label: 'Report Post', color: 'text-yellow-400', action: 'report' },
+          ...(menu.data?.is_own ? [
+            { separator: true },
+            { icon: Trash2, label: 'Delete Post', color: 'text-red-500', tone: 'danger', action: 'delete-post' },
+          ] : []),
         ];
 
       // ─── Profile (avatar in friend list, home dashboard, etc.) ──────────
@@ -335,38 +380,105 @@ export default function SpidrMenu() {
             </div>
           )}
 
-          {/* Header */}
-          <div className="px-3 py-2 bg-[#FF3333]/10 border-b border-[#FF3333]/20 text-[10px] font-bold text-[#FF3333] uppercase tracking-wider truncate">
-             {menu.data?.name || menu.type?.toUpperCase()} :: {menu.data?.id?.toString()?.slice(-6)?.toUpperCase() || 'NODE'}
-          </div>
+          {/* Header — rich identity block when the caller provides an avatar,
+              otherwise the classic terminal-style tag line. */}
+          {menu.data?.avatar_url || menu.data?.header_avatar ? (
+            <div className="flex items-center gap-3 px-3 py-2.5 border-b border-white/5">
+              <div className="relative shrink-0">
+                <img
+                  src={menu.data.avatar_url || menu.data.header_avatar}
+                  alt=""
+                  className="w-8 h-8 rounded-full border border-white/10 object-cover"
+                />
+                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-[#FF3333] rounded-full border-2 border-[#111]" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-sm font-bold tracking-wide text-white truncate">{menu.data?.name || 'Node'}</span>
+                <span className="text-[9px] font-mono text-white/40 uppercase tracking-widest truncate">{menu.data?.header_sub || menu.type?.replace(/[-_]/g, ' ')}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="px-3 py-2 bg-[#FF3333]/10 border-b border-[#FF3333]/20 text-[10px] font-bold text-[#FF3333] uppercase tracking-wider truncate">
+               {menu.data?.name || menu.type?.toUpperCase()} :: {menu.data?.id?.toString()?.slice(-6)?.toUpperCase() || 'NODE'}
+            </div>
+          )}
 
-          {/* Options */}
+          {/* Options — tone-aware hovers: neutral actions glow white,
+              reversible moderation (tone: warn) orange, destructive
+              (tone: danger) red. Submenu items expand inline (tap-friendly). */}
           <div className="p-1">
             {optionsList.map((opt, i) => (
               opt.separator ? (
                 <div key={i} className="h-[1px] bg-white/10 my-1 mx-2" />
+              ) : opt.submenu ? (
+                <SubmenuItem key={i} opt={opt} menu={menu} setMenu={setMenu} />
               ) : (
-                <button 
-                  key={i}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    window.dispatchEvent(new CustomEvent('spidr-menu-action', {
-                      detail: { action: opt.action, data: menu.data, type: menu.type }
-                    }));
-                    setMenu(prev => ({ ...prev, visible: false }));
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#FF3333]/20 group transition-colors text-left"
-                >
-                  <opt.icon size={14} className={`${opt.color} group-hover:text-[#FF3333]`} />
-                  <span className="text-xs font-medium text-gray-300 group-hover:text-white">
-                    {opt.label}
-                  </span>
-                </button>
+                <MenuButton key={i} opt={opt} menu={menu} setMenu={setMenu} />
               )
             ))}
           </div>
         </motion.div>
       </div>
     </AnimatePresence>
+  );
+}
+
+/* ── Tactical item primitives ─────────────────────────────────────────────
+ * MenuButton: tone drives the hover treatment —
+ *   danger → red text/bg,   warn → orange,   default → white pill.
+ * SubmenuItem: click-to-expand inline block (hover flyouts die on touch).
+ */
+function toneClasses(opt) {
+  if (opt.tone === 'danger' || /red/.test(opt.color || '')) {
+    return { btn: 'hover:bg-red-500/10', icon: 'group-hover:text-red-500', text: 'group-hover:text-red-400' };
+  }
+  if (opt.tone === 'warn' || /orange/.test(opt.color || '')) {
+    return { btn: 'hover:bg-orange-400/10', icon: 'group-hover:text-orange-400', text: 'group-hover:text-orange-300' };
+  }
+  return { btn: 'hover:bg-white/10', icon: 'group-hover:text-white', text: 'group-hover:text-white' };
+}
+
+function MenuButton({ opt, menu, setMenu, payloadExtra }) {
+  const t = toneClasses(opt);
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        window.dispatchEvent(new CustomEvent('spidr-menu-action', {
+          detail: { action: opt.action, data: { ...menu.data, ...(opt.payload || {}), ...(payloadExtra || {}) }, type: menu.type }
+        }));
+        setMenu(prev => ({ ...prev, visible: false }));
+      }}
+      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${t.btn} group transition-colors text-left`}
+    >
+      <opt.icon size={14} className={`${opt.color} ${t.icon} transition-colors`} />
+      <span className={`text-xs font-medium text-gray-300 ${t.text} transition-colors`}>
+        {opt.label}
+      </span>
+    </button>
+  );
+}
+
+function SubmenuItem({ opt, menu, setMenu }) {
+  const [open, setOpen] = useState(false);
+  const t = toneClasses(opt);
+  return (
+    <div>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${t.btn} group transition-colors text-left`}
+      >
+        <opt.icon size={14} className={`${opt.color} ${t.icon} transition-colors`} />
+        <span className={`text-xs font-medium text-gray-300 ${t.text} transition-colors flex-1`}>{opt.label}</span>
+        <span className={`text-[9px] text-zinc-600 transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
+      </button>
+      {open && (
+        <div className="ml-6 border-l border-white/10 pl-1 my-0.5">
+          {opt.submenu.map((sub, j) => (
+            <MenuButton key={j} opt={sub} menu={menu} setMenu={setMenu} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

@@ -33,6 +33,14 @@ import { isTrending, tensionScore } from '@/lib/tensionScore';
 //     server-side relays still count if the backend ever starts honoring
 //     the field — we end up eventually-consistent rather than client-only.
 const LOCAL_RELAY_KEY = 'spidr_my_relays';
+
+// ── View de-dupe ───────────────────────────────────────────────────────────
+// A clip should count ONE view per session no matter how many times the user
+// scrolls back to it (TikTok behaves the same — repeat views in one sitting
+// don't keep inflating the number). Module-level so it persists across card
+// mount/unmount as you scroll the virtualized triplet.
+const viewedClips = new Set();
+
 const localRelaySet = (() => {
   try {
     const raw = typeof window !== 'undefined' ? localStorage.getItem(LOCAL_RELAY_KEY) : null;
@@ -96,6 +104,7 @@ export default function ClipFeed({
   feedPersonalized,
   audioMap,
   initialClipId,
+  onOpenProfile,   // (user) => open their WEB profile in-feed
 }) {
   const [idx, setIdx] = useState(() => {
     if (!initialClipId) return 0;
@@ -192,7 +201,7 @@ export default function ClipFeed({
       {/* Top label */}
       <div className="absolute top-3 inset-x-0 text-center z-10 pointer-events-none">
         <span className="text-[10px] font-black tracking-widest text-red-600/40 uppercase">
-          {feedPersonalized ? '⚡ For You' : 'THE WEB'} // {idx + 1} / {clips.length}
+          {feedPersonalized ? '⚡ YOUR WEB' : 'THE WEB'} // {idx + 1} / {clips.length}
         </span>
       </div>
 
@@ -224,6 +233,7 @@ export default function ClipFeed({
                   isActive={isCurrent}
                   currentUser={currentUser}
                   onEditClip={onEditClip}
+                  onOpenProfile={onOpenProfile}
                   muted={muted}
                   setMuted={setMuted}
                   vol={vol}
@@ -263,7 +273,7 @@ export default function ClipFeed({
  * mounted (preloading metadata) but paused.
  */
 function ClipCard({
-  clip, isActive, currentUser, onEditClip,
+  clip, isActive, currentUser, onEditClip, onOpenProfile,
   muted, setMuted, vol, setVol, audioMap,
 }) {
   const videoRef = useRef(null);
@@ -352,7 +362,7 @@ function ClipCard({
       } else if (action === 'sling') {
         setShareWeb(true);
       } else if (action === 'save' || action === 'encrypt') {
-        saveMut.mutate();
+        saveMut.mutate(null);
         if (action === 'encrypt') {
           setEncrypting(true);
           setTimeout(() => setEncrypting(false), 1400);
@@ -368,10 +378,20 @@ function ClipCard({
         entities.Clip.update(clip.id, { overclock_until: new Date(Date.now() + 3600_000).toISOString() })
           .then(() => { queryClient.invalidateQueries({ queryKey: ['clips'] }); toast.success('Post overclocked for 1 hour 🔥'); })
           .catch(() => toast.error('Overclock failed'));
+      } else if (action === 'save-to-collection') {
+        setCollectionPickerOpen(true);
+      } else if (action === 'relay') {
+        if (!relayMut.isPending) relayMut.mutate();
       } else if (action === 'profile' && data.author_id) {
         window.dispatchEvent(new CustomEvent('spidr-open-profile', { detail: { userId: data.author_id } }));
       } else if (action === 'report') {
         toast.success('Post reported to moderators');
+      } else if (action === 'delete-post' && data.is_own) {
+        if (confirm('Delete this post permanently?')) {
+          entities.Clip.delete(clip.id)
+            .then(() => { queryClient.invalidateQueries({ queryKey: ['clips'] }); toast.success('Post deleted'); })
+            .catch(() => toast.error('Could not delete post'));
+        }
       }
     };
     window.addEventListener('spidr-menu-action', handler);
@@ -414,6 +434,31 @@ function ClipCard({
       setPlaying(false);
     }
   }, [isActive, userPaused]);
+
+  // ── Register a view ───────────────────────────────────────────────────────
+  // When a card becomes active (it's the one on screen), count a view exactly
+  // once per session via the atomic server endpoint. Optimistically bump the
+  // local count so the telemetry HUD ticks up immediately; the cache refetch
+  // later reconciles to the server truth. (Before this, clip.views was rendered
+  // but never written, so it sat frozen at 0 — the "views don't update" bug.)
+  useEffect(() => {
+    if (!isActive || !clip?.id) return;
+    if (viewedClips.has(clip.id)) return;
+    viewedClips.add(clip.id);
+    // Reflect immediately in the cached list so the HUD updates without a wait.
+    try {
+      queryClient.setQueriesData({ queryKey: ['clips'] }, (old) =>
+        Array.isArray(old)
+          ? old.map(c => c.id === clip.id ? { ...c, views: (c.views || 0) + 1 } : c)
+          : old
+      );
+    } catch {}
+    entities.Clip.registerView(clip.id).catch(() => {
+      // On failure, let it be re-tried next session.
+      viewedClips.delete(clip.id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, clip?.id]);
 
   // Reset to start when a card becomes active again; collapse comments when leaving
   useEffect(() => {
@@ -523,64 +568,80 @@ function ClipCard({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clips'] }),
   });
 
-  // ── Signal Relay (client-first repost) ────────────────────────────────
-  // Flips the user's relay state on this clip optimistically — the icon
-  // fills the moment you tap. Persistence is via the module-level Set +
-  // localStorage. The server update is best-effort: if the backend doesn't
-  // yet recognize the `relays` field (the original bug — `Clip.update`
-  // returned the row unchanged so the next refetch reverted the UI),
-  // we still keep the local state and the button stays filled.
+  // ── Signal Relay (repost) ─────────────────────────────────────────────
+  // Flips the user's relay state on this clip optimistically — the icon fills
+  // the moment you tap (local Set + localStorage for instant, reload-proof UI).
+  // The server side now PERSISTS via the atomic POST /clips/:id/relay endpoint
+  // ($addToSet / $pull on the schema-backed `relays` field). Previously the
+  // backend silently dropped the unknown `relays` field, so reposts never
+  // survived a refetch — that's fixed now, but we keep the local fallback so
+  // the gesture still feels instant and degrades gracefully offline.
   const relayMut = useMutation({
     mutationFn: async () => {
       const newOn = !hasRelayed;
-      // 1) Optimistic local flip — fires the broadcast event, all mounted
+      // 1) Optimistic local flip — fires the broadcast event so all mounted
       //    ClipCards for this clip re-derive their state.
       setLocalRelay(clip.id, newOn);
-      // 2) Best-effort server sync — wrapped so a backend rejection
-      //    doesn't bubble out and revert our local state.
+      // 2) Persist server-side (atomic toggle). Best-effort: a failure keeps
+      //    the local state so the button stays flipped.
       try {
-        const serverRelays = clip.relays || [];
-        const nextRelays = newOn
-          ? [...new Set([...serverRelays, currentUser?.id].filter(Boolean))]
-          : serverRelays.filter(id => id !== currentUser?.id);
-        await entities.Clip.update(clip.id, { relays: nextRelays });
+        await entities.Clip.relay(clip.id);
       } catch (err) {
-        // Server didn't accept — log but keep the local state. The button
-        // will stay flipped because localStorage says so.
         console.warn('[Spidr] relay server sync failed; local state preserved.', err);
       }
       return newOn ? 'relayed' : 'un-relayed';
     },
     onSuccess: (action) => {
       toast.success(action === 'relayed' ? 'Signal relayed to your web.' : 'Relay revoked.');
-      // Soft refetch so other clip-list views pick up any server-side change.
+      // Soft refetch so other clip-list views (incl. profile REPOSTS) update.
       queryClient.invalidateQueries({ queryKey: ['clips'] });
     },
-    // No onError needed — mutationFn swallows server errors and the local
-    // state is the authority. A truly unhandled error here would only fire
-    // if setLocalRelay itself threw, which it can't (sync set ops).
+  });
+
+  // ── Save to collection ────────────────────────────────────────────────
+  // The bookmark now opens a picker: choose WHICH collection (Saved is the
+  // default first entry), toggle membership per collection, or create a new
+  // one inline — instead of the old blind save-to-'Saved' only.
+  const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
+  const { data: myCollections = [] } = useQuery({
+    queryKey: ['collections', currentUser?.id],
+    queryFn: () => entities.Collection.filter({ user_id: currentUser?.id }),
+    enabled: !!currentUser?.id && collectionPickerOpen,
   });
 
   const saveMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (collectionId = null) => {
       const cols = await entities.Collection.filter({ user_id: currentUser?.id });
-      let col = (cols || []).find(c => c.name === 'Saved');
+      let col = collectionId
+        ? (cols || []).find(c => c.id === collectionId)
+        : (cols || []).find(c => c.name === 'Saved');
       if (!col) {
         await entities.Collection.create({ user_id: currentUser?.id, name: 'Saved', clip_ids: [clip.id] });
-        return 'added';
+        return { action: 'added', name: 'Saved' };
       }
       const ids = col.clip_ids || [];
       const has = ids.includes(clip.id);
       await entities.Collection.update(col.id, {
         clip_ids: has ? ids.filter(id => id !== clip.id) : [...ids, clip.id],
       });
-      return has ? 'removed' : 'added';
+      return { action: has ? 'removed' : 'added', name: col.name };
     },
-    onSuccess: (action) => {
-      toast.success(action === 'removed' ? 'Removed from Saved' : 'Saved!');
+    onSuccess: ({ action, name }) => {
+      toast.success(action === 'removed' ? `Removed from ${name}` : `Saved to ${name}!`);
       queryClient.invalidateQueries({ queryKey: ['collections'] });
     },
     onError: () => toast.error('Could not save — try again'),
+  });
+
+  const [newCollectionName, setNewCollectionName] = useState('');
+  const createCollectionMut = useMutation({
+    mutationFn: (name) => entities.Collection.create({ user_id: currentUser?.id, name, clip_ids: [clip.id] }),
+    onSuccess: (_, name) => {
+      toast.success(`Created "${name}" and saved!`);
+      setNewCollectionName('');
+      queryClient.invalidateQueries({ queryKey: ['collections'] });
+    },
+    onError: () => toast.error('Could not create collection'),
   });
 
   const reactMut = useMutation({
@@ -721,6 +782,11 @@ function ClipCard({
             id: clip.id,
             author_id: clip.author_id,
             author_name: clip.author_name,
+            name: clip.author_name,
+            avatar_url: clip.author_avatar || '',
+            header_sub: 'Strand on the web',
+            is_relayed: Array.isArray(clip.relays) && currentUser?.id ? clip.relays.includes(currentUser.id) : false,
+            is_own: clip.author_id === currentUser?.id,
           });
         }}
       >
@@ -889,6 +955,12 @@ function ClipCard({
               onClick={(e) => {
                 e.stopPropagation();
                 if (!clip.author_id) return;
+                // Preferred: open their WEB profile right here in the feed.
+                if (onOpenProfile) {
+                  onOpenProfile({ id: clip.author_id, full_name: clip.author_name, avatar_url: clip.author_avatar });
+                  return;
+                }
+                // Fallback (older mounts): main-app holographic profile.
                 window.dispatchEvent(new CustomEvent('spidr-open-profile', {
                   detail: { userId: clip.author_id }
                 }));
@@ -1030,7 +1102,7 @@ function ClipCard({
               )}
             </AnimatePresence>
           </div>
-          <SideBtn onClick={() => saveMut.mutate()}><Bookmark className="w-5 h-5" /></SideBtn>
+          <SideBtn onClick={() => setCollectionPickerOpen(true)}><Bookmark className="w-5 h-5" /></SideBtn>
           {/* Theater mode toggle — desktop only. Wide videos in particular
               benefit; we surface the button for every aspect so it's a
               consistent control. Hidden on small viewports where mobile
@@ -1090,7 +1162,49 @@ function ClipCard({
             className="bg-zinc-900 border border-white/10 rounded-2xl overflow-hidden flex-shrink-0"
             style={{ height: '82vh' }}
           >
-            <RichComments clipId={clip.id} currentUser={currentUser} />
+            <RichComments clipId={clip.id} currentUser={currentUser} onOpenProfile={onOpenProfile} />
+
+            {/* Save-to-collection picker */}
+            {collectionPickerOpen && (
+              <div className="absolute inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end justify-center" onClick={() => setCollectionPickerOpen(false)}>
+                <div
+                  className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-t-2xl p-4 pb-6 space-y-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-500 pb-2">Save to collection</p>
+                  {(myCollections.length ? myCollections : [{ id: null, name: 'Saved', clip_ids: [] }]).map((c) => {
+                    const inCol = (c.clip_ids || []).includes(clip.id);
+                    return (
+                      <button
+                        key={c.id || 'saved-default'}
+                        onClick={() => { saveMut.mutate(c.id); setCollectionPickerOpen(false); }}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-white/5 text-left transition-colors"
+                      >
+                        <span className="text-sm text-white font-medium truncate">{c.name}</span>
+                        <span className={`text-[10px] font-mono uppercase tracking-widest shrink-0 ${inCol ? 'text-red-400' : 'text-zinc-600'}`}>
+                          {inCol ? 'Remove' : 'Add'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  <div className="flex gap-2 pt-2 border-t border-white/5 mt-2">
+                    <input
+                      value={newCollectionName}
+                      onChange={(e) => setNewCollectionName(e.target.value)}
+                      placeholder="New collection…"
+                      className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-red-500/50"
+                    />
+                    <button
+                      onClick={() => { const n = newCollectionName.trim(); if (n) { createCollectionMut.mutate(n); setCollectionPickerOpen(false); } }}
+                      disabled={!newCollectionName.trim()}
+                      className="px-3 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold disabled:opacity-40 shrink-0"
+                    >
+                      Create
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

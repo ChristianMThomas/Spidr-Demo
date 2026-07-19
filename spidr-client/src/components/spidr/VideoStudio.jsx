@@ -76,6 +76,7 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
   const [publishing, setPublishing] = useState(false);
   const [videoUrl, setVideoUrl] = useState(null);
   const [thumbnails, setThumbnails] = useState([]);
+  useEffect(() => { thumbnailsRef.current = thumbnails; }, [thumbnails]);
   const [selectedThumb, setSelectedThumb] = useState(0);
   const [blockedCategory, setBlockedCategory] = useState(null);
   const [scrubTime, setScrubTime] = useState(0);
@@ -84,6 +85,7 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
   const [selectedServerId, setSelectedServerId] = useState(initialClip?.server_id || '');
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const thumbnailsRef = useRef([]);
   const ratioRef = useRef('9:16');
   const thumbInputRef = useRef(null);
 
@@ -192,7 +194,16 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
     };
     vid.addEventListener('timeupdate', onTime);
     vid.addEventListener('loadedmetadata', onMeta);
-    return () => { vid.removeEventListener('timeupdate', onTime); vid.removeEventListener('loadedmetadata', onMeta); };
+    // Default cover: as soon as the first frames are decodable, capture one
+    // automatically (only if the user hasn't picked anything yet). Guarantees
+    // every publish ships with a thumbnail even if the picker is untouched.
+    const onLoadedData = async () => {
+      if (thumbnailsRef.current.length > 0) return;
+      const f = await captureFrame(Math.min(0.5, (vid.duration || 1) * 0.1));
+      if (f) { setThumbnails(prev => (prev.length ? prev : [f])); setSelectedThumb(0); }
+    };
+    vid.addEventListener('loadeddata', onLoadedData, { once: true });
+    return () => { vid.removeEventListener('timeupdate', onTime); vid.removeEventListener('loadedmetadata', onMeta); vid.removeEventListener('loadeddata', onLoadedData); };
   }, [videoUrl]);
 
   // Enforce trim bounds
@@ -217,13 +228,32 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
     const canvas = canvasRef.current || document.createElement('canvas');
     canvas.width = vid.videoWidth || 640; canvas.height = vid.videoHeight || 360;
     const doCapture = () => {
-      const ctx = canvas.getContext('2d');
-      const filt = FILTERS.find(f => f.id === activeFilter);
-      ctx.filter = filt?.css?.filter || 'none';
-      ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
-      resolve({ time: vid.currentTime, dataUrl: canvas.toDataURL('image/jpeg', 0.88) });
+      try {
+        const ctx = canvas.getContext('2d');
+        const filt = FILTERS.find(f => f.id === activeFilter);
+        ctx.filter = filt?.css?.filter || 'none';
+        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+        resolve({ time: vid.currentTime, dataUrl: canvas.toDataURL('image/jpeg', 0.88) });
+      } catch (err) {
+        // Tainted canvas (remote video without CORS) throws on toDataURL.
+        // Before this catch, the promise never settled and the capture
+        // buttons silently did NOTHING — the "can't choose thumbnails" bug
+        // when editing an already-uploaded clip. Now we settle + explain,
+        // and the "Upload Custom" path still works as the escape hatch.
+        console.warn('[VideoStudio] frame capture blocked:', err?.message);
+        toast.error('Frame capture blocked for this video — use "Upload Custom" instead');
+        resolve(null);
+      }
     };
-    if (seekTo !== undefined) { const onSeeked = () => { vid.removeEventListener('seeked', onSeeked); doCapture(); }; vid.addEventListener('seeked', onSeeked); vid.currentTime = seekTo; }
+    if (seekTo !== undefined) {
+      let done = false;
+      const finish = () => { if (done) return; done = true; vid.removeEventListener('seeked', onSeeked); doCapture(); };
+      const onSeeked = () => finish();
+      vid.addEventListener('seeked', onSeeked);
+      // Some codecs never fire `seeked` for tiny deltas — settle anyway.
+      setTimeout(finish, 1500);
+      vid.currentTime = seekTo;
+    }
     else doCapture();
   });
 
@@ -304,9 +334,14 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
         }
       }
 
-      // Upload thumbnail
+      // Upload thumbnail — with a last-chance capture if the picker is
+      // somehow still empty (belt & braces for the default-cover effect).
       let thumbUrl = '';
-      const thumb = thumbnails[selectedThumb];
+      let thumb = thumbnails[selectedThumb];
+      if (!thumb?.dataUrl) {
+        const f = await captureFrame();
+        if (f) thumb = f;
+      }
       if (thumb?.dataUrl) {
         try {
           const blob = await fetch(thumb.dataUrl).then(r => r.blob());
@@ -390,7 +425,7 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
             <motion.div layout transition={{ type: 'spring', stiffness: 300, damping: 30 }}
               className="relative overflow-hidden rounded-2xl border border-white/10 shadow-2xl bg-black"
               style={{ aspectRatio: currentRatio.css, maxWidth: '92vw', maxHeight: 'calc(100vh - 210px)', width: ratio === '16:9' ? '80%' : ratio === '1:1' ? '55%' : '46%' }}>
-              <video ref={videoRef} src={videoUrl}
+              <video ref={videoRef} src={videoUrl} crossOrigin="anonymous"
                 className="w-full h-full object-cover cursor-pointer"
                 style={FILTERS.find(f => f.id === activeFilter)?.css || {}}
                 loop muted={isMuted} playsInline autoPlay onClick={togglePlay}
@@ -569,7 +604,7 @@ export default function VideoStudio({ open, onClose, videoFile, onPublish, curre
               </div>
 
               {/* Crop mode: aspect-ratio suite (Part 6) + zoom. The 9:16
-                  "Phone/Web" option is the FYP default. */}
+                  "Phone/Web" option is the personalized-feed default. */}
               {cropMode && (
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   {[

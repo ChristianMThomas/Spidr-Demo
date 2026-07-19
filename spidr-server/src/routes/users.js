@@ -112,8 +112,12 @@ router.delete('/me', authMW, async (req, res) => {
 });
 
 // Mount standard CRUD (GET /, GET /:id, POST /, PATCH /:id, DELETE /:id)
-// but strip password from all responses
-const crud = crudRouter(User);
+// but strip password from all responses.
+// ownerField: '_id' locks PATCH/DELETE to self — req.user.id equals
+// req.user._id.toString() (auth middleware returns the full User doc),
+// which matches doc._id.toString() in isOwner(). Without this any
+// authenticated user could DELETE any other user's account.
+const crud = crudRouter(User, { ownerField: '_id' });
 
 // Override: list should never expose passwords
 router.use('/', (req, res, next) => {

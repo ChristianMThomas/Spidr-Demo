@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import PostCard3D from '../feed/PostCard3D';
 import WebProfile from '../feed/WebProfile';
+import WebSignalsInbox from '../feed/WebSignalsInbox';
 import ClipFeed from '../feed/ClipFeed';
 import { toast } from 'sonner';
 import VideoStudio from './VideoStudio';
@@ -39,6 +40,9 @@ export default function FeedPanel({ currentUser }) {
   const [showUpload, setShowUpload]     = useState(false);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [activeTab, setActiveTab]       = useState('main');
+  // Viewing another user's WEB profile (tap an author in the feed). When set,
+  // it overlays the current tab with their public profile.
+  const [viewingUser, setViewingUser]   = useState(null);
   // When set, the main feed is filtered to a single user's clips — driven
   // by the "ENTER USER WEB" button on the profile modal. A close-affordance
   // at the top of the feed lets the viewer return to the full feed.
@@ -81,7 +85,24 @@ export default function FeedPanel({ currentUser }) {
     staleTime: 60000,
   });
   const friendIds   = new Set(friends.map(f => f.friend_id));
-  const friendClips = clips.filter(c => friendIds.has(c.author_id));
+  // Friends tab = strands your friends AUTHORED plus strands they RELAYED
+  // (reposts). A relayed clip carries a `_relayedBy` annotation so the card
+  // can render the "X RELAYED THIS SIGNAL" banner. Authored wins when both.
+  const friendById = React.useMemo(() => {
+    const m = {};
+    for (const f of friends) if (f.friend_id) m[f.friend_id] = f;
+    return m;
+  }, [friends]);
+  const friendClips = React.useMemo(() => clips
+    .filter(c => friendIds.has(c.author_id) || (c.relays || []).some(id => friendIds.has(id)))
+    .map(c => {
+      if (friendIds.has(c.author_id)) return c;
+      const relayerId = (c.relays || []).find(id => friendIds.has(id));
+      const fr = friendById[relayerId];
+      // `repost_by` is the shape the ClipCard's existing purple "Relayed this
+      // signal" header renders — reuse the OG design instead of a new banner.
+      return { ...c, repost_by: { user_name: fr?.friend_name || 'A friend', user_avatar: fr?.friend_avatar || '' } };
+    }), [clips, friendIds, friendById]);
 
   const { data: collections = [] } = useQuery({
     queryKey: ['collections', currentUser?.id],
@@ -114,6 +135,22 @@ export default function FeedPanel({ currentUser }) {
     };
     window.addEventListener('spidr-open-user-clips', handler);
     return () => window.removeEventListener('spidr-open-user-clips', handler);
+  }, []);
+
+  // "Enter User Web" from anywhere in the app (profile modals in servers,
+  // friends, etc). The shell routes to /feed and stashes the target; we
+  // consume it here on mount + live, opening the full WEB profile view.
+  useEffect(() => {
+    const consume = () => {
+      const pending = window.__spidrPendingWebProfile;
+      if (!pending?.userId) return;
+      if (Date.now() - (pending.at || 0) > 30000) { window.__spidrPendingWebProfile = null; return; }
+      window.__spidrPendingWebProfile = null;
+      setViewingUser({ id: pending.userId, full_name: pending.userName || '', avatar_url: pending.avatar || '' });
+    };
+    consume();
+    window.addEventListener('spidr-pending-web-profile', consume);
+    return () => window.removeEventListener('spidr-pending-web-profile', consume);
   }, []);
 
   // The clip list piped into ClipFeed for the main tab. Two layers:
@@ -230,6 +267,7 @@ export default function FeedPanel({ currentUser }) {
     { val: 'profile',      Icon: User,   label: 'MY NODE' },
     { val: 'sounds',       Icon: Disc3,  label: 'SOUNDS' },
     { val: 'collections',  Icon: Folder, label: 'SAVED' },
+    { val: 'signals',      Icon: Send,   label: 'SIGNALS' },
   ];
 
   return (
@@ -264,6 +302,17 @@ export default function FeedPanel({ currentUser }) {
 
         {/* Content */}
         <div className="flex-1 flex items-center justify-center overflow-hidden relative">
+          {/* Another user's WEB profile — overlays whatever tab is active */}
+          {viewingUser && (
+            <div className="absolute inset-0 z-40 bg-black flex">
+              <WebProfile
+                currentUser={currentUser}
+                targetUser={viewingUser}
+                onBack={() => setViewingUser(null)}
+                onOpenClip={(id) => { setViewingUser(null); setJumpClipId(id); setActiveTab('main'); }}
+              />
+            </div>
+          )}
           {/* Archive-mode banner — shown when the user clicked
               "ENTER USER WEB" on someone's profile. Pinned at top, gives
               them a clear way out back to the full feed. */}
@@ -290,7 +339,7 @@ export default function FeedPanel({ currentUser }) {
                 ? (userArchiveId
                     ? <NoArchiveClips name={userArchiveName} />
                     : <EmptyFeed onUpload={() => document.getElementById('vid-upload')?.click()} />)
-                : <ClipFeed clips={mainTabClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized && !userArchiveId} audioMap={audioMap} initialClipId={jumpClipId} />
+                : <ClipFeed clips={mainTabClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized && !userArchiveId} audioMap={audioMap} initialClipId={jumpClipId} onOpenProfile={(u) => setViewingUser(u)} />
           )}
           {/* Pulse sidebar — top-5 trending tags. Floats on the LEFT edge
               of the main feed area. Clicking a tag pipes it into the
@@ -308,10 +357,11 @@ export default function FeedPanel({ currentUser }) {
           {activeTab === 'friends-feed' && (
             friendClips.length === 0
               ? <NoFriendClips />
-              : <ClipFeed clips={friendClips} currentUser={currentUser} onEditClip={setEditingClip} audioMap={audioMap} />
+              : <ClipFeed clips={friendClips} currentUser={currentUser} onEditClip={setEditingClip} audioMap={audioMap} onOpenProfile={(u) => setViewingUser(u)} />
           )}
           {activeTab === 'recents'    && <RecentsTab profiles={recentProfiles} onClear={() => { setRecentIds([]); try { localStorage.removeItem('spidr_recent_profiles'); } catch {} }} />}
-          {activeTab === 'profile'     && <WebProfile currentUser={currentUser} onUploadClick={() => document.getElementById('vid-upload')?.click()} />}
+          {activeTab === 'profile'     && <WebProfile currentUser={currentUser} onUploadClick={() => document.getElementById('vid-upload')?.click()} onOpenClip={(id) => { setJumpClipId(id); setActiveTab('main'); }} />}
+          {activeTab === 'signals'     && <WebSignalsInbox currentUser={currentUser} onOpenClip={(id) => { setJumpClipId(id); setActiveTab('main'); }} onOpenProfile={(u) => setViewingUser(u)} />}
           {activeTab === 'people'      && <div className="w-full h-full self-stretch"><PeopleSearch currentUser={currentUser} /></div>}
           {activeTab === 'sounds'      && <SoundsBrowser currentUser={currentUser} />}
           {activeTab === 'collections' && <CollectionsView collections={collections} selectedCollection={selectedCollection} onSelectCollection={setSelectedCollection} currentUser={currentUser} queryClient={queryClient} allClips={clips} onJumpToClip={(id) => { setJumpClipId(id); setActiveTab('main'); }} />}

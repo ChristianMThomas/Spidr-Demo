@@ -168,9 +168,17 @@ export function NotificationProvider({ currentUser, children }) {
       });
     };
 
+    // dm:sent fires ONLY to the sender's own sockets (fixed direction bug),
+    // so bell listeners can safely ignore it — it's just a cache refresh
+    // signal. Wired here so DM lists update instantly after sending.
+    const onDMSent = () => {
+      // Cache invalidation happens via React Query listeners elsewhere;
+      // no notification is pushed for our own sent messages.
+    };
     socket.on('friend:incoming', onFriend);
     socket.on('message:new', onMessage);
     socket.on('dm:new', onDM);
+    socket.on('dm:sent', onDMSent);
     socket.on('feed:comment', onFeedComment);
     socket.on('feed:reply', onFeedReply);
 
@@ -190,6 +198,7 @@ export function NotificationProvider({ currentUser, children }) {
       socket.off('friend:incoming', onFriend);
       socket.off('message:new', onMessage);
       socket.off('dm:new', onDM);
+      socket.off('dm:sent', onDMSent);
       socket.off('feed:comment', onFeedComment);
       socket.off('feed:reply', onFeedReply);
       window.removeEventListener('spidr-notify', onWindowNotify);
@@ -198,7 +207,12 @@ export function NotificationProvider({ currentUser, children }) {
 
   const unread = items.filter((i) => !i.read).length;
   const unreadFeedReplies = items.filter((i) => !i.read && i.type === 'feed_reply').length;
-  const markAllRead = () => setItems((prev) => prev.map((i) => ({ ...i, read: true })));
+  const markAllRead = () => {
+    setItems((prev) => prev.map((i) => ({ ...i, read: true })));
+    // Checking the bell means "I've seen everything" — clear the persistent
+    // feed-reply glow set as well, or its badge portion sticks forever.
+    setUnreadFeedIds(new Set());
+  };
   const clearAll = () => setItems([]);
   const openItem = (note) => {
     setItems((prev) => prev.map((i) => (i.id === note.id ? { ...i, read: true } : i)));

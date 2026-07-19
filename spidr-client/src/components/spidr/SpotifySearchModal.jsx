@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, X, Music, Play, Pause, Loader2, ExternalLink, Check } from 'lucide-react';
-import { spotify } from '@/api/apiClient';
+import { spotify, appleMusic } from '@/api/apiClient';
 
 /**
  * SpotifySearchModal — Instagram-Story-style search for picking a profile
@@ -27,9 +27,21 @@ export default function SpotifySearchModal({
   subtitle = 'Spotify',
   emptyHint = 'Pick any track on Spotify. A 30-second preview plays when visitors open your profile.',
   actionLabel = 'Set',
+  // DJ booth mode: only PLAYABLE tracks (with a 30s preview) are shown, so
+  // the host can never spin a silent track. Spotify ships no preview for a
+  // huge slice of the catalog (major labels especially), so we also say how
+  // many results were hidden instead of quietly shrinking the list.
+  requirePreview = false,
+  // DJ booth: offer both catalogs. Apple still ships previews for virtually
+  // its whole catalog (unlike Spotify post-2024), and Apple tracks unlock
+  // FULL-length playback for connected subscribers in the booth.
+  allowAppleMusic = false,
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
+  const [hiddenCount, setHiddenCount] = useState(0);
+  const [provider, setProvider] = useState('spotify'); // 'spotify' | 'apple'
+  const [appleAvailable, setAppleAvailable] = useState(true); // hides tab on 503
   const [loading, setLoading] = useState(false);
   const [playingId, setPlayingId] = useState(null); // which preview is auditioning
   const audioRef = useRef(null);
@@ -59,8 +71,21 @@ export default function SpotifySearchModal({
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await spotify.search(q, 12);
-        setResults(Array.isArray(res?.tracks) ? res.tracks : []);
+        const res = provider === 'apple'
+          ? await appleMusic.search(q, requirePreview ? 24 : 12).catch((err) => {
+              if (err?.status === 503) setAppleAvailable(false);
+              throw err;
+            })
+          : await spotify.search(q, requirePreview ? 24 : 12);
+        let tracks = Array.isArray(res?.tracks) ? res.tracks : [];
+        if (requirePreview) {
+          const playable = tracks.filter(t => !!t.preview_url);
+          setHiddenCount(tracks.length - playable.length);
+          tracks = playable.slice(0, 12);
+        } else {
+          setHiddenCount(0);
+        }
+        setResults(tracks);
       } catch {
         setResults([]);
       } finally {
@@ -68,7 +93,7 @@ export default function SpotifySearchModal({
       }
     }, 320);
     return () => clearTimeout(debounceRef.current);
-  }, [query, open]);
+  }, [query, open, provider]);
 
   // Stop the audition when the modal closes.
   useEffect(() => {
@@ -171,15 +196,46 @@ export default function SpotifySearchModal({
             </div>
 
             {/* Results */}
-            <div className="flex-1 overflow-y-auto px-2 pb-3 min-h-0">
+            {allowAppleMusic && appleAvailable && (
+          <div className="flex items-center gap-1 px-4 pb-2">
+            {[['spotify', 'SPOTIFY'], ['apple', 'APPLE MUSIC']].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setProvider(id)}
+                className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
+                  provider === id
+                    ? id === 'apple'
+                      ? 'text-white border-transparent'
+                      : 'bg-[#1DB954] text-black border-[#1DB954]'
+                    : 'bg-white/5 text-zinc-500 border-white/10 hover:text-white'
+                }`}
+                style={provider === id && id === 'apple' ? { background: 'linear-gradient(135deg, #fa243c, #a250fa)' } : undefined}
+              >
+                {label}
+              </button>
+            ))}
+            {provider === 'apple' && (
+              <span className="ml-2 text-[8px] font-mono uppercase tracking-widest text-zinc-600">
+                Full tracks for connected subscribers
+              </span>
+            )}
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto px-2 pb-3 min-h-0">
               {query.trim().length < 2 ? (
                 <EmptyHint copy={emptyHint} />
               ) : loading && results.length === 0 ? (
                 <LoadingHint />
               ) : results.length === 0 ? (
-                <NoMatchHint q={query} />
+                <NoMatchHint q={query} filtered={requirePreview && hiddenCount > 0} />
               ) : (
                 <div className="space-y-1">
+                  {requirePreview && hiddenCount > 0 && (
+                    <p className="px-2 pb-1 text-[9px] font-mono uppercase tracking-widest text-zinc-600">
+                      {hiddenCount} track{hiddenCount === 1 ? '' : 's'} hidden — no playable preview from Spotify
+                    </p>
+                  )}
                   {results.map((t) => (
                     <ResultRow
                       key={t.id}
@@ -211,28 +267,48 @@ export default function SpotifySearchModal({
 
 function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect, actionLabel = 'Set' }) {
   const hasPreview = !!track.preview_url;
+  const externalUrl = track.external_url || `https://open.spotify.com/track/${track.id}`;
+
+  // The ENTIRE row selects the track. Selection must NOT depend on preview
+  // availability — Spotify stopped returning `preview_url` for most tracks in
+  // late 2024, so the old design (Select button only when hasPreview, else just
+  // an external-link icon) left nearly every result unselectable. That was the
+  // "search works but you can't choose a song" bug. Now every track is
+  // selectable; the 30s preview and "open in Spotify" are secondary niceties.
+  const handleRowKey = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); }
+  };
+
   return (
     <div
-      className={`flex items-center gap-3 p-2 rounded-lg transition-colors group ${
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={handleRowKey}
+      aria-pressed={isSelected}
+      title={`Select "${track.name}"`}
+      className={`flex items-center gap-3 p-2 rounded-lg transition-colors group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 ${
         isSelected ? 'bg-emerald-500/10 border border-emerald-500/30' : 'hover:bg-white/5 border border-transparent'
       }`}
     >
-      {/* Album art + audition button */}
-      <button
-        type="button"
-        onClick={onPreviewToggle}
-        disabled={!hasPreview}
-        className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 group/art"
-        title={hasPreview ? (isPlaying ? 'Stop preview' : 'Preview 30s') : 'Preview unavailable for this track'}
-      >
-        {track.album_art_url ? (
-          <img src={track.album_art_url} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
-            <Music size={14} className="text-zinc-600" />
-          </div>
-        )}
-        {hasPreview && (
+      {/* Album art. When a 30s preview exists it's a button that auditions
+          (stopPropagation so it doesn't select). With no preview it's a plain
+          div, so clicking the cover bubbles up and selects the row instead of
+          being a dead zone (a disabled <button> would swallow the click). */}
+      {hasPreview ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onPreviewToggle(); }}
+          className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 group/art"
+          title={isPlaying ? 'Stop preview' : 'Preview 30s'}
+        >
+          {track.album_art_url ? (
+            <img src={track.album_art_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+              <Music size={14} className="text-zinc-600" />
+            </div>
+          )}
           <div
             className={`absolute inset-0 flex items-center justify-center transition-opacity ${
               isPlaying ? 'opacity-100' : 'opacity-0 group-hover/art:opacity-100'
@@ -243,8 +319,18 @@ function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect, ac
               ? <Pause size={14} className="text-white" />
               : <Play size={14} className="text-white ml-0.5" />}
           </div>
-        )}
-      </button>
+        </button>
+      ) : (
+        <div className="relative w-11 h-11 rounded-lg overflow-hidden flex-shrink-0">
+          {track.album_art_url ? (
+            <img src={track.album_art_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+              <Music size={14} className="text-zinc-600" />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Track meta */}
       <div className="flex-1 min-w-0">
@@ -254,31 +340,32 @@ function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect, ac
         <p className="text-[11px] text-zinc-500 truncate">{track.artist}</p>
       </div>
 
-      {/* Action — Select or "Open in Spotify" fallback */}
-      {hasPreview ? (
-        <button
-          type="button"
-          onClick={onSelect}
-          className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
-            isSelected
-              ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40'
-              : 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.30)]'
-          }`}
-        >
-          {isSelected ? <Check size={11} /> : actionLabel}
-        </button>
-      ) : (
-        <a
-          href={track.external_url || `https://open.spotify.com/track/${track.id}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          title="Preview unavailable in Spidr — open on Spotify"
-          className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-        >
-          <ExternalLink size={12} />
-        </a>
-      )}
+      {/* Secondary: open on Spotify (kept as a small affordance, no longer the
+          only action). stopPropagation so it doesn't also select the row. */}
+      <a
+        href={externalUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        tabIndex={-1}
+        title="Open on Spotify"
+        className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-zinc-600 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+      >
+        <ExternalLink size={12} />
+      </a>
+
+      {/* Primary action — always present so every track is selectable. */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onSelect(); }}
+        className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
+          isSelected
+            ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/40'
+            : 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.30)]'
+        }`}
+      >
+        {isSelected ? <Check size={11} /> : actionLabel}
+      </button>
     </div>
   );
 }
@@ -305,11 +392,15 @@ function LoadingHint() {
   );
 }
 
-function NoMatchHint({ q }) {
+function NoMatchHint({ q, filtered = false }) {
   return (
     <div className="flex flex-col items-center justify-center py-10 gap-1 text-center">
-      <p className="text-zinc-400 text-xs">No matches for "<span className="text-white">{q}</span>"</p>
-      <p className="text-zinc-600 text-[10px]">Try a different spelling or artist name.</p>
+      <p className="text-zinc-400 text-xs">No {filtered ? 'playable ' : ''}matches for "<span className="text-white">{q}</span>"</p>
+      <p className="text-zinc-600 text-[10px]">
+        {filtered
+          ? 'Spotify has no audio preview for these results — try another song or artist.'
+          : 'Try a different spelling or artist name.'}
+      </p>
     </div>
   );
 }

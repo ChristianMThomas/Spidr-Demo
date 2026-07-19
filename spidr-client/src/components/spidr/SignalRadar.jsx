@@ -75,6 +75,8 @@ export default function SignalRadar({ open, onClose, currentUser }) {
       server.tags?.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesCategory = selectedCategory === 'All Signals' ||
       server.category?.toLowerCase() === selectedCategory.toLowerCase() ||
+      // #tags are the primary discovery signal now that servers can set them.
+      server.tags?.some(t => t.toLowerCase() === selectedCategory.toLowerCase()) ||
       server.description?.toLowerCase().includes(selectedCategory.toLowerCase());
     return matchesSearch && matchesCategory;
   });

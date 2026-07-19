@@ -114,4 +114,83 @@ function buildStub(schema) {
   return obj;
 }
 
+// ── POST /ai/transcribe — speech-to-text for voice messages (AI Scribe) ────
+// Body: { audio_url }. Downloads the voice note server-side and transcribes
+// via OpenAI Whisper (same OPENAI_API_KEY the chat AI uses). Results are
+// cached by URL — voice notes are immutable files, so each is transcribed
+// exactly once no matter how many people open the Scribe pane.
+//
+// Honest degradation: Anthropic has no speech-to-text API, so if the server
+// only has ANTHROPIC_API_KEY (or no key), this returns 503 with a clear
+// message the client surfaces verbatim.
+const transcriptionCache = new Map(); // audio_url -> text (capped)
+const TRANSCRIPTION_CACHE_MAX = 500;
+
+router.post('/transcribe', authMW, async (req, res) => {
+  try {
+    const audioUrl = (req.body?.audio_url || '').toString();
+    if (!audioUrl || !/^https?:\/\//.test(audioUrl)) {
+      return res.status(400).json({ error: 'audio_url (http/https) required' });
+    }
+    if (transcriptionCache.has(audioUrl)) {
+      return res.json({ text: transcriptionCache.get(audioUrl), cached: true });
+    }
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (!openaiKey) {
+      return res.status(503).json({
+        error: 'Speech-to-text is not configured on this server (requires OPENAI_API_KEY for Whisper).',
+      });
+    }
+
+    // Download the voice note (voice messages are short — cap at 25MB,
+    // Whisper's own limit).
+    const audioRes = await fetch(audioUrl);
+    if (!audioRes.ok) return res.status(502).json({ error: `Could not fetch audio (${audioRes.status})` });
+    const contentLength = Number(audioRes.headers.get('content-length') || 0);
+    if (contentLength > 25 * 1024 * 1024) {
+      return res.status(413).json({ error: 'Audio file too large to transcribe (25MB max)' });
+    }
+    const buf = Buffer.from(await audioRes.arrayBuffer());
+    if (buf.length > 25 * 1024 * 1024) {
+      return res.status(413).json({ error: 'Audio file too large to transcribe (25MB max)' });
+    }
+
+    // Infer a filename/extension Whisper accepts; voice notes record as
+    // audio/webm (Opus) from MediaRecorder.
+    const ct = audioRes.headers.get('content-type') || 'audio/webm';
+    const ext = ct.includes('webm') ? 'webm'
+      : ct.includes('mp4') || ct.includes('m4a') ? 'm4a'
+      : ct.includes('mpeg') || ct.includes('mp3') ? 'mp3'
+      : ct.includes('ogg') ? 'ogg'
+      : ct.includes('wav') ? 'wav' : 'webm';
+
+    const form = new FormData();
+    form.append('file', new Blob([buf], { type: ct }), `voice-note.${ext}`);
+    form.append('model', 'whisper-1');
+
+    const sttRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${openaiKey}` },
+      body: form,
+    });
+    if (!sttRes.ok) {
+      const body = await sttRes.text().catch(() => '');
+      console.error('[ai/transcribe] whisper error', sttRes.status, body.slice(0, 300));
+      return res.status(502).json({ error: `Transcription failed (${sttRes.status})` });
+    }
+    const data = await sttRes.json();
+    const text = (data?.text || '').trim() || '(no speech detected)';
+
+    // LRU-ish cap: drop the oldest entry when full.
+    if (transcriptionCache.size >= TRANSCRIPTION_CACHE_MAX) {
+      transcriptionCache.delete(transcriptionCache.keys().next().value);
+    }
+    transcriptionCache.set(audioUrl, text);
+    res.json({ text, cached: false });
+  } catch (err) {
+    console.error('[ai/transcribe]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

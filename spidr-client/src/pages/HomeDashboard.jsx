@@ -1,10 +1,12 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { ChevronDown , Users } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { entities } from '@/api/apiClient';
 import { useAppShell } from '@/context/AppShellContext';
 import SpiderLogo from '@/components/spidr/SpiderLogo';
+import spidrMascot from '@/assets/spidr-mascot.png';
 import DiscoverUsers from '@/components/spidr/DiscoverUsers';
 import EnhancedFeed from '@/components/spidr/EnhancedFeed';
 import EngagementHub from '@/components/spidr/EngagementHub';
@@ -30,6 +32,21 @@ export default function HomeDashboard() {
   const { currentUser, setSelectedServerId, navigateToDM, appTheme } = useAppShell();
   const navigate = useNavigate();
 
+  // Collapse state for the dashboard sections — persisted so the user's
+  // preference survives reloads. Default = expanded (false).
+  const [activityCollapsed, setActivityCollapsed] = React.useState(() => {
+    try { return localStorage.getItem('spidr_home_activity_collapsed') === '1'; } catch { return false; }
+  });
+  const [serversCollapsed, setServersCollapsed] = React.useState(() => {
+    try { return localStorage.getItem('spidr_home_servers_collapsed') === '1'; } catch { return false; }
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem('spidr_home_activity_collapsed', activityCollapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [activityCollapsed]);
+  React.useEffect(() => {
+    try { localStorage.setItem('spidr_home_servers_collapsed', serversCollapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [serversCollapsed]);
+
   const { data: allServers = [] } = useQuery({
     queryKey: ['servers'],
     queryFn: () => entities.Server.list('-created_date', 50),
@@ -44,12 +61,75 @@ export default function HomeDashboard() {
     );
   }, [allServers, currentUser?.id]);
 
+  // ── Quick access: recent DM conversations + group chats ──────────────────
+  // One-tap jumps from the homepage — reuses the same data shapes the DM
+  // sidebar and Friends panel use, so opening lands exactly where clicking
+  // there would.
+  const { data: allDMs = [] } = useQuery({
+    queryKey: ['all-dms', currentUser?.id],
+    queryFn: async () => {
+      const sent = await entities.DirectMessage.filter({ sender_id: currentUser?.id });
+      const received = await entities.DirectMessage.filter({ recipient_id: currentUser?.id });
+      return [...sent, ...received].sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+    },
+    enabled: !!currentUser?.id,
+    staleTime: 30_000,
+  });
+  const { data: myGroups = [] } = useQuery({
+    queryKey: ['user-groups', currentUser?.id],
+    queryFn: async () => {
+      const groups = await entities.GroupChat.list('-updated_date', 100);
+      return groups.filter(g => (g.members || []).some(m => m.user_id === currentUser?.id));
+    },
+    enabled: !!currentUser?.id,
+    staleTime: 60_000,
+  });
   const { data: friends = [] } = useQuery({
     queryKey: ['friends', currentUser?.id],
     queryFn: () => entities.Friend.filter({ user_id: currentUser?.id, status: 'accepted' }),
     enabled: !!currentUser?.id,
     staleTime: 60000,
   });
+  // Fast lookup by friend_id for resolving names on old DM rows whose
+  // denormalized recipient_name/avatar are empty.
+  const friendById = React.useMemo(() => {
+    const m = new Map();
+    for (const f of friends) m.set(f.friend_id, f);
+    return m;
+  }, [friends]);
+
+  const recentConversations = React.useMemo(() => {
+    const seen = new Map();
+    for (const msg of allDMs) {
+      if (!msg.conversation_id || seen.has(msg.conversation_id)) continue;
+      const otherId = msg.sender_id === currentUser?.id ? msg.recipient_id : msg.sender_id;
+      // Name resolution priority — the "Node" placeholder was landing here
+      // because outgoing DMs sent before the recipient_name schema field
+      // existed have empty denormalized fields. Look up the real name from
+      // the Friend list instead of trusting stale row data.
+      const iSent = msg.sender_id === currentUser?.id;
+      const friend = friendById.get(otherId);
+      const resolvedName =
+        (iSent ? msg.recipient_name : msg.sender_name) ||
+        friend?.friend_name ||
+        friend?.friend_username ||
+        'Unknown';
+      const resolvedAvatar =
+        (iSent ? msg.recipient_avatar : msg.sender_avatar) ||
+        friend?.friend_avatar ||
+        '';
+      seen.set(msg.conversation_id, {
+        conversationId: msg.conversation_id,
+        friendId: otherId,
+        name: resolvedName,
+        avatar: resolvedAvatar,
+        last: msg.content || (msg.media_url ? 'Media' : ''),
+        at: msg.created_date,
+      });
+      if (seen.size >= 6) break;
+    }
+    return [...seen.values()];
+  }, [allDMs, currentUser?.id, friendById]);
 
   // Best-effort first-name extraction for the greeting. Falls back to the
   // full name, then the username, then "spider".
@@ -241,7 +321,15 @@ export default function HomeDashboard() {
                       '0 0 18px rgba(239, 68, 68, 0.35), inset 0 0 14px rgba(168, 85, 247, 0.15)',
                   }}
                 >
-                  <SpiderLogo size={42} />
+                  {/* Real Spidr mascot (uploaded art) instead of the flat
+                      geometric SpiderLogo — same slot, same size, richer
+                      brand presence on the welcome slab. */}
+                  <img
+                    src={spidrMascot}
+                    alt="Spidr"
+                    className="w-16 h-16 object-contain drop-shadow-[0_0_18px_rgba(239,68,68,0.35)]"
+                    draggable={false}
+                  />
                 </div>
               </div>
 
@@ -253,7 +341,6 @@ export default function HomeDashboard() {
                 <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">
                   Hey, <span className="text-red-500">{greetingName}</span>
                 </h1>
-                <p className="text-zinc-500 text-sm mt-0.5">Your web is waiting</p>
               </div>
             </div>
           </motion.div>
@@ -341,6 +428,16 @@ export default function HomeDashboard() {
                 never moves as the user scrolls the feed below. */}
             <div className="flex items-center justify-between px-5 pt-5 pb-3">
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActivityCollapsed(v => !v)}
+                  aria-label={activityCollapsed ? 'Expand Activity Feed' : 'Collapse Activity Feed'}
+                  className="text-white/60 hover:text-white transition-colors"
+                >
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${activityCollapsed ? '-rotate-90' : ''}`}
+                  />
+                </button>
                 <span className="relative flex items-center justify-center w-2 h-2">
                   <span className="absolute inset-0 rounded-full bg-red-500 animate-ping opacity-60" />
                   <span className="relative w-2 h-2 rounded-full bg-red-500" />
@@ -357,25 +454,41 @@ export default function HomeDashboard() {
               </button>
             </div>
 
-            {/* Scroll engine — internal overflow, capped height. The pr-5
-                gives the scrollbar a hair of breathing room from the
-                content. */}
-            <div
-              className="spidr-feed-scroll max-h-[450px] overflow-y-auto px-5 pb-6"
-              style={{ maskImage: undefined }}
-            >
-              <EnhancedFeed currentUser={currentUser} />
-            </div>
+            {!activityCollapsed && (
+              <>
+                {/* Scroll engine — internal overflow, capped height. The pr-5
+                    gives the scrollbar a hair of breathing room from the
+                    content. */}
+                <div
+                  className="spidr-feed-scroll max-h-[450px] overflow-y-auto px-5 pb-6"
+                  style={{ maskImage: undefined }}
+                >
+                  <EnhancedFeed currentUser={currentUser} />
+                </div>
 
-            {/* Fade-out mask — absolute, pointer-events-none, sits inside
-                the rounded clip so older feed items vanish smoothly into
-                the dark canvas at the bottom edge. */}
-            <div
-              className="absolute bottom-0 inset-x-0 h-16 pointer-events-none"
-              style={{
-                background:
-                  'linear-gradient(to top, rgba(10, 10, 10, 0.95) 0%, rgba(10, 10, 10, 0.6) 50%, transparent 100%)',
-              }}
+                {/* Fade-out mask — absolute, pointer-events-none, sits inside
+                    the rounded clip so older feed items vanish smoothly into
+                    the dark canvas at the bottom edge. */}
+                <div
+                  className="absolute bottom-0 inset-x-0 h-16 pointer-events-none"
+                  style={{
+                    background:
+                      'linear-gradient(to top, rgba(10, 10, 10, 0.95) 0%, rgba(10, 10, 10, 0.6) 50%, transparent 100%)',
+                  }}
+                />
+              </>
+            )}
+          </div>
+
+          {/* Jump Back In — in-column on screens below xl, where the right
+              rail is hidden. Same component, same data: one source of truth,
+              visible on EVERY device size. */}
+          <div className="xl:hidden">
+            <JumpBackIn
+              recentConversations={recentConversations}
+              myGroups={myGroups}
+              navigateToDM={navigateToDM}
+              navigate={navigate}
             />
           </div>
 
@@ -390,13 +503,24 @@ export default function HomeDashboard() {
                 border: '1px solid rgba(255, 255, 255, 0.05)',
               }}
             >
-              <div className="flex items-center gap-2 mb-4">
+              <div className={`flex items-center gap-2 ${serversCollapsed ? '' : 'mb-4'}`}>
+                <button
+                  type="button"
+                  onClick={() => setServersCollapsed(v => !v)}
+                  aria-label={serversCollapsed ? 'Expand Recent Servers' : 'Collapse Recent Servers'}
+                  className="text-white/60 hover:text-white transition-colors"
+                >
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${serversCollapsed ? '-rotate-90' : ''}`}
+                  />
+                </button>
                 <span className="w-2 h-2 rounded-full bg-red-500"
                   style={{ boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)' }} />
                 <h2 className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">
                   Recent Servers
                 </h2>
               </div>
+              {!serversCollapsed && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {servers.slice(0, 4).map((server) => (
                   <motion.button
@@ -434,6 +558,7 @@ export default function HomeDashboard() {
                   </motion.button>
                 ))}
               </div>
+              )}
             </div>
           )}
         </div>
@@ -464,6 +589,19 @@ export default function HomeDashboard() {
             />
           </div>
         </div>
+
+        {/* ── Right rail: recent DMs + group chats (jump back in) ───────────
+            Persistent on xl+ screens as a 320px column so hopping into an
+            active conversation is one click from the homepage. Hidden on
+            narrower widths to protect the main column. */}
+        <aside className="hidden xl:block w-[320px] shrink-0 sticky top-4 self-start">
+          <JumpBackIn
+            recentConversations={recentConversations}
+            myGroups={myGroups}
+            navigateToDM={navigateToDM}
+            navigate={navigate}
+          />
+        </aside>
       </div>
       <SpidrSystem />
     </div>
@@ -511,5 +649,78 @@ function StatTile({ value, label, onClick, valueClassName = 'text-white' }) {
       </p>
       <p className="relative text-zinc-500 text-xs">{label}</p>
     </motion.button>
+  );
+}
+
+
+/* ── Jump Back In — recent DMs + group chats, one-tap re-entry ────────────
+ * Shared by the xl+ right rail AND the in-column section below xl, so the
+ * quick-access surface exists on every viewport — desktop, laptop, tablet,
+ * and phone — without duplicated markup drifting apart.
+ */
+function JumpBackIn({ recentConversations, myGroups, navigateToDM, navigate }) {
+  return (
+    <div
+      className="relative overflow-hidden rounded-2xl p-4"
+      style={{
+        background: 'rgba(10, 10, 10, 0.60)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255, 255, 255, 0.05)',
+      }}
+    >
+      <div className="flex items-center gap-2 mb-3">
+        <span className="w-2 h-2 rounded-full bg-red-500" style={{ boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)' }} />
+        <h2 className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">Jump Back In</h2>
+      </div>
+      <div className="space-y-1.5">
+        {recentConversations.slice(0, 6).map((c) => (
+          <button
+            key={c.conversationId}
+            onClick={() => navigateToDM(c.friendId, c.conversationId)}
+            className="w-full flex items-center gap-3 p-2 rounded-xl text-left transition-all hover:bg-white/[0.05]"
+            style={{ border: '1px solid rgba(255,255,255,0.04)' }}
+          >
+            <img
+              src={c.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${c.friendId}`}
+              alt="" className="w-8 h-8 rounded-full object-cover border border-white/10 shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-semibold text-white truncate">{c.name}</p>
+              <p className="text-[10px] text-zinc-500 truncate">{c.last || 'Open conversation'}</p>
+            </div>
+            <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 shrink-0">DM</span>
+          </button>
+        ))}
+        {myGroups.slice(0, 6).map((g) => (
+          <button
+            key={g.id}
+            onClick={() => {
+              window.__spidrPendingGroup = { groupId: g.id, at: Date.now() };
+              navigate('/friends');
+              window.dispatchEvent(new CustomEvent('spidr-pending-group'));
+            }}
+            className="w-full flex items-center gap-3 p-2 rounded-xl text-left transition-all hover:bg-white/[0.05]"
+            style={{ border: '1px solid rgba(255,255,255,0.04)' }}
+          >
+            <div className="w-8 h-8 rounded-full overflow-hidden border border-white/10 shrink-0 bg-gradient-to-br from-red-900/60 to-zinc-900 flex items-center justify-center">
+              {(g.avatar_url || g.icon_url)
+                ? <img src={g.avatar_url || g.icon_url} alt="" className="w-full h-full object-cover" />
+                : <Users className="w-4 h-4 text-red-400" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-semibold text-white truncate">{g.name || 'Group Chat'}</p>
+              <p className="text-[10px] text-zinc-500 truncate">{(g.members || []).length} members</p>
+            </div>
+            <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 shrink-0">GROUP</span>
+          </button>
+        ))}
+        {recentConversations.length === 0 && myGroups.length === 0 && (
+          <p className="text-[11px] text-zinc-500 text-center py-4">
+            No recent conversations yet
+          </p>
+        )}
+      </div>
+    </div>
   );
 }

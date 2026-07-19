@@ -5,11 +5,27 @@ const s = new Schema({
   user_id:      { type: String, required: true, index: true },
   user_name:    String,
   user_avatar:  String,
+  // Author aliases — the client has always SENT these alongside user_*, but
+  // they were absent from the schema so strict mode dropped them silently.
+  author_id:     { type: String, index: true },
+  author_name:   String,
+  author_avatar: String,
   content:      String,
   attachments:  [Schema.Types.Mixed],
+  // Rich media — images + GIF urls. THE reason "can't post gifs or images":
+  // the client sent media_urls on create but the field wasn't in the schema,
+  // so every media comment persisted as text-only (or an empty grey bubble
+  // when it was media-only).
+  media_urls:   { type: [String], default: [] },
+  // Voice-note comment: an uploaded audio clip + its length for the player.
+  voice_url:      { type: String, default: '' },
+  voice_duration: { type: Number, default: 0 }, // seconds
   likes:        [String],
   reactions:    { type: Schema.Types.Mixed, default: {} },
   reply_to:     String,
+  // Reply threading — the client threads on parent_comment_id; without it in
+  // the schema every reply flattened into a top-level comment.
+  parent_comment_id: { type: String, default: null, index: true },
   is_pinned:    { type: Boolean, default: false },
   created_date: { type: Date, default: Date.now },
 }, { timestamps: true });

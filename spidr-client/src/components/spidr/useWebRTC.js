@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import api, { getSocket } from '@/api/apiClient';
+import { getMediaPrefs } from '@/lib/mediaDevicePrefs';
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -89,8 +90,6 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
     pc.ontrack = (event) => {
       const [stream] = event.streams;
       if (!stream) return;
-      setRemoteStreams(prev => ({ ...prev, [socketId]: stream }));
-      setPeers(prev => ({ ...prev, [socketId]: { ...prev[socketId], stream } }));
       // Record this stream id under the peer so screen-meta can classify it.
       setPeerStreams(prev => {
         const forPeer = { ...(prev[socketId] || {}) };
@@ -99,10 +98,25 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
         peerStreamsRef.current = next;
         return next;
       });
-      // If screen-meta already arrived for this stream id, classify it now.
-      if (pendingScreenRef.current[socketId] === stream.id) {
+      // Screen streams must NEVER become the peer's remoteStreams entry —
+      // that entry feeds the hidden <audio> elements. Overwriting it with a
+      // video-only screen stream muted the sharer for the entire call.
+      const isKnownScreen = pendingScreenRef.current[socketId] === stream.id;
+      if (isKnownScreen) {
         delete pendingScreenRef.current[socketId];
         setScreenStreams(prev => ({ ...prev, [socketId]: stream }));
+      } else {
+        setRemoteStreams(prev => {
+          const existing = prev[socketId];
+          // Adopt this stream as the peer's AV stream when: it carries audio
+          // (authoritative mic stream), we have nothing yet, or it's the same
+          // stream object we already track (camera track added to it).
+          if (event.track.kind === 'audio' || !existing || existing.id === stream.id) {
+            return { ...prev, [socketId]: stream };
+          }
+          return prev; // video-only second stream, unclassified → wait for meta
+        });
+        setPeers(prev => ({ ...prev, [socketId]: { ...prev[socketId], stream } }));
       }
       // If a track inside a classified screen stream ends, drop the screen.
       stream.getVideoTracks().forEach(t => {
@@ -146,7 +160,26 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
         setIsConnected(true);
-      } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+        // A recovered connection cancels any pending teardown.
+        clearTimeout(pc._discTimer);
+        pc._discTimer = null;
+      } else if (pc.connectionState === 'disconnected') {
+        // TRANSIENT-BLIP GUARD: 'disconnected' fires briefly during ICE
+        // re-checks — which renegotiation (screen share start/stop) can
+        // trigger. Tearing down instantly killed the peer's audio + video
+        // mid-share (the "streamer can't hear anyone once they share" bug:
+        // both sides dropped each other's streams on a blip that would have
+        // self-healed). Only tear down if still disconnected after 4s.
+        clearTimeout(pc._discTimer);
+        pc._discTimer = setTimeout(() => {
+          if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+            setRemoteStreams(prev => { const n = {...prev}; delete n[socketId]; return n; });
+            setPeers(prev => { const n = {...prev}; delete n[socketId]; return n; });
+          }
+        }, 4000);
+      } else if (['failed', 'closed'].includes(pc.connectionState)) {
+        // Hard failures tear down immediately.
+        clearTimeout(pc._discTimer);
         setRemoteStreams(prev => { const n = {...prev}; delete n[socketId]; return n; });
         setPeers(prev => { const n = {...prev}; delete n[socketId]; return n; });
       }
@@ -181,10 +214,15 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
     try {
       // 2.2 — choose an explicit default mic so the browser doesn't grab an
       // iPhone/AirPods Continuity input over the desktop mic.
-      const micId = await pickDefaultMicId();
+      // Settings → Voice & Video picks win; the Continuity-avoidance
+      // heuristic only runs when the user hasn't chosen a mic explicitly.
+      const prefs = getMediaPrefs();
+      const micId = prefs.micId || await pickDefaultMicId();
       const audioConstraints = {
-        echoCancellation: true, noiseSuppression: true, sampleRate: 48000,
-        ...(micId ? { deviceId: { ideal: micId } } : {}),
+        echoCancellation: prefs.echoCancellation !== false,
+        noiseSuppression: prefs.noiseSuppression !== false,
+        sampleRate: 48000,
+        ...(micId ? { deviceId: prefs.micId ? { exact: micId } : { ideal: micId } } : {}),
       };
       // Get microphone (and optional camera)
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -304,6 +342,16 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
         const stream = peerStreamsRef.current[socketId]?.[streamId];
         if (stream) {
           setScreenStreams(prev => ({ ...prev, [socketId]: stream }));
+          // If this screen stream had been (mis)adopted as the peer's AV
+          // stream before the meta arrived, hand the AV slot back to the
+          // stream that actually carries their mic.
+          setRemoteStreams(prev => {
+            if (prev[socketId]?.id !== streamId) return prev;
+            const candidates = Object.values(peerStreamsRef.current[socketId] || {});
+            const withAudio = candidates.find(s => s.id !== streamId && s.getAudioTracks().length > 0);
+            if (withAudio) return { ...prev, [socketId]: withAudio };
+            return prev;
+          });
         } else {
           // The meta arrived before ontrack — stash the pending id so a late
           // ontrack can resolve it.
@@ -382,7 +430,10 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
       // fires onnegotiationneeded on each pc, which now sends a fresh offer so
       // remote peers actually receive the new video stream (fixes 1.1).
       try {
-        const videoStream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+        const camPrefs = getMediaPrefs();
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720, ...(camPrefs.cameraId ? { deviceId: { exact: camPrefs.cameraId } } : {}) },
+        });
         const [newVideoTrack] = videoStream.getVideoTracks();
         localStreamRef.current.addTrack(newVideoTrack);
         setLocalStream(localStreamRef.current);

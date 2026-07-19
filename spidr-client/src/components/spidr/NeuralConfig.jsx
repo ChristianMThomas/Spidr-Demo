@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Gamepad2, Twitch, Check, X, ExternalLink, Unlink } from 'lucide-react';
 import { entities } from '@/api/apiClient';
 import { toast } from 'sonner';
+import useMusicKit from './useMusicKit';
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -47,6 +48,29 @@ export default function NeuralConfig({ currentUser }) {
     }
   };
 
+  // Apple Music (MusicKit) — configured=false hides the card entirely so
+  // servers without Apple credentials never show a dead button.
+  const musicKit = useMusicKit();
+  const appleConnected = musicKit.authorized || !!neuralLinks.apple_music_connected;
+  const handleAppleConnect = async () => {
+    try {
+      await musicKit.authorize();
+      queryClient.invalidateQueries({ queryKey: ['neural-config'] });
+      toast.success('Apple Music connected');
+    } catch (err) {
+      toast.error(err?.message === 'Not authorized' ? 'Authorization was cancelled' : (err?.message || 'Could not connect Apple Music'));
+    }
+  };
+  const handleAppleDisconnect = async () => {
+    try {
+      await musicKit.unauthorize();
+      queryClient.invalidateQueries({ queryKey: ['neural-config'] });
+      toast.success('Apple Music disconnected');
+    } catch {
+      toast.error('Failed to disconnect Apple Music');
+    }
+  };
+
   const handleSpotifyConnect = () => {
     window.open(`${BASE_URL}/spotify/auth/start?userId=${currentUser?.id}`, '_blank');
     // TanStack Query refetches on window focus, which picks up spotify_connected=true automatically
@@ -78,6 +102,16 @@ export default function NeuralConfig({ currentUser }) {
           onConnect={handleSpotifyConnect}
           onDisconnect={handleSpotifyDisconnect}
         />
+
+        {/* ── Apple Music — MusicKit (hidden when server lacks credentials) ─── */}
+        {musicKit.configured !== false && (
+          <AppleMusicCard
+            connected={appleConnected}
+            ready={musicKit.ready}
+            onConnect={handleAppleConnect}
+            onDisconnect={handleAppleDisconnect}
+          />
+        )}
 
         {/* ── Steam — simple toggle ─────────────────────────────────────────── */}
         <ToggleCard
@@ -111,6 +145,64 @@ function SpotifyLogo({ size = 20, className = '' }) {
     <svg viewBox="0 0 24 24" width={size} height={size} className={className} fill="currentColor">
       <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
     </svg>
+  );
+}
+
+function AppleMusicCard({ connected, ready, onConnect, onDisconnect }) {
+  return (
+    <div className="relative group overflow-hidden bg-[#111] border border-white/5 rounded-xl p-6 transition-all hover:border-white/10 col-span-1 md:col-span-2">
+      <div
+        className="absolute inset-0 opacity-0 group-hover:opacity-[0.04] transition-opacity duration-500"
+        style={{ background: 'linear-gradient(135deg, #fa243c, #a250fa)' }}
+      />
+      <div className="relative z-10 flex flex-col sm:flex-row sm:items-center gap-5">
+        <div className="flex items-center gap-4 flex-shrink-0">
+          <div
+            className="w-14 h-14 rounded-xl flex items-center justify-center transition-all duration-300"
+            style={{
+              background: connected ? 'linear-gradient(135deg, #fa243c, #a250fa)' : '#1a1a1a',
+              boxShadow: connected ? '0 0 28px rgba(250,36,60,0.35)' : 'none',
+            }}
+          >
+            {/* Apple Music glyph — simple note mark */}
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"
+              className={connected ? 'text-white' : 'text-gray-600'}>
+              <path d="M9 3v10.55A4 4 0 1 0 11 17V7h8V3H9z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="font-black text-white text-sm tracking-wide">Apple Music</h3>
+            <span className={`text-[10px] font-mono uppercase tracking-widest ${connected ? 'text-[#fa5c6e]' : 'text-gray-600'}`}>
+              {connected ? '● Connected' : '○ Not connected'}
+            </span>
+          </div>
+        </div>
+        <p className="text-[11px] text-gray-500 leading-relaxed flex-1">
+          {connected
+            ? 'Apple Music is linked. DJ sessions can spin from the Apple catalog — and as a subscriber you hear FULL tracks in the booth, not 30-second previews. Playback through Spidr shows on your profile in real time.'
+            : 'Connect Apple Music to DJ from the Apple catalog and unlock full-track listening in DJ sessions (subscription required for full tracks). Something Discord simply does not have.'}
+        </p>
+        <div className="flex-shrink-0">
+          {connected ? (
+            <button
+              onClick={onDisconnect}
+              className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-red-500/10 border border-white/10 hover:border-red-500/30 text-gray-400 hover:text-red-400 text-[11px] font-bold uppercase tracking-widest rounded-lg transition-all whitespace-nowrap"
+            >
+              <Unlink size={11} /> Disconnect
+            </button>
+          ) : (
+            <button
+              onClick={onConnect}
+              disabled={!ready}
+              className="flex items-center gap-2 px-5 py-2.5 text-white text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap disabled:opacity-40"
+              style={{ background: 'linear-gradient(135deg, #fa243c, #a250fa)' }}
+            >
+              {ready ? 'Connect Apple Music' : 'Loading…'} <ExternalLink size={11} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

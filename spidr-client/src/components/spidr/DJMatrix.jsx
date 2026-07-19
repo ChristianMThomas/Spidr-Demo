@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Disc3, Volume2, Music, ChevronLeft, ChevronRight, Pause, Play, X, Loader2 } from 'lucide-react';
 import { spotify } from '@/api/apiClient';
 import useNowPlaying from '@/hooks/useNowPlaying';
+import useMusicKit from './useMusicKit';
 import SpotifySearchModal from './SpotifySearchModal';
 import { toast } from 'sonner';
 
@@ -50,6 +51,91 @@ export default function DJMatrix({
   // request per ~25s per channel.
   const np = useNowPlaying(djSession?.host_id, { enabled: !!djSession?.host_id });
 
+  // ── Playback engine ─────────────────────────────────────────────────
+  // THE fix for "DJ session shows the song but plays no music": every client
+  // (host AND listeners) now plays the track's 30-second Spotify preview,
+  // roughly synced to the session clock (started_at). Full-track playback
+  // would require every listener to have Spotify Premium + OAuth (Web
+  // Playback SDK) — the preview keeps the booth working for everyone free.
+  // If Spotify has no preview for the track (increasingly common since late
+  // 2024), we surface that clearly instead of playing silence.
+  const audioRef = useRef(null);
+  const [audioBlocked, setAudioBlocked] = useState(false); // autoplay gate hit
+  const previewUrl = djSession?.preview_url || '';
+
+  // ── Apple Music full-track upgrade ──────────────────────────────────
+  // For 'apple' sessions, listeners who connected Apple Music (and have a
+  // subscription) hear the ENTIRE song via MusicKit, synced to the session
+  // clock — everyone else stays on the 30s preview loop. This is the
+  // listen-along Discord doesn't have.
+  const musicKit = useMusicKit();
+  const [fullTrackActive, setFullTrackActive] = useState(false);
+  const canFullTrack = djSession?.source === 'apple' && musicKit.ready && musicKit.authorized;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!djSession || !canFullTrack) { setFullTrackActive(false); return; }
+      try {
+        const startedMs = djSession.started_at ? new Date(djSession.started_at).getTime() : Date.now();
+        const offsetSec = Math.max(0, (Date.now() - startedMs) / 1000);
+        // Past the track's end (host idle on a finished song) → stay on preview loop.
+        const durSec = (djSession.duration_ms || 0) / 1000;
+        if (durSec && offsetSec >= durSec - 2) { setFullTrackActive(false); return; }
+        await musicKit.playTrack(djSession.track_id, offsetSec);
+        if (!cancelled) {
+          setFullTrackActive(true);
+          audioRef.current?.pause(); // silence the preview loop underneath
+        }
+      } catch (err) {
+        // Not a subscriber / DRM / anything — preview loop stays the truth.
+        if (!cancelled) setFullTrackActive(false);
+        console.warn('[DJ] full-track fallback to preview:', err?.message);
+      }
+    })();
+    return () => { cancelled = true; try { musicKit.stop(); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [djSession?.track_id, djSession?.started_at, canFullTrack]);
+
+  // Volume follows the booth slider in both modes.
+  useEffect(() => {
+    if (fullTrackActive) musicKit.setVolume(localVolume / 100);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localVolume, fullTrackActive]);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (!djSession || !previewUrl || fullTrackActive) { el.pause(); return; }
+
+    el.src = previewUrl;
+    el.loop = true; // 30s clip loops for the length of the session
+    // Rough sync: seek to where the session clock is inside the 30s loop.
+    const startedMs = djSession.started_at ? new Date(djSession.started_at).getTime() : Date.now();
+    const offsetSec = Math.max(0, ((Date.now() - startedMs) / 1000) % 30);
+    const play = () => {
+      try { el.currentTime = offsetSec; } catch {}
+      el.play()
+        .then(() => setAudioBlocked(false))
+        .catch(() => setAudioBlocked(true)); // browser autoplay policy — needs one tap
+    };
+    if (el.readyState >= 2) play();
+    else { el.addEventListener('canplay', play, { once: true }); el.load(); }
+
+    return () => { el.pause(); };
+  }, [djSession?.track_id, previewUrl, djSession?.started_at, fullTrackActive]);
+
+  // Volume slider actually controls the booth audio now.
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = Math.max(0, Math.min(1, localVolume / 100));
+  }, [localVolume]);
+
+  const unlockAudio = () => {
+    audioRef.current?.play()
+      .then(() => setAudioBlocked(false))
+      .catch(() => setAudioBlocked(true));
+  };
+
   const pct = np?.duration_ms ? Math.min(100, (np.progress_ms / np.duration_ms) * 100) : 0;
 
   // ── Host transport actions ──────────────────────────────────────────
@@ -60,10 +146,19 @@ export default function DJMatrix({
     try {
       // If a session is already running, this PATCHes it to the new
       // track. Otherwise it starts a new one.
+      const meta = {
+        track_name:    track.name || '',
+        track_artist:  track.artist || '',
+        album_art_url: track.album_art_url || '',
+        preview_url:   track.preview_url || '',
+        external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
+        duration_ms:   track.duration_ms || 0,
+        source:        track.source === 'apple' ? 'apple' : 'spotify',
+      };
       if (djSession?.host_id) {
-        await spotify.djSession.next(channel.id, track.id);
+        await spotify.djSession.next(channel.id, track.id, meta);
       } else {
-        await spotify.djSession.start(channel.id, track.id);
+        await spotify.djSession.start(channel.id, track.id, meta);
       }
       setPickerOpen(false);
       toast.success(`Now spinning: ${track.name}`);
@@ -94,11 +189,12 @@ export default function DJMatrix({
     <div
       className="relative w-full h-full overflow-hidden flex flex-col"
       style={{
-        background: '#020202',
-        backgroundImage:
-          'linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),' +
-          'linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)',
-        backgroundSize: '60px 60px',
+        // Spidr gradient stage — deep black bleeding into brand red/purple.
+        // (Replaced the old 60px grid-line pattern that read as generic/AI.)
+        background:
+          'radial-gradient(ellipse 80% 60% at 50% -10%, rgba(124, 58, 237, 0.16), transparent 60%),' +
+          'radial-gradient(ellipse 70% 55% at 50% 115%, rgba(220, 38, 38, 0.16), transparent 60%),' +
+          'linear-gradient(180deg, #050505 0%, #0a0508 50%, #050505 100%)',
       }}
     >
       {/* Ambient bass glow — soft Spotify-green radial behind the reactor */}
@@ -110,6 +206,35 @@ export default function DJMatrix({
             'radial-gradient(circle at 50% 50%, rgba(29, 185, 84, 0.15) 0%, transparent 60%)',
         }}
       />
+
+      {/* Booth audio — hidden element every client plays the preview through */}
+      <audio ref={audioRef} preload="auto" />
+
+      {/* Autoplay unlock — browsers block audio until a gesture */}
+      {djSession && previewUrl && audioBlocked && (
+        <button
+          onClick={unlockAudio}
+          className="absolute top-16 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 py-2 rounded-full bg-[#1DB954] text-black text-[11px] font-bold uppercase tracking-widest shadow-[0_0_20px_rgba(29,185,84,0.4)] hover:scale-105 transition-transform"
+        >
+          ▶ Tap to hear the booth
+        </button>
+      )}
+      {/* Full-track mode badge — Apple Music subscribers hear the whole song */}
+      {djSession && fullTrackActive && (
+        <div
+          className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.2em] text-white shadow-[0_0_18px_rgba(250,36,60,0.4)]"
+          style={{ background: 'linear-gradient(135deg, #fa243c, #a250fa)' }}
+        >
+          ♫ Full track · Apple Music
+        </div>
+      )}
+      {/* No-preview notice — Spotify stopped shipping previews for many
+          tracks in late 2024; be honest instead of playing silence. */}
+      {djSession && !previewUrl && !fullTrackActive && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-full bg-black/70 border border-white/10 text-[10px] font-mono uppercase tracking-widest text-zinc-400">
+          No audio preview for this track — DJ, try another song
+        </div>
+      )}
 
       {/* Header pills */}
       <header className="relative z-20 w-full flex justify-between items-center p-4">
@@ -231,6 +356,8 @@ export default function DJMatrix({
             isPlaying={!!np?.is_playing}
             busy={busy}
             hasSession={!!djSession}
+            volume={localVolume}
+            setVolume={setLocalVolume}
           />
         ) : djSession ? (
           <ListenerDock volume={localVolume} setVolume={setLocalVolume} />
@@ -246,7 +373,9 @@ export default function DJMatrix({
         title="Change Track"
         subtitle="Spidr DJ"
         actionLabel="Spin"
-        emptyHint="Pick the next track. Everyone in the call's matrix updates the instant you select."
+        requirePreview
+        allowAppleMusic
+        emptyHint="Pick the next track — only songs with a playable 30s preview are shown, so the whole call hears it."
       />
 
       <style>{`
@@ -371,7 +500,7 @@ function AudienceRoster({ participants = [], hostId, enabled }) {
 }
 
 // HostDock — DJ controls: pick track, play/pause hint, end session.
-function HostDock({ onPick, onEnd, isPlaying, busy, hasSession }) {
+function HostDock({ onPick, onEnd, isPlaying, busy, hasSession , volume, setVolume }) {
   return (
     <div
       className="flex items-center gap-2 p-2 rounded-2xl"
