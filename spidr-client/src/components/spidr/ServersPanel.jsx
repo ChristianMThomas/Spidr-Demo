@@ -1495,18 +1495,18 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                         title={u.user_name || 'Spider'}>
                         {/* Drop-thread: vertical line into the top of the avatar */}
                         <div className="absolute w-[1px] h-4 bg-red-600/70 left-[15px] -top-3 -translate-x-1/2" />
-                        {/* Glowing avatar node — swaps to a pulsing green
+                        {/* Glowing avatar node — swaps to a pulsing red
                             speaking ring when this user is actively talking
                             (driven by spidr-call-user-speaking, sampled at
                             ~5Hz from the shared per-peer analysers). */}
                         <div className="relative shrink-0 z-10">
                           {isSpeaking && (
                             <div
-                              className="absolute -inset-0.5 rounded-full border-2 border-green-400 animate-pulse pointer-events-none"
-                              style={{ boxShadow: '0 0 10px rgba(34, 197, 94, 0.7)' }}
+                              className="absolute -inset-0.5 rounded-full border-2 border-red-500 animate-pulse pointer-events-none"
+                              style={{ boxShadow: '0 0 12px rgba(239, 68, 68, 0.85)' }}
                             />
                           )}
-                          <Avatar className={`w-8 h-8 rounded-full border relative ${isSpeaking ? 'border-green-500/0' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`}>
+                          <Avatar className={`w-8 h-8 rounded-full border relative ${isSpeaking ? 'border-red-500/0' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`}>
                             <AvatarImage src={u.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.user_id || u.user_name}`} />
                             <AvatarFallback className="bg-red-900 text-white text-[10px]">{(u.user_name || '?').charAt(0).toUpperCase()}</AvatarFallback>
                           </Avatar>

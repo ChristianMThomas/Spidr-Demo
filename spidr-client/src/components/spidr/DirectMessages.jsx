@@ -114,16 +114,6 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   // 60s "no answer" timer for outgoing calls — a ref so any render or
   // effect can start/clear it without re-triggering re-renders.
   const noAnswerTimerRef = useRef(null);
-  // When a second real user joins the voice session, the call is answered
-  // and we cancel the no-answer timer so it doesn't write a false missed-
-  // call row.
-  useEffect(() => {
-    const humanCount = (voiceSessions || []).filter(s => !s.is_spidr_ai).length;
-    if (humanCount >= 2 && noAnswerTimerRef.current) {
-      clearTimeout(noAnswerTimerRef.current);
-      noAnswerTimerRef.current = null;
-    }
-  }, [voiceSessions]);
   useEffect(() => {
     const onAnswer = (e) => {
       const cid = e.detail?.conversationId;
@@ -307,6 +297,19 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     staleTime: 5000,
     refetchInterval: 8000,
   });
+
+  // Clear the outgoing-call "no answer" timer as soon as a second real
+  // user joins the voice session — otherwise an ANSWERED call would still
+  // write a false missed-call row when the 60s window elapses. Declared
+  // AFTER the voiceSessions query so it doesn't hit a Temporal Dead Zone
+  // on first render (the /friends white-screen crash from last patch).
+  useEffect(() => {
+    const humanCount = (voiceSessions || []).filter(s => !s.is_spidr_ai).length;
+    if (humanCount >= 2 && noAnswerTimerRef.current) {
+      clearTimeout(noAnswerTimerRef.current);
+      noAnswerTimerRef.current = null;
+    }
+  }, [voiceSessions]);
 
   const createSessionMutation = useMutation({
     mutationFn: (data) => entities.VoiceSession.create(data),
