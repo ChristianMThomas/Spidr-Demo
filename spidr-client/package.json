@@ -14,7 +14,11 @@
     "build-exe:linux": "vite build && electron-builder build --linux",
     "build-exe-noadmin": "set CSC_LINK=&& set CSC_KEY_PASSWORD=&& vite build && electron-builder build --win --x64 --config.win.signtoolOptions.sign=",
     "build-exe:powershell": "$env:CSC_LINK=\"\"; $env:CSC_KEY_PASSWORD=\"\"; npx vite build; npx electron-builder build --win --x64 --publish=never --config electron-builder.yml",
-    "build-exe:cmd": "set CSC_LINK=&& set CSC_KEY_PASSWORD=&& vite build && electron-builder build --win --x64 --publish=never"
+    "build-exe:cmd": "set CSC_LINK=&& set CSC_KEY_PASSWORD=&& vite build && electron-builder build --win --x64 --publish=never",
+    "electron:pack:mac": "npm run build && electron-builder --mac",
+    "electron:pack:win": "npm run build && electron-builder --win",
+    "electron:pack:linux": "npm run build && electron-builder --linux",
+    "electron:pack:all": "npm run build && electron-builder -mwl"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
@@ -111,7 +115,6 @@
     "copyright": "Copyright 2026 Spidr",
     "asar": false,
     "directories": {
-      "buildResources": "build",
       "output": "dist_installer"
     },
     "files": [
@@ -143,7 +146,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "publisherName": "Spidr"
     },
     "nsis": {
       "oneClick": false,
@@ -178,7 +182,9 @@
         "NSMicrophoneUsageDescription": "Spidr uses your microphone for voice calls.",
         "NSCameraUsageDescription": "Spidr uses your camera for video calls."
       },
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "darkModeSupport": true,
+      "gatekeeperAssess": false
     },
     "linux": {
       "target": [
@@ -196,9 +202,17 @@
         }
       ],
       "icon": "build/icon.png",
-      "category": "Network",
+      "category": "Network;Chat",
       "maintainer": "Spidr <info@spidrapp.com>",
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
-    }
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "desktop": {
+        "Name": "Spidr",
+        "Comment": "Gaming-focused communication with THE WEB",
+        "Categories": "Network;Chat;InstantMessaging",
+        "StartupWMClass": "Spidr"
+      }
+    },
+    "publish": null,
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
   }
 }
