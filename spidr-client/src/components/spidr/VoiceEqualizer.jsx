@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Activity } from 'lucide-react';
+import { getSharedAudioContext, getSharedSource, releaseSharedSource } from '@/lib/sharedAudioContext';
 
 /**
  * VoiceEqualizer — real-time audio frequency visualizer for an active speaker,
@@ -7,9 +8,12 @@ import { Activity } from 'lucide-react';
  * bars with a purple→crimson gradient that jump to the live audio amplitude,
  * plus a "~ VOICE" label.
  *
- * Connects the provided MediaStream to a local AudioContext + AnalyserNode and
- * reads getByteFrequencyData on each animation frame to drive bar heights.
- * Falls back to a gentle idle shimmer if no stream/analyser is available.
+ * Uses the SHARED per-stream source registry so multiple analysers (this,
+ * the tile's useSpeakingDetector, and the sidebar broadcast) all safely
+ * observe the same stream. Chrome only allows ONE MediaStreamAudioSourceNode
+ * per MediaStream — a second createMediaStreamSource silently detaches the
+ * audio element's playback pipeline (root cause of the "everyone goes deaf
+ * when someone starts talking" bug).
  *
  * Props:
  *   stream  — MediaStream for this speaker (optional; without it, idle anim)
@@ -19,34 +23,28 @@ import { Activity } from 'lucide-react';
 export default function VoiceEqualizer({ stream, bars = 9, active = true }) {
   const [heights, setHeights] = useState(() => new Array(bars).fill(0.2));
   const rafRef = useRef(null);
-  const ctxRef = useRef(null);
   const analyserRef = useRef(null);
-  const sourceRef = useRef(null);
   const dataRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    // Set up the analyser from the live stream (best-effort).
+    // Set up the analyser via the shared source — one source per stream,
+    // any number of downstream analysers.
+    let analyser = null;
     const setup = () => {
       if (!stream) return false;
-      try {
-        const Ctx = window.AudioContext || window.webkitAudioContext;
-        if (!Ctx) return false;
-        const ctx = new Ctx();
-        ctxRef.current = ctx;
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 64;            // 32 frequency bins — plenty for a few bars
-        analyser.smoothingTimeConstant = 0.7;
-        analyserRef.current = analyser;
-        const source = ctx.createMediaStreamSource(stream);
-        source.connect(analyser);         // NOT connected to destination → no echo
-        sourceRef.current = source;
-        dataRef.current = new Uint8Array(analyser.frequencyBinCount);
-        return true;
-      } catch {
-        return false;
-      }
+      const ctx = getSharedAudioContext();
+      if (!ctx) return false;
+      const source = getSharedSource(stream);
+      if (!source) return false;
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 64;
+      analyser.smoothingTimeConstant = 0.7;
+      analyserRef.current = analyser;
+      source.connect(analyser);
+      dataRef.current = new Uint8Array(analyser.frequencyBinCount);
+      return true;
     };
 
     const hasAnalyser = setup();
@@ -78,11 +76,12 @@ export default function VoiceEqualizer({ stream, bars = 9, active = true }) {
     return () => {
       cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      try { sourceRef.current?.disconnect(); } catch { /* ignore */ }
-      try { ctxRef.current?.close(); } catch { /* ignore */ }
-      ctxRef.current = null;
+      try { analyser?.disconnect(); } catch { /* ignore */ }
+      // Release the shared source ref — the underlying source node persists
+      // for other consumers (speaking detector, sidebar broadcast) if any.
+      // NEVER close the shared context.
+      if (stream) releaseSharedSource(stream);
       analyserRef.current = null;
-      sourceRef.current = null;
     };
   }, [stream, bars]);
 

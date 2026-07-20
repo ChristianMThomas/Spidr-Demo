@@ -454,57 +454,66 @@ export default function VoiceChannel({
   // socketId of the currently loudest speaker with a video track available.
   const [activeSpeakerSocketId, setActiveSpeakerSocketId] = useState(null);
   useEffect(() => {
-    const ctx = getSharedAudioContext();
-    if (!ctx) return;
-    const analysers = new Map(); // socketId -> { analyser, srcNode, hasVideo }
-    const attach = (socketId, stream) => {
-      if (analysers.has(socketId) || !stream) return;
-      try {
-        const srcNode = ctx.createMediaStreamSource(stream);
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        srcNode.connect(analyser);
-        analysers.set(socketId, { analyser, srcNode, buf: new Uint8Array(analyser.frequencyBinCount) });
-      } catch {}
-    };
-    Object.entries(rtc.remoteStreams || {}).forEach(([sid, s]) => attach(sid, s));
-    // Poll: pick the loudest stream whose peer ALSO has a live video track.
-    // Voice-only mobile joiners never win — the swap only happens between
-    // peers whose camera is actually on, so the video area doesn't blink
-    // to a black tile.
-    const iv = setInterval(() => {
-      let best = { sid: null, level: 0 };
-      // Speaking-map for the SIDEBAR — a userId set of who's currently
-      // talking. The sidebar avatars subscribe via the spidr-call-user-
-      // speaking event (see the sidebar's VoiceChannelUserRow) so they
-      // pulse green in sync with each peer's real voice activity.
-      const speakingUserIds = new Set();
-      analysers.forEach((rec, sid) => {
-        rec.analyser.getByteFrequencyData(rec.buf);
-        let sum = 0;
-        for (let i = 0; i < rec.buf.length; i++) sum += rec.buf[i];
-        const level = sum / rec.buf.length / 255;
-        if (level > 0.06) {
-          const peer = rtc.peers?.[sid];
-          if (peer?.userId) speakingUserIds.add(peer.userId);
-        }
+    // Active-speaker for the minimized PiP + sidebar user-speaking broadcast:
+    // both driven by the per-tile spidr-tile-speaking event (published by
+    // each VoiceTile via useSpeakingDetector). No parallel WebAudio taps —
+    // only ONE MediaStreamAudioSourceNode may exist per MediaStream, and
+    // the previous implementation opened a duplicate source on every remote
+    // stream, which is the WebRTC audio-death rule and silently killed
+    // voice playback for everyone in the call.
+
+    // Active-speaker for the minimized PiP: watch spidr-tile-speaking
+    // events and pick the loudest speaker whose stream also has live video.
+    const activeSpeakerMap = new Map(); // socketId -> boolean
+    const onTileSpeaking = (e) => {
+      const { socketId, isSpeaking } = e.detail || {};
+      if (!socketId) return;
+      if (isSpeaking) activeSpeakerMap.set(socketId, true);
+      else activeSpeakerMap.delete(socketId);
+      for (const [sid] of activeSpeakerMap) {
         const stream = rtc.remoteStreams?.[sid];
         const hasVideo = stream && stream.getVideoTracks().some(t => t.enabled && !t.muted && t.readyState === 'live');
-        if (hasVideo && level > best.level && level > 0.08) best = { sid, level };
-      });
-      // Fold in the local user's own speaking state (the pill broadcaster
-      // already tracks it, but the sidebar needs a unified view).
-      if (currentUser?.id && localSpeakingRef.current) speakingUserIds.add(currentUser.id);
-      window.dispatchEvent(new CustomEvent('spidr-call-user-speaking', {
-        detail: { userIds: Array.from(speakingUserIds) }
-      }));
-      setActiveSpeakerSocketId((prev) => best.sid ?? prev); // sticky — don't blank out on silence
-    }, 200);
-    return () => {
-      clearInterval(iv);
-      analysers.forEach((rec) => { try { rec.srcNode.disconnect(); } catch {} });
+        if (hasVideo) { setActiveSpeakerSocketId(sid); break; }
+      }
     };
-  }, [rtc.remoteStreams]);
+    window.addEventListener('spidr-tile-speaking', onTileSpeaking);
+
+    // Sidebar user-speaking broadcast — aggregate every tile's state plus
+    // the local user's mic state (from the pill broadcaster). Fires only
+    // when the set changes.
+    let prevIds = '';
+    const speakingUserIds = new Set();
+    const rebroadcast = () => {
+      const key = [...speakingUserIds].sort().join(',');
+      if (key === prevIds) return;
+      prevIds = key;
+      window.dispatchEvent(new CustomEvent('spidr-call-user-speaking', {
+        detail: { userIds: [...speakingUserIds] }
+      }));
+    };
+    const onUserTileSpeaking = (e) => {
+      const { userId, isSpeaking } = e.detail || {};
+      if (!userId) return;
+      if (isSpeaking) speakingUserIds.add(userId);
+      else speakingUserIds.delete(userId);
+      rebroadcast();
+    };
+    const onLocalSpeaking = (e) => {
+      const { speaking } = e.detail || {};
+      if (!currentUser?.id) return;
+      if (speaking) speakingUserIds.add(currentUser.id);
+      else speakingUserIds.delete(currentUser.id);
+      rebroadcast();
+    };
+    window.addEventListener('spidr-tile-speaking', onUserTileSpeaking);
+    window.addEventListener('spidr-call-voice-activity', onLocalSpeaking);
+
+    return () => {
+      window.removeEventListener('spidr-tile-speaking', onTileSpeaking);
+      window.removeEventListener('spidr-tile-speaking', onUserTileSpeaking);
+      window.removeEventListener('spidr-call-voice-activity', onLocalSpeaking);
+    };
+  }, [currentUser?.id]);
 
   // ── Broadcast the active video stream for the PiP ─────────────────────────
   // The minimized call widget (MinimizedWebNode) shows a tactical PiP of the
@@ -1092,6 +1101,7 @@ export default function VoiceChannel({
                       key={session.id}
                       session={session}
                       isSelf={isSelf}
+                      peerSocketId={peerSocketId}
                       isApexSess={isApexSess}
                       isAdmin={isAdmin}
                       isMutedLocally={isSelf ? rtc.isMuted : !!session.is_muted}
@@ -1532,6 +1542,7 @@ function VoiceStatusPill({ session, isSelf, isMutedLocally, apexColor = '#FF3333
 function VoiceTile({
   session,
   isSelf,
+  peerSocketId,
   isApexSess,
   isAdmin,
   isMutedLocally,
@@ -1563,6 +1574,23 @@ function VoiceTile({
   const isSpeaking = useSpeakingDetector(stream, {
     enabled: !deckHidden && !!stream && !session.is_muted && !session.is_deafened,
   });
+
+  // Broadcast this tile's speaking state (userId + socketId tagged) so the
+  // sidebar green ring and the minimized-PiP active-speaker swap can react.
+  // This REUSES the existing per-tile detector's tap — the previous approach
+  // opened a SECOND createMediaStreamSource on every remote MediaStream,
+  // which is a WebRTC hard-rule violation and silently killed audio for
+  // everyone (only one MediaStreamAudioSourceNode per MediaStream).
+  useEffect(() => {
+    if (session.is_spidr_ai) return; // AI has its own visualizer
+    window.dispatchEvent(new CustomEvent('spidr-tile-speaking', {
+      detail: {
+        userId: session.user_id,
+        socketId: peerSocketId,
+        isSpeaking,
+      },
+    }));
+  }, [isSpeaking, session.user_id, session.is_spidr_ai, peerSocketId]);
 
   // Spidr AI uses its own visualizer; everyone else uses RMS detection.
   const showSpeakingRing = session.is_spidr_ai ? spidrAISpeaking : isSpeaking;

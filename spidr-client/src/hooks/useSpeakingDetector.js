@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getSharedAudioContext } from '@/lib/sharedAudioContext';
+import { getSharedAudioContext, getSharedSource, releaseSharedSource } from '@/lib/sharedAudioContext';
 
 /**
  * useSpeakingDetector — feeds a MediaStream's audio into a Web Audio
@@ -42,12 +42,12 @@ export function useSpeakingDetector(stream, { enabled = true, threshold = 0.04 }
     // never construct (or close) per-detector contexts anymore.
     const audioContext = getSharedAudioContext();
     if (!audioContext) return;
-    let source;
-    try {
-      source = audioContext.createMediaStreamSource(stream);
-    } catch {
-      return; // stream ended between checks
-    }
+    // Shared per-stream source — only ONE MediaStreamAudioSourceNode may
+    // exist per MediaStream (Chrome silently detaches audio playback if a
+    // second is created). getSharedSource ref-counts sources so the sidebar
+    // broadcast, EQ bars, and this hook all analyse the same source.
+    const source = getSharedSource(stream);
+    if (!source) return;
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 512;
     analyser.smoothingTimeConstant = 0.7;
@@ -77,7 +77,10 @@ export function useSpeakingDetector(stream, { enabled = true, threshold = 0.04 }
 
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      try { source.disconnect(); } catch {}
+      try { analyser.disconnect(); } catch {}
+      // Release the shared source (ref-counted) — the underlying source
+      // node persists as long as any other consumer needs it.
+      releaseSharedSource(stream);
       // NEVER close the shared context — other analysers are using it.
     };
   }, [stream, enabled, threshold]);
