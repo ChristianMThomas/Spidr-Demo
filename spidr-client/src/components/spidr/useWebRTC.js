@@ -221,6 +221,7 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
       const audioConstraints = {
         echoCancellation: prefs.echoCancellation !== false,
         noiseSuppression: prefs.noiseSuppression !== false,
+        autoGainControl:  prefs.autoGainControl  !== false,
         sampleRate: 48000,
         ...(micId ? { deviceId: prefs.micId ? { exact: micId } : { ideal: micId } } : {}),
       };
@@ -496,6 +497,62 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
     }
   }, [enabled, currentUser?.id]);
 
+  /**
+   * Live mic swap — swap the outgoing audio track WITHOUT renegotiating
+   * the peer connection. Used when the user picks a different mic in
+   * Settings → Voice & Video while already in a call. `RTCRtpSender.
+   * replaceTrack()` is the native way to do this: same sender, new track,
+   * no ICE round-trip, no `disconnected` state, no perceivable glitch on
+   * the receiving side. Also re-applies live audioConstraints (noise
+   * suppression, echo cancel, auto gain) so toggling those in-call
+   * takes effect on the next inhalation.
+   */
+  const replaceMic = useCallback(async () => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    const prefs = getMediaPrefs();
+    const micId = prefs.micId || await pickDefaultMicId();
+    const audioConstraints = {
+      echoCancellation: prefs.echoCancellation !== false,
+      noiseSuppression: prefs.noiseSuppression !== false,
+      autoGainControl:  prefs.autoGainControl  !== false,
+      sampleRate: 48000,
+      ...(micId ? { deviceId: prefs.micId ? { exact: micId } : { ideal: micId } } : {}),
+    };
+    let newStream;
+    try {
+      newStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+    } catch (err) {
+      console.warn('[replaceMic] getUserMedia failed:', err.message);
+      return;
+    }
+    const newTrack = newStream.getAudioTracks()[0];
+    if (!newTrack) return;
+    // Honor current mute state on the fresh track
+    newTrack.enabled = !isMuted;
+    // Replace the sender's track on every peer connection.
+    Object.values(peersRef.current || {}).forEach((pc) => {
+      const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+      if (audioSender) audioSender.replaceTrack(newTrack).catch(() => {});
+    });
+    // Swap the track on the local stream (stop the old one to free the device).
+    stream.getAudioTracks().forEach(t => t.stop());
+    stream.removeTrack(stream.getAudioTracks()[0]);
+    stream.addTrack(newTrack);
+    // Notify listeners that our stream object was reused with a new track —
+    // the shared source registry keys by stream.id, so the same source is
+    // still valid; nothing else to do.
+    setLocalStream(stream);
+  }, [isMuted]);
+
+  // React to media-prefs changes — swap mic instantly when the user picks
+  // a different device or toggles a constraint in Settings.
+  useEffect(() => {
+    const onPrefsChanged = () => { replaceMic(); };
+    window.addEventListener('spidr-media-prefs-changed', onPrefsChanged);
+    return () => window.removeEventListener('spidr-media-prefs-changed', onPrefsChanged);
+  }, [replaceMic]);
+
   return {
     localStream,
     remoteStreams,
@@ -510,5 +567,6 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
     toggleVideo,
     addOutgoingTrack,
     removeOutgoingTrack,
+    replaceMic,
   };
 }

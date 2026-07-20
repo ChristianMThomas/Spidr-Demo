@@ -1379,19 +1379,48 @@ function VoiceVideoSettings() {
           <div className="mt-4 flex items-center justify-between">
             <div>
               <p className="text-white font-medium">Noise Suppression</p>
-              <p className="text-zinc-500 text-sm">Reduce background noise</p>
+              <p className="text-zinc-500 text-sm">Filters out fan noise and keyboard clicks</p>
             </div>
             <Switch checked={prefs.noiseSuppression} onCheckedChange={(v) => setPref({ noiseSuppression: v })} />
           </div>
           <div className="mt-4 flex items-center justify-between">
             <div>
               <p className="text-white font-medium">Echo Cancellation</p>
-              <p className="text-zinc-500 text-sm">Prevent echo in calls</p>
+              <p className="text-zinc-500 text-sm">Prevents your mic from picking up your speakers</p>
             </div>
             <Switch checked={prefs.echoCancellation} onCheckedChange={(v) => setPref({ echoCancellation: v })} />
           </div>
+          <div className="mt-4 flex items-center justify-between">
+            <div>
+              <p className="text-white font-medium">Auto Gain Control</p>
+              <p className="text-zinc-500 text-sm">Normalizes your mic volume automatically</p>
+            </div>
+            <Switch checked={prefs.autoGainControl !== false} onCheckedChange={(v) => setPref({ autoGainControl: v })} />
+          </div>
+
+          {/* Voice Activity Threshold — soft gate for the outgoing mic.
+              0 = always transmit. Higher = mic only opens when you speak
+              loud enough, silencing hum/typing between sentences. */}
+          <div className="mt-5 pt-4 border-t border-white/5">
+            <div className="flex justify-between mb-1">
+              <Label className="text-zinc-400">Voice Activity Threshold</Label>
+              <span className="text-zinc-400 text-sm">
+                {prefs.activityThreshold ? `${prefs.activityThreshold}%` : 'Off'}
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-500 mb-2">
+              Mic only transmits when your level clears this gate. Watch the meter above and set the bar just above your ambient noise.
+            </p>
+            <Slider
+              value={[prefs.activityThreshold || 0]}
+              onValueChange={([v]) => setPref({ activityThreshold: v })}
+              max={100}
+              className="w-full"
+            />
+          </div>
+
           <p className="mt-3 text-[10px] font-mono text-zinc-600 uppercase tracking-widest">
-            Device changes apply on your next call join
+            Changes apply instantly — mic swaps live without dropping calls
           </p>
         </div>
 

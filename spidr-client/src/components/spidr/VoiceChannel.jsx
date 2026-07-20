@@ -14,8 +14,8 @@ import StreamSelector from './StreamSelector';
 import CinemaStage from './CinemaStage';
 import { useScreenShare } from './useScreenShare';
 import { useSpidrVoice } from './SpidrVoice';
-import { applySink } from '@/lib/mediaDevicePrefs';
-import { getSharedAudioContext } from '@/lib/sharedAudioContext';
+import { applySink, getMediaPrefs } from '@/lib/mediaDevicePrefs';
+import { getSharedAudioContext, getSharedSource, releaseSharedSource } from '@/lib/sharedAudioContext';
 const ClipFeed = React.lazy(() => import('@/components/feed/ClipFeed'));
 import SpidrVoiceVisualizer from './SpidrVoice';
 import SpidrAIProfile, { SPIDR_AI_AVATAR } from './SpidrAIProfile';
@@ -46,6 +46,7 @@ export default function VoiceChannel({
   const [isAILoading, setIsAILoading]         = useState(false);
   const [showAVControls, setShowAVControls]   = useState(false);
   const [showStreamSelector, setShowStreamSelector] = useState(false);
+  const [audioSettingsOpen, setAudioSettingsOpen] = useState(false);
   const [showSoundboard, setShowSoundboard] = useState(false);
   // Voice deck layout mode: 'focus' (center stage) or 'spider' (compact docked
   // grid that leaves the workspace breathing). Persisted per-user.
@@ -714,6 +715,37 @@ export default function VoiceChannel({
           />
         ) : null
       ))}
+
+      {/* ── INVISIBLE SPEAKING BROADCASTER ─────────────────────────────────
+          One hidden speaking detector per remote peer, mounted at the
+          VoiceChannel root right next to the audio spine. Fires the
+          spidr-tile-speaking event whenever a peer starts/stops talking,
+          which the sidebar green-ring listener consumes.
+
+          Why this exists separately from VoiceTile: the visual tiles live
+          inside the (potentially display:none) deck stage, and their
+          detector's isSpeaking state was silently unreliable when the deck
+          was minimized — a user reported "sidebar ring shows for me but not
+          for other users speaking," and this always-on broadcaster is the
+          fix. Ref-counted shared sources mean these detectors add zero
+          audio-pipeline risk. */}
+      {Object.entries(rtc.peers || {}).map(([socketId, peer]) => {
+        const stream = rtc.remoteStreams?.[socketId];
+        if (!peer?.userId || !stream) return null;
+        return (
+          <PeerSpeakingBroadcaster
+            key={`spk-${socketId}`}
+            userId={peer.userId}
+            socketId={socketId}
+            stream={stream}
+          />
+        );
+      })}
+
+      {/* Local voice-activity gate — soft-mutes the outgoing mic track when
+          the user's level sits below their chosen activity threshold, so
+          fan hum / keyboard clicks / idle silence never reach the room. */}
+      {rtc.localStream && <LocalVoiceGate stream={rtc.localStream} isMuted={rtc.isMuted} />}
       {/* Cinema Stage for streams */}
       <AnimatePresence>
         {aiSession?.stream_url && showCinema && (
@@ -842,6 +874,16 @@ export default function VoiceChannel({
                   {entryFx.name} entered the web
                 </motion.p>
               </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* In-call Audio Settings popup — quick access to mic device,
+              processing filters, and voice-activity gate without leaving
+              the call. All changes apply live (mic swaps use replaceTrack;
+              filter toggles apply on the next audio frame). */}
+          <AnimatePresence>
+            {audioSettingsOpen && (
+              <InCallAudioPanel onClose={() => setAudioSettingsOpen(false)} localStream={rtc.localStream} />
             )}
           </AnimatePresence>
 
@@ -1259,6 +1301,19 @@ export default function VoiceChannel({
               ? <HeadphoneOff size={18} className="text-red-400" />
               : <Headphones size={18} className="text-white/40" />}
           </DockBtn>
+
+          {/* In-call Audio Settings — noise suppression, echo cancel, auto
+              gain, voice-activity threshold, and mic selector, all live-
+              applied via the media-prefs event system (mic swaps use
+              RTCRtpSender.replaceTrack — no renegotiation, no drop). */}
+          <DockBtn
+            active={audioSettingsOpen}
+            onClick={() => setAudioSettingsOpen(o => !o)}
+            title="Audio Settings"
+            activeTint="#22c55e"
+          >
+            <Settings size={18} className={audioSettingsOpen ? 'text-green-300' : 'text-white/40'} />
+          </DockBtn>
           {/* Sync Feed — Theater Mode. Toggles the channel into co-op
               scrolling mode, where the toggler becomes the host and
               everyone else watches their THE WEB feed in sync.
@@ -1568,11 +1623,13 @@ function VoiceTile({
   const [soundboardMuted, setSoundboardMuted] = useState(false);
   const [localMutedState, setLocalMutedState] = useState(false);
   const [localDeafenedState, setLocalDeafenedState] = useState(false);
-  // Don't run the detector if there's no stream (the member is muted or
-  // hasn't connected yet), if they're server-muted, OR if the deck is hidden
-  // (minimized) — no point burning a rAF loop per tile when nothing is painted.
+  // Detector runs whenever the tile has a live stream — the sidebar
+  // speaking rings and minimized-PiP active-speaker swap both need the
+  // spidr-tile-speaking event to fire even when the deck is minimized,
+  // and now that sharedAudioContext ref-counts sources (see the last
+  // patch), running detectors continuously is cheap and safe.
   const isSpeaking = useSpeakingDetector(stream, {
-    enabled: !deckHidden && !!stream && !session.is_muted && !session.is_deafened,
+    enabled: !!stream && !session.is_muted && !session.is_deafened,
   });
 
   // Broadcast this tile's speaking state (userId + socketId tagged) so the
@@ -2186,5 +2243,273 @@ function TheaterFeedSlot({ isHost, hostUserName, currentUser }) {
         <ClipFeed clips={clips} currentUser={currentUser} audioMap={{}} />
       </div>
     </React.Suspense>
+  );
+}
+
+/**
+ * PeerSpeakingBroadcaster — an invisible always-on speaking detector for a
+ * single remote peer. Publishes spidr-tile-speaking events keyed by userId
+ * so the sidebar green speaking ring works everywhere the ServersPanel
+ * lives — regardless of whether the tile grid is currently rendered or the
+ * deck is minimized.
+ *
+ * Ref-counted MediaStreamAudioSourceNode (see sharedAudioContext) means
+ * multiple detectors on the same stream are safe and cheap.
+ */
+function PeerSpeakingBroadcaster({ userId, socketId, stream }) {
+  const isSpeaking = useSpeakingDetector(stream, { enabled: !!stream });
+  useEffect(() => {
+    if (!userId) return;
+    window.dispatchEvent(new CustomEvent('spidr-tile-speaking', {
+      detail: { userId, socketId, isSpeaking },
+    }));
+  }, [userId, socketId, isSpeaking]);
+  return null;
+}
+
+/**
+ * LocalVoiceGate — soft voice-activity gate on the outgoing mic track.
+ *
+ * Reads the user's activityThreshold pref (0-100). When 0, the gate is
+ * disabled (always transmit — default). When > 0, it monitors the mic
+ * RMS via the shared per-stream source (ref-counted, audio-safe) and
+ * toggles track.enabled whenever the level drops below threshold. Uses a
+ * short attack (fast to unmute when speech starts) and a longer release
+ * (250ms hold after last-speech to avoid clipping tail syllables) — same
+ * pattern a hardware gate uses.
+ *
+ * If the user has toggled the app mute (MicOff button), we do NOT fight
+ * that — the gate only runs when the user is unmuted at the app level.
+ */
+function LocalVoiceGate({ stream, isMuted }) {
+  const [threshold, setThreshold] = useState(() => getMediaPrefs().activityThreshold || 0);
+  useEffect(() => {
+    const onPrefs = (e) => setThreshold(e.detail?.activityThreshold || 0);
+    window.addEventListener('spidr-media-prefs-changed', onPrefs);
+    return () => window.removeEventListener('spidr-media-prefs-changed', onPrefs);
+  }, []);
+
+  useEffect(() => {
+    if (!stream || isMuted) return; // when app-muted, don't fight it
+    if (!threshold || threshold <= 0) {
+      // Gate disabled — ensure the track is enabled and get out.
+      const t = stream.getAudioTracks()[0];
+      if (t) t.enabled = true;
+      return;
+    }
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
+    const source = getSharedSource(stream);
+    if (!source) return;
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.6;
+    source.connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    // Threshold is 0-100 on the UI; map to an RMS range roughly matching
+    // where the mic meter's colors sit (green≈0.02, yellow≈0.08, red≈0.15).
+    const rmsThreshold = 0.005 + (threshold / 100) * 0.20;
+    let lastSpokeAt = 0;
+    let raf = null;
+    const tick = () => {
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      const rms = Math.sqrt(sum / buf.length);
+      const now = performance.now();
+      const track = stream.getAudioTracks()[0];
+      if (!track) return;
+      if (rms > rmsThreshold) {
+        lastSpokeAt = now;
+        if (!track.enabled) track.enabled = true;
+      } else if (now - lastSpokeAt > 250) {
+        // 250ms release — keeps trailing consonants from getting clipped.
+        if (track.enabled) track.enabled = false;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      try { analyser.disconnect(); } catch {}
+      releaseSharedSource(stream);
+      // Restore track when the gate is torn down.
+      const t = stream.getAudioTracks()[0];
+      if (t && !isMuted) t.enabled = true;
+    };
+  }, [stream, threshold, isMuted]);
+
+  return null;
+}
+
+/**
+ * InCallAudioPanel — quick-access audio settings floating over the deck.
+ *
+ * Everything here writes to mediaDevicePrefs; useWebRTC listens for the
+ * spidr-media-prefs-changed event and calls replaceMic() so mic device
+ * and processing filter changes apply live (no rejoin, no drop).
+ *
+ * A hidden mic-level meter shows the user's current input level so they
+ * can dial the voice-activity threshold to sit just above ambient noise.
+ */
+function InCallAudioPanel({ onClose, localStream }) {
+  const [prefs, setPrefsState] = useState(() => getMediaPrefs());
+  const [mics, setMics] = useState([]);
+  const [level, setLevel] = useState(0);
+  const setPref = (patch) => setPrefsState(setMediaPrefs(patch));
+
+  // Enumerate audio inputs
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const list = await navigator.mediaDevices.enumerateDevices();
+        setMics(list.filter(d => d.kind === 'audioinput'));
+      } catch {}
+    };
+    load();
+    navigator.mediaDevices?.addEventListener?.('devicechange', load);
+    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', load);
+  }, []);
+
+  // Live meter from the OUTGOING local stream (the same stream peers hear)
+  useEffect(() => {
+    if (!localStream) return;
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
+    const source = getSharedSource(localStream);
+    if (!source) return;
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+    let raf = null;
+    const tick = () => {
+      analyser.getByteFrequencyData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i];
+      setLevel(Math.min(100, (sum / buf.length / 255) * 200));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      try { analyser.disconnect(); } catch {}
+      releaseSharedSource(localStream);
+    };
+  }, [localStream]);
+
+  return (
+    <motion.div
+      key="audio-settings"
+      initial={{ opacity: 0, y: 12, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 12, scale: 0.98 }}
+      transition={{ duration: 0.18 }}
+      className="absolute bottom-24 right-6 z-40 w-[380px] max-w-[calc(100vw-32px)] rounded-2xl overflow-hidden"
+      style={{
+        background: 'rgba(10, 10, 10, 0.92)',
+        backdropFilter: 'blur(24px)',
+        WebkitBackdropFilter: 'blur(24px)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+      }}
+    >
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+        <h3 className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">Voice & Audio Uplink</h3>
+        <button onClick={onClose} className="text-white/40 hover:text-white transition-colors">
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+        {/* Mic selector */}
+        <div>
+          <label className="block text-[10px] font-bold text-white/50 uppercase tracking-widest mb-2">
+            Input Device
+          </label>
+          <select
+            value={prefs.micId}
+            onChange={(e) => setPref({ micId: e.target.value })}
+            className="w-full bg-black/60 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500/60"
+          >
+            <option value="">System Default</option>
+            {mics.map(m => (
+              <option key={m.deviceId} value={m.deviceId}>
+                {m.label || `Microphone (${m.deviceId.slice(0, 6)}…)`}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Live mic meter */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-bold text-white/50 uppercase tracking-widest">Mic Level</span>
+            <span className="text-[10px] font-mono text-white/40 tabular-nums">{Math.round(level)}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-black/60 overflow-hidden relative">
+            <div
+              className="h-full transition-[width] duration-75"
+              style={{
+                width: `${level}%`,
+                background: level > 70 ? '#ef4444' : level > 35 ? '#f59e0b' : '#22c55e',
+              }}
+            />
+            {prefs.activityThreshold > 0 && (
+              <div
+                className="absolute top-0 h-full w-[1px] bg-yellow-400/80"
+                style={{ left: `${prefs.activityThreshold}%` }}
+                title="Voice activity threshold"
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Voice activity gate */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-bold text-white/50 uppercase tracking-widest">Voice Activity Gate</span>
+            <span className="text-[10px] font-mono text-white/40">
+              {prefs.activityThreshold ? `${prefs.activityThreshold}%` : 'Off'}
+            </span>
+          </div>
+          <input
+            type="range" min={0} max={100} value={prefs.activityThreshold || 0}
+            onChange={(e) => setPref({ activityThreshold: Number(e.target.value) })}
+            className="w-full accent-red-500"
+          />
+          <p className="text-[10px] text-white/40 mt-1">
+            Mic transmits only above this gate. Set it just above your ambient level (yellow tick).
+          </p>
+        </div>
+
+        {/* Processing toggles */}
+        <div className="space-y-2 pt-2 border-t border-white/5">
+          {[
+            ['noiseSuppression', 'Noise Suppression', 'Filters fan hum and keyboard clicks'],
+            ['echoCancellation', 'Echo Cancellation', 'Prevents mic-to-speaker feedback'],
+            ['autoGainControl',  'Auto Gain Control', 'Normalizes your mic volume'],
+          ].map(([key, label, desc]) => (
+            <div key={key} className="flex items-center justify-between p-2.5 bg-white/[0.02] border border-white/5 rounded-xl">
+              <div className="min-w-0 pr-3">
+                <div className="text-sm text-white font-medium">{label}</div>
+                <div className="text-[10px] text-white/40 mt-0.5 truncate">{desc}</div>
+              </div>
+              <button
+                onClick={() => setPref({ [key]: !(prefs[key] !== false) })}
+                className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${prefs[key] !== false ? 'bg-red-500' : 'bg-white/10'}`}
+                aria-label={label}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${prefs[key] !== false ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-[9px] font-mono text-white/30 uppercase tracking-widest text-center pt-2">
+          Changes apply live · No call drop
+        </p>
+      </div>
+    </motion.div>
   );
 }

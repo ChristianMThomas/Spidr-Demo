@@ -17,6 +17,13 @@ export const DEFAULT_MEDIA_PREFS = {
   outputVolume: 100,
   noiseSuppression: true,
   echoCancellation: true,
+  autoGainControl: true,     // browser-level input volume normalization
+  // Voice activity threshold (RMS 0-100). 0 = off (always transmit).
+  // When > 0, the outgoing mic track is disabled whenever the local level
+  // sits below this threshold, creating a soft gate that mutes fan hum,
+  // keyboard clicks, and idle background between words without needing
+  // push-to-talk. See VoiceChannel's applyVoiceGate effect.
+  activityThreshold: 0,
 };
 
 export function getMediaPrefs() {
