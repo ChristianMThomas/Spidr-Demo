@@ -6,10 +6,9 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Image,
-  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Eye, EyeOff, Check } from 'lucide-react-native';
+import { Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '../../lib/authContext';
 import AuthShell, { GlassCard } from '../../components/auth/AuthShell';
 
@@ -43,15 +42,10 @@ export default function Register() {
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [agreed, setAgreed] = useState(false);
 
   const submit = async () => {
     if (!username || !email || !password) {
       setError('Username, email, and passcode required');
-      return;
-    }
-    if (!agreed) {
-      setError('You must agree to the Terms of Service and Privacy Policy');
       return;
     }
     setBusy(true);
@@ -242,46 +236,6 @@ export default function Register() {
             )}
           </TouchableOpacity>
         </View>
-
-        {/* Terms + privacy agreement — required for store compliance */}
-        <TouchableOpacity
-          onPress={() => setAgreed((v) => !v)}
-          activeOpacity={0.8}
-          style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}
-        >
-          <View
-            style={{
-              width: 20,
-              height: 20,
-              borderRadius: 6,
-              borderWidth: 1,
-              borderColor: agreed ? '#dc2626' : 'rgba(255,255,255,0.2)',
-              backgroundColor: agreed ? '#dc2626' : 'transparent',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginTop: 1,
-            }}
-          >
-            {agreed && <Check size={13} color="#fff" strokeWidth={4} />}
-          </View>
-          <Text style={{ flex: 1, color: 'rgba(255,255,255,0.4)', fontSize: 11, lineHeight: 16 }}>
-            I agree to the{' '}
-            <Text
-              style={{ color: '#ef4444' }}
-              onPress={() => Linking.openURL('https://spidrapp.infinitetechteam.com/terms')}
-            >
-              Terms of Service
-            </Text>{' '}
-            and{' '}
-            <Text
-              style={{ color: '#ef4444' }}
-              onPress={() => Linking.openURL('https://spidrapp.infinitetechteam.com/privacy')}
-            >
-              Privacy Policy
-            </Text>
-            .
-          </Text>
-        </TouchableOpacity>
 
         {error && (
           <View

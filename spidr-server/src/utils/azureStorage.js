@@ -66,34 +66,4 @@ async function uploadFile(buffer, originalName, mimeType) {
   return `${BASE}/uploads/${key}`;
 }
 
-/**
- * deleteFile(publicUrl)
- * Best-effort delete of a previously-uploaded object by its public URL.
- * Never throws — callers (like the account-delete cascade) should not block
- * on storage cleanup; DB references are already gone by the time this runs.
- * Returns true if a delete was attempted successfully, false otherwise.
- */
-async function deleteFile(publicUrl) {
-  if (!publicUrl || typeof publicUrl !== 'string') return false;
-  try {
-    if (r2Client && r2PublicUrl && publicUrl.startsWith(`${r2PublicUrl}/`)) {
-      const key = publicUrl.slice(r2PublicUrl.length + 1);
-      if (!key) return false;
-      const { DeleteObjectCommand } = require('@aws-sdk/client-s3');
-      await r2Client.send(new DeleteObjectCommand({ Bucket: r2Bucket, Key: key }));
-      return true;
-    }
-    // Local fallback — /uploads/<key>
-    const m = publicUrl.match(/\/uploads\/([^/?#]+)$/);
-    if (m) {
-      const localPath = path.join(LOCAL_DIR, m[1]);
-      if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
-      return true;
-    }
-  } catch {
-    // Storage cleanup is best-effort — swallow.
-  }
-  return false;
-}
-
-module.exports = { uploadFile, deleteFile };
+module.exports = { uploadFile };

@@ -168,6 +168,7 @@ export function CommentsSheet({ clipId, onClose }: CommentsSheetProps) {
             <FlashList
               data={threaded}
               keyExtractor={(c: any) => String(c.id || c._id)}
+              estimatedItemSize={76}
               contentContainerStyle={{ paddingVertical: 6 }}
               renderItem={({ item }) => (
                 <CommentRow

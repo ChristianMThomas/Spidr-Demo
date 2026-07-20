@@ -156,10 +156,6 @@ module.exports = function registerHandlers(io) {
     const userId = socket.userId;
     const wasOffline = !onlineUsers.has(userId);
     addSocket(userId, socket.id);
-    // Per-user room — lets REST/model-hook code (utils/realtime.js) reach
-    // every tab/device this user has open without touching onlineUsers,
-    // and works across instances under the Redis adapter.
-    socket.join(`user:${userId}`);
     if (wasOffline) {
       io.emit('user:online', { userId });
     }
@@ -501,17 +497,6 @@ module.exports = function registerHandlers(io) {
       }
     });
 
-    // ── Group chat relay — REST-created messages wake the room ──────────────
-    // Mirror of dm:notify: clients that POST a GroupChatMessage over REST emit
-    // this so every member's client refetches. Empty payload = "re-fetch"
-    // signal (same convention the DM path uses). Only members ever joined the
-    // `group:<id>` room, so the broadcast can't leak outside the group.
-    socket.on('group:notify', ({ groupId }) => {
-      if (!socketRateLimit(socket)) return;
-      if (typeof groupId !== 'string' || !groupId) return;
-      io.to(`group:${groupId}`).emit('group:message', {});
-    });
-
     // ── DM call signaling ─────────────────────────────────────────────────────
     // Relays a ringing invite (and its lifecycle) to the recipient's sockets so
     // the incoming-call banner can show. Pure signaling; the actual media is
@@ -532,13 +517,74 @@ module.exports = function registerHandlers(io) {
       const sockets = onlineUsers.get(callerId);
       if (sockets) for (const sid of sockets) io.to(sid).emit('call:accepted', { conversationId, byUserId: userId });
     });
-    socket.on('call:decline', ({ callerId, conversationId }) => {
+    // ── Missed-call writer ────────────────────────────────────────────────
+    // On any call ending without both parties connecting, write a system
+    // row to the chat DB so the missed-call bubble is durable across
+    // reloads. reason = 'declined' | 'unanswered' | 'cancelled'.
+    //   DM lane   → DirectMessage row (conversationId present)
+    //   Group lane → GroupChatMessage row (groupId present)
+    async function writeMissedCall({ conversationId, groupId, callerId, callerName, receiverId, reason }) {
+      try {
+        if (groupId) {
+          const GroupChatMessage = require('../models/GroupChatMessage');
+          await GroupChatMessage.create({
+            group_id: groupId,
+            user_id: callerId,
+            user_name: callerName || 'Someone',
+            content: `Missed call from ${callerName || 'Someone'}`,
+            is_missed_call: true,
+            missed_call_reason: reason,
+            caller_id: callerId,
+            caller_name: callerName || 'Someone',
+          });
+          io.to(`group:${groupId}`).emit('group-message:new', {});
+        } else if (conversationId) {
+          const DirectMessage = require('../models/DirectMessage');
+          await DirectMessage.create({
+            sender_id: callerId,
+            receiver_id: receiverId || '',
+            recipient_id: receiverId || '',
+            conversation_id: conversationId,
+            sender_name: callerName || 'Someone',
+            content: `Missed call from ${callerName || 'Someone'}`,
+            is_missed_call: true,
+            missed_call_reason: reason,
+            caller_id: callerId,
+            caller_name: callerName || 'Someone',
+          });
+          // Notify the receiver (their bell + DM list refresh)
+          const recvSockets = onlineUsers.get(receiverId);
+          if (recvSockets) {
+            for (const sid of recvSockets) {
+              io.to(sid).emit('dm:new', { conversation_id: conversationId, sender_id: callerId, recipient_id: receiverId });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[missed-call] write failed:', err.message);
+      }
+    }
+
+    socket.on('call:decline', async ({ callerId, conversationId, groupId, callerName }) => {
       const sockets = onlineUsers.get(callerId);
-      if (sockets) for (const sid of sockets) io.to(sid).emit('call:declined', { conversationId, byUserId: userId });
+      if (sockets) for (const sid of sockets) io.to(sid).emit('call:declined', { conversationId, groupId, byUserId: userId });
+      // Receiver actively declined — write the missed-call row on the
+      // caller's side (they are the ones who "missed" being connected).
+      await writeMissedCall({ conversationId, groupId, callerId, callerName, receiverId: userId, reason: 'declined' });
     });
-    socket.on('call:cancel', ({ recipientId, conversationId }) => {
-      const sockets = onlineUsers.get(recipientId);
-      if (sockets) for (const sid of sockets) io.to(sid).emit('call:cancelled', { conversationId, byUserId: userId });
+
+    socket.on('call:cancel', async ({ recipientId, conversationId, groupId, reason, callerName }) => {
+      const targets = groupId ? null : onlineUsers.get(recipientId);
+      if (targets) for (const sid of targets) io.to(sid).emit('call:cancelled', { conversationId, groupId, byUserId: userId });
+      if (groupId) io.to(`group:${groupId}`).emit('call:cancelled', { groupId, byUserId: userId });
+      // Caller cancelled OR the client's 60s no-answer timer fired.
+      // callerName travels with the event so the row can label itself.
+      await writeMissedCall({
+        conversationId, groupId,
+        callerId: userId, callerName,
+        receiverId: recipientId,
+        reason: reason || 'cancelled',
+      });
     });
 
     // ── NowPlaying presence (T1 — OS media session / T1+ — Spotify) ─────────

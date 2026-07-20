@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   Skull, Gamepad2, Cpu, Music, Monitor, CloudSun,
-  Flame, Quote,
+  Headphones, Flame, Quote,
   Blocks, MemoryStick, MonitorPlay, Wand2,
 } from 'lucide-react';
 
@@ -70,6 +70,12 @@ export const MODULE_THEMES = {
     accentRgb: '192, 132, 252',
     icon: Quote,
     Preview: QuoteBoxPreview,
+  },
+  'Lo-fi Radio': {
+    accent: '#a855f7',
+    accentRgb: '168, 85, 247',
+    icon: Headphones,
+    Preview: LofiRadioPreview,
   },
   'Daily Streak Counter': {
     accent: '#f97316',
@@ -376,6 +382,64 @@ function QuoteBoxPreview() {
           >
             "
           </motion.div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Lo-fi Radio — vinyl record spinning with ambient glow and waveform. */
+function LofiRadioPreview() {
+  return (
+    <div className="relative w-full h-full flex items-center justify-center gap-4 px-4">
+      {/* Spinning vinyl */}
+      <div className="relative shrink-0">
+        <motion.div
+          className="w-14 h-14 rounded-full"
+          style={{
+            background: 'radial-gradient(circle at 40% 40%, #4c1d95, #1e1b4b 60%, #0a0a0a)',
+            boxShadow: '0 0 18px rgba(168,85,247,0.4)',
+          }}
+          animate={{ rotate: 360 }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'linear' }}
+        >
+          {/* Grooves */}
+          {[20, 28, 36].map(r => (
+            <div
+              key={r}
+              className="absolute rounded-full border border-white/5"
+              style={{ inset: `${(56 - r * 2) / 2}px` }}
+            />
+          ))}
+          {/* Center hole */}
+          <div className="absolute inset-0 m-auto w-3 h-3 rounded-full bg-[#0a0a0a] border border-purple-500/40" />
+        </motion.div>
+        {/* Tonearm */}
+        <motion.div
+          className="absolute w-0.5 h-8 rounded-full origin-bottom"
+          style={{
+            background: 'linear-gradient(to top, rgba(168,85,247,0.6), rgba(168,85,247,0.2))',
+            top: -8, right: 0,
+          }}
+          animate={{ rotate: [-18, -12, -18] }}
+          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      </div>
+
+      {/* Track info + waveform */}
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="text-[10px] font-bold text-white truncate">beats to study to</div>
+        <div className="text-[8px] text-purple-400/70 font-mono uppercase tracking-wider">Live · lo-fi</div>
+        <div className="flex items-end gap-[2px] h-5">
+          {Array.from({ length: 12 }, (_, i) => (
+            <motion.div
+              key={i}
+              className="flex-1 rounded-t-sm"
+              style={{ background: 'linear-gradient(to top, #a855f7, #7c3aed)' }}
+              animate={{ height: ['25%', `${35 + Math.sin(i * 0.9) * 40 + 25}%`, '25%'] }}
+              transition={{ duration: 0.9 + i * 0.07, repeat: Infinity, ease: 'easeInOut', delay: i * 0.05 }}
+            />
+          ))}
         </div>
       </div>
     </div>

@@ -36,6 +36,12 @@ const s = new Schema({
   inviter_name:        { type: String, default: '' },
   member_count:        { type: Number, default: 0 },
   members_snapshot:    { type: [require('mongoose').Schema.Types.Mixed], default: [] },
+  // Missed-call system messages — rendered as a centered alert bubble
+  // instead of a chat bubble. reason: 'declined' | 'unanswered' | 'cancelled'
+  is_missed_call:      { type: Boolean, default: false },
+  missed_call_reason:  { type: String, default: '' },
+  caller_id:           { type: String, default: '' },
+  caller_name:         { type: String, default: '' },
   created_date:    { type: Date, default: Date.now },
 }, { timestamps: true });
 

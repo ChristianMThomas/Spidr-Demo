@@ -111,6 +111,19 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   // When the incoming-call banner is answered, it dispatches
   // `spidr-answer-call`. If it targets this conversation, auto-join the call.
   const answerHandlerRef = useRef(null);
+  // 60s "no answer" timer for outgoing calls — a ref so any render or
+  // effect can start/clear it without re-triggering re-renders.
+  const noAnswerTimerRef = useRef(null);
+  // When a second real user joins the voice session, the call is answered
+  // and we cancel the no-answer timer so it doesn't write a false missed-
+  // call row.
+  useEffect(() => {
+    const humanCount = (voiceSessions || []).filter(s => !s.is_spidr_ai).length;
+    if (humanCount >= 2 && noAnswerTimerRef.current) {
+      clearTimeout(noAnswerTimerRef.current);
+      noAnswerTimerRef.current = null;
+    }
+  }, [voiceSessions]);
   useEffect(() => {
     const onAnswer = (e) => {
       const cid = e.detail?.conversationId;
@@ -340,15 +353,31 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     if (!skipInvite) {
       try {
         const socket = getSocket();
+        const callerName = currentUser?.full_name || currentUser?.username;
         socket.emit('call:invite', {
           recipientId: activeRecipientId,
           conversationId: activeConversationId,
           caller: {
             id: currentUser?.id,
-            name: currentUser?.full_name || currentUser?.username,
+            name: callerName,
             avatar: currentUser?.avatar_url || '',
           },
         });
+        // 60s no-answer safety: if the recipient never joins the voice
+        // session within a minute, the caller's side auto-cancels and the
+        // server writes a "Missed call from you" row. Cleared as soon as
+        // any second participant joins (see effect below).
+        clearTimeout(noAnswerTimerRef.current);
+        noAnswerTimerRef.current = setTimeout(() => {
+          try {
+            socket.emit('call:cancel', {
+              recipientId: activeRecipientId,
+              conversationId: activeConversationId,
+              reason: 'unanswered',
+              callerName,
+            });
+          } catch {}
+        }, 60_000);
       } catch { /* non-fatal */ }
     }
     if (onVoiceJoin) {
@@ -367,10 +396,19 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     if (mySession) {
       deleteSessionMutation.mutate(mySession.id);
     }
-    // Stop ringing the other side if they haven't picked up yet.
+    // Stop ringing the other side if they haven't picked up yet — carry
+    // reason + callerName so the server can write the correct missed-call
+    // row (labeled "Missed call from {you}").
     try {
-      getSocket().emit('call:cancel', { recipientId: activeRecipientId, conversationId: activeConversationId });
+      getSocket().emit('call:cancel', {
+        recipientId: activeRecipientId,
+        conversationId: activeConversationId,
+        reason: 'cancelled',
+        callerName: currentUser?.full_name || currentUser?.username,
+      });
     } catch { /* non-fatal */ }
+    clearTimeout(noAnswerTimerRef.current);
+    noAnswerTimerRef.current = null;
     setInCall(false);
     endVoiceSession();
     if (onVoiceLeave) {

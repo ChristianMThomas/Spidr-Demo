@@ -128,7 +128,7 @@ router.post('/join', authMiddleware, async (req, res) => {
 });
 
 // GET /servers/lookup/:code — preview a server by invite code (no join)
-router.get('/lookup/:code', authMiddleware, async (req, res) => {
+router.get('/lookup/:code', async (req, res) => {
   try {
     const server = await Server.findOne({ invite_code: req.params.code }).lean();
     if (!server) return res.status(404).json({ error: 'Invalid invite code' });

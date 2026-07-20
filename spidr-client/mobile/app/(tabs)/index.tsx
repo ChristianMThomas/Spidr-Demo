@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   Image,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useThemeColors } from '../../lib/theme';
 import { Sparkles, RefreshCw, Users as UsersIcon, Infinity as InfinityIcon } from 'lucide-react-native';
 import { entities, tension } from '../../lib/apiClient';
 import { useAuth } from '../../lib/authContext';
@@ -385,27 +385,12 @@ function DiscoverPeople({ currentUserId }: { currentUserId?: string }) {
 
 // ─── Activity Feed (mobile mini) ──────────────────────────────────────────────
 function ActivityFeed({ onViewAll }: { onViewAll: () => void }) {
-  const router = useRouter();
   const { data } = useQuery({
     queryKey: ['feed-mini'],
     queryFn: () => entities.Clip.list('-created_date', 5),
     staleTime: 30_000,
   });
   const posts: any[] = Array.isArray(data) ? data : [];
-
-  // Live avatars — clips bake author_avatar in at post time, so someone who
-  // changed their pfp since would show the stale one forever. Resolve the
-  // authors' CURRENT profiles (comma id list → server $in query) and prefer
-  // those; the baked snapshot stays as the fallback while loading.
-  const authorIds = [...new Set(posts.map((p) => p.author_id).filter(Boolean))];
-  const { data: authorProfiles = [] } = useQuery({
-    queryKey: ['feed-mini-authors', authorIds.join(',')],
-    queryFn: () => entities.UserProfile.filter({ user_id: authorIds.join(',') }),
-    enabled: authorIds.length > 0,
-    staleTime: 30_000,
-  });
-  const liveProfile = (userId?: string) =>
-    (authorProfiles as any[]).find((pr) => pr.user_id === userId);
 
   return (
     <View
@@ -469,9 +454,8 @@ function ActivityFeed({ onViewAll }: { onViewAll: () => void }) {
           </Text>
         ) : (
           posts.slice(0, 3).map((p) => {
-            const live = liveProfile(p.author_id);
-            const avatar = live?.avatar_url || p.author_avatar || p.user_avatar;
-            const name = live?.display_name || p.author_name || p.username || p.user_name || 'Someone';
+            const avatar = p.author_avatar || p.user_avatar;
+            const name = p.author_name || p.username || p.user_name || 'Someone';
             const text = p.caption || p.text || 'Posted a new clip';
             return (
               <TouchableOpacity
@@ -486,10 +470,7 @@ function ActivityFeed({ onViewAll }: { onViewAll: () => void }) {
                   padding: 10,
                 }}
               >
-                <TouchableOpacity
-                  disabled={!p.author_id}
-                  onPress={() => p.author_id && router.push(`/user/${p.author_id}`)}
-                  hitSlop={6}
+                <View
                   style={{
                     width: 36,
                     height: 36,
@@ -508,7 +489,7 @@ function ActivityFeed({ onViewAll }: { onViewAll: () => void }) {
                       {name.charAt(0).toUpperCase()}
                     </Text>
                   )}
-                </TouchableOpacity>
+                </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }} numberOfLines={1}>
@@ -592,10 +573,8 @@ export default function Home() {
     setRefreshing(false);
   }, [queryClient, user?.id]);
 
-  const colors = useThemeColors();
-
   return (
-    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.bg }}>
+    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#050505' }}>
       <ScrollView
         contentContainerStyle={{ padding: 14, paddingBottom: 116, gap: 16 }}
         showsVerticalScrollIndicator={false}
@@ -621,7 +600,16 @@ export default function Home() {
             value={<InfinityIcon size={28} color="#ef4444" strokeWidth={3} />}
             label="GIFs & Emojis"
             redValue
-            onPress={() => router.push('/gifs-emojis')}
+            onPress={() =>
+              Alert.alert(
+                'GIFs & Emojis',
+                'Coming soon to mobile — open a chat to send them inline for now.',
+                [
+                  { text: 'Open DMs', onPress: () => router.push('/(tabs)/friends') },
+                  { text: 'OK', style: 'cancel' },
+                ]
+              )
+            }
           />
         </View>
 
@@ -638,7 +626,9 @@ export default function Home() {
           <QuickAction
             title="Try Spidr AI"
             subtitle="Create servers & customize"
-            onPress={() => router.push('/spidr-ai')}
+            onPress={() => {
+              /* AI route doesn't exist on mobile yet */
+            }}
           />
         </View>
 

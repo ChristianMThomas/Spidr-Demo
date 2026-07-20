@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect } from 'react';
+import React, { lazy, useEffect } from 'react';
 import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
@@ -64,8 +64,6 @@ const GlobalReports = lazy(() => import('@/pages/GlobalReports'));
 const RadarPage     = lazy(() => import('@/pages/Radar'));
 const BiomassPage   = lazy(() => import('@/pages/Biomass'));
 const PopoutCall    = lazy(() => import('@/pages/PopoutCall'));
-const PrivacyPolicy = lazy(() => import('@/pages/Legal').then((m) => ({ default: m.PrivacyPolicy })));
-const TermsOfService = lazy(() => import('@/pages/Legal').then((m) => ({ default: m.TermsOfService })));
 const ProtocolOverlay = lazy(() => import('@/pages/ProtocolOverlay'));
 
 function AppRoutes() {
@@ -75,6 +73,19 @@ function AppRoutes() {
   // Global presence heartbeat — runs once per session
   useEffect(() => {
     if (!isAuthenticated) return;
+
+    // Post-login invite redirect: if the user clicked a /join/:code link
+    // while logged out, we stashed the code. Route back to the invite now
+    // that they're authenticated so they land on Accept.
+    try {
+      const pending = localStorage.getItem('spidr_pending_invite');
+      if (pending && !window.location.pathname.startsWith('/join/')) {
+        localStorage.removeItem('spidr_pending_invite');
+        window.location.replace(`/join/${pending}`);
+        return;
+      }
+    } catch {}
+
     const socket = getSocket();
     const invalidateProfile = ({ userId }) =>
       queryClient.invalidateQueries({ queryKey: ['userProfile', userId] });
@@ -109,11 +120,11 @@ function AppRoutes() {
       {/* Public */}
       <Route path="/" element={isAuthenticated ? <Navigate to="/home" replace /> : <LandingPage />} />
       <Route path="/login" element={isAuthenticated ? <Navigate to="/home" replace /> : <LoginPage />} />
-      <Route path="/join/:code" element={isAuthenticated ? <JoinServer /> : <Navigate to="/login" replace />} />
-      {/* Legal pages — must stay public (store listings link here logged-out).
-          Local Suspense: these routes render outside SpidrShell's boundary. */}
-      <Route path="/privacy" element={<Suspense fallback={null}><PrivacyPolicy /></Suspense>} />
-      <Route path="/terms" element={<Suspense fallback={null}><TermsOfService /></Suspense>} />
+      {/* Public: /join/:code shows the invite preview to EVERYONE. If the
+          viewer isn't logged in, JoinServer stashes the invite code and
+          routes them to /login with a redirect back — no more silent
+          "logged out → invite disappears" black hole. */}
+      <Route path="/join/:code" element={<JoinServer />} />
 
       {/* Protected — the AppShell wraps everything below it */}
       {isAuthenticated ? (

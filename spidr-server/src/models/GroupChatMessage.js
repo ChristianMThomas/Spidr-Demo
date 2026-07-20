@@ -11,6 +11,11 @@ const s = new Schema({
   edited_at:    Date,
   text_effect:  { type: String, default: 'normal' },
   reply_to:     String,
+  // Missed-call system messages — rendered as a centered alert bubble.
+  is_missed_call:      { type: Boolean, default: false },
+  missed_call_reason:  { type: String, default: '' },
+  caller_id:           { type: String, default: '' },
+  caller_name:         { type: String, default: '' },
   created_date: { type: Date, default: Date.now },
 }, { timestamps: true });
 

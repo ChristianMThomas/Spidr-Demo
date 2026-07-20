@@ -36,6 +36,16 @@ export default function JoinServer() {
 
   const handleJoin = async () => {
     if (!code) return;
+    // Not logged in? Stash the invite code and send them to login. After
+    // login the shell picks it up and routes back to /join/:code so they
+    // land on the "Accept" button — no more losing the invite through the
+    // auth funnel.
+    const hasToken = typeof window !== 'undefined' && localStorage.getItem('spidr_token');
+    if (!hasToken) {
+      try { localStorage.setItem('spidr_pending_invite', code); } catch {}
+      navigate('/login');
+      return;
+    }
     setJoining(true);
     try {
       const me = await auth.me().catch(() => null);

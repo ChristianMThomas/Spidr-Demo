@@ -389,6 +389,7 @@ export default function VoiceChannel({
   // local mic here (the only place the stream lives) and emit a throttled
   // window event; the shell holds the state and drives the tick-ring.
   const isMutedRef = useRef(false);
+  const localSpeakingRef = useRef(false); // sidebar per-user broadcast reads this
   useEffect(() => { isMutedRef.current = !!rtc.isMuted; }, [rtc.isMuted]);
   useEffect(() => {
     const stream = rtc.localStream;
@@ -416,6 +417,7 @@ export default function VoiceChannel({
         for (let i = 0; i < buf.length; i++) sum += buf[i];
         const amplitude = sum / buf.length / 255; // 0..1
         const speaking = !isMutedRef.current && amplitude > 0.06;
+        localSpeakingRef.current = speaking;
         // Emit on every state flip + periodically while speaking (amplitude).
         if (speaking !== lastSpeaking || speaking) {
           lastSpeaking = speaking;
@@ -472,16 +474,30 @@ export default function VoiceChannel({
     // to a black tile.
     const iv = setInterval(() => {
       let best = { sid: null, level: 0 };
+      // Speaking-map for the SIDEBAR — a userId set of who's currently
+      // talking. The sidebar avatars subscribe via the spidr-call-user-
+      // speaking event (see the sidebar's VoiceChannelUserRow) so they
+      // pulse green in sync with each peer's real voice activity.
+      const speakingUserIds = new Set();
       analysers.forEach((rec, sid) => {
-        const stream = rtc.remoteStreams?.[sid];
-        const hasVideo = stream && stream.getVideoTracks().some(t => t.enabled && !t.muted && t.readyState === 'live');
-        if (!hasVideo) return;
         rec.analyser.getByteFrequencyData(rec.buf);
         let sum = 0;
         for (let i = 0; i < rec.buf.length; i++) sum += rec.buf[i];
         const level = sum / rec.buf.length / 255;
-        if (level > best.level && level > 0.08) best = { sid, level };
+        if (level > 0.06) {
+          const peer = rtc.peers?.[sid];
+          if (peer?.userId) speakingUserIds.add(peer.userId);
+        }
+        const stream = rtc.remoteStreams?.[sid];
+        const hasVideo = stream && stream.getVideoTracks().some(t => t.enabled && !t.muted && t.readyState === 'live');
+        if (hasVideo && level > best.level && level > 0.08) best = { sid, level };
       });
+      // Fold in the local user's own speaking state (the pill broadcaster
+      // already tracks it, but the sidebar needs a unified view).
+      if (currentUser?.id && localSpeakingRef.current) speakingUserIds.add(currentUser.id);
+      window.dispatchEvent(new CustomEvent('spidr-call-user-speaking', {
+        detail: { userIds: Array.from(speakingUserIds) }
+      }));
       setActiveSpeakerSocketId((prev) => best.sid ?? prev); // sticky — don't blank out on silence
     }, 200);
     return () => {

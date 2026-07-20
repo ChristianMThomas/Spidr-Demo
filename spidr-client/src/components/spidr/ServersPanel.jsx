@@ -336,6 +336,23 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     return !!localStorage.getItem(`age_verified_${server.id}`);
   });
   const [activeVoiceChannel, setActiveVoiceChannel] = useState(null);
+  // Sidebar speaking indicator — subscribes to the per-user event VoiceChannel
+  // broadcasts (~5Hz) so each avatar in the voice channel roster pulses green
+  // when that user is actually talking. No polling; the event fires only when
+  // there's an active call whose analysers are live.
+  const [speakingUserIds, setSpeakingUserIds] = useState(() => new Set());
+  useEffect(() => {
+    const onSpeaking = (e) => {
+      const ids = new Set(e.detail?.userIds || []);
+      setSpeakingUserIds(prev => {
+        // Only re-render if the set actually changed (event fires ~5Hz)
+        if (prev.size === ids.size && [...prev].every(id => ids.has(id))) return prev;
+        return ids;
+      });
+    };
+    window.addEventListener('spidr-call-user-speaking', onSpeaking);
+    return () => window.removeEventListener('spidr-call-user-speaking', onSpeaking);
+  }, []);
   const [miniChatPinned, setMiniChatPinned] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -1469,21 +1486,38 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     {channelUsers.length > 1 && (
                       <div className="absolute w-[1px] bg-red-600/40 left-[15px] top-0 bottom-4" />
                     )}
-                    {channelUsers.map((u, idx) => (
+                    {channelUsers.map((u, idx) => {
+                      const uid = u.user_id;
+                      const isSpeaking = uid && speakingUserIds.has(uid);
+                      return (
                       <div key={u.user_id || u.id || idx}
                         className="relative flex items-center mt-2 first:mt-0"
                         title={u.user_name || 'Spider'}>
                         {/* Drop-thread: vertical line into the top of the avatar */}
                         <div className="absolute w-[1px] h-4 bg-red-600/70 left-[15px] -top-3 -translate-x-1/2" />
-                        {/* Glowing avatar node (the spider) */}
-                        <Avatar className="w-8 h-8 shrink-0 rounded-full border border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)] z-10">
-                          <AvatarImage src={u.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.user_id || u.user_name}`} />
-                          <AvatarFallback className="bg-red-900 text-white text-[10px]">{(u.user_name || '?').charAt(0).toUpperCase()}</AvatarFallback>
-                        </Avatar>
-                        <span className="ml-3 text-gray-300 text-sm font-medium truncate">{u.user_name || 'Spider'}</span>
+                        {/* Glowing avatar node — swaps to a pulsing green
+                            speaking ring when this user is actively talking
+                            (driven by spidr-call-user-speaking, sampled at
+                            ~5Hz from the shared per-peer analysers). */}
+                        <div className="relative shrink-0 z-10">
+                          {isSpeaking && (
+                            <div
+                              className="absolute -inset-0.5 rounded-full border-2 border-green-400 animate-pulse pointer-events-none"
+                              style={{ boxShadow: '0 0 10px rgba(34, 197, 94, 0.7)' }}
+                            />
+                          )}
+                          <Avatar className={`w-8 h-8 rounded-full border relative ${isSpeaking ? 'border-green-500/0' : 'border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.6)]'}`}>
+                            <AvatarImage src={u.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.user_id || u.user_name}`} />
+                            <AvatarFallback className="bg-red-900 text-white text-[10px]">{(u.user_name || '?').charAt(0).toUpperCase()}</AvatarFallback>
+                          </Avatar>
+                        </div>
+                        <span className={`ml-3 text-sm font-medium truncate transition-colors ${isSpeaking ? 'text-white font-bold' : 'text-gray-300'}`}>
+                          {u.user_name || 'Spider'}
+                        </span>
                         {u.is_muted && <MicOff className="w-3 h-3 text-red-400 shrink-0 ml-auto" />}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
                 </div>

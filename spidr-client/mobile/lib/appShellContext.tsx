@@ -2,7 +2,6 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQueryClient } from '@tanstack/react-query';
 import { auth, entities } from './apiClient';
-import { useAuth } from './authContext';
 import { emitter } from './eventEmitter';
 
 interface AppTheme {
@@ -39,7 +38,6 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
   const [userLoaded, setUserLoaded] = useState(false);
   const [appTheme, setAppThemeState] = useState<AppTheme>(DEFAULT_THEME);
   const queryClient = useQueryClient();
-  const { isAuthenticated } = useAuth();
 
   // Hydrate saved theme from AsyncStorage on mount.
   useEffect(() => {
@@ -49,14 +47,7 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Re-runs whenever auth state flips: a mount-only fetch raced the login flow
-  // (token not stored yet), leaving currentUser null for the whole session.
   useEffect(() => {
-    if (!isAuthenticated) {
-      setCurrentUser(null);
-      setUserLoaded(false);
-      return;
-    }
     let cancelled = false;
     (async () => {
       try {
@@ -77,7 +68,7 @@ export function AppShellProvider({ children }: { children: React.ReactNode }) {
       finally { if (!cancelled) setUserLoaded(true); }
     })();
     return () => { cancelled = true; };
-  }, [isAuthenticated]);
+  }, []);
 
   const refreshCurrentUser = useCallback(async () => {
     try {

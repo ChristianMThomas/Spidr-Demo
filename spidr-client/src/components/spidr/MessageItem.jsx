@@ -7,7 +7,7 @@ import GhostMessage from './GhostMessage';
 import KineticText from './KineticText';
 import ReactionBar from './ReactionBar';
 import VoiceMessageCapsule from './VoiceMessageCapsule';
-import { Crown, CornerUpLeft } from 'lucide-react';
+import { Crown, CornerUpLeft , PhoneMissed } from 'lucide-react';
 import { buildUsernameStyle } from '@/lib/usernameStyle';
 import { getBubbleGradientForProfile, buildBubbleStyle, buildBubbleCornerStyle } from '@/lib/bubbleGradients';
 import ContextableImage from '@/components/ui/ContextableImage';
@@ -87,6 +87,31 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
   const liveAvatar = isOwnMessage
     ? (currentUser?.avatar_url || senderProfile?.avatar_url || msg.sender_avatar)
     : (senderProfile?.avatar_url || msg.sender_avatar);
+
+  // Missed-call system row: rendered CENTERED, not as a chat bubble, with
+  // the tactical red-tinted alert styling from the blueprint. Reason drives
+  // the wording — declined vs. unanswered vs. cancelled.
+  if (msg.is_missed_call) {
+    const iSentCall = msg.caller_id === currentUser?.id;
+    const other = msg.caller_name || 'Someone';
+    const label = iSentCall
+      ? (msg.missed_call_reason === 'declined' ? `${other} declined your call` : `${other} didn't answer`)
+      : `You missed a call from ${other}`;
+    const when = msg.created_date ? new Date(msg.created_date) : null;
+    return (
+      <div className="flex items-center justify-center w-full my-3">
+        <div className="flex items-center gap-3 px-4 py-2 bg-red-500/10 border border-red-500/25 rounded-2xl">
+          <PhoneMissed className="w-4 h-4 text-red-500 shrink-0" />
+          <span className="text-xs font-bold text-white/80 tracking-wide">{label}</span>
+          {when && (
+            <span className="text-[10px] text-white/30 ml-1 tabular-nums">
+              {when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <motion.div
