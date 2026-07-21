@@ -1,29 +1,28 @@
 # Handoff
 
 ## Goal
-Get Spidr Mobile submission-ready for App Store + Google Play. This session closed the remaining Apple 1.2 / 5.1.1(v) / Play sensitive-permission engineering blockers.
+Purge deleted/orphaned users from Server documents (parity with the existing Friend / DM / Activity orphan cleanup) so ghost members stop appearing in Electron server sidebars, and produce a whole-project inventory of hardcoded emojis / vibe-coded symbols across web, electron, and mobile.
 
 ## Current State
-Branch `patch-1.9_Mobile` — all engineering blockers in `COMPLIANCE.md §1` are now DONE except the moderation queue / takedown docs. Server has real account-delete + deactivate with R2 blob purge; mobile has real report + block in DMs and on feed clips; expo-location is removed from mobile entirely (widget falls back to server-set coords). Nothing device-tested yet. Remaining ship gate is store-paperwork (Apple/Play accounts, EAS build, screenshots) and a moderation surface — not code fixes.
+Server orphan-purge is complete and live-tested — `sweepOrphans` extended and the servers list/get routes now prune ghost members on read. One-time sweep against production Mongo removed 4 friends, 81 DMs, 4 group members, 2 ghost server members, and 1 owner-less server. Nothing shipped (no commit); changes are staged in working tree only. `unvibecode.md` written at repo root with per-file symbol inventory across all three platforms.
 
 ## Files
-- COMPLIANCE.md — rewritten; §1 items now checkmarked, moderation queue called out as sole engineering blocker
-- spidr-server/src/utils/azureStorage.js — new `deleteFile(publicUrl)` best-effort R2/local purge
-- spidr-server/src/routes/users.js — DELETE /users/me now collects avatar/banner/clip URLs before cascade and fires `deleteFile` fanout post-response
-- spidr-client/mobile/components/profile/ModuleWidget.tsx — removed `expo-location` import + auto-prompt useEffect; weather widget shows "SET LOCATION FROM THE WEB APP TO ENABLE" fallback
-- spidr-client/mobile/package.json — `expo-location` dep removed
-- handoff.md — this file
+- `spidr-server/src/routes/accountAdmin.js` — `sweepOrphans` now prunes `Server.members[]`, `Server.banned_users[]`, deletes owner-less servers
+- `spidr-server/src/routes/servers.js` — added `pruneGhostMembers` util, overrode GET `/` and GET `/:id` with live orphan filtering (mounted before `crudRouter`)
+- `spidr-server/scripts/sweep-orphans.js` — untracked; existing script, unchanged this session
+- `spidr-server/src/utils/filterExistingUsers.js` — untracked; existing helper, unchanged this session
+- `unvibecode.md` — new file at repo root; full emoji inventory
+- (untouched by this session but showing in `git status`: `GAPS.md`, `mr-rimmer/*`, `spidr-client/src/components/*`, `spidr-server/src/index.js`, `routes/auth.js`, `directMessages.js`, `friends.js`, `dist_installer/`)
 
 ## Changes
-- Add `deleteFile(url)` to `azureStorage.js` — matches R2 public-URL prefix and issues DeleteObjectCommand; falls back to `/uploads/<key>` on local; swallows errors so callers never fail on storage cleanup
-- Wire account-delete cascade: fetch UserProfile.{avatar_url,banner_url} + Clip.{video_url,thumbnail_url} before deletion, then `Promise.allSettled(deleteFile ...)` after `res.json()` — fire-and-forget so the mobile UI isn't blocked on R2
-- Drop `expo-location` from mobile: removed import, `requestForegroundPermissionsAsync` useEffect, and package.json dep — Play sensitive-permission surface is now zero on the mobile bundle
-- Refresh COMPLIANCE.md to reality — many items previous handoffs listed as TODO were already shipped (DM report/block, feed clip report, Twitch "Coming Soon", delete UI, support contact); moderation queue is now the lone unchecked §1 item
+- Extended `sweepOrphans` in `accountAdmin.js` with Server pruning (members, banned_users, owner-less server deletion) — idempotent, matches the pattern used for Friend/DM/GroupChat
+- Added `pruneGhostMembers(servers)` helper in `servers.js`: single User query, filters `members[]` and `banned_users[]` in-place — one round-trip per request
+- Wired `pruneGhostMembers` into `GET /servers` and `GET /servers/:id` (overrides crudRouter's GET handlers, kept before the `router.use('/', crudRouter(...))` mount)
+- Ran `node scripts/sweep-orphans.js` against prod DB — result: Friend 4, DirectMessage 81, GroupChatMessage 0, GroupChatMembers 4, ServerMembers 2, ServerBans 0, Server 1
+- Wrote `unvibecode.md`: 56 web-src files, 2 electron shell files, 8 mobile app routes + 3 components + 1 lib file, grouped by page/component with symbol counts, cross-platform lockstep pairs, ranked replacement targets (SpidrBotEngine.jsx tops at 60+ emojis)
 
 ## Failed
-- **Moderation queue still missing** — reports write to `Report` collection but there's no admin surface (`/reports` is a bare `crudRouter(Report)` — GAPS #1 ownership hole, plus no admin UI). Apple 1.2 will still flag this.
-- **Nothing device-tested** — delete cascade, R2 purge, patch-DM fanout, weather-widget no-location fallback all unexercised against Railway + a device
-- Pre-existing untouched: `ClipCard.tsx(86,17)` TS7006 implicit any
+None.
 
 ## Next Step
-Ship the moderation queue: add `authMW + role: 'admin'` gate to `spidr-server/src/routes/reports.js` (replace bare `crudRouter(Report)`), build a `spidr-client/src/pages/admin/Reports.jsx` list with status transitions (pending→reviewed→resolved/dismissed), and document the takedown SLA in a public URL. This is the last Apple 1.2 blocker before store submission is purely paperwork.
+Commit the server-side orphan cleanup — `spidr-server/src/routes/accountAdmin.js` and `spidr-server/src/routes/servers.js` — via `/ship` (or `/git-workflow` if skipping the security audit) so the Electron client hits the pruned reads in prod. `unvibecode.md` is doc-only and can ship in the same or a separate push.

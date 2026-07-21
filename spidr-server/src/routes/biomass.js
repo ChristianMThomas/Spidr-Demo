@@ -125,6 +125,13 @@ router.post('/fly', authMW, async (req, res) => {
     w.lifetime_earned += reward;
     pushTx(w, reward, 'Caught a fly');
     await w.save();
+    // Log the catch into the user's Spidr System DM (fire-and-forget — the
+    // reward must not fail if the DM write does). Clients used to fabricate
+    // this DM themselves with a fake 'spidr-ai' sender, which landed the
+    // message in a self-DM thread instead of the real system account.
+    const { sendSystemDM } = require('../utils/spidrSystem');
+    sendSystemDM(req.user.id, `🪰 You caught the fly! +${reward} Biomass`)
+      .catch(err => console.warn('Fly-catch system DM failed:', err.message));
     res.json({ amount: reward, balance: w.balance, wallet: serializeWallet(w) });
   } catch (err) {
     res.status(500).json({ error: err.message });

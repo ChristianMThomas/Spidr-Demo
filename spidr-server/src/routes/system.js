@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1952',
+    title: 'Patch 1.9.52 — Ghost members purged + fly-catch DMs go real',
+    date: '2026-07-21',
+    type: 'FIX',
+    description: 'Two piles of ghost data cleaned up server-side. First: deleted accounts used to leave "ghost members" hanging in every server\'s member list — Electron sidebars kept rendering avatars for users whose profiles no longer existed. The admin sweep-orphans job now prunes Server.members[] and Server.banned_users[] and deletes any server whose owner no longer exists, mirroring the Friend / DirectMessage / GroupChatMember cleanup it already did. GET /servers and GET /servers/:id also strip ghost members live on read, so a deletion clears from every sidebar on the next fetch without waiting for the sweep. A one-time sweep against production removed 4 orphan friends, 81 orphan DMs, 4 ghost group-chat members, 2 ghost server members, and 1 owner-less server. Second: the "You caught the fly! +N Biomass" system DM was being fabricated on the client with a fake spidr-ai sender, which landed the message in a self-DM thread instead of the real Spidr System account. The catch is now logged server-side via sendSystemDM inside /biomass/fly — one source of truth, real system sender, fire-and-forget so a DM write can\'t fail the reward. A scripts/purge-fake-fly-dms.js dry-run/--delete helper is included to sweep the fabricated rows out of production.',
+  },
+  {
     id: 'p1925',
     title: 'Patch 1.9.25 — Spidr Apex + platform hardening',
     date: '2026-07-05',

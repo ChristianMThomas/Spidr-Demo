@@ -114,7 +114,7 @@ app.use(readLimiter, writeLimiter, uploadLimiter);
 app.use(
   '/auth',
   (req, res, next) => {
-    const allowedLegacy = new Set(['/me', '/setup-totp', '/verify-totp-setup', '/disable-totp']);
+    const allowedLegacy = new Set(['/setup-totp', '/verify-totp-setup', '/disable-totp']);
     if (!allowedLegacy.has(req.path)) {
       return res.status(410).json({
         error: 'endpoint_moved',

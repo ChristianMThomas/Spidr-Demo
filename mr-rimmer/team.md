@@ -1,6 +1,6 @@
 # Spidr — Team
 
-> Written 2026-07-06 from a direct Q&A with Chris. Update when roles, members, or workflow change.
+> Written 2026-07-06, re-verified 2026-07-20 on branch `dev` (no team, workflow, or ownership changes since). Update when roles, members, or workflow change.
 
 ## Members (2)
 
@@ -25,7 +25,7 @@
 
 ## Non-Code Responsibilities (⚠️ known gap)
 
-Beta recruitment, marketing, legal/ToS, and finances are **handled together ad hoc, and both founders self-describe as clueless here — they actively want help**. Nobody formally owns any of it. This matters soon: the closed beta (50-tester funnel, see [goal.md](goal.md)) needs recruitment + the Beta Testing Agreement to hold up, and real APEX billing (see [pricing.md](pricing.md)) will drag in payments/tax/PCI questions neither currently covers. Flag business/legal implications proactively when advising — don't assume someone else is watching that side.
+Beta recruitment, marketing, legal/ToS, and finances are **handled together ad hoc, and both founders self-describe as clueless here — they actively want help**. Nobody formally owns any of it. This matters *now*, not "soon": real APEX billing shipped in Patch 1.9.25 (see [pricing.md](pricing.md)), so payments / sales tax / PCI-scope questions are live concerns rather than hypothetical, and the closed beta (50-tester funnel, see [goal.md](goal.md)) still needs recruitment + the Beta Testing Agreement to hold up under actual signups. Flag business/legal implications proactively when advising — don't assume someone else is watching that side.
 
 ## Practical Implications for Mr. Rimmer
 

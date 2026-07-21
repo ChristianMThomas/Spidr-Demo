@@ -249,7 +249,10 @@ export default function SpidrShell() {
   return (
     <MenuProvider>
       <NotificationProvider currentUser={currentUser}>
-      <div className="w-full h-[100dvh] flex flex-col overflow-hidden text-white">
+      {/* bg-[#050505] here (not on TitleBar) so the frameless-window strip
+          above the themed layout area reads as dark chrome instead of the
+          white document body bleeding through the transparent titlebar. */}
+      <div className="w-full h-[100dvh] flex flex-col overflow-hidden text-white bg-[#050505]">
         {/* Custom title bar — Electron only (frameless window). Owns the
             NotificationBell + BiomassBalancePill + UserStatusChip cluster
             on desktop app users, so the floating cluster below is hidden

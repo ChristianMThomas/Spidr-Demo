@@ -481,7 +481,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     setReplyingTo(null);
   };
 
-  const handleFlyCatch = async (userName) => {
+  const handleFlyCatch = async () => {
     if (!currentUser?.id) return;
     let granted = 10;
     try {
@@ -494,20 +494,8 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         return;
       }
     }
-    // Route the catch into the Spidr System DM thread instead of the
-    // active DM conversation.
-    const spidrId = 'spidr-ai';
-    const ids = [String(currentUser.id), spidrId].sort();
-    const convId = `dm_${ids[0]}_${ids[1]}`;
-    entities.DirectMessage.create({
-      conversation_id: convId,
-      sender_id: spidrId,
-      sender_name: 'Spidr System',
-      sender_avatar: SPIDR_AI_AVATAR,
-      receiver_id: String(currentUser.id),
-      recipient_id: String(currentUser.id),
-      content: `${userName} caught the fly! +${granted} Biomass`
-    }).catch(() => {});
+    // The server logs the catch into the real Spidr System DM (routes/biomass.js)
+    // — no client-side DM fabrication, which used to land in a self-DM thread.
     toast.success(`You caught the fly! +${granted} Biomass`);
   };
 

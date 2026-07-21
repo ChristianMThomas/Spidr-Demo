@@ -1237,7 +1237,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     <div className="flex-1 flex relative min-w-0">
       {/* Fly Hunt */}
       <FlyHunt 
-        onCatch={async (userName) => {
+        onCatch={async () => {
           if (!currentUser?.id) return;
           let granted = 10;
           try {
@@ -1250,18 +1250,8 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
               return;
             }
           }
-          const spidrId = 'spidr-ai';
-          const ids = [String(currentUser.id), spidrId].sort();
-          const convId = `dm_${ids[0]}_${ids[1]}`;
-          entities.DirectMessage.create({
-            conversation_id: convId,
-            sender_id: spidrId,
-            sender_name: 'Spidr System',
-            sender_avatar: SPIDR_AI_AVATAR,
-            receiver_id: String(currentUser.id),
-            recipient_id: String(currentUser.id),
-            content: `${userName} caught the fly! +${granted} Biomass`
-          }).catch(() => {});
+          // The server logs the catch into the real Spidr System DM
+          // (routes/biomass.js) — no client-side DM fabrication.
           toast.success(`You caught the fly! +${granted} Biomass`);
         }}
         userName={currentUser?.full_name || 'You'}

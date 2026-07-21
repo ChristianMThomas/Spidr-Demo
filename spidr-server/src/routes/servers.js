@@ -2,10 +2,34 @@ const express = require('express');
 const crudRouter = require('../utils/crudRouter');
 const authMiddleware = require('../middleware/auth');
 const Server = require('../models/Server');
+const User = require('../models/User');
 const feedEvents = require('../utils/feedEvents');
 const welcomeBot = require('../utils/welcomeBot');
 
 const router = express.Router();
+
+// Strip members / banned_users referencing users that no longer exist.
+// One User query per request covers every server passed in. Read-side
+// hygiene so ghost members disappear immediately after a deletion, without
+// waiting for the /admin/sweep-orphans cron.
+async function pruneGhostMembers(servers) {
+  const list = Array.isArray(servers) ? servers : [servers];
+  const ids = new Set();
+  for (const s of list) {
+    for (const m of (s?.members || [])) if (m?.user_id) ids.add(m.user_id.toString());
+    for (const b of (s?.banned_users || [])) if (b) ids.add(b.toString());
+  }
+  if (ids.size === 0) return servers;
+  const live = new Set(
+    (await User.find({ _id: { $in: Array.from(ids) } }, { _id: 1 }).lean())
+      .map(u => u._id.toString())
+  );
+  for (const s of list) {
+    if (Array.isArray(s?.members)) s.members = s.members.filter(m => m?.user_id && live.has(m.user_id.toString()));
+    if (Array.isArray(s?.banned_users)) s.banned_users = s.banned_users.filter(b => b && live.has(b.toString()));
+  }
+  return servers;
+}
 
 // Helper: generate a short alphanumeric invite code
 function generateInviteCode() {
@@ -242,7 +266,41 @@ router.patch('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Mount the generic CRUD router for everything else (list, get one, create, update, delete)
+// GET overrides — same behavior as crudRouter but with ghost-member pruning
+// applied before responding, so deleted users never render in the sidebar.
+router.get('/:id', authMiddleware, async (req, res) => {
+  try {
+    const doc = await Server.findById(req.params.id).lean();
+    if (!doc) return res.status(404).json({ error: 'Not found' });
+    await pruneGhostMembers(doc);
+    const { _id, __v, ...rest } = doc;
+    res.json({ id: _id?.toString(), ...rest });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const { _orderBy, _limit, ...filters } = req.query;
+    const query = {};
+    for (const [k, v] of Object.entries(filters)) {
+      if (k.startsWith('$')) continue;
+      if (typeof v === 'string' && v.includes(',')) query[k] = { $in: v.split(',') };
+      else if (typeof v === 'object' && v !== null) continue;
+      else query[k] = v;
+    }
+    let q = Server.find(query);
+    if (_orderBy) {
+      const field = _orderBy.startsWith('-') ? _orderBy.slice(1) : _orderBy;
+      if (/^[a-zA-Z0-9_.]+$/.test(field)) q = q.sort({ [field]: _orderBy.startsWith('-') ? -1 : 1 });
+    }
+    if (_limit) q = q.limit(Math.min(Math.max(parseInt(_limit, 10) || 50, 1), 200));
+    const docs = await q.lean();
+    await pruneGhostMembers(docs);
+    res.json(docs.map(d => { const { _id, __v, ...rest } = d; return { id: _id?.toString(), ...rest }; }));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Mount the generic CRUD router for everything else (create, update, delete)
 router.use('/', crudRouter(Server, { ownerField: 'owner_id' }));
 
 module.exports = router;

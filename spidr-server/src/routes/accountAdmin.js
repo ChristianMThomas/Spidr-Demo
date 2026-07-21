@@ -155,6 +155,102 @@ router.delete('/admin/:id', authMW, requirePlatformAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Admin: sweep orphaned rows referencing deleted users ───────────────────
+// Legacy orphans exist from accounts deleted before the current cascade
+// (or deleted directly in Atlas). This removes Friend / DirectMessage /
+// GroupChatMessage rows pointing to non-existent users and prunes deleted
+// members from every GroupChat. Safe to re-run — idempotent.
+router.post('/admin/sweep-orphans', authMW, requirePlatformAdmin, async (req, res) => {
+  try {
+    const results = await sweepOrphans();
+    res.json({ ok: true, swept: results });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+async function sweepOrphans() {
+  const results = {};
+  const liveIds = new Set(
+    (await User.find({}, { _id: 1 }).lean()).map(u => u._id.toString())
+  );
+  const orphan = (id) => id && !liveIds.has(id.toString());
+
+  // Friend — either side references a dead user
+  try {
+    const Friend = require('../models/Friend');
+    const rows = await Friend.find({}, { user_id: 1, friend_id: 1 }).lean();
+    const dead = rows.filter(r => orphan(r.user_id) || orphan(r.friend_id)).map(r => r._id);
+    if (dead.length) await Friend.deleteMany({ _id: { $in: dead } });
+    results.Friend = dead.length;
+  } catch (err) { results.Friend = `error: ${err.message}`; }
+
+  // DirectMessage — either participant is dead
+  try {
+    const DirectMessage = require('../models/DirectMessage');
+    const rows = await DirectMessage.find({}, { sender_id: 1, recipient_id: 1, receiver_id: 1 }).lean();
+    const dead = rows.filter(r => orphan(r.sender_id) || orphan(r.recipient_id) || orphan(r.receiver_id)).map(r => r._id);
+    if (dead.length) await DirectMessage.deleteMany({ _id: { $in: dead } });
+    results.DirectMessage = dead.length;
+  } catch (err) { results.DirectMessage = `error: ${err.message}`; }
+
+  // GroupChatMessage — author is dead
+  try {
+    const GroupChatMessage = require('../models/GroupChatMessage');
+    const rows = await GroupChatMessage.find({}, { user_id: 1 }).lean();
+    const dead = rows.filter(r => orphan(r.user_id)).map(r => r._id);
+    if (dead.length) await GroupChatMessage.deleteMany({ _id: { $in: dead } });
+    results.GroupChatMessage = dead.length;
+  } catch (err) { results.GroupChatMessage = `error: ${err.message}`; }
+
+  // GroupChat.members[] — prune dead members from every group
+  try {
+    const GroupChat = require('../models/GroupChat');
+    const groups = await GroupChat.find({}, { members: 1 }).lean();
+    let pruned = 0;
+    for (const g of groups) {
+      const dead = (g.members || []).filter(m => orphan(m.user_id)).map(m => m.user_id);
+      if (dead.length) {
+        await GroupChat.updateOne({ _id: g._id }, { $pull: { members: { user_id: { $in: dead } } } });
+        pruned += dead.length;
+      }
+    }
+    results.GroupChatMembers = pruned;
+  } catch (err) { results.GroupChatMembers = `error: ${err.message}`; }
+
+  // Server.members[] / banned_users[] — prune dead users from every server,
+  // and delete servers whose owner no longer exists (matches the live delete
+  // cascade so legacy owner-less servers get cleaned up too).
+  try {
+    const Server = require('../models/Server');
+    const servers = await Server.find({}, { members: 1, banned_users: 1, owner_id: 1 }).lean();
+    let prunedMembers = 0;
+    let prunedBans = 0;
+    for (const s of servers) {
+      const deadMembers = (s.members || []).filter(m => orphan(m.user_id)).map(m => m.user_id);
+      const deadBans    = (s.banned_users || []).filter(orphan);
+      const ops = {};
+      if (deadMembers.length) ops.members = { user_id: { $in: deadMembers } };
+      if (deadBans.length)    ops.banned_users = { $in: deadBans };
+      if (Object.keys(ops).length) {
+        await Server.updateOne({ _id: s._id }, { $pull: ops });
+        prunedMembers += deadMembers.length;
+        prunedBans    += deadBans.length;
+      }
+    }
+    results.ServerMembers = prunedMembers;
+    results.ServerBans    = prunedBans;
+
+    const ownerless = servers.filter(s => orphan(s.owner_id)).map(s => s._id);
+    if (ownerless.length) {
+      const r = await Server.deleteMany({ _id: { $in: ownerless } });
+      results.Server = r.deletedCount || 0;
+    } else {
+      results.Server = 0;
+    }
+  } catch (err) { results.Server = `error: ${err.message}`; }
+
+  return results;
+}
+
 // ── Admin: grant / revoke platform admin ───────────────────────────────────
 router.post('/admin/role', authMW, requirePlatformAdmin, async (req, res) => {
   try {
@@ -168,3 +264,4 @@ router.post('/admin/role', authMW, requirePlatformAdmin, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.sweepOrphans = sweepOrphans;

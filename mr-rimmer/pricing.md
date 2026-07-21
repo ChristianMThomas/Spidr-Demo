@@ -1,20 +1,22 @@
 # SPIDR APEX — Pricing & Monetization Reference
 
-> Source of truth as implemented in code as of 2026-07-06 (branch `patch-1.9_Mobile`).
+> Source of truth as implemented in code as of 2026-07-20 (branch `dev`).
 > Primary implementation: `spidr-client/src/components/spidr/ApexCommand.jsx` (checkout + manage UI),
-> `spidr-server/src/models/UserProfile.js:42-49` (tier storage), `ApexStore.jsx` / `ApexVisuals.jsx` (customization).
+> `spidr-server/src/models/UserProfile.js:42-70` (tier + Stripe state),
+> `spidr-server/src/routes/webhooks/stripe.js` (signed webhook — only writer of `apex_tier`),
+> `ApexStore.jsx` / `ApexVisuals.jsx` (customization).
 
 ## Tiers
 
 Two tiers exist in the data model (`UserProfile.apex_tier`, enum `['free','apex']`). The manage screen labels the paid tier "APEX TIER 1", implying room for higher tiers later, but only one paid tier is implemented.
 
-| Plan | Price | Billing | Notes |
-|---|---|---|---|
-| Free | $0 | — | Default for every profile |
-| APEX — Monthly | **$7.99 / mo** | Monthly | |
-| APEX — Yearly | **$6.39 / mo** ($76.68 billed annually) | Annual | 20% discount vs monthly |
+| Plan | Price | Effective /mo | Billing | Notes |
+|---|---|---|---|---|
+| Free | $0 | — | — | Default for every profile |
+| APEX — Monthly | **$7.99 / mo** | $7.99 | Monthly | |
+| APEX — Yearly | **$69.99 / yr** | $5.83 | Annual | ~27% discount vs monthly |
 
-Prices are hardcoded in `ApexCommand.jsx:42` (`planType === 'monthly' ? 7.99 : 6.39`). There is no server-side price table — changing pricing means editing the client and redeploying.
+Prices are hardcoded in `ApexCommand.jsx:11-14` (`MONTHLY_PRICE = 7.99`, `YEARLY_PRICE = 69.99`; savings % is computed). There is no server-side price table — changing prices means editing the client, redeploying, **and** updating the corresponding Stripe Price IDs on the server.
 
 ## What APEX Buys (as marketed in the upgrade modal)
 
@@ -35,15 +37,32 @@ Prices are hardcoded in `ApexCommand.jsx:42` (`planType === 'monthly' ? 7.99 : 6
 
 Feature flags are stored in `UserProfile.apex_features` (Mixed object: `thread_skin`, `squad_overclock`, `deep_storage`, `entry_protocol`, `bubble_gradient`, `entrance_style`, `frame_url`, `nameplate_url`, `plan_type`, `activated_at`, …). Visual fields are **duplicated** top-level on the profile (`apexFrameStyle`, `apexBadgeUrl`, `apexBadgeGlow`, `apexNameplateStyle`) — consumers read top-level first, then fall back to `apex_features`. Writers must update both (see `ApexVisuals.jsx` badge saver).
 
+## Stripe Data Model (Patch 1.9.25)
+
+Real subscription state lives on `UserProfile` as server-only fields (`spidr-server/src/models/UserProfile.js:58-70`, comment: "in crudRouter's PROTECTED_FIELDS … no client PATCH can touch them"):
+
+| Field | Type | Notes |
+|---|---|---|
+| `stripe_customer_id` | String (indexed) | Set on first Checkout Session |
+| `stripe_subscription_id` | String | Current active/trialing subscription |
+| `stripe_subscription_status` | String | `'active' \| 'trialing' \| 'canceled' \| 'past_due' \| …` — drives the manage-screen status pill |
+| `stripe_current_period_end` | Date | Powers the "Next Billing" / "Trial Ends" row (`ApexCommand.jsx:105-111`) |
+| `stripe_cancel_at_period_end` | Boolean | End-of-cycle cancel flag from Stripe |
+| `apex_first_activated_at` | Date | **Burn-once trial gate.** `null` → user has never held APEX → Checkout Session includes the 30-day trial. Set on first activation, never cleared, so cancel-and-resubscribe pays from day one. Client reads this at `ApexCommand.jsx:74` for the "$0.00 due today" hint; server is authoritative. |
+
 ## Purchase / Cancel Flow (current state)
 
-- Upgrade: choose plan → billing form (client-side validation only) → **simulated** 1.8 s delay → `UserProfile.update({ apex_tier: 'apex', apex_features: {...} })` → cache invalidation + `spidr-profile-updated` event so the APEX tab/badge unlock without reload.
-- Cancel: confirmation dialog → sets `apex_tier: 'free'` **immediately**, though the UI copy says "Access until next billing cycle."
+- **Upgrade**: choose plan → `payments.createCheckoutSession(planType)` (`ApexCommand.jsx:79`) returns a Stripe Checkout URL → opened in a new tab / system browser (`window.open(url, '_blank')`) → Stripe webhook flips `apex_tier` server-side. Card data never touches Spidr servers.
+- **Return-from-Checkout refresh** (`ApexCommand.jsx:47-66`): on window `focus`, every profile-related React Query cache is invalidated so the APEX badge, tab, and features unlock without a manual reload. Electron-aware — `window.electronAPI.onWindowFocus` fires even when the OS focus target is still the external browser tab.
+- **Cancel / manage**: `payments.createPortalSession()` (`ApexCommand.jsx:94`) opens the Stripe Billing Portal in a new tab. Cancellation, plan changes, and payment-method updates all happen there; the webhook mirrors the resulting state back into `stripe_*` fields.
+- **Manage screen** reads live Stripe fields — status pill from `stripe_subscription_status` (trialing → yellow "Free trial active"; else green "Active Subscription"), next-billing row from `stripe_current_period_end`, plan/amount from `apex_features.plan_type` + `MONTHLY_PRICE` / `YEARLY_PRICE` constants.
 
-## ⚠️ Known Gaps (pre-launch blockers for real money)
+## Remaining Gaps
 
-1. **No payment processor.** The card form collects real card data into React state and discards it; `ApexCommand.jsx:68` has the TODO: "In production: call your Stripe checkout session endpoint here." Never ship the current form to production — collecting card numbers ourselves is PCI scope we don't want. Replace with Stripe Checkout/Elements.
-2. **Tier is client-writable.** Activation is a plain `entities.UserProfile.update(...)` from the browser. Any logged-in user can grant themselves APEX by calling the profile update endpoint directly. Real monetization needs a server-side subscription check (Stripe webhook → server sets `apex_tier`; profile route must reject client writes to `apex_tier` / `apex_features.squad_overclock` etc.).
-3. **Hardcoded billing metadata.** The manage screen shows a fixed "Next Billing: Apr 14, 2026 / Monthly / $7.99" regardless of the actual plan purchased.
-4. **Cancel semantics mismatch.** Code downgrades instantly; copy promises end-of-cycle access. Pick one (end-of-cycle requires a `apex_expires_at` field + cron/worker check).
-5. **No server enforcement of gated features.** Gating (bubble gradients, overclock, skins) is client-side; the API will happily persist APEX-only fields for free users.
+Patch 1.9.25 closed the big four (real Stripe checkout, server-only tier writes, real cancel semantics, live billing metadata). What's left:
+
+1. **Feature-level enforcement is still client-side.** Tier writes are locked, but the API will still persist APEX-only fields (`bubbleGradients.js:133`, entrance styles, frame URLs) if a free user PATCHes them directly. Belt-and-braces would be server-side rejection of APEX-gated field writes when `apex_tier === 'free'`.
+2. **No higher tier.** The UI hints at "APEX TIER 1" but the enum is binary. Adding TIER 2 means extending the enum, the price table, the Checkout Session catalog, and the webhook mapping.
+3. **No self-serve refund / dunning UX inside Spidr.** All of it goes through the Stripe portal — fine for now, but note it before any consumer-support-heavy launch.
+
+Historical / resolved gaps (kept for context): PCI scope from client-side card collection, client-writable `apex_tier`, hardcoded billing metadata, and instant-vs-end-of-cycle cancel semantics were the four fixed by Patch 1.9.25 (see `spidr-server/src/routes/system.js:13-20`, NEWS id `p1925`).

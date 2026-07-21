@@ -57,3 +57,7 @@ handoff.md
 handoff*.md
 
 
+
+# Electron build output — installers, unpacked chrome, locale paks (huge, regeneratable)
+spidr-client/dist_installer/
+dist_installer/

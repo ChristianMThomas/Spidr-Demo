@@ -32,13 +32,13 @@
 
 **Fix (single task)**: add Jest + supertest to `spidr-server` with one suite for `crudRouter` (ownership matrix: owner/non-owner × list/get/patch/delete × with/without ownerField and publicWriteFields) using mongodb-memory-server. That one suite guards ~24 endpoints and locks in the gap-1 fix.
 
-## 4. 🟠 HIGH — Legacy Node auth endpoints still live alongside Spring Boot
+## 4. ✅ RESOLVED (2026-07-19) — Legacy Node auth endpoints alongside Spring Boot
 
-**What**: `spidr-server/src/routes/auth.js` still exists with bcryptjs + speakeasy; the client intentionally uses Node for TOTP (`/auth/setup-totp`, AUTH-F3) but the rest of the legacy endpoints are reachable dead surface. Two services can mint/validate identity state against the same `users` collection.
+**Was**: `spidr-server/src/routes/auth.js` carried ~250 lines of legacy register/login/email-OTP/password-reset code (bcryptjs, Redis OTP store, its own `signToken` with a raw-string `getSecret()` that diverged from the base64-decoding `utils/jwtSecret.js`). Reachability had already been cut by commit `a73c5ab` (2026-07-05): a 410 gate at the `/auth` mount (`spidr-server/src/index.js:114-127`) allowlisted only `/me` + the TOTP endpoints — but the dead code shipped anyway, kept dead by that single middleware block.
 
-**Why it matters**: Split-brain auth means security fixes must be applied twice, and forgotten legacy endpoints are classic breach entry points.
+**Fix applied**: `routes/auth.js` now contains only the three TOTP endpoints the clients actually call (`/setup-totp`, `/verify-totp-setup`, `/disable-totp` — `apiClient.js:224-226`, `mobile/lib/apiClient.ts:198-200`) plus a comment pointing at spidr-auth; all legacy handlers, the OTP store, `signToken`, and the divergent local `getSecret()` are deleted. The 410 gate stays as belt-and-braces and `/me` (allowlisted but unused — clients use Spring Boot `GET /users/me`) was dropped from the allowlist. Verified: server boots clean; `/auth/login`, `/auth/me`, `/auth/dev-get-otp` → 410; `/auth/setup-totp` → 401 without a token.
 
-**Fix (single task)**: audit `routes/auth.js`, delete every endpoint except the TOTP ones the client actually calls, and add a comment pointing at spidr-auth for the rest.
+**Still open by design**: TOTP lives on Node until Spring Boot grows it (AUTH-F3) — auth remains split across two services for that one feature.
 
 ## 5. 🟠 HIGH — `GET /users` list leaks all user emails to any logged-in user
 

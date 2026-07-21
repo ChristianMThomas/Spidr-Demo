@@ -106,7 +106,7 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
 
       <div className={`${horizontal
           ? 'w-full h-[64px] flex flex-row items-center px-4 border-b'
-          : 'w-[72px] flex flex-col items-center py-4 border-r h-[100dvh]'
+          : 'w-[72px] flex flex-col items-center py-4 border-r h-full'
         } z-50 relative transition-all ${isGlass ? "bg-black/30 backdrop-blur-xl border-white/10" : "bg-[#050505] border-white/5"}`}>
       {/* Home — top-of-sidebar button that returns to /home. Replaces the
           old SpiderLogo home button with a literal Home icon. */}

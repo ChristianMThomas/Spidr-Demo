@@ -225,12 +225,22 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['friends'] })
   });
 
-  const acceptedFriends = friends.filter(f => f.status === 'accepted');
-  const pendingIncoming = friends.filter(f => f.status === 'pending_incoming');
-  const pendingOutgoing = friends.filter(f => f.status === 'pending_outgoing');
-  const blockedUsers = friends.filter(f => f.status === 'blocked');
-
   const getProfile = (userId) => profiles.find(p => p.user_id === userId);
+
+  const q = searchQuery.trim().toLowerCase();
+  const matchesSearch = (f) => {
+    if (!q) return true;
+    const p = getProfile(f.friend_id);
+    return [
+      f.friend_name, f.friend_username, f.nickname,
+      p?.display_name, p?.username,
+    ].some(v => v && v.toString().toLowerCase().includes(q));
+  };
+
+  const acceptedFriends = friends.filter(f => f.status === 'accepted' && matchesSearch(f));
+  const pendingIncoming = friends.filter(f => f.status === 'pending_incoming' && matchesSearch(f));
+  const pendingOutgoing = friends.filter(f => f.status === 'pending_outgoing' && matchesSearch(f));
+  const blockedUsers = friends.filter(f => f.status === 'blocked' && matchesSearch(f));
 
   const handleAddFriend = async () => {
     const input = addFriendInput.trim();
