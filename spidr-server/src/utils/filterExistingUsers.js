@@ -3,10 +3,12 @@ const User = require('../models/User');
 /**
  * Drop rows whose referenced counterparty user no longer exists.
  *
- * A row survives if ANY of its refFields resolves to a live User. Used on
+ * A row survives only if EVERY refField resolves to a live User. Used on
  * hot read paths (Friend list, DirectMessage list) so deleted accounts stop
  * appearing as ghost entries in the UI when a cascade missed a row (legacy
- * orphans, deletions made directly in Atlas, partial-cascade failures).
+ * orphans, deletions made directly in Atlas, partial-cascade failures). The
+ * caller (current user) is usually one of the participants and always live,
+ * so requiring ALL participants live is what actually drops ghost rows.
  *
  * One User.find round-trip per call, `_id`-only projection — cheap even at
  * a few hundred ids.
@@ -35,7 +37,7 @@ async function filterOrphans(rows, refFields) {
   const live = new Set(existing.map(u => u._id.toString()));
 
   return rows.filter(row =>
-    fields.some(f => {
+    fields.every(f => {
       const v = row?.[f];
       return v && live.has(v.toString());
     })

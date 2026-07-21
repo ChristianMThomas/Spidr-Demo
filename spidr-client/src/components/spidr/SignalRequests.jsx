@@ -21,10 +21,15 @@ export default function SignalRequests({ currentUser }) {
     };
   }, [currentUser?.id, queryClient]);
 
-  // DMs from non-friends (unknown senders)
+  // DMs from non-friends (unknown senders). NOTE: we intentionally do NOT
+  // filter by is_read here — the tab is "pending message requests from
+  // strangers", not "unread DMs from strangers". Filtering by is_read made
+  // requests vanish the moment the user peeked at a DM, with no accept /
+  // block affordance left. Server-side filterOrphans already drops rows
+  // whose sender no longer exists, so ghost senders don't reach us.
   const { data: allDMs = [] } = useQuery({
     queryKey: ['signal-requests-dms', currentUser?.id],
-    queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id, is_read: false }),
+    queryFn: () => entities.DirectMessage.filter({ recipient_id: currentUser?.id }, '-created_date', 200),
     enabled: !!currentUser?.id,
   });
 
@@ -141,15 +146,17 @@ export default function SignalRequests({ currentUser }) {
                 </div>
 
                 <div className="flex gap-2 flex-shrink-0 ml-4">
-                  <button 
-                    onClick={() => blockMutation.mutate(dm.sender_id)} 
-                    className="px-3 py-2 bg-[#050505] border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1 uppercase"
+                  <button
+                    onClick={() => blockMutation.mutate(dm.sender_id)}
+                    disabled={acceptMutation.isPending || blockMutation.isPending}
+                    className="px-3 py-2 bg-[#050505] border border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1 uppercase disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-[#050505] disabled:hover:text-red-500"
                   >
                     <UserX size={12} /> Sever
                   </button>
-                  <button 
-                    onClick={() => acceptMutation.mutate(dm.sender_id)} 
-                    className="px-4 py-2 bg-white hover:bg-gray-200 text-black rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1 uppercase"
+                  <button
+                    onClick={() => acceptMutation.mutate(dm.sender_id)}
+                    disabled={acceptMutation.isPending || blockMutation.isPending}
+                    className="px-4 py-2 bg-white hover:bg-gray-200 text-black rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1 uppercase disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white"
                   >
                     <Check size={12} /> Accept
                   </button>

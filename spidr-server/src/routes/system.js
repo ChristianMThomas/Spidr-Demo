@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1953',
+    title: 'Patch 1.9.53 — Signals tab peek-safe + ghost DMs really gone',
+    date: '2026-07-21',
+    type: 'FIX',
+    description: 'Fixes two related bugs in the "Signals" message-request inbox on the Friends panel. First: the tab was querying is_read: false, which meant a request from a stranger vanished the moment you peeked at their DM — no accept, no block, no way back. Semantic was wrong; the tab is "pending requests from non-friends", not "unread DMs from strangers". The query now drops the is_read filter and instead pulls the 200 most recent DMs to you, deduped by sender and filtered against your friend list, so peeking no longer erases the request. Second: the server-side ghost-user filter on GET /direct-messages was a no-op — filterOrphans used .some() (row kept if ANY participant is live), and since the caller IS a live participant, every DM row survived even when the other side had been deleted. Flipped to .every() so a DM row now needs BOTH participants alive to render, which drops ghost-participant DMs from Jump Back In, the DirectMessages panel, and Signals in one shot. Also added a disabled state on the Accept / Sever buttons while the mutation is in flight so a double-click cannot create duplicate Friend rows.',
+  },
+  {
     id: 'p1952',
     title: 'Patch 1.9.52 — Ghost members purged + fly-catch DMs go real',
     date: '2026-07-21',
