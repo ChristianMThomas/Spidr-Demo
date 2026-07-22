@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { entities, auth } from '@/api/apiClient';
 import { motion } from 'framer-motion';
-import { Zap, Crown, Wifi, HardDrive, X, Users, PaintBucket, Settings } from 'lucide-react';
+import { Zap, Crown, Wifi, HardDrive, X, Users, PaintBucket, Settings, Check } from 'lucide-react';
 import ApexCommand from './ApexCommand';
 
 export default function ApexStore({ isOpen, onClose, currentTier = 'free', currentUser: propUser, profile: propProfile }) {
@@ -14,6 +14,8 @@ export default function ApexStore({ isOpen, onClose, currentTier = 'free', curre
   const profile = propProfile || fetchedProfile;
   
   if (!isOpen) return null;
+
+  const hasApex = currentTier === 'apex';
 
   // Render via a portal to document.body so the modal escapes the Sidebar's
   // stacking context (the sidebar wrapper now has an opacity style, which
@@ -36,7 +38,7 @@ export default function ApexStore({ isOpen, onClose, currentTier = 'free', curre
                SPIDR <span className="text-[#FF3333]">APEX</span>
              </h1>
              <p className="text-gray-500 text-xs mt-2 uppercase tracking-widest">
-               Evolutionary Status: <span className="text-white">UNLOCKED</span>
+               Evolutionary Status: <span className={hasApex ? 'text-[#FF3333]' : 'text-white'}>{hasApex ? 'ACTIVE' : 'UNLOCKED'}</span>
              </p>
           </div>
 
@@ -46,13 +48,33 @@ export default function ApexStore({ isOpen, onClose, currentTier = 'free', curre
           </div>
 
           <div className="mt-8 pt-8 border-t border-white/5">
-            <div className="text-2xl font-bold text-white">$7.99<span className="text-sm text-gray-500 font-normal">/mo</span></div>
-            <button 
-              onClick={() => setShowCommand(true)}
-              className="w-full mt-4 py-3 bg-[#FF3333] text-white font-black rounded-xl hover:scale-105 transition-transform shadow-lg shadow-red-900/20"
-            >
-              {currentTier === 'apex' ? 'MANAGE SUBSCRIPTION' : 'INITIATE UPGRADE'}
-            </button>
+            {hasApex ? (
+              <>
+                <div className="flex items-center gap-2 text-[#FF3333]">
+                  <Check size={20} />
+                  <div className="text-lg font-black tracking-tight">YOU ALREADY HAVE APEX</div>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">
+                  Your subscription is active. All capabilities on the right are unlocked.
+                </p>
+                <button
+                  onClick={() => setShowCommand(true)}
+                  className="w-full mt-4 py-3 bg-white/5 border border-[#FF3333]/40 text-white font-black rounded-xl hover:bg-[#FF3333]/10 transition-colors"
+                >
+                  MANAGE SUBSCRIPTION
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="text-2xl font-bold text-white">$7.99<span className="text-sm text-gray-500 font-normal">/mo</span></div>
+                <button
+                  onClick={() => setShowCommand(true)}
+                  className="w-full mt-4 py-3 bg-[#FF3333] text-white font-black rounded-xl hover:scale-105 transition-transform shadow-lg shadow-red-900/20"
+                >
+                  INITIATE UPGRADE
+                </button>
+              </>
+            )}
           </div>
         </div>
 

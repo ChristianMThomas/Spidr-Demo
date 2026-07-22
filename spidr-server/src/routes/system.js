@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1955',
+    title: 'Patch 1.9.55 — APEX store recognizes existing subscribers',
+    date: '2026-07-22',
+    type: 'FIX',
+    description: 'Opening the APEX upgrade screen while already subscribed used to still show the "$7.99/mo — INITIATE UPGRADE" pitch (with the CTA button just relabeled to MANAGE SUBSCRIPTION), which read like the app didn\'t know you had already paid. The pitch column now flips to a clear "YOU ALREADY HAVE APEX" confirmation with a check icon and a subdued MANAGE SUBSCRIPTION button when currentTier is apex, and the status pill in the header switches from UNLOCKED to ACTIVE. The feature grid and the top-right settings gear are unchanged, so managing the subscription is still one click away.',
+  },
+  {
     id: 'p1954',
     title: 'Patch 1.9.54 — Landing redesign + Electron URL hardening',
     date: '2026-07-22',
