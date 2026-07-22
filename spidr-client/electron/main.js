@@ -44,6 +44,58 @@ function closeSplash() {
 // consumed by the display-media request handler on the next getDisplayMedia().
 let pendingShareSourceId = null;
 
+// ── Navigation / external-link hardening ────────────────────────────────────
+// The renderer can be tricked into opening a hostile URL (a crafted chat link,
+// a redirect from a compromised widget, etc.). Without a guard, that URL gets
+// handed to shell.openExternal — which will happily launch `file://`, custom
+// URI schemes registered by other apps, etc. And a top-level navigation would
+// load the destination in-window with our preload attached. Both are lifted
+// straight from the Electron security checklist.
+const EXTERNAL_URL_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
+
+function safeOpenExternal(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    if (EXTERNAL_URL_SCHEMES.has(u.protocol)) shell.openExternal(u.toString());
+  } catch { /* not a parseable URL — drop */ }
+}
+
+// Origins that our own windows are allowed to load. In dev this is the Vite
+// server; packaged it's the file:// URL of dist/index.html. Anything else is a
+// navigation attempt and must be denied.
+function isInternalUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    if (u.protocol === 'file:') return true; // packaged build
+    const devUrl = process.env.ELECTRON_START_URL;
+    if (devUrl) {
+      const dev = new URL(devUrl);
+      return u.origin === dev.origin;
+    }
+    return false;
+  } catch { return false; }
+}
+
+// Attach the guards to any BrowserWindow we create. Denies off-origin
+// navigation; if the destination is http(s)/mailto, opens it in the OS browser
+// instead. Also intercepts window.open / target=_blank the same way.
+function hardenWebContents(win) {
+  win.webContents.on('will-navigate', (event, url) => {
+    if (isInternalUrl(url)) return;
+    event.preventDefault();
+    safeOpenExternal(url);
+  });
+  win.webContents.on('will-redirect', (event, url) => {
+    if (isInternalUrl(url)) return;
+    event.preventDefault();
+    safeOpenExternal(url);
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    safeOpenExternal(url);
+    return { action: 'deny' };
+  });
+}
+
 // ── Spidr Protocol overlay — persistent bounds ──────────────────────────────
 // The protocol overlay is a separate OS-level frameless transparent window
 // that floats over whatever is on screen. To let users "pin it anywhere on
@@ -189,10 +241,7 @@ function createWindow() {
   // whether to act (opt-in), keeping this non-intrusive.
   mainWindow.on('blur', () => { mainWindow?.webContents.send('window:blur'); });
   mainWindow.on('focus', () => { mainWindow?.webContents.send('window:focus'); });
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
+  hardenWebContents(mainWindow);
 }
 
 ipcMain.on('minimize-window', () => mainWindow?.minimize());
@@ -267,6 +316,7 @@ ipcMain.on('popout:open', (_evt, params = {}) => {
   });
 
   popoutWindow.once('ready-to-show', () => popoutWindow.show());
+  hardenWebContents(popoutWindow);
 
   const qs = new URLSearchParams(params).toString();
   const startUrl = process.env.ELECTRON_START_URL;
@@ -352,6 +402,7 @@ ipcMain.on('protocol:open', (_evt, params = {}) => {
     show: false,
   });
 
+  hardenWebContents(protocolWindow);
   protocolWindow.setAlwaysOnTop(true, 'screen-saver');
   // Show on all workspaces / over fullscreen games where supported.
   if (typeof protocolWindow.setVisibleOnAllWorkspaces === 'function') {

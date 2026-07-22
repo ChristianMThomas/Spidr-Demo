@@ -10,15 +10,15 @@
     "preview": "vite preview",
     "electron-dev": "cross-env ELECTRON_START_URL=http://localhost:5173 electron .",
     "build-exe": "cross-env CSC_LINK= CSC_KEY_PASSWORD= vite build && electron-builder build --win --x64 --publish=never",
-    "build-exe:mac": "CSC_IDENTITY_AUTO_DISCOVERY=false vite build && electron-builder build --mac",
+    "build-exe:mac": "vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder build --mac",
     "build-exe:linux": "vite build && electron-builder build --linux",
     "build-exe-noadmin": "set CSC_LINK=&& set CSC_KEY_PASSWORD=&& vite build && electron-builder build --win --x64 --config.win.signtoolOptions.sign=",
-    "build-exe:powershell": "$env:CSC_LINK=\"\"; $env:CSC_KEY_PASSWORD=\"\"; npx vite build; npx electron-builder build --win --x64 --publish=never --config electron-builder.yml",
+    "build-exe:powershell": "$env:CSC_LINK=\"\"; $env:CSC_KEY_PASSWORD=\"\"; npx vite build; npx electron-builder build --win --x64 --publish=never",
     "build-exe:cmd": "set CSC_LINK=&& set CSC_KEY_PASSWORD=&& vite build && electron-builder build --win --x64 --publish=never",
-    "electron:pack:mac": "npm run build && electron-builder --mac",
+    "electron:pack:mac": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
     "electron:pack:win": "npm run build && electron-builder --win",
     "electron:pack:linux": "npm run build && electron-builder --linux",
-    "electron:pack:all": "npm run build && electron-builder -mwl"
+    "electron:pack:all": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder -mwl"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

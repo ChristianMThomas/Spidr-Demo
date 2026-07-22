@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1954',
+    title: 'Patch 1.9.54 — Landing redesign + Electron URL hardening',
+    date: '2026-07-22',
+    type: 'UPDATE',
+    description: 'Landing site (spidrapp.com) gets a design refresh across the marketing surface — Hero, Navbar, Community, Platforms, WhySpidr, and Footer all updated in one pass, with the beta-signup counter finally wired to the correct Railway API (spidr-demo-prod.up.railway.app) so "SPOTS LEFT" renders live on first paint again. Electron desktop gains renderer navigation hardening — a new hardenWebContents guard intercepts will-navigate, will-redirect, and window.open on every BrowserWindow (main, popout, and Spidr Protocol overlay) and refuses anything off-origin; when the destination is http, https, or mailto it is handed to the OS browser via a safeOpenExternal wrapper that validates the URL scheme against an allowlist so crafted chat links or compromised widgets can\'t launch file:// or hijack custom URI schemes registered by other apps. Also drops the standalone electron-builder.yml — the full build config now lives in package.json so there is only one source of truth for installer packaging.',
+  },
+  {
     id: 'p1953',
     title: 'Patch 1.9.53 — Signals tab peek-safe + ghost DMs really gone',
     date: '2026-07-21',

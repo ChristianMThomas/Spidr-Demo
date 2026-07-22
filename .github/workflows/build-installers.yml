@@ -1,0 +1,88 @@
+name: Build Installers
+
+# Cuts native installers for Windows / macOS / Linux on their own runners
+# (electron-builder can't cross-compile mac from win/linux, so we let each
+# runner build its own). Two triggers:
+#   • push a tag matching v* → build + attach installers to a GitHub Release
+#   • workflow_dispatch      → build + upload as workflow-run artifacts only
+# See BUILD_INSTALLERS.md for the download-and-share flow.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: mac
+          - os: windows-latest
+            target: win
+          - os: ubuntu-latest
+            target: linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: spidr-client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: spidr-client/package-lock.json
+      - run: npm ci
+      - name: Build renderer
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_WS_URL: ${{ secrets.VITE_WS_URL }}
+          VITE_AUTH_URL: ${{ secrets.VITE_AUTH_URL }}
+          VITE_SPOTIFY_CLIENT_ID: ${{ secrets.VITE_SPOTIFY_CLIENT_ID }}
+      - name: Package installer (${{ matrix.target }})
+        run: npx electron-builder --${{ matrix.target }} --publish=never
+        env:
+          # Unsigned builds. Users hit SmartScreen (win) / Gatekeeper (mac);
+          # BUILD_INSTALLERS.md covers the workaround + the paid-cert upgrade.
+          # To sign: add WIN_CSC_LINK/WIN_CSC_KEY_PASSWORD (win) or
+          # MAC_CSC_LINK/MAC_CSC_KEY_PASSWORD + APPLE_ID/APPLE_ID_PASSWORD (mac)
+          # as repo secrets, then plumb them into env: here.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spidr-${{ matrix.target }}
+          path: |
+            spidr-client/dist_installer/*.exe
+            spidr-client/dist_installer/*.dmg
+            spidr-client/dist_installer/*.zip
+            spidr-client/dist_installer/*.AppImage
+            spidr-client/dist_installer/*.deb
+          if-no-files-found: warn
+          retention-days: 14
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.exe
+            artifacts/*.dmg
+            artifacts/*.zip
+            artifacts/*.AppImage
+            artifacts/*.deb
+          generate_release_notes: true
+          fail_on_unmatched_files: false
