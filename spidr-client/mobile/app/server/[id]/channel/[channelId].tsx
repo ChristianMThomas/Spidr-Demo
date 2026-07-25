@@ -177,8 +177,8 @@ export default function Channel() {
   const meName = myProfile?.display_name || user?.full_name || user?.username || 'You';
   const meAvatar = myProfile?.avatar_url;
 
-  const send = async (text: string) => {
-    if (!text.trim()) return;
+  const send = async (text: string, attachments?: string[]) => {
+    if (!text.trim() && !attachments?.length) return;
     // Optimistic insert so the sender sees their own message instantly. The
     // REST POST doesn't broadcast `message:new` for normal messages, so
     // without this the sender's UI lags until the refetch lands.
@@ -189,6 +189,7 @@ export default function Channel() {
       server_id: serverId,
       channel_id: channelId,
       content: text,
+      attachments: attachments || [],
       user_id: user?.id,
       author_id: user?.id,
       user_name: meName,
@@ -203,6 +204,7 @@ export default function Channel() {
         server_id: serverId,
         channel_id: channelId,
         content: text,
+        attachments: attachments || [],
         user_id: user?.id,
         user_name: meName,
         user_avatar: meAvatar || '',
@@ -284,7 +286,6 @@ export default function Channel() {
             ref={listRef}
             data={rows}
             keyExtractor={(r: any) => r.id}
-            estimatedItemSize={56}
             contentContainerStyle={{ paddingVertical: 8 }}
             onContentSizeChange={() => listRef.current?.scrollToEnd?.({ animated: false })}
             renderItem={({ item }) => {
@@ -313,6 +314,7 @@ export default function Channel() {
                   peerAvatar={item.peerAvatar}
                   myName={item.myName}
                   myAvatar={item.myAvatar}
+                  onAvatarPress={(uid) => router.push(`/user/${uid}`)}
                 />
               );
             }}

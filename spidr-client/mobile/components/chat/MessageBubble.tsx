@@ -1,6 +1,9 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
+import { Image } from 'expo-image';
 import { Avatar } from '../ui/Avatar';
+import { EmojiText } from './EmojiText';
+import { AudioPlayer } from './AudioPlayer';
 
 interface Message {
   id?: string;
@@ -11,8 +14,63 @@ interface Message {
   sender_name?: string;
   sender_avatar?: string;
   content?: string;
+  attachments?: any[];
   created_at?: string;
   created_date?: string;
+}
+
+// Attachments are stored as arrays of URL strings (web writes
+// `attachments.map(att => att.url)`), but tolerate `{ url }` objects from
+// older payloads. Classification mirrors web MessageItem.jsx.
+function attachmentUrls(msg: Message): string[] {
+  if (!Array.isArray(msg.attachments)) return [];
+  return msg.attachments
+    .map((a: any) => (typeof a === 'string' ? a : a?.url))
+    .filter(Boolean);
+}
+
+const isAudioUrl = (url: string) =>
+  /voice-message-/i.test(url) || /\.(mp3|wav|ogg|m4a|aac|webm|weba|opus)(\?|$)/i.test(url);
+const isVideoUrl = (url: string) => /\.(mp4|mov|m4v)(\?|$)/i.test(url);
+
+function AttachmentView({ url }: { url: string }) {
+  if (isAudioUrl(url)) {
+    return <AudioPlayer url={url} />;
+  }
+  if (isVideoUrl(url)) {
+    return (
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+          paddingHorizontal: 10,
+          paddingVertical: 8,
+          borderRadius: 10,
+          backgroundColor: 'rgba(255,255,255,0.06)',
+          marginTop: 6,
+        }}
+      >
+        <Text style={{ fontSize: 13 }}>🎬</Text>
+        <Text style={{ color: '#a1a1aa', fontSize: 11 }}>Video attachment</Text>
+      </View>
+    );
+  }
+  // Images + GIFs — expo-image animates GIFs on both platforms.
+  return (
+    <Image
+      source={{ uri: url }}
+      style={{
+        width: 200,
+        height: 170,
+        borderRadius: 10,
+        marginTop: 6,
+        backgroundColor: '#18181b',
+      }}
+      contentFit="cover"
+      transition={120}
+    />
+  );
 }
 
 export function MessageBubble({
@@ -27,6 +85,9 @@ export function MessageBubble({
   peerAvatar,
   myName,
   myAvatar,
+  // Tapping the avatar opens that user's profile card (parent supplies
+  // navigation since bubbles don't know the router).
+  onAvatarPress,
 }: {
   msg: Message;
   mine?: boolean;
@@ -36,6 +97,7 @@ export function MessageBubble({
   peerAvatar?: string;
   myName?: string;
   myAvatar?: string;
+  onAvatarPress?: (userId: string) => void;
 }) {
   // Always prefer the live values; fall back to snapshot only if the
   // parent didn't supply current ones (rare).
@@ -43,6 +105,12 @@ export function MessageBubble({
     ? myName || msg.user_name || msg.sender_name || 'You'
     : peerName || msg.user_name || msg.sender_name || 'User';
   const avatar = mine ? myAvatar : peerAvatar;
+  const authorId = msg.user_id || msg.sender_id;
+  const handleAvatarPress =
+    onAvatarPress && authorId ? () => onAvatarPress(authorId) : undefined;
+
+  const attachments = attachmentUrls(msg);
+  const hasText = !!(msg.content && msg.content.trim());
 
   return (
     <View
@@ -56,7 +124,11 @@ export function MessageBubble({
     >
       {!mine && (
         <View style={{ width: 32 }}>
-          {showHeader ? <Avatar uri={avatar} name={name} size={32} /> : null}
+          {showHeader ? (
+            <TouchableOpacity disabled={!handleAvatarPress} onPress={handleAvatarPress} hitSlop={6}>
+              <Avatar uri={avatar} name={name} size={32} />
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
 
@@ -104,12 +176,21 @@ export function MessageBubble({
             )}
           </View>
         )}
-        <Text style={{ color: '#fff', fontSize: 14, lineHeight: 19 }}>{msg.content}</Text>
+        {hasText && (
+          <EmojiText text={msg.content} style={{ color: '#fff', fontSize: 14, lineHeight: 19 }} />
+        )}
+        {attachments.map((url, i) => (
+          <AttachmentView key={`${url}-${i}`} url={url} />
+        ))}
       </View>
 
       {mine && (
         <View style={{ width: 32 }}>
-          {showHeader ? <Avatar uri={avatar} name={name} size={32} /> : null}
+          {showHeader ? (
+            <TouchableOpacity disabled={!handleAvatarPress} onPress={handleAvatarPress} hitSlop={6}>
+              <Avatar uri={avatar} name={name} size={32} />
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
     </View>
