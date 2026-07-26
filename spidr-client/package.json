@@ -1,7 +1,7 @@
 {
   "name": "spidr-client",
-  "version": "1.0.0",
-  "description": "Spidr \u2014 Discord-style communication platform",
+  "version": "1.9.55",
+  "description": "Spidr — Discord-style communication platform",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -60,6 +60,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
     "date-fns": "^3.6.0",
+    "electron-updater": "^6.8.9",
     "embla-carousel-react": "^8.5.2",
     "framer-motion": "^11.16.4",
     "html2canvas": "^1.4.1",
@@ -212,7 +213,14 @@
         "StartupWMClass": "Spidr"
       }
     },
-    "publish": null,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ChristianMThomas",
+        "repo": "Spidr-Demo",
+        "releaseType": "release"
+      }
+    ],
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
   }
 }

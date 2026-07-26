@@ -17,6 +17,7 @@ import { useAuth } from '../../../../lib/authContext';
 import { MessageBubble } from '../../../../components/chat/MessageBubble';
 import { MessageInput } from '../../../../components/chat/MessageInput';
 import { Spinner } from '../../../../components/ui/Spinner';
+import { NotFound } from '../../../../components/ui/NotFound';
 
 function formatDateDivider(d: Date) {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
@@ -88,7 +89,7 @@ export default function Channel() {
   const listRef = useRef<any>(null);
   const [extra, setExtra] = useState<any[]>([]);
 
-  const { data: server } = useQuery({
+  const { data: server, isError: serverError } = useQuery({
     queryKey: ['server', serverId],
     queryFn: () => entities.Server.get(serverId!),
     enabled: !!serverId,
@@ -235,6 +236,11 @@ export default function Channel() {
   const channelName = channel?.name || 'channel';
   const serverName = (server as any)?.name || '';
   const memberCount = (server as any)?.members?.length || 0;
+
+  // Only the server's existence gates this screen. A null `channel` is normal:
+  // servers with no channel list fall back to synthetic general/random, which
+  // won't be found in server.channels.
+  if (!serverId || serverError) return <NotFound what="channel" />;
 
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#050505' }}>

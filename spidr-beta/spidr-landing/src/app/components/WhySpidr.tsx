@@ -1,6 +1,6 @@
 import FlowArt, { FlowSection } from './ui/story-scroll';
 
-// Divider helper — respects light vs dark bg
+// Divider helper, respects light vs dark bg
 const HrLight = () => (
   <hr className="my-[2vw] border-none border-t border-white/25" />
 );
@@ -22,7 +22,7 @@ export default function WhySpidr() {
         }}
       >
         <p className="text-xs font-bold font-mono uppercase tracking-[0.2em]">
-          01 — BUILT DIFFERENT
+          01 BUILT DIFFERENT
         </p>
         <HrLight />
         <div>
@@ -33,14 +33,14 @@ export default function WhySpidr() {
         <HrLight />
         <p className="max-w-[50ch] text-[clamp(1rem,2.5vw,2rem)] font-normal leading-relaxed">
           Spidr isn't just another chat app. It's built for gaming clans, dev teams, creator
-          collectives — every kind of community that demands more than a basic group chat.
+          collectives, every kind of community that demands more than a basic group chat.
         </p>
         <HrLight />
         <div className="flex flex-wrap gap-[3vw]">
           {[
             { label: 'Real Community', desc: 'Deep roots, not surface-level followers. Built for the people who actually show up.' },
-            { label: 'Every Platform', desc: 'Windows, Mac, iOS, Android, and web — your crew can join from anywhere.' },
-            { label: 'Zero Compromise', desc: 'Performance, privacy, and power — you shouldn\'t have to choose just two.' },
+            { label: 'Every Platform', desc: 'Windows, Mac, iOS, Android, and web, your crew can join from anywhere.' },
+            { label: 'Zero Compromise', desc: 'Performance, privacy, and power, you shouldn\'t have to choose just two.' },
             { label: 'Launching Soon', desc: 'Join the beta and help shape the platform from day one.' },
           ].map(({ label, desc }) => (
             <div key={label} className="min-w-[180px] flex-1">
@@ -66,7 +66,7 @@ export default function WhySpidr() {
         }}
       >
         <p className="text-xs font-bold font-mono uppercase tracking-[0.2em]">
-          02 — KINETIC CHAT
+          02 KINETIC CHAT
         </p>
         <HrLight />
         <div>
@@ -77,13 +77,13 @@ export default function WhySpidr() {
         <HrLight />
         <p className="max-w-[50ch] text-[clamp(1rem,2.5vw,2rem)] font-normal leading-relaxed">
           Real-time messaging channels with rich embeds, reactions, replies, and searchable
-          history. KineticChat is built socket-first — messages land live on every device.
+          history. KineticChat is built socket-first, messages land live on every device.
         </p>
         <HrLight />
         <div className="flex flex-wrap gap-[3vw]">
           {[
-            { label: 'Replies & Reactions', desc: 'Quote-reply, react with any emoji — including your server\'s custom ones.' },
-            { label: 'Rich Media Embeds', desc: 'Links, images, GIFs, voice notes, code snippets — everything previews inline, natively.' },
+            { label: 'Replies & Reactions', desc: 'Quote-reply, react with any emoji, including your server\'s custom ones.' },
+            { label: 'Rich Media Embeds', desc: 'Links, images, GIFs, voice notes, code snippets, everything previews inline, natively.' },
             { label: 'Real-Time Sync', desc: 'Socket-driven delivery across web, desktop, and mobile. No refresh, no delay.' },
             { label: 'Searchable History', desc: 'Full-text search across your channels. Scroll back and find that one message.' },
           ].map(({ label, desc }) => (
@@ -103,7 +103,7 @@ export default function WhySpidr() {
           className="mt-auto ml-auto max-w-[50ch] text-right text-[clamp(0.9rem,2vw,1.5rem)] font-normal leading-relaxed"
           style={{ color: 'rgba(255,255,255,0.5)' }}
         >
-          Every channel is a live, breathing space — not a static thread.
+          Every channel is a live, breathing space, not a static thread.
         </p>
       </FlowSection>
 
@@ -117,7 +117,7 @@ export default function WhySpidr() {
         }}
       >
         <p className="text-xs font-bold font-mono uppercase tracking-[0.2em]">
-          03 — VOICE &amp; VIDEO
+          03 VOICE &amp; VIDEO
         </p>
         <HrDark />
         <div>
@@ -127,14 +127,14 @@ export default function WhySpidr() {
         </div>
         <HrDark />
         <p className="max-w-[50ch] text-[clamp(1rem,2.5vw,2rem)] font-normal leading-relaxed">
-          Crystal-clear voice channels and HD video calls. No external app, no setup — just
+          Crystal-clear voice channels and HD video calls. No external app, no setup, just
           click in and start talking with your whole crew, anywhere in the world.
         </p>
         <HrDark />
         <div className="flex flex-wrap gap-[3vw]">
           {[
-            { label: 'Group Video Calls', desc: 'Peer-to-peer group video with screen share — crisp, low-latency, and stable.' },
-            { label: 'Drop-In Voice Rooms', desc: 'Always-on voice channels. Drop in, hang out, leave whenever — just like a real room.' },
+            { label: 'Group Video Calls', desc: 'Peer-to-peer group video with screen share, crisp, low-latency, and stable.' },
+            { label: 'Drop-In Voice Rooms', desc: 'Always-on voice channels. Drop in, hang out, leave whenever, just like a real room.' },
             { label: 'Screen Sharing', desc: 'Share your screen with one click. Co-work, watch, or just show off what you built.' },
             { label: 'Cross-Platform', desc: 'Voice from desktop, mobile, or web. Everyone connects, regardless of device.' },
           ].map(({ label, desc }) => (
@@ -161,7 +161,7 @@ export default function WhySpidr() {
         }}
       >
         <p className="text-xs font-bold font-mono uppercase tracking-[0.2em]">
-          04 — THE WEB
+          04 THE WEB
         </p>
         <HrDark />
         <div>
@@ -172,14 +172,14 @@ export default function WhySpidr() {
         <HrDark />
         <p className="max-w-[50ch] text-[clamp(1rem,2.5vw,2rem)] font-normal leading-relaxed">
           Scroll through a feed of clips, projects, tutorials, and drops from the
-          communities you're part of. Ranked by what you actually watch — never by who paid.
+          communities you're part of. Ranked by what you actually watch, never by who paid.
         </p>
         <HrDark />
         <div className="flex flex-wrap gap-[3vw]">
           {[
-            { label: 'You-Tuned Ranking', desc: 'The feed learns from your watch time and follows — no ads, no sponsored slots, ever.' },
+            { label: 'You-Tuned Ranking', desc: 'The feed learns from your watch time and follows, no ads, no sponsored slots, ever.' },
             { label: 'Community Curated', desc: 'Content posted by real people in your servers rises to the top organically.' },
-            { label: 'Short-Form Video', desc: 'Post and watch clips, highlights, tutorials, and builds — all native to the platform.' },
+            { label: 'Short-Form Video', desc: 'Post and watch clips, highlights, tutorials, and builds, all native to the platform.' },
             { label: 'Drop Culture', desc: 'Announce releases, share launches, and celebrate moments with your whole community.' },
           ].map(({ label, desc }) => (
             <div key={label} className="min-w-[180px] flex-1">
@@ -212,7 +212,7 @@ export default function WhySpidr() {
         }}
       >
         <p className="text-xs font-bold font-mono uppercase tracking-[0.2em]">
-          05 — SPIDR AI
+          05 SPIDR AI
         </p>
         <HrLight />
         <div>
@@ -223,14 +223,14 @@ export default function WhySpidr() {
         <HrLight />
         <p className="max-w-[50ch] text-[clamp(1rem,2.5vw,2rem)] font-normal leading-relaxed">
           Chat with Spidr AI directly inside your channels. Summarize long threads, generate
-          code, answer questions — intelligence built natively into the platform.
+          code, answer questions, intelligence built natively into the platform.
         </p>
         <HrLight />
         <div className="flex flex-wrap gap-[3vw]">
           {[
             { label: 'Thread Summaries', desc: 'Missed 500 messages? Get a clean summary in seconds. No FOMO, ever.' },
             { label: 'Code Generation', desc: 'Ask, paste, ship. Spidr AI writes, explains, and debugs code right in the channel.' },
-            { label: 'Instant Q&A', desc: 'Ask anything — about your community, your files, your pinned docs — and get answers.' },
+            { label: 'Instant Q&A', desc: 'Ask anything, about your community, your files, your pinned docs, and get answers.' },
             { label: 'Channel-Native', desc: 'AI lives inside every channel by default. No tab-switching, no separate app.' },
           ].map(({ label, desc }) => (
             <div key={label} className="min-w-[180px] flex-1">
@@ -256,7 +256,7 @@ export default function WhySpidr() {
         }}
       >
         <p className="text-xs font-bold font-mono uppercase tracking-[0.2em]">
-          06 — BOT LABORATORY
+          06 BOT LABORATORY
         </p>
         <HrLight />
         <div>
@@ -267,13 +267,13 @@ export default function WhySpidr() {
         <HrLight />
         <p className="max-w-[50ch] text-[clamp(1rem,2.5vw,2rem)] font-normal leading-relaxed">
           Spidr's Bot Laboratory lets you create, configure, and run custom bots inside your
-          community. No external hosting required — spin them up straight from the app.
+          community. No external hosting required, spin them up straight from the app.
         </p>
         <HrLight />
         <div className="flex flex-wrap gap-[3vw]">
           {[
-            { label: 'No-Code Builder', desc: 'Create bots with a visual builder — no programming experience needed to get started.' },
-            { label: 'Custom Commands', desc: 'Define slash commands, reactions, scheduled posts — tailor bots to your community.' },
+            { label: 'No-Code Builder', desc: 'Create bots with a visual builder, no programming experience needed to get started.' },
+            { label: 'Custom Commands', desc: 'Define slash commands, reactions, scheduled posts, tailor bots to your community.' },
             { label: 'Event Triggers', desc: 'Fire actions on joins, messages, reactions, or any server event automatically.' },
             { label: 'Zero Hosting Fees', desc: 'Bots run on Spidr infrastructure. No servers, no bills, no maintenance.' },
           ].map(({ label, desc }) => (
@@ -299,7 +299,7 @@ export default function WhySpidr() {
 
       {/* ── 07  YOUR WAY (Privacy) ── Light Gray ────────────────────── */}
       <FlowSection
-        aria-label="Your Way — Privacy and Safety"
+        aria-label="Your Way, Privacy and Safety"
         style={{
           backgroundColor: '#f5f5f5',
           color: '#000000',
@@ -307,7 +307,7 @@ export default function WhySpidr() {
         }}
       >
         <p className="text-xs font-bold font-mono uppercase tracking-[0.2em]">
-          07 — YOUR WAY
+          07 YOUR WAY
         </p>
         <HrDark />
         <div>
@@ -317,13 +317,13 @@ export default function WhySpidr() {
         </div>
         <HrDark />
         <p className="max-w-[50ch] text-[clamp(1rem,2.5vw,2rem)] font-normal leading-relaxed">
-          We never sell your data. Period. Spidr is built with privacy at its core — because
+          We never sell your data. Period. Spidr is built with privacy at its core, because
           your conversations, communities, and moments belong to you alone.
         </p>
         <HrDark />
         <div className="flex flex-wrap gap-[3vw]">
           {[
-            { label: 'Encrypted In Transit & At Rest', desc: 'TLS everywhere, encrypted storage. E2E for DMs is on the public roadmap — we\'ll say when it ships, not before.' },
+            { label: 'Encrypted In Transit & At Rest', desc: 'TLS everywhere, encrypted storage. E2E for DMs is on the public roadmap, we\'ll say when it ships, not before.' },
             { label: 'Zero Data Selling', desc: 'We will never sell, rent, or trade your personal information to third parties. Full stop.' },
             { label: 'No Ad Networks', desc: 'No ad SDKs, no trackers, no data brokers. There is no advertiser to optimize you for.' },
             { label: 'Full Transparency', desc: 'Plain-language privacy policy. Know exactly what we collect, why, and how to delete it.' },

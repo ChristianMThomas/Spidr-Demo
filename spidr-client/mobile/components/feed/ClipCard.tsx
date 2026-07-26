@@ -8,16 +8,21 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  Platform,
+  StatusBar,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Music, Repeat2, Link2, Flag, ShieldAlert } from 'lucide-react-native';
 import { Image as ExpoImage } from 'expo-image';
+import * as Clipboard from 'expo-clipboard';
 import { algorithm, entities, follows } from '../../lib/apiClient';
 import { useAuth } from '../../lib/authContext';
 import { ClipVideo } from './ClipVideo';
 import { ActionRail } from './ActionRail';
+import { ReactionSheet } from './ReactionSheet';
+import { SlingSheet } from './SlingSheet';
 
 export interface ClipCardProps {
   clip: any;
@@ -26,6 +31,9 @@ export interface ClipCardProps {
   muted: boolean;
   onToggleMute: () => void;
   onOpenComments: (clipId: string) => void;
+  /** Set when rendered inside a user's WEB archive — retargets the avatar at
+   *  the profile card so it can't push a duplicate of the screen you're on. */
+  inAuthorWeb?: boolean;
 }
 
 const phaseTwo = (label: string) =>
@@ -241,10 +249,17 @@ export function ClipCard({
   muted,
   onToggleMute,
   onOpenComments,
+  inAuthorWeb = false,
 }: ClipCardProps) {
   const { user } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
+
+  // Badges hang just below the floating FeedTabBar, which is itself offset by
+  // the top inset — keep the two in step or they collide on notched devices.
+  const badgeTop =
+    Math.max(insets.top, Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0) + 46;
 
   const clipId = clip.id || clip._id;
   const isOwn = user?.id === clip.author_id;
@@ -330,6 +345,70 @@ export function ClipCard({
     followMutation.mutate(!isFollowing);
   };
 
+  // ─── Emoji reactions ──────────────────────────────────────────────────────
+  // Shape mirrors the web ClipFeed reactMut: [{ emoji, users: [userId] }],
+  // written back through the clips route's publicWriteFields allowlist.
+  const [showReactions, setShowReactions] = useState(false);
+  const [reactions, setReactions] = useState<{ emoji: string; users: string[] }[]>(
+    Array.isArray(clip.reactions) ? clip.reactions : []
+  );
+
+  const reactionsCount = reactions.reduce((n, r) => n + (r.users?.length || 0), 0);
+  const hasReacted = reactions.some((r) => r.users?.includes(user?.id || ''));
+
+  type Reaction = { emoji: string; users: string[] };
+
+  const reactMutation = useMutation({
+    mutationFn: ({ next }: { next: Reaction[]; previous: Reaction[] }) =>
+      entities.Clip.update(clipId, { reactions: next }),
+    onError: (_err, { previous }) => {
+      setReactions(previous);
+      Alert.alert('Could not react', 'Try again in a moment.');
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clips'] }),
+  });
+
+  const toggleReaction = (emoji: string) => {
+    if (!user?.id) return;
+    const previous = reactions;
+    const existing = previous.find((r) => r.emoji === emoji);
+    let next: Reaction[];
+    if (existing) {
+      const had = existing.users.includes(user.id);
+      next = previous
+        .map((r) =>
+          r.emoji === emoji
+            ? { ...r, users: had ? r.users.filter((id) => id !== user.id) : [...r.users, user.id] }
+            : r
+        )
+        .filter((r) => r.users.length > 0);
+    } else {
+      next = [...previous, { emoji, users: [user.id] }];
+    }
+    setReactions(next);
+    reactMutation.mutate({ next, previous });
+  };
+
+  // ─── Sling ────────────────────────────────────────────────────────────────
+  const [showSling, setShowSling] = useState(false);
+
+  // Author avatar → straight into their WEB archive (every clip they've
+  // published). The web client routes avatar → profile modal → [ ENTER USER
+  // WEB ]; on mobile the avatar skips the middle step. The @name below still
+  // opens the profile card for anyone who wants the full node.
+  const openAuthorWeb = () => {
+    if (!clip.author_id) return;
+    router.push({
+      pathname: '/user-web/[id]',
+      params: { id: clip.author_id, name: authorName },
+    } as any);
+  };
+
+  const openAuthorProfile = () => {
+    if (!clip.author_id) return;
+    router.push(`/user/${clip.author_id}`);
+  };
+
   // Watch-time telemetry — emitted by the video player as the user dwells.
   const tickRef = useRef({ watchSeconds: 0, total: 0, looped: false });
   const handleWatchTick = (watchSeconds: number, totalDuration: number, looped: boolean) => {
@@ -381,7 +460,7 @@ export function ClipCard({
         <View
           style={{
             position: 'absolute',
-            top: 60,
+            top: badgeTop,
             left: 12,
             flexDirection: 'row',
             alignItems: 'center',
@@ -404,7 +483,7 @@ export function ClipCard({
         <View
           style={{
             position: 'absolute',
-            top: 60,
+            top: badgeTop,
             right: 12,
             paddingHorizontal: 8,
             paddingVertical: 4,
@@ -425,13 +504,17 @@ export function ClipCard({
         isFollowing={isFollowing}
         isOwnClip={isOwn}
         onToggleFollow={toggleFollow}
-        onAvatarPress={() => phaseTwo('Profile preview')}
+        onAvatarPress={inAuthorWeb ? openAuthorProfile : openAuthorWeb}
         liked={liked}
         likesCount={likes}
         onToggleLike={toggleLike}
         commentsCount={clip.comments_count || 0}
         onOpenComments={() => onOpenComments(clipId)}
         sharesCount={clip.shares_count || 0}
+        reactionsCount={reactionsCount}
+        hasReacted={hasReacted}
+        onOpenReactions={() => setShowReactions(true)}
+        onSling={() => setShowSling(true)}
         muted={muted}
         onToggleMute={onToggleMute}
         onMore={() => setShowMore(true)}
@@ -445,6 +528,16 @@ export function ClipCard({
         currentUser={user}
       />
 
+      <ReactionSheet
+        visible={showReactions}
+        onClose={() => setShowReactions(false)}
+        reactions={reactions}
+        currentUserId={user?.id}
+        onToggle={toggleReaction}
+      />
+
+      <SlingSheet visible={showSling} onClose={() => setShowSling(false)} clip={clip} />
+
       {/* Bottom overlay: author + caption + hashtags + music + server CTA */}
       <View
         pointerEvents="box-none"
@@ -455,18 +548,20 @@ export function ClipCard({
           bottom: 110,
         }}
       >
-        <Text
-          style={{
-            color: '#fff',
-            fontSize: 16,
-            fontWeight: '900',
-            textShadowColor: 'rgba(0,0,0,0.85)',
-            textShadowRadius: 6,
-          }}
-          numberOfLines={1}
-        >
-          @{authorName}
-        </Text>
+        <Pressable onPress={openAuthorProfile} hitSlop={6}>
+          <Text
+            style={{
+              color: '#fff',
+              fontSize: 16,
+              fontWeight: '900',
+              textShadowColor: 'rgba(0,0,0,0.85)',
+              textShadowRadius: 6,
+            }}
+            numberOfLines={1}
+          >
+            @{authorName}
+          </Text>
+        </Pressable>
 
         {!!clip.caption && (
           <Text

@@ -1,28 +1,34 @@
 # Handoff
 
 ## Goal
-Purge deleted/orphaned users from Server documents (parity with the existing Friend / DM / Activity orphan cleanup) so ghost members stop appearing in Electron server sidebars, and produce a whole-project inventory of hardcoded emojis / vibe-coded symbols across web, electron, and mobile.
+Give the Spidr desktop (Electron) app an in-app update mechanism so users can pull new versions without a full re-install and without Windows Store, using electron-updater against GitHub Releases.
 
 ## Current State
-Server orphan-purge is complete and live-tested — `sweepOrphans` extended and the servers list/get routes now prune ghost members on read. One-time sweep against production Mongo removed 4 friends, 81 DMs, 4 group members, 2 ghost server members, and 1 owner-less server. Nothing shipped (no commit); changes are staged in working tree only. `unvibecode.md` written at repo root with per-file symbol inventory across all three platforms.
+Fully wired end-to-end on the code side, not yet exercised against a real release. Version in `spidr-client/package.json` is now `1.9.55` (matches current SPIDR_SYS patch). `build.publish` points at the `ChristianMThomas/Spidr-Demo` GitHub Releases feed. `electron-updater` is installed and registered in `electron/main.js` (packaged builds only). An Electron-only **About** tab in Settings hosts the new `UpdatesCard` with Check → Download → Restart flow. No release has been cut yet, so the flow has not been end-to-end validated in a packaged .exe.
 
 ## Files
-- `spidr-server/src/routes/accountAdmin.js` — `sweepOrphans` now prunes `Server.members[]`, `Server.banned_users[]`, deletes owner-less servers
-- `spidr-server/src/routes/servers.js` — added `pruneGhostMembers` util, overrode GET `/` and GET `/:id` with live orphan filtering (mounted before `crudRouter`)
-- `spidr-server/scripts/sweep-orphans.js` — untracked; existing script, unchanged this session
-- `spidr-server/src/utils/filterExistingUsers.js` — untracked; existing helper, unchanged this session
-- `unvibecode.md` — new file at repo root; full emoji inventory
-- (untouched by this session but showing in `git status`: `GAPS.md`, `mr-rimmer/*`, `spidr-client/src/components/*`, `spidr-server/src/index.js`, `routes/auth.js`, `directMessages.js`, `friends.js`, `dist_installer/`)
+- `spidr-client/package.json` — version 1.0.0 → 1.9.55; added `electron-updater ^6.8.9`; replaced `"publish": null` with GitHub provider block
+- `spidr-client/package-lock.json` — regenerated for the new dep
+- `spidr-client/electron/main.js` — `setupAutoUpdater()` (lazy require, packaged-only) + IPC: `updater:check`, `updater:download`, `updater:quit-install`, broadcast `updater:status`
+- `spidr-client/electron/preload.js` — exposed `checkForUpdates` / `downloadUpdate` / `quitAndInstall` / `onUpdateStatus` on `window.electronAPI`
+- `spidr-client/src/components/spidr/SettingsPanel.jsx` — new Electron-only **About** tab (Download icon), mounts `UpdatesCard`
+- `spidr-client/src/components/spidr/UpdatesCard.jsx` — new component: current version, phase-driven UI (checking / available / downloading with %, / downloaded / error), action buttons
 
 ## Changes
-- Extended `sweepOrphans` in `accountAdmin.js` with Server pruning (members, banned_users, owner-less server deletion) — idempotent, matches the pattern used for Friend/DM/GroupChat
-- Added `pruneGhostMembers(servers)` helper in `servers.js`: single User query, filters `members[]` and `banned_users[]` in-place — one round-trip per request
-- Wired `pruneGhostMembers` into `GET /servers` and `GET /servers/:id` (overrides crudRouter's GET handlers, kept before the `router.use('/', crudRouter(...))` mount)
-- Ran `node scripts/sweep-orphans.js` against prod DB — result: Friend 4, DirectMessage 81, GroupChatMessage 0, GroupChatMembers 4, ServerMembers 2, ServerBans 0, Server 1
-- Wrote `unvibecode.md`: 56 web-src files, 2 electron shell files, 8 mobile app routes + 3 components + 1 lib file, grouped by page/component with symbol counts, cross-platform lockstep pairs, ranked replacement targets (SpidrBotEngine.jsx tops at 60+ emojis)
+- Bumped desktop app version to `1.9.55` so electron-updater semver compare has a real baseline
+- Added `electron-updater ^6.8.9` and configured GitHub Releases as the update feed in `build.publish`
+- Wired auto-updater in Electron main process, gated on `app.isPackaged`, with lazy `require()` so dev boot doesn't break if the dep is missing
+- Added preload bridge exposing check/download/quitAndInstall + a status subscription
+- Added `UpdatesCard` React component with progress bar and per-phase messaging
+- Added Electron-only **About** tab to `SettingsPanel` hosting the card
 
 ## Failed
-None.
+None. `npm install electron-updater` completed clean (exit 0); no compile or runtime errors observed. Not yet packaged to a `.exe` for real-world verification.
 
 ## Next Step
-Commit the server-side orphan cleanup — `spidr-server/src/routes/accountAdmin.js` and `spidr-server/src/routes/servers.js` — via `/ship` (or `/git-workflow` if skipping the security audit) so the Electron client hits the pruned reads in prod. `unvibecode.md` is doc-only and can ship in the same or a separate push.
+Cut a test release: bump version to `1.9.56`, run `npm run build-exe` in `spidr-client/`, then create GitHub Release `v1.9.56` on `ChristianMThomas/Spidr-Demo` and upload both `SpidrSetup-1.9.56.exe` and `latest.yml` from `dist_installer/`. Install the current `1.9.55` build first, open Settings → About, and confirm the Check → Download → Restart flow works end-to-end.
+
+## To Do Later
+- **Auto-upload to GitHub on build**: set a `GH_TOKEN` env var and change `--publish=never` → `--publish=always` in the `build-exe` script in `spidr-client/package.json`. Right now `latest.yml` + the installer are generated locally and must be uploaded to the Release by hand.
+- Portable target (`Spidr-*-portable.exe`) does not self-update — only the NSIS installer does. Consider dropping the portable target or documenting the manual-download path for those users.
+- Unsigned Windows builds re-trigger SmartScreen on every update. Eventual fix is a code-signing cert.

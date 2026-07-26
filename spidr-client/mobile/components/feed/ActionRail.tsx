@@ -41,6 +41,12 @@ interface ActionRailProps {
 
   sharesCount: number;
 
+  reactionsCount: number;
+  hasReacted: boolean;
+  onOpenReactions: () => void;
+
+  onSling: () => void;
+
   muted: boolean;
   onToggleMute: () => void;
 
@@ -109,6 +115,10 @@ export function ActionRail({
   commentsCount,
   onOpenComments,
   sharesCount,
+  reactionsCount,
+  hasReacted,
+  onOpenReactions,
+  onSling,
   muted,
   onToggleMute,
   onMore,
@@ -118,7 +128,7 @@ export function ActionRail({
       style={{
         position: 'absolute',
         right: 8,
-        bottom: 110,
+        bottom: 54,
         alignItems: 'center',
       }}
     >
@@ -178,13 +188,15 @@ export function ActionRail({
       />
 
       <RailButton
-        icon={<Sparkles size={24} color="#fff" />}
-        onPress={() => phaseTwo('Emoji reactions')}
+        icon={<Sparkles size={24} color={hasReacted ? '#ef4444' : '#fff'} />}
+        label={reactionsCount ? formatCount(reactionsCount) : undefined}
+        active={hasReacted}
+        onPress={onOpenReactions}
       />
 
       <RailButton
         icon={<Send size={24} color="#fff" />}
-        onPress={() => phaseTwo('Sling to a friend')}
+        onPress={onSling}
       />
 
       <RailButton

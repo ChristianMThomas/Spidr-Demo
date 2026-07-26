@@ -117,7 +117,7 @@ const CHAT_SCENARIOS = [
     label: "📚 Homework",
     messages: [
       { side: "right", text: "ugh stuck on this calc problem for an hour" },
-      { side: "left",  text: "Share it — I can walk you through it step by step." },
+      { side: "left",  text: "Share it, I can walk you through it step by step." },
       { side: "right", text: "you're a lifesaver fr" },
     ],
   },
@@ -194,7 +194,7 @@ const features = [
     icon: Hash,
     title: "Organized by default",
     description:
-      "Servers are built around topic-based channels — not a single sprawling group chat. Keep conversations focused, searchable, and on-topic.",
+      "Servers are built around topic-based channels, not a single sprawling group chat. Keep conversations focused, searchable, and on-topic.",
     colSpan: "md:col-span-2",
     rowSpan: "",
     preview: <ChannelsPreview />,
@@ -204,7 +204,7 @@ const features = [
     icon: Headphones,
     title: "Voice that just works",
     description:
-      "Drop into a voice channel whenever you're free. No call to start, no link to share — your community sees you're available and pops in instantly.",
+      "Drop into a voice channel whenever you're free. No call to start, no link to share, your community sees you're available and pops in instantly.",
     colSpan: "md:col-span-1",
     rowSpan: "",
     preview: <WaveformPreview />,
@@ -214,7 +214,7 @@ const features = [
     icon: Wrench,
     title: "Build your own bots",
     description:
-      "Spidr's Bot Laboratory lets any member spin up custom automations — from moderation helpers to project trackers — no external hosting required.",
+      "Spidr's Bot Laboratory lets any member spin up custom automations, from moderation helpers to project trackers, no external hosting required.",
     colSpan: "md:col-span-1",
     rowSpan: "",
     preview: <BotStorePreview />,
@@ -224,7 +224,7 @@ const features = [
     icon: Sparkles,
     title: "AI in your corner",
     description:
-      "Spidr AI lives inside your channels. Ask it to summarize threads, explain code, draft replies, or answer questions — without leaving the conversation.",
+      "Spidr AI lives inside your channels. Ask it to summarize threads, explain code, draft replies, or answer questions, without leaving the conversation.",
     colSpan: "md:col-span-2",
     rowSpan: "",
     preview: <AIChatPreview />,
@@ -389,7 +389,7 @@ export default function Features() {
         </h2>
 
         <p className="text-zinc-500 text-base md:text-lg leading-relaxed">
-          From casual hangout to serious project coordination —{" "}
+          From casual hangout to serious project coordination ,{" "}
           <span className="text-zinc-300">Spidr scales with you.</span>
         </p>
       </motion.div>

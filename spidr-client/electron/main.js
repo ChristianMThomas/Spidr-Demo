@@ -4,6 +4,10 @@ const fs = require('fs');
 const os = require('os');
 const { exec } = require('child_process');
 const https = require('https');
+// electron-updater is only meaningful in a packaged build (dev has no installer
+// to swap). Import is deferred to setupAutoUpdater() so `npm run electron-dev`
+// still boots if the dep is missing locally.
+let autoUpdater = null;
 
 let mainWindow;
 let splashWindow = null;
@@ -1018,6 +1022,7 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+  setupAutoUpdater();
   // Global hotkey: Shift+Enter focuses the overlay for typing (or hands control
   // back if it's already interactive). Registered app-wide so it works while a
   // game has focus. Failures (e.g. already taken) are non-fatal.
@@ -1038,6 +1043,75 @@ app.whenReady().then(() => {
     writeSmtcScript();
     pollMediaSession(mainWindow);
   }
+});
+
+// ── In-app updates (electron-updater / GitHub Releases) ────────────────────
+// Distribution is Hostinger-hosted installer, not Windows Store, so we can't
+// rely on the OS to update the app. electron-updater checks the feed defined
+// in package.json's `build.publish` (GitHub Releases), downloads the delta or
+// full NSIS installer in the background, and — on user confirm — quits and
+// re-launches into the new version. Guarded to packaged builds only; dev has
+// nothing to upgrade to.
+//
+// Renderer contract (see preload.js):
+//   invoke  'updater:check'         → { ok, current, update? } | { ok:false, error }
+//   invoke  'updater:download'      → { ok } | { ok:false, error }
+//   send    'updater:quit-install'  → app quits and installs on next launch
+//   on      'updater:status'        → { phase, ...payload }  broadcast events
+function broadcastUpdaterStatus(payload) {
+  try {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('updater:status', payload);
+    }
+  } catch {}
+}
+
+function setupAutoUpdater() {
+  if (!app.isPackaged) return;
+  try {
+    // Lazy-require so a missing dep in dev doesn't crash the boot path.
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (e) {
+    console.warn('electron-updater unavailable:', e?.message);
+    return;
+  }
+
+  autoUpdater.autoDownload = false;       // wait for user consent
+  autoUpdater.autoInstallOnAppQuit = true; // if downloaded, install on next quit
+  autoUpdater.on('checking-for-update', () => broadcastUpdaterStatus({ phase: 'checking' }));
+  autoUpdater.on('update-available',    (info) => broadcastUpdaterStatus({ phase: 'available',    version: info?.version }));
+  autoUpdater.on('update-not-available',(info) => broadcastUpdaterStatus({ phase: 'up-to-date',   version: info?.version }));
+  autoUpdater.on('download-progress',   (p)    => broadcastUpdaterStatus({ phase: 'downloading',  percent: Math.round(p?.percent || 0), bytesPerSecond: p?.bytesPerSecond }));
+  autoUpdater.on('update-downloaded',   (info) => broadcastUpdaterStatus({ phase: 'downloaded',   version: info?.version }));
+  autoUpdater.on('error',               (err)  => broadcastUpdaterStatus({ phase: 'error',        message: String(err?.message || err) }));
+}
+
+ipcMain.handle('updater:check', async () => {
+  const current = app.getVersion();
+  if (!app.isPackaged || !autoUpdater) {
+    return { ok: false, current, error: 'Updates are only available in the packaged app.' };
+  }
+  try {
+    const res = await autoUpdater.checkForUpdates();
+    return { ok: true, current, update: res?.updateInfo || null };
+  } catch (e) {
+    return { ok: false, current, error: String(e?.message || e) };
+  }
+});
+
+ipcMain.handle('updater:download', async () => {
+  if (!app.isPackaged || !autoUpdater) return { ok: false, error: 'not-packaged' };
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+ipcMain.on('updater:quit-install', () => {
+  if (!app.isPackaged || !autoUpdater) return;
+  try { autoUpdater.quitAndInstall(); } catch (e) { console.warn('quitAndInstall:', e?.message); }
 });
 
 app.on('will-quit', () => {

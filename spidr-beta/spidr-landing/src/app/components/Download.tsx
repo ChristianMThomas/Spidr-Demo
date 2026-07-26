@@ -58,7 +58,7 @@ export default function Download() {
                 onClick={() => alert("Download coming soon! Stay tuned.")}
               >
                 <DownloadIcon size={24} />
-                <span>Download Now — It's Free</span>
+                <span>Download Now, It's Free</span>
               </motion.button>
             </div>
 

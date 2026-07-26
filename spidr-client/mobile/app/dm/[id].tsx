@@ -36,6 +36,7 @@ import { Avatar } from '../../components/ui/Avatar';
 import { MessageBubble } from '../../components/chat/MessageBubble';
 import { MessageInput } from '../../components/chat/MessageInput';
 import { Spinner } from '../../components/ui/Spinner';
+import { NotFound } from '../../components/ui/NotFound';
 import OutgoingCallModal from '../../components/call/OutgoingCallModal';
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
@@ -236,6 +237,20 @@ export default function DM() {
     enabled: !!conversationId,
   });
 
+  // Does the person on the other end still exist? An empty message list can't
+  // answer that — a brand-new DM and a DM with a deleted account both come
+  // back as []. GET /users/:id 404s only for a genuinely missing account, so
+  // we key "not found" off a 4xx and let network errors fall through to the
+  // normal empty-conversation view.
+  const { error: peerError } = useQuery({
+    queryKey: ['user-exists', friendId],
+    queryFn: () => entities.User.get(String(friendId)),
+    enabled: !!friendId,
+    staleTime: 300_000,
+  });
+  const peerStatus = (peerError as any)?.status;
+  const peerMissing = peerStatus >= 400 && peerStatus < 500;
+
   // Pull the peer's profile for the header (name, avatar, status) AND
   // for live-avatar rendering on every received bubble.
   const { data: peerProfile } = useQuery({
@@ -397,6 +412,8 @@ export default function DM() {
       return content.includes(q);
     });
   }, [rows, debouncedQuery]);
+
+  if (!conversationId || peerMissing) return <NotFound what="conversation" />;
 
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#050505' }}>

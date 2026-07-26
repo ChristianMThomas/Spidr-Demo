@@ -167,7 +167,7 @@ function LegalText() {
       </p>
       <h4 className="font-bold text-white mb-1 mt-3" style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "14px", letterSpacing: "0.05em" }}>2. Confidentiality (NDA)</h4>
       <p className="mb-3">
-        For closed/private beta participants: you agree that all non-public information you access through the Program — including features, designs, performance, screenshots, and your own feedback — is confidential ("Confidential Information"). You will not disclose, publish, screenshot, stream, demo, or share Confidential Information with any third party without Spidr's prior written consent. This obligation survives termination of the Program. Open beta features publicly announced by Spidr are excluded from this restriction.
+        For closed/private beta participants: you agree that all non-public information you access through the Program, including features, designs, performance, screenshots, and your own feedback, is confidential ("Confidential Information"). You will not disclose, publish, screenshot, stream, demo, or share Confidential Information with any third party without Spidr's prior written consent. This obligation survives termination of the Program. Open beta features publicly announced by Spidr are excluded from this restriction.
       </p>
       <h4 className="font-bold text-white mb-1 mt-3" style={{ fontFamily: "'Bebas Neue', sans-serif", fontSize: "14px", letterSpacing: "0.05em" }}>3. Feedback &amp; Ownership</h4>
       <p className="mb-3">
@@ -563,7 +563,7 @@ export default function BetaSignupModal({ isOpen, onClose, betaStatus }: BetaSig
                                 style={{ color: betaStatus.isFull ? "#71717a" : "#e05c6e" }}
                               >
                                 {betaStatus.isFull
-                                  ? "BETA FULL — ALL SPOTS CLAIMED"
+                                  ? "BETA FULL, ALL SPOTS CLAIMED"
                                   : `${betaStatus.spotsLeft} OF ${betaStatus.cap} SPOTS REMAINING`}
                               </span>
                             </div>
@@ -687,8 +687,8 @@ export default function BetaSignupModal({ isOpen, onClose, betaStatus }: BetaSig
                                 style={errors.betaType ? ERR_INPUT : BASE_INPUT}
                               >
                                 <option value="">Select…</option>
-                                <option value="closed">Closed Beta — early builds, NDA required, hands-on feedback</option>
-                                <option value="open">Open Beta — public preview, lighter commitment</option>
+                                <option value="closed">Closed Beta, early builds, NDA required, hands-on feedback</option>
+                                <option value="open">Open Beta, public preview, lighter commitment</option>
                               </select>
                             </Field>
 

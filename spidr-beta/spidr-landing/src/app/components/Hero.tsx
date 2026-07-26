@@ -35,7 +35,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
     return () => clearTimeout(entrance);
   }, []);
 
-  // Mouse parallax — layers shift at different speeds to simulate depth
+  // Mouse parallax, layers shift at different speeds to simulate depth
   useEffect(() => {
     const canvas = canvasRef.current;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -93,7 +93,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
           aria-hidden="true"
         />
 
-        {/* 3D canvas viewport — perspective lives here */}
+        {/* 3D canvas viewport, perspective lives here */}
         <div
           className="absolute inset-0 z-[1] flex items-center justify-center"
           style={{ perspective: "2000px" }}
@@ -180,7 +180,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
             transition={{ duration: 0.5, delay: 0.5 }}
           >
             <div className="font-mono text-[0.6rem] text-[#C41E3A] tracking-widest">
-              CLOSED BETA — INVITES ROLLING OUT
+              CLOSED BETA, INVITES ROLLING OUT
             </div>
             <div
               className="font-mono text-[0.6rem] tracking-widest mt-0.5"
@@ -190,7 +190,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
             </div>
           </motion.div>
 
-          {/* Headline — center row, staggered word entrance */}
+          {/* Headline, center row, staggered word entrance */}
           <motion.h1
             className="font-black text-white tracking-tight"
             style={{
@@ -223,7 +223,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
             ))}
           </motion.h1>
 
-          {/* Bottom row — tagline + CTA left, explore right */}
+          {/* Bottom row, tagline + CTA left, explore right */}
           <motion.div
             className="flex justify-between items-end pointer-events-auto"
             style={{ gridColumn: "1 / -1" }}
@@ -232,9 +232,9 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
             transition={{ duration: 0.6, delay: 1.2 }}
           >
             <div className="max-w-md">
-              {/* What-is-this line — the 5-second answer a skeptic needs */}
+              {/* What-is-this line, the 5-second answer a skeptic needs */}
               <p className="text-zinc-300 text-sm leading-relaxed mb-2">
-                One app for your whole community — organized chat, drop-in voice,
+                One app for your whole community, organized chat, drop-in voice,
                 a short-form video feed, and AI + bots built in. No plugins, no hosting.
               </p>
               <p className="font-mono text-[0.65rem] text-zinc-500 tracking-widest mb-3">
@@ -254,7 +254,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
                 <div className="flex items-center gap-2 mb-3">
                   <span className="w-1.5 h-1.5 bg-zinc-600 rounded-full" />
                   <span className="font-mono text-[0.6rem] text-zinc-600 tracking-wide">
-                    BETA FULL — CLOSED
+                    BETA FULL, CLOSED
                   </span>
                 </div>
               )}
@@ -293,14 +293,13 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
         {/* ── MOBILE: centered fallback ────────────────────────────────── */}
         <div className="md:hidden flex flex-col items-center justify-center min-h-dvh px-6 pt-24 pb-16 text-center relative z-10">
           <motion.div
-            className="inline-flex items-center gap-2 bg-[#8B0000]/15 border border-[#8B0000]/40 rounded-full px-4 py-1.5 mb-8"
+            className="mb-8"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <span className="w-2 h-2 bg-[#C41E3A] rounded-full animate-pulse" />
-            <span className="text-[#C41E3A] text-sm font-semibold tracking-wide">
-              Closed Beta — Invites Rolling Out
+            <span className="font-mono text-[0.65rem] text-[#C41E3A] tracking-widest uppercase">
+              Closed Beta, Invites Rolling Out
             </span>
           </motion.div>
 
@@ -320,7 +319,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.25 }}
           >
-            One app for your whole community — organized chat, drop-in voice, a
+            One app for your whole community, organized chat, drop-in voice, a
             short-form video feed, and AI + bots built in.
           </motion.p>
 
@@ -341,7 +340,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
               </button>
             ) : (
               <div className="border border-zinc-700 text-zinc-500 px-8 py-4 font-bold text-base flex items-center justify-center min-h-[52px] text-sm tracking-wide">
-                Beta Full — Closed
+                Beta Full, Closed
               </div>
             )}
 
@@ -365,7 +364,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
           >
             {betaStatus
               ? betaStatus.isFull
-                ? "Beta is full — all spots claimed."
+                ? "Beta is full, all spots claimed."
                 : `${betaStatus.spotsLeft} of ${betaStatus.cap} spots remaining`
               : "Free beta · no credit card required"}
           </motion.p>

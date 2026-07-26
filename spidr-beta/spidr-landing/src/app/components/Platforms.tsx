@@ -56,7 +56,7 @@ export default function Platforms({ onOpenBeta }: PlatformsProps) {
                 Already on your devices.
               </h2>
               <p className="text-zinc-400 text-lg mb-8 leading-relaxed">
-                Web, Windows desktop, and the iOS/Android beta are live today — beta invites
+                Web, Windows desktop, and the iOS/Android beta are live today, beta invites
                 get you in immediately. macOS and Linux builds land at the August 2026 launch.
               </p>
               <motion.button

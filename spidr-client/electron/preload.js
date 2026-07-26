@@ -96,4 +96,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   requestGamingStatus: () => ipcRenderer.invoke('gaming:request-status'),
   // Extract the native .exe icon for unrecognised games — returns a base64 data URL or null
   getGameIcon: (exePath) => ipcRenderer.invoke('game:get-icon', exePath),
+
+  // In-app updates (electron-updater / GitHub Releases). Only meaningful in a
+  // packaged build — main.js short-circuits with { ok:false } in dev.
+  //   checkForUpdates  → resolves with { ok, current, update?, error? }
+  //   downloadUpdate   → resolves with { ok, error? } once the download finishes
+  //   quitAndInstall   → fire-and-forget: app quits and re-launches into new ver
+  //   onUpdateStatus   → subscribe to phase events (checking/available/downloading/…)
+  checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+  downloadUpdate:  () => ipcRenderer.invoke('updater:download'),
+  quitAndInstall:  () => ipcRenderer.send('updater:quit-install'),
+  onUpdateStatus: (cb) => {
+    const handler = (_e, payload) => cb(payload);
+    ipcRenderer.on('updater:status', handler);
+    return () => ipcRenderer.removeListener('updater:status', handler);
+  },
 });

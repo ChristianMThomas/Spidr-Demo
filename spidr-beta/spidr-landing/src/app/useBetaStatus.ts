@@ -23,7 +23,7 @@ export function useBetaStatus() {
         const data: BetaStatus = await res.json();
         if (!cancelled) setStatus(data);
       } catch {
-        // silently ignore — counter just doesn't show until next poll
+        // silently ignore, counter just doesn't show until next poll
       }
     }
 

@@ -38,7 +38,7 @@ export default function Navbar({ onOpenBeta }: NavbarProps) {
             <span className="text-white text-xl font-black tracking-tight">SPIDR</span>
           </motion.div>
 
-          {/* Nav Links — Desktop */}
+          {/* Nav Links, Desktop */}
           <div className="hidden md:flex items-center gap-8">
             {navLinks.map((item) => (
               <motion.a
@@ -62,23 +62,10 @@ export default function Navbar({ onOpenBeta }: NavbarProps) {
             ))}
           </div>
 
-          {/* Editorial status tag — Desktop large */}
+          {/* Editorial status tag, Desktop large */}
           <span className="hidden lg:flex items-center font-mono text-[0.6rem] text-[#C41E3A] tracking-widest border border-[#8B0000]/30 px-2 py-1 opacity-60">
-            [ BETA / v0.1 ]
+            BETA / v2.0
           </span>
-
-          {/* CTA — Desktop */}
-          <div className="hidden md:flex items-center">
-            <motion.button
-              className="bg-[#8B0000] text-white px-5 py-2.5 rounded-full text-sm font-semibold flex items-center gap-2 relative overflow-hidden"
-              whileHover={{ scale: 1.04, backgroundColor: "#A00000" }}
-              whileTap={{ scale: 0.96 }}
-              onClick={onOpenBeta}
-            >
-              <Sparkles size={15} />
-              <span>Join the Beta</span>
-            </motion.button>
-          </div>
 
           {/* Mobile hamburger */}
           <motion.button

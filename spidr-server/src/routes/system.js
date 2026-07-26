@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1956',
+    title: 'Patch 1.9.56 — In-app updater + WEB profile relabel',
+    date: '2026-07-26',
+    type: 'UPDATE',
+    description: 'Desktop gains true in-app updates — the packaged Electron client now checks a GitHub Releases feed on launch (via electron-updater), surfaces "Update available" through a new IPC bridge (checkForUpdates / downloadUpdate / quitAndInstall) that\'s guarded to packaged builds so npm run electron-dev still boots cleanly, and installs the new NSIS package on the user\'s next quit — no more manual re-download from spidrapp.com to pull a patch. WEB profile counters get their names swapped for something users actually parse — "Resonance" is now "Likes" on both web and mobile (the internal ranking algorithm still uses the word, this is a display-only rename; Strands and Impact untouched). Mobile grows two new bottom sheets — ReactionSheet for tap-to-react on clips and SlingSheet for the WEB sling menu — plus a proper NotFound screen that stops dead invite links from parking the app on an infinite spinner. Home page adds a new UpdatesCard widget that reads the same NEWS feed the SPIDR_SYS terminal uses. Also under the hood: mobile queryClient and apiClient tuning, DM/group/server-channel screen polish, landing page component refresh across Hero, Navbar, Community, Platforms, WhySpidr, Footer, Download, Features, and BetaSignupModal, and a new fixes/MOBILE-VOICE-CHANNELS-PLAN.md that lays out the react-native-webrtc + custom dev-client migration path so real server VC join can land in a future patch.',
+  },
+  {
     id: 'p1955',
     title: 'Patch 1.9.55 — APEX store recognizes existing subscribers',
     date: '2026-07-22',

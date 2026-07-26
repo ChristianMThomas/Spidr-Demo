@@ -24,6 +24,7 @@ import { Avatar } from '../../components/ui/Avatar';
 import { MessageBubble } from '../../components/chat/MessageBubble';
 import { MessageInput } from '../../components/chat/MessageInput';
 import { Spinner } from '../../components/ui/Spinner';
+import { NotFound } from '../../components/ui/NotFound';
 
 function formatDateDivider(d: Date) {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
@@ -178,7 +179,7 @@ export default function GroupChat() {
   const [showMembers, setShowMembers] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  const { data: group } = useQuery({
+  const { data: group, isError: groupError } = useQuery({
     queryKey: ['group-chat', groupId],
     queryFn: () => entities.GroupChat.get(groupId!),
     enabled: !!groupId,
@@ -283,6 +284,8 @@ export default function GroupChat() {
 
   const groupName = (group as any)?.name || 'Group Chat';
   const memberCount = ((group as any)?.members || []).length;
+
+  if (!groupId || groupError) return <NotFound what="group chat" />;
 
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: '#050505' }}>

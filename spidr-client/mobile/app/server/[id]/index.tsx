@@ -30,6 +30,7 @@ import { entities } from '../../../lib/apiClient';
 import { useAppShell } from '../../../lib/appShellContext';
 import { Avatar } from '../../../components/ui/Avatar';
 import { Spinner } from '../../../components/ui/Spinner';
+import { NotFound } from '../../../components/ui/NotFound';
 import { dmConversationId, isSystemFriend } from '../../../lib/utils';
 
 type Channel = { id?: string; _id?: string; name: string; type?: 'text' | 'voice' | string };
@@ -410,7 +411,7 @@ export default function ServerChannelList() {
   const [showInvite, setShowInvite] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  const { data: server } = useQuery({
+  const { data: server, isLoading: serverLoading, isError: serverError } = useQuery({
     queryKey: ['server', id],
     queryFn: () => entities.Server.get(id!),
     enabled: !!id,
@@ -434,7 +435,10 @@ export default function ServerChannelList() {
     };
   }, [server]);
 
-  if (!server) return <Spinner />;
+  // A dead invite link 404s here. Previously the query errored, `server`
+  // stayed undefined, and this sat on a spinner forever.
+  if (!id || serverError) return <NotFound what="server" />;
+  if (serverLoading || !server) return <Spinner />;
 
   const memberCount = (server as any).members?.length || 0;
   const serverName = (server as any).name || 'Server';

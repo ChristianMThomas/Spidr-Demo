@@ -15,7 +15,7 @@ export default function Footer() {
               <span className="text-white text-lg font-black tracking-tight">SPIDR</span>
             </div>
             <p className="text-zinc-600 text-xs leading-relaxed">
-              One app for your whole community. Built in public by a two-person team —
+              One app for your whole community. Built in public by a two-person team ,
               no ads, no data selling, weekly patches.
             </p>
           </div>

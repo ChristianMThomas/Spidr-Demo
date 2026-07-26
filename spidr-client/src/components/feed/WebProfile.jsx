@@ -13,7 +13,7 @@ export default function WebProfile({ currentUser, onUploadClick, targetUser = nu
   // Viewing mode: with no targetUser (or targeting yourself) this is the
   // owner's "MY NODE" editor view. With a targetUser it renders THAT user's
   // public WEB profile — their strands + relays — with all owner-only
-  // controls (upload, edit, delete, private SAVED / RESONANCE tabs) hidden.
+  // controls (upload, edit, delete, private SAVED / LIKED tabs) hidden.
   const isOwn = !targetUser || targetUser.id === currentUser?.id;
   const subject = isOwn ? currentUser : targetUser;
   const [activeTab, setActiveTab] = useState('strands');
@@ -121,7 +121,7 @@ export default function WebProfile({ currentUser, onUploadClick, targetUser = nu
           <div className="flex gap-8 text-center">
             <StatItem label="Strands" value={myStrands.length} />
             <StatItem label="Impact" value={totalViews > 1000 ? `${(totalViews/1000).toFixed(1)}K` : totalViews} icon={Activity} />
-            <StatItem label="Resonance" value={totalLikes} />
+            <StatItem label="Likes" value={totalLikes} />
           </div>
         </div>
       </div>
@@ -132,7 +132,7 @@ export default function WebProfile({ currentUser, onUploadClick, targetUser = nu
           <TabButton icon={Grid} label={isOwn ? 'MY STRANDS' : 'STRANDS'} active={activeTab === 'strands'} onClick={() => setActiveTab('strands')} />
           <TabButton icon={Repeat2} label="REPOSTS" active={activeTab === 'reposts'} onClick={() => setActiveTab('reposts')} />
           {isOwn && <TabButton icon={Bookmark} label="SAVED" active={activeTab === 'saved'} onClick={() => setActiveTab('saved')} />}
-          {isOwn && <TabButton icon={Heart} label="RESONANCE" active={activeTab === 'liked'} onClick={() => setActiveTab('liked')} />}
+          {isOwn && <TabButton icon={Heart} label="LIKED" active={activeTab === 'liked'} onClick={() => setActiveTab('liked')} />}
         </div>
       </div>
 
@@ -181,7 +181,7 @@ export default function WebProfile({ currentUser, onUploadClick, targetUser = nu
               <p className="text-sm font-mono">{
                 activeTab === 'saved'   ? 'No saved clips yet. Save clips to build your archive.'
               : activeTab === 'reposts' ? 'No relays yet. Hit the relay button on a strand to amplify it to your web.'
-              :                           'No resonance yet. Like clips to track them here.'
+              :                           'No likes yet. Like clips to track them here.'
               }</p>
             </div>
           )}

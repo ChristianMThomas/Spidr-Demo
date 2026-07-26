@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, Platform, StatusBar } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export type FeedTab = 'web' | 'linked';
 
@@ -12,6 +13,15 @@ interface FeedTabBarProps {
 // underline on the active one. Mirrors the web's THE WEB / LINKED NODES
 // sub-tabs — other 5 web sub-tabs deferred to Phase 2.
 export function FeedTabBar({ active, onChange }: FeedTabBarProps) {
+  // The feed is full-bleed (no SafeAreaView, so video runs under the status
+  // bar) — the pills have to clear the notch themselves. Android insets can
+  // report 0 outside edge-to-edge, so fall back to the status bar height.
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0
+  );
+
   return (
     <View
       pointerEvents="box-none"
@@ -21,7 +31,7 @@ export function FeedTabBar({ active, onChange }: FeedTabBarProps) {
         left: 0,
         right: 0,
         zIndex: 5,
-        paddingTop: 10,
+        paddingTop: topInset + 12,
         flexDirection: 'row',
         justifyContent: 'center',
         gap: 24,

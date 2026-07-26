@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { User, Palette, Bell, Shield, LogOut, Upload, Sparkles, Mic, Video, Volume2, Zap, ShieldAlert, Ghost, LayoutPanelLeft } from 'lucide-react';
+import { User, Palette, Bell, Shield, LogOut, Upload, Sparkles, Mic, Video, Volume2, Zap, ShieldAlert, Ghost, LayoutPanelLeft, Download } from 'lucide-react';
 import ApexStore from './ApexStore';
 import SpiderLogo from './SpiderLogo';
 import { Slider } from '@/components/ui/slider';
@@ -22,6 +22,7 @@ import AVLab from './AVLab';
 import NeuralConfig from './NeuralConfig';
 import SecurityMatrix from './SecurityMatrix';
 import SpidrProtocolSettings from './SpidrProtocolSettings';
+import UpdatesCard from './UpdatesCard';
 import TelemetryDeck from './TelemetryDeck';
 import ApexVisuals from './ApexVisuals';
 import { USERNAME_FONTS, USERNAME_WEIGHTS, USERNAME_STYLES, USERNAME_EFFECTS, buildUsernameStyle } from '@/lib/usernameStyle';
@@ -272,6 +273,11 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
               {isElectron && (
                 <TabsTrigger value="protocol" className="flex items-center gap-2 data-[state=active]:bg-red-600/20 data-[state=active]:text-white px-3 py-2 text-sm">
                   <Ghost className="w-4 h-4" /> <span className="hidden sm:inline">Protocol</span>
+                </TabsTrigger>
+              )}
+              {isElectron && (
+                <TabsTrigger value="about" className="flex items-center gap-2 data-[state=active]:bg-red-600/20 data-[state=active]:text-white px-3 py-2 text-sm">
+                  <Download className="w-4 h-4" /> <span className="hidden sm:inline">About</span>
                 </TabsTrigger>
               )}
               <TabsTrigger value="widgets" className="flex items-center gap-2 data-[state=active]:bg-blue-600/20 data-[state=active]:text-blue-400 px-3 py-2 text-sm">
@@ -919,6 +925,13 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
               <div className="space-y-6 max-w-lg">
                 <SpidrProtocolSettings />
               </div>
+            </TabsContent>
+          )}
+
+          {isElectron && (
+            <TabsContent value="about" className="p-6 m-0">
+              <h2 className="text-2xl font-bold text-white mb-6">About Spidr</h2>
+              <UpdatesCard />
             </TabsContent>
           )}
 

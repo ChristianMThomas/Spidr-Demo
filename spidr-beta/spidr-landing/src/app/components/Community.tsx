@@ -14,7 +14,7 @@ interface CommunityProps {
 
 /**
  * Trust section. The previous version showed "10K COMMUNITIES / 99.9% UPTIME
- * SLA / 100K USER TARGET" — pre-launch vanity numbers a skeptical visitor
+ * SLA / 100K USER TARGET", pre-launch vanity numbers a skeptical visitor
  * immediately reads as fabricated. Replaced with things that are verifiably
  * true (live beta counter from the API, real platform list, real shipping
  * cadence) plus a build-in-public note about who's making it.
@@ -25,7 +25,7 @@ export default function Community({ betaStatus }: CommunityProps) {
 
   const facts = [
     {
-      value: betaStatus ? `${betaStatus.count}` : "—",
+      value: betaStatus ? `${betaStatus.count}` : "...",
       label: "Beta testers signed up",
       sub: betaStatus && !betaStatus.isFull ? `${betaStatus.spotsLeft} spots left of ${betaStatus.cap}` : "live count",
     },
@@ -65,7 +65,7 @@ export default function Community({ betaStatus }: CommunityProps) {
         </h2>
 
         <p className="text-lg md:text-xl text-zinc-400 mb-14 leading-relaxed max-w-2xl mx-auto">
-          Spidr is early — that's the point. Join now and the features you ask for
+          Spidr is early, that's the point. Join now and the features you ask for
           are the features that ship. Every patch note is public, in-app, every week.
         </p>
 

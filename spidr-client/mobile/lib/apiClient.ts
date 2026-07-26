@@ -274,6 +274,18 @@ export const feedComments = {
     api.post(`/feed-comments/${commentId}/react`, { emoji }),
 };
 
+// ─── Web signals (sling) ─────────────────────────────────────────────────────
+// Slung clips land in THE WEB's own SIGNALS inbox, deliberately separate from
+// real DMs. Mirrors the web client's webMessages helper.
+export const webMessages = {
+  inbox:    ()            => api.get('/web-messages', { params: { box: 'inbox' } }),
+  sent:     ()            => api.get('/web-messages', { params: { box: 'sent' } }),
+  unread:   ()            => api.get('/web-messages/unread-count'),
+  sling:    (d: any)      => api.post('/web-messages', d),
+  markRead: (id: string)  => api.patch(`/web-messages/${id}/read`, {}),
+  remove:   (id: string)  => api.delete(`/web-messages/${id}`),
+};
+
 // ─── Follows ─────────────────────────────────────────────────────────────────
 export const follows = {
   following: (userId: string)  => api.get('/follows', { params: { follower_id: userId } }),
