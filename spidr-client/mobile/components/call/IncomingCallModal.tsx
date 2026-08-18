@@ -1,60 +1,76 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, Animated, Easing, Vibration, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, Animated, Easing, Vibration, Platform, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Phone, PhoneOff, Video as VideoIcon } from 'lucide-react-native';
-import { getSocket } from '../../lib/socket';
 import { useAuth } from '../../lib/authContext';
+import { emitter } from '../../lib/eventEmitter';
+import { callManager, CallInfo } from '../../lib/callManager';
 import { Avatar } from '../ui/Avatar';
 
 // ── Incoming call modal (mobile) ────────────────────────────────────────────
-// Mounted once at the root layout. Listens for `call:incoming` from the DM
-// call-signaling relay in spidr-server (socket/handlers.js) and drops a
-// full-screen "ringing" sheet. Real-time audio/video streaming needs
-// react-native-webrtc, which isn't available in Expo Go — so on Accept, we
-// route the user into the DM with an in-call chip so both sides can chat
-// while the media stream lands in Phase 2. The ringing UX itself works
-// today: the recipient's phone vibrates on a loop and the modal drops down
-// exactly like a native CallKit banner.
-
-type Call = {
-  conversationId: string;
-  callerId: string;
-  caller?: { id?: string; name?: string; avatar?: string };
-  kind?: 'voice' | 'video' | 'group';
-};
+// Mounted once at the root layout. The ringing itself is owned by
+// lib/callManager (socket `call:incoming` + FCM push + CallKeep for
+// background/killed); this component is the FOREGROUND ring surface — a
+// full-screen sheet with vibration — plus navigation into the active call
+// screen once media connects. In Expo Go (no react-native-webrtc) accepting
+// signals the caller and falls back to opening the DM.
 
 export default function IncomingCallModal() {
   const { user } = useAuth();
   const router = useRouter();
-  const [call, setCall] = useState<Call | null>(null);
+  const [call, setCall] = useState<CallInfo | null>(null);
   const pulse = useRef(new Animated.Value(0.8)).current;
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Boot the call brain once we know who's logged in.
   useEffect(() => {
-    let mounted = true;
-    let cleanup: (() => void) | undefined;
-    (async () => {
-      const socket = await getSocket();
-      if (!mounted) return;
-      const onIncoming = (payload: any) => {
-        if (!payload) return;
-        // Ignore self-loopback if the server ever mis-routes.
-        if (payload.callerId && payload.callerId === user?.id) return;
-        setCall(payload);
-        // 30s auto-decline — matches web behaviour.
-        if (autoDismissRef.current) clearTimeout(autoDismissRef.current);
-        autoDismissRef.current = setTimeout(() => decline(payload), 30_000);
-      };
-      const onCancelled = () => dismiss();
-      socket.on('call:incoming', onIncoming);
-      socket.on('call:cancelled', onCancelled);
-      cleanup = () => {
-        socket.off('call:incoming', onIncoming);
-        socket.off('call:cancelled', onCancelled);
-      };
-    })();
-    return () => { mounted = false; cleanup?.(); };
+    if (user?.id) callManager.init(user);
   }, [user?.id]);
+
+  useEffect(() => {
+    const offState = emitter.on('call:state', ({ state, call: c }: any) => {
+      if (state === 'ringing' && c?.direction === 'incoming') {
+        setCall(c);
+        if (autoDismissRef.current) clearTimeout(autoDismissRef.current);
+        // 30s auto-decline — matches web behaviour.
+        autoDismissRef.current = setTimeout(() => callManager.decline(), 30_000);
+      } else {
+        if (autoDismissRef.current) { clearTimeout(autoDismissRef.current); autoDismissRef.current = null; }
+        Vibration.cancel();
+        setCall(null);
+        if (state === 'active' && c) {
+          router.push({
+            pathname: '/call/[id]',
+            params: {
+              id: c.conversationId,
+              peerId: c.peer?.id || '',
+              peerName: c.peer?.name || 'Call',
+              peerAvatar: c.peer?.avatar || '',
+              kind: c.kind,
+            },
+          } as any);
+        }
+      }
+    });
+
+    // Expo Go path: media impossible, but the accept was signalled — drop
+    // into the DM like before so the two can still chat.
+    const offUnsupported = emitter.on('call:unsupported', (c: any) => {
+      if (!c) return;
+      if (c.direction === 'incoming') {
+        router.push({
+          pathname: '/dm/[id]',
+          params: { id: c.conversationId, friendId: c.peer?.id, friendName: c.peer?.name || 'Caller' },
+        } as any);
+      }
+      Alert.alert(
+        'Live audio needs the full app',
+        'This build (Expo Go) can\'t stream call audio. Install the Spidr dev build to talk — the other side has been notified you accepted.',
+      );
+    });
+
+    return () => { offState(); offUnsupported(); };
+  }, [router]);
 
   // Pulse avatar + vibrate phone while ringing.
   useEffect(() => {
@@ -66,9 +82,6 @@ export default function IncomingCallModal() {
       ])
     );
     loop.start();
-    // Vibration pattern loops until we stop it. Android needs the array
-    // form (`[wait, buzz, wait, buzz]`); iOS ignores the pattern but rings
-    // the shorter default.
     if (Platform.OS === 'android') {
       Vibration.vibrate([0, 800, 400, 800], true);
     } else {
@@ -80,54 +93,9 @@ export default function IncomingCallModal() {
     };
   }, [call, pulse]);
 
-  const dismiss = () => {
-    if (autoDismissRef.current) { clearTimeout(autoDismissRef.current); autoDismissRef.current = null; }
-    Vibration.cancel();
-    setCall(null);
-  };
-
-  const decline = async (payload: Call | null = call) => {
-    if (!payload) return;
-    try {
-      const socket = await getSocket();
-      socket.emit('call:decline', {
-        callerId: payload.callerId,
-        conversationId: payload.conversationId,
-      });
-    } catch { /* non-fatal */ }
-    dismiss();
-  };
-
-  const accept = async () => {
-    if (!call) return;
-    const c = call;
-    dismiss();
-    try {
-      const socket = await getSocket();
-      socket.emit('call:accept', {
-        callerId: c.callerId,
-        conversationId: c.conversationId,
-      });
-    } catch { /* non-fatal */ }
-    // Navigate into the DM so the two users can at least chat while the
-    // media stream is a Phase-2 (WebRTC dev client) task.
-    router.push({
-      pathname: '/dm/[id]',
-      params: {
-        id: c.conversationId,
-        friendId: c.callerId,
-        friendName: c.caller?.name || 'Caller',
-        // Tells the DM screen to render the in-call banner so the callee
-        // has confirmation they joined + a hang-up affordance.
-        inCall: '1',
-      },
-    });
-  };
-
   if (!call) return null;
 
-  const callerName = call.caller?.name || 'Someone';
-  const callerAvatar = call.caller?.avatar;
+  const callerName = call.peer?.name || 'Someone';
   const isVideo = call.kind === 'video';
 
   return (
@@ -139,7 +107,7 @@ export default function IncomingCallModal() {
 
         <Animated.View style={{ transform: [{ scale: pulse }], shadowColor: '#ef4444', shadowOpacity: 0.6, shadowRadius: 24, marginBottom: 20 }}>
           <View style={{ padding: 4, borderRadius: 999, borderWidth: 2, borderColor: 'rgba(239,68,68,0.5)' }}>
-            <Avatar uri={callerAvatar} name={callerName} size={110} />
+            <Avatar uri={call.peer?.avatar} name={callerName} size={110} />
           </View>
         </Animated.View>
 
@@ -147,13 +115,13 @@ export default function IncomingCallModal() {
           {callerName}
         </Text>
         <Text style={{ color: '#a1a1aa', fontSize: 13, marginBottom: 60 }}>
-          is {isVideo ? 'video calling' : 'calling'} you on the web…
+          incoming {isVideo ? 'video call' : 'voice call'}…
         </Text>
 
         <View style={{ flexDirection: 'row', gap: 32 }}>
           <View style={{ alignItems: 'center', gap: 8 }}>
             <TouchableOpacity
-              onPress={() => decline()}
+              onPress={() => callManager.decline()}
               style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center' }}
             >
               <PhoneOff size={26} color="#fff" />
@@ -162,7 +130,7 @@ export default function IncomingCallModal() {
           </View>
           <View style={{ alignItems: 'center', gap: 8 }}>
             <TouchableOpacity
-              onPress={accept}
+              onPress={() => callManager.accept()}
               style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: '#22c55e', alignItems: 'center', justifyContent: 'center' }}
             >
               {isVideo ? <VideoIcon size={26} color="#fff" /> : <Phone size={26} color="#fff" />}

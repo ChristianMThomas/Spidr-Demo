@@ -7,6 +7,11 @@ npm-debug.*
 *.p12
 *.key
 *.mobileprovision
+
+# Firebase CLIENT configs are safe to commit per Firebase docs — they only
+# contain the public project ID / API key (rate-limited & scoped by Firebase
+# rules). EAS build needs them at prebuild time. The service-account admin
+# key (spidr-secure/*.json) stays OUT of the repo — that one has real power.
 *.orig.*
 web-build/
 .env*

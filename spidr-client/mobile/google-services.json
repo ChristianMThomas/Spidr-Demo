@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "195899891912",
+    "project_id": "spidrapp-7d53d",
+    "storage_bucket": "spidrapp-7d53d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:195899891912:android:1cab632938e310031245fd",
+        "android_client_info": {
+          "package_name": "com.infinitetechteam.spidr"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCKHvD2sscvk53aORYXu0_Eq1j8OT15d8o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

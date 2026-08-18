@@ -163,6 +163,7 @@ app.use('/tension',            require('./routes/tension'));
 app.use('/follows',            require('./routes/follows'));
 app.use('/feed-comments',      require('./routes/feedComments'));
 app.use('/system',             require('./routes/system'));
+app.use('/push-tokens',        require('./routes/pushTokens'));
 app.use('/weaver',             require('./routes/weaver'));
 app.use('/spotify',            require('./routes/spotify'));
 app.use('/steam',              require('./routes/steam'));

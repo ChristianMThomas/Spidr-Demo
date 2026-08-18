@@ -12,24 +12,66 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.infinitetechteam.spidr"
+      "bundleIdentifier": "com.infinitetechteam.spidr",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio",
+          "voip"
+        ],
+        "NSMicrophoneUsageDescription": "Spidr needs the microphone for voice and video calls.",
+        "NSCameraUsageDescription": "Spidr needs the camera for video calls.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bitcode": false
     },
     "android": {
-      "package": "com.infinitetechteam.spidr"
+      "package": "com.infinitetechteam.spidr",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.READ_PHONE_STATE",
+        "android.permission.CALL_PHONE",
+        "android.permission.MANAGE_OWN_CALLS",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.WAKE_LOCK",
+        "android.permission.USE_FULL_SCREEN_INTENT",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.INTERNET",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.BLUETOOTH",
+        "android.permission.BIND_TELECOM_CONNECTION_SERVICE",
+        "android.permission.READ_PHONE_NUMBERS"
+      ]
     },
     "plugins": [
       "expo-router",
       "expo-video",
-      "expo-audio"
+      "expo-audio",
+      "@react-native-firebase/app",
+      "@config-plugins/react-native-webrtc",
+      [
+        "@config-plugins/react-native-callkeep"
+      ],
+      "expo-asset"
     ],
     "extra": {
       "apiUrl": "https://cooperative-simplicity-production-bb44.up.railway.app",
       "authUrl": "https://auth.spidrapp.infinitetechteam.com",
       "wsUrl": "https://cooperative-simplicity-production-bb44.up.railway.app",
-      "spotifyClientId": ""
+      "spotifyClientId": "",
+      "router": {},
+      "eas": {
+        "projectId": "89e63653-9e08-47e4-86d3-7dae62d591fa"
+      }
     },
     "experiments": {
       "typedRoutes": false
-    }
+    },
+    "owner": "chrislovescoding"
   }
 }

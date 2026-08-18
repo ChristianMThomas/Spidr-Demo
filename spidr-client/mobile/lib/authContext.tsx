@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { auth } from './apiClient';
 import { emitter } from './eventEmitter';
 import { reconnectSocket, disconnectSocket } from './socket';
+import { callManager } from './callManager';
 
 interface AuthCtx {
   user: any | null;
@@ -38,6 +39,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         const u = await auth.me();
         setUser(u); setIsAuth(true);
+        callManager.init(u).catch(() => {});
       } catch {
         await AsyncStorage.removeItem('spidr_token');
       } finally {
@@ -69,6 +71,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const me = await auth.me();
       setUser(me); setIsAuth(true); setAuthError(null);
       reconnectSocket();
+      callManager.init(me).catch(() => {});
     }
     return data;
   };
@@ -90,6 +93,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setUser(me); setIsAuth(true); setAuthError(null);
     setPendingEmail(null); setOtpMode(null);
     reconnectSocket();
+    callManager.init(me).catch(() => {});
     return data;
   };
 
@@ -97,6 +101,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const cancelOTP = () => { setPendingEmail(null); setOtpMode(null); };
 
   const logout = async (shouldRedirect = true) => {
+    await callManager.unregisterToken();
     await auth.logout();
     disconnectSocket();
     setUser(null); setIsAuth(false);

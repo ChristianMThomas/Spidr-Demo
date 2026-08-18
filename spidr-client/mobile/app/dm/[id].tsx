@@ -38,6 +38,7 @@ import { MessageInput } from '../../components/chat/MessageInput';
 import { Spinner } from '../../components/ui/Spinner';
 import { NotFound } from '../../components/ui/NotFound';
 import OutgoingCallModal from '../../components/call/OutgoingCallModal';
+import { callManager } from '../../lib/callManager';
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   online: { label: 'ONLINE', color: '#22c55e' },
@@ -618,7 +619,29 @@ export default function DM() {
           visible={!!callKind}
           kind={callKind}
           onClose={() => setCallKind(null)}
-          onAccepted={() => { setCallKind(null); setCallActive(true); }}
+          onAccepted={async () => {
+            const kind = callKind || 'voice';
+            setCallKind(null);
+            const ok = await callManager.startOutgoing({
+              conversationId: conversationId!,
+              peer: { id: friendId!, name: displayName, avatar: headerAvatar },
+              kind,
+            });
+            if (ok) {
+              router.push({
+                pathname: '/call/[id]',
+                params: {
+                  id: conversationId!,
+                  peerId: friendId!,
+                  peerName: displayName,
+                  peerAvatar: headerAvatar,
+                  kind,
+                },
+              });
+            } else {
+              setCallActive(true); // Expo Go fallback — original in-app UI
+            }
+          }}
           recipientId={friendId}
           recipientName={displayName}
           recipientAvatar={headerAvatar}

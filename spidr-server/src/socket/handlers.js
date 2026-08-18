@@ -14,6 +14,7 @@ const Friend       = require('../models/Friend');
 const UserProfile  = require('../models/UserProfile');
 const { recordMessage, checkContent, isAutoModInstalled } = require('../utils/automod');
 const spotifyPresence = require('../utils/spotifyPresence');
+const { sendCallPush, sendCallEndPush } = require('../utils/push');
 
 // Shared secret resolver — keeps HTTP, socket, and rate-limit verification in sync.
 const { getSecret } = require('../utils/jwtSecret');
@@ -501,7 +502,7 @@ module.exports = function registerHandlers(io) {
     // Relays a ringing invite (and its lifecycle) to the recipient's sockets so
     // the incoming-call banner can show. Pure signaling; the actual media is
     // handled by the existing voice session join once the callee accepts.
-    socket.on('call:invite', ({ recipientId, conversationId, caller }) => {
+    socket.on('call:invite', ({ recipientId, conversationId, caller, kind }) => {
       const recvSockets = onlineUsers.get(recipientId);
       if (recvSockets) {
         for (const sid of recvSockets) {
@@ -509,13 +510,19 @@ module.exports = function registerHandlers(io) {
             conversationId,
             caller: caller || { id: userId },
             callerId: userId,
+            kind: kind || 'voice',
           });
         }
       }
+      // Also ring native devices (Android FCM / iOS APNs) — silent no-op if
+      // FIREBASE_SERVICE_ACCOUNT isn't set locally.
+      sendCallPush(recipientId, { conversationId, caller: caller || { id: userId }, kind: kind || 'voice' });
     });
     socket.on('call:accept', ({ callerId, conversationId }) => {
       const sockets = onlineUsers.get(callerId);
       if (sockets) for (const sid of sockets) io.to(sid).emit('call:accepted', { conversationId, byUserId: userId });
+      // Stop the ring on the acceptor's OTHER devices (they answered here).
+      sendCallEndPush(userId, { conversationId, reason: 'answered' });
     });
     // ── Missed-call writer ────────────────────────────────────────────────
     // On any call ending without both parties connecting, write a system
@@ -568,6 +575,8 @@ module.exports = function registerHandlers(io) {
     socket.on('call:decline', async ({ callerId, conversationId, groupId, callerName }) => {
       const sockets = onlineUsers.get(callerId);
       if (sockets) for (const sid of sockets) io.to(sid).emit('call:declined', { conversationId, groupId, byUserId: userId });
+      // Stop ring on the decliner's other devices too.
+      if (conversationId) sendCallEndPush(userId, { conversationId, reason: 'declined' });
       // Receiver actively declined — write the missed-call row on the
       // caller's side (they are the ones who "missed" being connected).
       await writeMissedCall({ conversationId, groupId, callerId, callerName, receiverId: userId, reason: 'declined' });
@@ -577,6 +586,10 @@ module.exports = function registerHandlers(io) {
       const targets = groupId ? null : onlineUsers.get(recipientId);
       if (targets) for (const sid of targets) io.to(sid).emit('call:cancelled', { conversationId, groupId, byUserId: userId });
       if (groupId) io.to(`group:${groupId}`).emit('call:cancelled', { groupId, byUserId: userId });
+      // Kill the ring on the recipient's native devices too.
+      if (recipientId && conversationId) {
+        sendCallEndPush(recipientId, { conversationId, reason: reason || 'cancelled' });
+      }
       // Caller cancelled OR the client's 60s no-answer timer fired.
       // callerName travels with the event so the row can label itself.
       await writeMissedCall({
