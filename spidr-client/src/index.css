@@ -202,3 +202,33 @@ button, a, input, textarea, select, label,
   width: 100%;
   min-width: 0 !important;
 }
+
+/* ─── Symbiote Core Button ──────────────────────────────────────────────────
+ * The home button in the floating dock breathes when active: scale and
+ * drop-shadow expand/contract on a 3s loop so the app's anchor point feels
+ * alive rather than static.
+ *
+ * NOTE ON mix-blend-screen: a common approach for logo art with a black
+ * background is `mix-blend-screen` to knock the black out. We deliberately
+ * do NOT use it here — our mascot is a true transparent PNG (verified
+ * alpha 0 at the corners), and screen-blending would also erase the art's
+ * intentional BLACK OUTLINES, dissolving the spider's silhouette into the
+ * background. Transparency beats blend hacks.
+ */
+@keyframes symbiote-breathe {
+  0%   { transform: scale(1.00); filter: drop-shadow(0 0 6px rgba(220, 38, 38, 0.45)); }
+  50%  { transform: scale(1.07); filter: drop-shadow(0 0 16px rgba(220, 38, 38, 0.85)); }
+  100% { transform: scale(1.00); filter: drop-shadow(0 0 6px rgba(220, 38, 38, 0.45)); }
+}
+
+.animate-symbiote {
+  animation: symbiote-breathe 3s infinite ease-in-out;
+}
+
+/* Respect reduced-motion preferences — the glow stays, the pulsing stops. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-symbiote {
+    animation: none;
+    filter: drop-shadow(0 0 12px rgba(220, 38, 38, 0.7));
+  }
+}

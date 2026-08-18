@@ -180,7 +180,23 @@ function createWindow() {
     height: 800,
     minWidth: 940,
     minHeight: 600,
-    frame: false,
+    // Native-feeling chrome: on Windows/Linux `titleBarStyle: 'hidden'` +
+    // `titleBarOverlay` makes the OS draw REAL minimize/maximize/close
+    // buttons directly over our header — same behavior as VS Code, Slack,
+    // and Discord. On macOS 'hiddenInset' keeps the native traffic lights
+    // in their expected position, inset into our header. Previously the
+    // window used bare `frame: false`, which meant we hand-rolled window
+    // controls and the bar read as an in-app strip rather than OS chrome.
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    ...(process.platform === 'darwin'
+      ? { trafficLightPosition: { x: 16, y: 14 } }
+      : {
+          titleBarOverlay: {
+            color: '#0a0a0a',        // matches the app background
+            symbolColor: '#ffffff',  // white min/max/close glyphs
+            height: 40,              // matches our header height
+          },
+        }),
     icon: appIcon,
     backgroundColor: '#0a0a0a',
     webPreferences: {

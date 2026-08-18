@@ -1,4 +1,5 @@
 // Bio-Digital Sound Engine for Spidr
+import { getSharedAudioContext } from '@/lib/sharedAudioContext';
 
 let ctx = null;
 let noiseBuffer = null;
@@ -41,12 +42,12 @@ const NOTIFICATION_SOUND_TYPES = new Set([
 ]);
 
 const initAudio = () => {
-  if (!ctx) {
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  if (ctx.state === 'suspended') {
-    ctx.resume();
-  }
+  // Shared app-wide context (lib/sharedAudioContext). SoundEngine used to
+  // construct its own, which counted against Chrome's ~6-context cap
+  // alongside the voice analysers — the same exhaustion that once killed
+  // every speaking ring in the app. One context, many nodes.
+  if (!ctx) ctx = getSharedAudioContext();
+  if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
 };
 
 const createNoiseBuffer = () => {
@@ -75,6 +76,7 @@ const SOUND_CATEGORY = {
   message: 'receive', receive: 'receive', notification: 'receive', ping: 'receive',
   join: 'join_leave', leave: 'join_leave', 'user-join': 'join_leave', 'user-leave': 'join_leave',
   toggle: 'ui', click: 'ui', hover: 'ui', open: 'ui', close: 'ui', pop: 'ui',
+  heartbeat: 'ui',
 };
 
 export const playSound = (type) => {
@@ -107,6 +109,29 @@ export const playSound = (type) => {
     const userVol = prefs && typeof prefs.volume === 'number' ? Math.max(0, Math.min(1, prefs.volume / 100)) : 1;
     masterGain.gain.setValueAtTime(0.6 * userVol, t);
     masterGain.connect(ctx.destination);
+
+    if (type === 'heartbeat') {
+      // "lub" then "dub" — each a sine sweeping 62Hz → 34Hz through a
+      // lowpass, giving a chest-thump with no click at the transient.
+      const thump = (startOffset, peak, fromHz, toHz) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.setValueAtTime(220, t + startOffset);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(fromHz, t + startOffset);
+        osc.frequency.exponentialRampToValueAtTime(toHz, t + startOffset + 0.16);
+        gain.gain.setValueAtTime(0.0001, t + startOffset);
+        gain.gain.exponentialRampToValueAtTime(peak, t + startOffset + 0.018);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + startOffset + 0.30);
+        osc.connect(gain); gain.connect(lp); lp.connect(masterGain);
+        osc.start(t + startOffset);
+        osc.stop(t + startOffset + 0.34);
+      };
+      thump(0,     0.85, 62, 34);   // lub
+      thump(0.145, 0.52, 70, 38);   // dub — quieter, slightly higher
+    }
 
     if (type === 'message') {
       const osc = ctx.createOscillator();

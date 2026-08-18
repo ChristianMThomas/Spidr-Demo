@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Server, Settings, Film, Plus, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import SpiderLogo from './SpiderLogo';
+import { playSound } from './SoundEngine';
 import spidrApexBadge from '@/assets/spidr-apex-badge.png';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -87,18 +88,44 @@ export default function FloatingDock({ activeTab, setActiveTab, onCreateServer }
               className="bg-zinc-900/80 backdrop-blur-2xl border border-red-900/30 rounded-2xl px-3 py-3 shadow-2xl shadow-red-900/20"
             >
               <div className="flex items-center gap-2">
-                {/* Logo */}
+                {/* ── Spidr Core ──────────────────────────────────────────
+                    The app's anchor point. Dormant it sits desaturated and
+                    dim; hover lunges it to full color and scale; active it
+                    breathes on a 3s loop with a live red aura. Clicking
+                    fires a synthesized symbiote heartbeat (SoundEngine —
+                    Web Audio, no MP3 to ship or 404). */}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <motion.button
-                      onClick={() => setActiveTab('home')}
-                      className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
-                        activeTab === 'home' ? 'bg-red-600 scale-110' : 'bg-zinc-800/50 hover:bg-zinc-700'
+                      onClick={() => { playSound('heartbeat'); setActiveTab('home'); }}
+                      aria-label="Home"
+                      aria-current={activeTab === 'home' ? 'page' : undefined}
+                      className={`group relative w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden border transition-all duration-500 ${
+                        activeTab === 'home'
+                          ? 'bg-red-950/40 border-red-500/40 shadow-[0_0_28px_rgba(220,38,38,0.28)]'
+                          : 'bg-[#0a0a0a] border-white/5 hover:bg-[#141414] hover:border-white/10'
                       }`}
-                      whileHover={{ y: -8, scale: 1.1 }}
+                      whileHover={{ y: -8 }}
                       whileTap={{ scale: 0.95 }}
                     >
-                      <SpiderLogo size={28} />
+                      {/* Active background pulse */}
+                      {activeTab === 'home' && (
+                        <span className="absolute inset-0 bg-red-500/10 animate-pulse pointer-events-none" />
+                      )}
+                      {/* Dormant glass sheen */}
+                      {activeTab !== 'home' && (
+                        <span className="absolute inset-0 bg-gradient-to-b from-white/[0.03] to-transparent pointer-events-none z-20" />
+                      )}
+                      <img
+                        src="/spidr-mascot.png"
+                        alt=""
+                        draggable={false}
+                        className={`w-full h-full object-contain p-1.5 relative z-10 transition-all duration-500 ${
+                          activeTab === 'home'
+                            ? 'animate-symbiote'
+                            : 'grayscale-[60%] brightness-[0.6] group-hover:grayscale-0 group-hover:brightness-100 group-hover:scale-110'
+                        }`}
+                      />
                     </motion.button>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="bg-zinc-900 border-red-900/30">

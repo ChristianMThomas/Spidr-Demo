@@ -12,6 +12,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1957',
+    title: 'Patch 1.9.57 — The Spidr Core breathes + native titlebar',
+    date: '2026-08-18',
+    type: 'UPDATE',
+    description: 'The home button in the floating dock is now the Spidr Core. Dormant it sits desaturated and dim behind a subtle glass sheen; hovering lunges it to full color and scale; active it BREATHES — a three-second loop where the spider and its red aura expand and contract, so the app\'s anchor point feels alive instead of static. Clicking fires a symbiote heartbeat: a synthesized two-beat lub-dub, low sine thumps sweeping 62Hz down to 34Hz through a lowpass, the second beat quieter and slightly higher 145ms after the first — generated live by the existing Web Audio sound engine rather than shipped as an MP3. The sound engine now shares the app-wide audio context singleton instead of opening its own, which used to count against Chrome\'s six-context cap alongside the voice analysers. The Electron title bar switches from a hand-rolled frameless strip to native titleBarStyle + titleBarOverlay, so Windows and Linux draw REAL minimize/maximize/close buttons directly over our header (same as VS Code and Discord) and macOS keeps its traffic lights inset in the expected spot — our own window-control buttons are gone. And a global broken-image safety net lands: a single capture-phase listener at the document root now catches every <img> failure app-wide and swaps in an inline SVG spider placeholder, replacing the browser\'s torn-page glyph wherever an avatar or server icon URL goes dead.',
+  },
+  {
     id: 'p1956',
     title: 'Patch 1.9.56 — In-app updater + WEB profile relabel',
     date: '2026-07-26',

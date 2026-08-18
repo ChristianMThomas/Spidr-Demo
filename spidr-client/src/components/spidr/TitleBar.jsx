@@ -1,30 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { Minus, Square, X } from 'lucide-react';
+
 import { NotificationBell } from './NotificationCenter';
 import BiomassBalancePill from './BiomassBalancePill';
 import UserStatusChip from './UserStatusChip';
 
 /**
- * TitleBar — Electron-only top strip, redesigned as a TRANSPARENT overlay:
- * the bar itself has no fill or border, so whatever app background the user
- * set flows straight through it — it reads as OS chrome floating ABOVE the
- * app rather than a component of it. Controls sit in small self-contained
- * glass chips for legibility on any backdrop.
- *
- * The window uses `frame: false` in main.js, so we render our own title
- * strip here. Design goal: no solid opaque bar cutting off the app; a
- * lightly-tinted glass panel that lets custom user backgrounds bleed
- * through and blur into a subtle, premium look.
+ * TitleBar — Electron-only top strip. The window uses `titleBarStyle:
+ * 'hidden'` + `titleBarOverlay` (Windows/Linux) or `'hiddenInset'` (macOS)
+ * in main.js, so the OS draws REAL minimize/maximize/close buttons directly
+ * over this header — same behavior as VS Code and Discord — instead of us
+ * hand-rolling window control buttons here.
  *
  * Layout (three flex zones):
  *   [SPIDR brand]        [drag zone: empty middle]        [right cluster]
  *     no-drag              drag (default)                    no-drag
  *
- * Right cluster combines what used to be the shell's floating top-right
- * items (notifications, biomass pill, status chip) plus the Windows-style
- * window controls (min / max / close). Combining them into one strip
- * fixes the earlier bug where the floating cluster and window controls
- * both anchored to the right edge and covered each other.
+ * Right cluster holds the shell's floating top-right items (notifications,
+ * biomass pill, status chip). Padding on the header reserves space so these
+ * never sit underneath the OS-painted window controls (right edge on
+ * Windows/Linux, left edge on macOS).
  *
  * Drag rules — the CRITICAL Electron gotcha:
  *   • `-webkit-app-region: drag` on a parent disables click/hover events
@@ -35,6 +29,9 @@ import UserStatusChip from './UserStatusChip';
  *     interactive control inside them stays clickable.
  */
 export default function TitleBar({ currentUser }) {
+  // Platform detection drives which side we reserve for native window
+  // controls: macOS traffic lights sit LEFT, Windows/Linux overlay RIGHT.
+  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent);
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -46,8 +43,18 @@ export default function TitleBar({ currentUser }) {
 
   return (
     <header
-      className="w-full h-12 flex items-center justify-between px-3 flex-shrink-0 select-none bg-transparent z-40"
-      style={{ WebkitAppRegion: 'drag' }}
+      className="w-full h-10 flex items-center justify-between flex-shrink-0 select-none z-40"
+      style={{
+        WebkitAppRegion: 'drag',
+        background: '#0a0a0a',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        // Windows/Linux: the OS paints min/max/close over the RIGHT edge
+        // (titleBarOverlay). Reserve that width so our controls never sit
+        // underneath them. macOS paints traffic lights on the LEFT, so we
+        // pad the left instead.
+        paddingLeft:  isMac ? 84 : 12,
+        paddingRight: isMac ? 12 : 148,
+      }}
     >
       {/* ── Brand (left) ─────────────────────────────────────────────
           Marked no-drag so a future click handler (e.g. Home nav)
@@ -58,7 +65,7 @@ export default function TitleBar({ currentUser }) {
         style={{ WebkitAppRegion: 'no-drag' }}
       >
         <h1
-          className="font-black text-sm tracking-[0.2em] uppercase px-2.5 py-1 rounded-lg bg-black/25 backdrop-blur-md border border-white/5"
+          className="font-black text-[13px] tracking-[0.2em] uppercase"
           style={{ textShadow: '0 0 10px rgba(239,68,68,0.5)' }}
         >
           <span className="text-white">SPID</span><span className="text-red-500">R</span>
@@ -75,36 +82,13 @@ export default function TitleBar({ currentUser }) {
         style={{ WebkitAppRegion: 'no-drag' }}
       >
         {currentUser && (
-          <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-black/25 backdrop-blur-md border border-white/5">
+          <div className="flex items-center gap-2">
             <NotificationBell />
             <BiomassBalancePill />
             <UserStatusChip />
           </div>
         )}
 
-        <div className="flex items-center gap-1 px-1 py-1 rounded-lg bg-black/25 backdrop-blur-md border border-white/5">
-          <button
-            onClick={() => window.electronAPI.minimize()}
-            className="flex items-center justify-center w-8 h-7 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors"
-            title="Minimize"
-          >
-            <Minus size={13} />
-          </button>
-          <button
-            onClick={() => window.electronAPI.maximize()}
-            className="flex items-center justify-center w-8 h-7 rounded-md text-white/80 hover:text-white hover:bg-white/10 transition-colors"
-            title={isMaximized ? 'Restore' : 'Maximize'}
-          >
-            <Square size={12} />
-          </button>
-          <button
-            onClick={() => window.electronAPI.close()}
-            className="flex items-center justify-center w-8 h-7 rounded-md text-white/80 hover:text-white hover:bg-red-600 transition-colors"
-            title="Close"
-          >
-            <X size={14} />
-          </button>
-        </div>
       </div>
     </header>
   );
