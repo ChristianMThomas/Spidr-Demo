@@ -1082,6 +1082,12 @@ function broadcastUpdaterStatus(payload) {
   } catch {}
 }
 
+// How often to silently re-check in the background once the app is running
+// (in addition to the one-shot check shortly after launch). Catches updates
+// published while a user leaves Spidr open for hours/days.
+const UPDATE_RECHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
+let updateRecheckInterval = null;
+
 function setupAutoUpdater() {
   if (!app.isPackaged) return;
   try {
@@ -1100,6 +1106,15 @@ function setupAutoUpdater() {
   autoUpdater.on('download-progress',   (p)    => broadcastUpdaterStatus({ phase: 'downloading',  percent: Math.round(p?.percent || 0), bytesPerSecond: p?.bytesPerSecond }));
   autoUpdater.on('update-downloaded',   (info) => broadcastUpdaterStatus({ phase: 'downloaded',   version: info?.version }));
   autoUpdater.on('error',               (err)  => broadcastUpdaterStatus({ phase: 'error',        message: String(err?.message || err) }));
+
+  // Silent auto-check: fires once ~10s after launch (after the window has had
+  // a moment to paint, so it never competes with startup) and then on a
+  // recurring interval. Failures are swallowed — this is best-effort background
+  // discovery; the user can always trigger a check by hand from the update
+  // banner or Settings, and that path surfaces its own errors.
+  const silentCheck = () => { autoUpdater.checkForUpdates().catch(() => {}); };
+  setTimeout(silentCheck, 10_000);
+  updateRecheckInterval = setInterval(silentCheck, UPDATE_RECHECK_INTERVAL_MS);
 }
 
 ipcMain.handle('updater:check', async () => {
@@ -1134,6 +1149,7 @@ app.on('will-quit', () => {
   try { globalShortcut.unregisterAll(); } catch {}
   if (gameDetectionInterval) clearInterval(gameDetectionInterval);
   if (mediaSessionTimer) clearTimeout(mediaSessionTimer);
+  if (updateRecheckInterval) clearInterval(updateRecheckInterval);
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

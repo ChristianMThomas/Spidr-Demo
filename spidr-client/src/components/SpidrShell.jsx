@@ -24,6 +24,7 @@ import IncomingCallBanner from '@/components/spidr/IncomingCallBanner';
 import LevelUpToast from '@/components/spidr/LevelUpToast';
 import ApexEntrance from '@/components/spidr/ApexEntrance';
 import TitleBar from '@/components/spidr/TitleBar';
+import UpdateBanner from '@/components/spidr/UpdateBanner';
 
 /**
  * SpidrShell — the persistent app frame that surrounds every routed page.
@@ -480,6 +481,10 @@ export default function SpidrShell() {
 
         {/* Global right-click menu portal */}
         <SpidrMenu />
+
+        {/* In-app update prompt — appears when electron-updater's background
+            check (main.js) finds a new release. Self-gates to Electron. */}
+        <UpdateBanner />
 
         {/* Incoming DM call banner — Spidr-themed, drops from the top. */}
         <IncomingCallBanner />
