@@ -14,10 +14,14 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.infinitetechteam.spidr",
       "googleServicesFile": "./GoogleService-Info.plist",
+      "entitlements": {
+        "aps-environment": "development"
+      },
       "infoPlist": {
         "UIBackgroundModes": [
           "audio",
-          "voip"
+          "voip",
+          "remote-notification"
         ],
         "NSMicrophoneUsageDescription": "Spidr needs the microphone for voice and video calls.",
         "NSCameraUsageDescription": "Spidr needs the camera for video calls.",

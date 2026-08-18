@@ -360,6 +360,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         socket.emit('call:invite', {
           recipientId: activeRecipientId,
           conversationId: activeConversationId,
+          kind: isVideoOn ? 'video' : 'voice',
           caller: {
             id: currentUser?.id,
             name: callerName,

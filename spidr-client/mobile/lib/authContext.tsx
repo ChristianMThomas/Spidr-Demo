@@ -39,7 +39,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         const u = await auth.me();
         setUser(u); setIsAuth(true);
-        callManager.init(u).catch(() => {});
+        console.log('[authContext] calling callManager.init on session-restore user', u?.id);
+        callManager.init(u).catch((err) => console.warn('[authContext] callManager.init rejected:', err?.message));
       } catch {
         await AsyncStorage.removeItem('spidr_token');
       } finally {
@@ -71,7 +72,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const me = await auth.me();
       setUser(me); setIsAuth(true); setAuthError(null);
       reconnectSocket();
-      callManager.init(me).catch(() => {});
+      console.log('[authContext] calling callManager.init after login/verify for user', me?.id);
+    callManager.init(me).catch((err) => console.warn('[authContext] callManager.init rejected:', err?.message));
     }
     return data;
   };
@@ -93,7 +95,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setUser(me); setIsAuth(true); setAuthError(null);
     setPendingEmail(null); setOtpMode(null);
     reconnectSocket();
-    callManager.init(me).catch(() => {});
+    console.log('[authContext] calling callManager.init after login/verify for user', me?.id);
+    callManager.init(me).catch((err) => console.warn('[authContext] callManager.init rejected:', err?.message));
     return data;
   };
 

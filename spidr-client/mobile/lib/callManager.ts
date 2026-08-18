@@ -62,13 +62,24 @@ class CallManager {
 
   // ── Bootstrap (call once, after login) ────────────────────────────────────
   async init(currentUser: any) {
+    console.log('[callManager] init() called for user:', currentUser?.id);
     this.currentUser = currentUser;
-    if (this.initialized) return;
+    if (this.initialized) {
+      console.log('[callManager] already initialized, skipping');
+      return;
+    }
     this.initialized = true;
 
-    this.socket = await getSocket();
+    try {
+      this.socket = await getSocket();
+      console.log('[callManager] socket ready, connected =', this.socket?.connected);
+    } catch (err: any) {
+      console.warn('[callManager] getSocket() FAILED:', err?.message);
+      return;
+    }
 
     this.socket.on('call:incoming', ({ conversationId, caller, kind }: any) => {
+      console.log('[callManager] call:incoming socket event', { conversationId, caller, kind });
       this.ring({
         conversationId,
         peer: { id: caller?.id, name: caller?.name, avatar: caller?.avatar },
@@ -82,9 +93,16 @@ class CallManager {
       }
     });
 
-    this.setupCallKeep();
-    await this.setupPush();
-    await this.consumePendingBackgroundRing();
+    console.log('[callManager] socket handlers registered, setting up CallKeep');
+    try { this.setupCallKeep(); } catch (err: any) { console.warn('[callManager] setupCallKeep FAILED:', err?.message); }
+
+    console.log('[callManager] setting up push');
+    try { await this.setupPush(); } catch (err: any) { console.warn('[callManager] setupPush FAILED:', err?.message); }
+
+    console.log('[callManager] consuming pending background ring');
+    try { await this.consumePendingBackgroundRing(); } catch (err: any) { console.warn('[callManager] consumePendingBackgroundRing FAILED:', err?.message); }
+
+    console.log('[callManager] init() complete');
   }
 
   // ── Ringing ───────────────────────────────────────────────────────────────
@@ -388,23 +406,43 @@ class CallManager {
   // ── Push (FCM data messages) ──────────────────────────────────────────────
   private async setupPush() {
     const messaging = getMessaging();
-    if (!messaging) return;
+    console.log('[callManager.setupPush] messaging module loaded:', !!messaging);
+    if (!messaging) {
+      console.warn('[callManager.setupPush] messaging module unavailable (Expo Go or import failure)');
+      return;
+    }
     try {
-      await messaging().requestPermission();
-      const token = await messaging().getToken();
-      if (token) await this.registerToken(token);
-      messaging().onTokenRefresh((t: string) => this.registerToken(t));
+      console.log('[callManager.setupPush] requesting notification permission');
+      const authStatus = await messaging().requestPermission();
+      console.log('[callManager.setupPush] permission authStatus =', authStatus);
 
-      // Foreground data message (socket usually beats it; dedupe handles both).
-      messaging().onMessage(async (msg: any) => this.handlePushData(msg?.data));
-    } catch { /* push unavailable (no google-services.json yet) */ }
+      console.log('[callManager.setupPush] fetching FCM token');
+      const token = await messaging().getToken();
+      console.log('[callManager.setupPush] FCM token =', token ? `${token.slice(0, 24)}...(${token.length} chars)` : 'EMPTY');
+      if (token) await this.registerToken(token);
+
+      messaging().onTokenRefresh((t: string) => {
+        console.log('[callManager.setupPush] token refreshed');
+        this.registerToken(t);
+      });
+      messaging().onMessage(async (msg: any) => {
+        console.log('[callManager.setupPush] foreground push received:', msg?.data);
+        this.handlePushData(msg?.data);
+      });
+    } catch (err: any) {
+      console.warn('[callManager.setupPush] threw:', err?.message, err?.code);
+    }
   }
 
   private async registerToken(token: string) {
     try {
-      await api.post('/push-tokens/register', { token, platform: Platform.OS });
+      console.log('[callManager.registerToken] POST /push-tokens/register');
+      const res: any = await api.post('/push-tokens/register', { token, platform: Platform.OS });
+      console.log('[callManager.registerToken] server response:', res);
       await AsyncStorage.setItem('spidr_push_token', token);
-    } catch { /* retried next launch */ }
+    } catch (err: any) {
+      console.warn('[callManager.registerToken] FAILED:', err?.message, err?.status);
+    }
   }
 
   async unregisterToken() {
@@ -459,3 +497,4 @@ class CallManager {
 }
 
 export const callManager = new CallManager();
+console.log('[callManager] module loaded');
