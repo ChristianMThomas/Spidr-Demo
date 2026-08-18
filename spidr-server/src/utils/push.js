@@ -36,9 +36,18 @@ function getAdmin() {
 }
 
 /**
- * Send a data-only push to every registered device of a user.
+ * Send a push to every registered device of a user.
  * `data` values must all be strings (FCM requirement) — stringify here.
  * Invalid/expired tokens are pruned as FCM reports them.
+ *
+ * iOS: HYBRID push — includes an `alert` block (so a visible banner + sound
+ * fires even when the app is force-closed or the phone is locked) AND
+ * `content-available: 1` so the FCM background handler still runs when the
+ * app is alive, letting callManager handle dedupe + CallKit invocation.
+ *
+ * Android: pure data-only high-priority — the FCM background handler in
+ * index.js turns it into a native ConnectionService ring via CallKeep, which
+ * is what actually rings the lock screen on Android.
  */
 async function sendDataPush(userId, data) {
   const admin = getAdmin();
@@ -52,13 +61,33 @@ async function sendDataPush(userId, data) {
     stringData[k] = typeof v === 'string' ? v : JSON.stringify(v ?? '');
   }
 
+  const isIncoming = data.type === 'incoming_call';
+  const callerName = data.callerName || 'Someone';
+  const isVideo = data.kind === 'video';
+  const iosAlert = isIncoming
+    ? {
+        title: isVideo ? 'Incoming Spidr video call' : 'Incoming Spidr call',
+        body: `${callerName} is calling…`,
+      }
+    : null; // call_ended pushes stay silent
+
+  const apnsPayload = { aps: { 'content-available': 1 } };
+  if (iosAlert) {
+    apnsPayload.aps.alert = iosAlert;
+    apnsPayload.aps.sound = 'default';
+    apnsPayload.aps.category = 'INCOMING_CALL';
+  }
+
   const res = await admin.messaging().sendEachForMulticast({
     tokens: tokens.map((t) => t.token),
     data: stringData,
     android: { priority: 'high', ttl: 45 * 1000 }, // a ring is stale fast
     apns: {
-      headers: { 'apns-priority': '10' },
-      payload: { aps: { 'content-available': 1 } },
+      headers: {
+        'apns-priority': '10',
+        'apns-push-type': iosAlert ? 'alert' : 'background',
+      },
+      payload: apnsPayload,
     },
   });
 

@@ -403,7 +403,7 @@ class CallManager {
     });
   }
 
-  // ── Push (FCM data messages) ──────────────────────────────────────────────
+  // ── Push (FCM) ────────────────────────────────────────────────────────────
   private async setupPush() {
     const messaging = getMessaging();
     console.log('[callManager.setupPush] messaging module loaded:', !!messaging);
@@ -416,8 +416,38 @@ class CallManager {
       const authStatus = await messaging().requestPermission();
       console.log('[callManager.setupPush] permission authStatus =', authStatus);
 
+      // iOS: force APNs registration + wait for the APNs token before asking
+      // for the FCM token. Without this, getToken() can race and return "" on
+      // cold launch, leaving the device un-pushable until the next foreground.
+      if (Platform.OS === 'ios') {
+        try {
+          console.log('[callManager.setupPush] iOS: registerDeviceForRemoteMessages');
+          await messaging().registerDeviceForRemoteMessages();
+          for (let i = 0; i < 10; i++) {
+            const apns = await messaging().getAPNSToken();
+            if (apns) {
+              console.log('[callManager.setupPush] iOS: APNs token ready');
+              break;
+            }
+            console.log(`[callManager.setupPush] iOS: awaiting APNs token (${i + 1}/10)`);
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        } catch (err: any) {
+          console.warn('[callManager.setupPush] iOS APNs registration failed:', err?.message);
+        }
+      }
+
       console.log('[callManager.setupPush] fetching FCM token');
-      const token = await messaging().getToken();
+      let token: string | null = null;
+      for (let i = 0; i < 3; i++) {
+        try {
+          token = await messaging().getToken();
+          if (token) break;
+        } catch (err: any) {
+          console.warn(`[callManager.setupPush] getToken attempt ${i + 1} threw:`, err?.message);
+        }
+        await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+      }
       console.log('[callManager.setupPush] FCM token =', token ? `${token.slice(0, 24)}...(${token.length} chars)` : 'EMPTY');
       if (token) await this.registerToken(token);
 
@@ -425,10 +455,25 @@ class CallManager {
         console.log('[callManager.setupPush] token refreshed');
         this.registerToken(t);
       });
+
+      // Foreground push (app is open) — socket usually beats it; dedupe by conversationId.
       messaging().onMessage(async (msg: any) => {
         console.log('[callManager.setupPush] foreground push received:', msg?.data);
         this.handlePushData(msg?.data);
       });
+
+      // Notification tap: app was in BACKGROUND when user tapped the banner.
+      messaging().onNotificationOpenedApp((msg: any) => {
+        console.log('[callManager.setupPush] notification tapped from background:', msg?.data);
+        this.handlePushData(msg?.data);
+      });
+
+      // Cold-boot: app was KILLED, user tapped the banner, iOS launched us.
+      const initialMsg = await messaging().getInitialNotification();
+      if (initialMsg?.data) {
+        console.log('[callManager.setupPush] cold-boot from notification tap:', initialMsg.data);
+        this.handlePushData(initialMsg.data);
+      }
     } catch (err: any) {
       console.warn('[callManager.setupPush] threw:', err?.message, err?.code);
     }
