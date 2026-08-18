@@ -53,6 +53,7 @@
       "expo-video",
       "expo-audio",
       "@react-native-firebase/app",
+      "./plugins/withRnFirebaseDisableSpm",
       "@config-plugins/react-native-webrtc",
       [
         "@config-plugins/react-native-callkeep"
