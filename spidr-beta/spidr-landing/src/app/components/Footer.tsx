@@ -62,7 +62,15 @@ export default function Footer() {
         </div>
 
         <div className="mt-10 pt-6 border-t border-zinc-900 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-zinc-600 text-xs">© 2026 SpidrApp. All rights reserved.</p>
+          <div className="flex items-center gap-4">
+            <p className="text-zinc-600 text-xs">© 2026 SpidrApp. All rights reserved.</p>
+            <a
+              href="#privacy"
+              className="text-zinc-400 hover:text-white text-xs transition-colors"
+            >
+              Privacy Policy
+            </a>
+          </div>
           <p className="text-zinc-700 text-[10px] font-mono tracking-wide">
             We only collect what the signup form asks for. Nothing is sold. Ever.
           </p>

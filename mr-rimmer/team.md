@@ -1,6 +1,6 @@
 # Spidr — Team
 
-> Written 2026-07-06, re-verified 2026-07-20 on branch `dev` (no team, workflow, or ownership changes since). Update when roles, members, or workflow change.
+> Written 2026-07-06, re-verified 2026-07-28 on branch `dev` (no team, workflow, or ownership changes since). Update when roles, members, or workflow change.
 
 ## Members (2)
 

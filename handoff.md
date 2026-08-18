@@ -1,34 +1,26 @@
 # Handoff
 
 ## Goal
-Give the Spidr desktop (Electron) app an in-app update mechanism so users can pull new versions without a full re-install and without Windows Store, using electron-updater against GitHub Releases.
+Ship Patch 1.9.56 — first release cut against the new in-app electron-updater feed — with a WEB profile rename ("Resonance" → "Likes"), and log a concrete plan for real react-native-webrtc voice channels on mobile so it can be picked up in a future session.
 
 ## Current State
-Fully wired end-to-end on the code side, not yet exercised against a real release. Version in `spidr-client/package.json` is now `1.9.55` (matches current SPIDR_SYS patch). `build.publish` points at the `ChristianMThomas/Spidr-Demo` GitHub Releases feed. `electron-updater` is installed and registered in `electron/main.js` (packaged builds only). An Electron-only **About** tab in Settings hosts the new `UpdatesCard` with Check → Download → Restart flow. No release has been cut yet, so the flow has not been end-to-end validated in a packaged .exe.
+Patch 1.9.56 committed and pushed to `origin/dev` (commit `24b3a65`). SPIDR_SYS entry `p1956` sits at index 0 of both `NEWS` and `MOCK_NEWS`, byte-identical. Security audit clean (0 critical / 0 high / 0 medium / 1 informational). Working tree is clean. Mobile server VC join is still a no-op Alert — that work is deliberately deferred to a follow-up session via the new fixes doc; no Expo prebuild has happened yet. The electron-updater code from patch 1.9.55 remains untouched; this patch is the first "release" that could actually exercise it end-to-end, but no GitHub Release has been cut yet.
 
 ## Files
-- `spidr-client/package.json` — version 1.0.0 → 1.9.55; added `electron-updater ^6.8.9`; replaced `"publish": null` with GitHub provider block
-- `spidr-client/package-lock.json` — regenerated for the new dep
-- `spidr-client/electron/main.js` — `setupAutoUpdater()` (lazy require, packaged-only) + IPC: `updater:check`, `updater:download`, `updater:quit-install`, broadcast `updater:status`
-- `spidr-client/electron/preload.js` — exposed `checkForUpdates` / `downloadUpdate` / `quitAndInstall` / `onUpdateStatus` on `window.electronAPI`
-- `spidr-client/src/components/spidr/SettingsPanel.jsx` — new Electron-only **About** tab (Download icon), mounts `UpdatesCard`
-- `spidr-client/src/components/spidr/UpdatesCard.jsx` — new component: current version, phase-driven UI (checking / available / downloading with %, / downloaded / error), action buttons
+- `spidr-client/src/components/feed/WebProfile.jsx` — Resonance → Likes (stat label, tab, empty-state copy, header comment)
+- `spidr-client/mobile/app/user-web/[id].tsx` — RESONANCE → LIKES stat label
+- `spidr-server/src/routes/system.js` — added `p1956` NEWS entry at index 0
+- `spidr-client/src/components/spidr/SpidrSystem.jsx` — added `p1956` MOCK_NEWS entry at index 0
+- `fixes/MOBILE-VOICE-CHANNELS-PLAN.md` — new; multi-session plan for real WebRTC server VC on mobile
 
 ## Changes
-- Bumped desktop app version to `1.9.55` so electron-updater semver compare has a real baseline
-- Added `electron-updater ^6.8.9` and configured GitHub Releases as the update feed in `build.publish`
-- Wired auto-updater in Electron main process, gated on `app.isPackaged`, with lazy `require()` so dev boot doesn't break if the dep is missing
-- Added preload bridge exposing check/download/quitAndInstall + a status subscription
-- Added `UpdatesCard` React component with progress bar and per-phase messaging
-- Added Electron-only **About** tab to `SettingsPanel` hosting the card
+- Renamed WEB profile "Resonance" → "Likes" across web + mobile (display-only; `tensionScore.js` algorithm term untouched)
+- Logged SPIDR_SYS Patch 1.9.56 entry covering in-app updater + rename + prior working-tree work (ReactionSheet/SlingSheet/NotFound/UpdatesCard/landing refresh)
+- Wrote `fixes/MOBILE-VOICE-CHANNELS-PLAN.md` — Phase 0 (Expo eject via `expo-dev-client` + `react-native-webrtc`), Phase 1 (port `useWebRTC.js` to mobile), Phase 2 (voice room UI), Phase 3 (real-device smoke test), with explicit blockers (no Apple Dev account, Mac needed for iOS)
+- Ran `/ship`: security audit → `/patch` → git commit + push to `origin/dev` (commit `24b3a65`, 35 files, +2067/−278)
 
 ## Failed
-None. `npm install electron-updater` completed clean (exit 0); no compile or runtime errors observed. Not yet packaged to a `.exe` for real-world verification.
+None this session. Note the standing blocker for the next big task: mobile server VC join requires ejecting from Expo Go — user hasn't decided yet whether to commit `ios/`+`android/` to git or gitignore + rebuild via EAS, and whether to ship Android-first (no Mac needed) or wait for iOS parity.
 
 ## Next Step
-Cut a test release: bump version to `1.9.56`, run `npm run build-exe` in `spidr-client/`, then create GitHub Release `v1.9.56` on `ChristianMThomas/Spidr-Demo` and upload both `SpidrSetup-1.9.56.exe` and `latest.yml` from `dist_installer/`. Install the current `1.9.55` build first, open Settings → About, and confirm the Check → Download → Restart flow works end-to-end.
-
-## To Do Later
-- **Auto-upload to GitHub on build**: set a `GH_TOKEN` env var and change `--publish=never` → `--publish=always` in the `build-exe` script in `spidr-client/package.json`. Right now `latest.yml` + the installer are generated locally and must be uploaded to the Release by hand.
-- Portable target (`Spidr-*-portable.exe`) does not self-update — only the NSIS installer does. Consider dropping the portable target or documenting the manual-download path for those users.
-- Unsigned Windows builds re-trigger SmartScreen on every update. Eventual fix is a code-signing cert.
+Cut a GitHub Release tagged `v1.9.56` from `dev` (or merge dev → master first if that's the release branch) so the newly-shipped electron-updater has a real feed entry to check against — this is the first patch that can validate the updater end-to-end in a packaged .exe.

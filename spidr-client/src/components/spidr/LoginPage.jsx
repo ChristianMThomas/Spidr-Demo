@@ -187,7 +187,7 @@ function AuthGateway({ onSuccess, onForgot }) {
 
           <button type="submit" disabled={loading}
             className="w-full mt-1 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white font-black py-3.5 rounded-xl transition-all shadow-[0_0_20px_rgba(239,68,68,0.3)] text-sm tracking-widest uppercase flex items-center justify-center gap-2">
-            {loading ? <><Loader2 size={15} className="animate-spin" /> Encrypting…</> : mode === 'login' ? 'ACCESS GRID' : 'JOIN NETWORK'}
+            {loading ? <><Loader2 size={15} className="animate-spin" /> Encrypting…</> : mode === 'login' ? 'ACCESS' : 'JOIN NETWORK'}
           </button>
         </form>
 

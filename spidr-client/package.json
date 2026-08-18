@@ -1,6 +1,6 @@
 {
   "name": "spidr-client",
-  "version": "1.9.55",
+  "version": "1.9.56",
   "description": "Spidr — Discord-style communication platform",
   "private": true,
   "main": "electron/main.js",
@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "electron-dev": "cross-env ELECTRON_START_URL=http://localhost:5173 electron .",
     "build-exe": "cross-env CSC_LINK= CSC_KEY_PASSWORD= vite build && electron-builder build --win --x64 --publish=never",
+    "publish-exe": "cross-env CSC_LINK= CSC_KEY_PASSWORD= vite build && electron-builder build --win --x64 --publish=always",
     "build-exe:mac": "vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder build --mac",
     "build-exe:linux": "vite build && electron-builder build --linux",
     "build-exe-noadmin": "set CSC_LINK=&& set CSC_KEY_PASSWORD=&& vite build && electron-builder build --win --x64 --config.win.signtoolOptions.sign=",
@@ -217,7 +218,7 @@
       {
         "provider": "github",
         "owner": "ChristianMThomas",
-        "repo": "Spidr-Demo",
+        "repo": "spidr-releases",
         "releaseType": "release"
       }
     ],

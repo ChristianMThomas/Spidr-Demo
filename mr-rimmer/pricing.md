@@ -1,6 +1,6 @@
 # SPIDR APEX — Pricing & Monetization Reference
 
-> Source of truth as implemented in code as of 2026-07-20 (branch `dev`).
+> Source of truth as implemented in code as of 2026-07-28 (branch `dev`; Patch 1.9.55 tightened the ApexStore's "already subscribed" recognition, but the model, prices, and flow below are unchanged since 1.9.25).
 > Primary implementation: `spidr-client/src/components/spidr/ApexCommand.jsx` (checkout + manage UI),
 > `spidr-server/src/models/UserProfile.js:42-70` (tier + Stripe state),
 > `spidr-server/src/routes/webhooks/stripe.js` (signed webhook — only writer of `apex_tier`),

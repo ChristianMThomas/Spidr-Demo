@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { motion } from 'framer-motion';
-import { TrendingUp, Users, Flame, Star, Trophy, ArrowRight } from 'lucide-react';
+import { TrendingUp, Users, Flame, Star, Trophy, ArrowRight, ChevronDown } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import HolographicProfile from './HolographicProfile';
 
@@ -55,7 +55,7 @@ export default function EngagementHub({ currentUser, onNavigate, onNavigateToDM 
     <div className="space-y-5">
       {/* Trending Servers */}
       {trendingServers.length > 0 && (
-        <Section title="Trending Servers" icon={<Flame className="w-4 h-4 text-orange-500" />}>
+        <Section title="Trending Servers" icon={<Flame className="w-4 h-4 text-orange-500" />} storageKey="spidr_home_trending_collapsed">
           {trendingServers.map((server, i) => (
             <motion.button
               key={server.id}
@@ -111,7 +111,7 @@ export default function EngagementHub({ currentUser, onNavigate, onNavigateToDM 
 
       {/* Top Creators */}
       {topCreators.length > 0 && (
-        <Section title="Top Creators" icon={<Trophy className="w-4 h-4 text-yellow-500" />}>
+        <Section title="Top Creators" icon={<Trophy className="w-4 h-4 text-yellow-500" />} storageKey="spidr_home_creators_collapsed">
           {topCreators.map((creator, i) => (
             <motion.button
               key={creator.user_id}
@@ -150,14 +150,31 @@ export default function EngagementHub({ currentUser, onNavigate, onNavigateToDM 
   );
 }
 
-function Section({ title, icon, children }) {
+function Section({ title, icon, children, storageKey }) {
+  const [collapsed, setCollapsed] = useState(() => {
+    if (!storageKey) return false;
+    try { return localStorage.getItem(storageKey) === '1'; } catch { return false; }
+  });
+  useEffect(() => {
+    if (!storageKey) return;
+    try { localStorage.setItem(storageKey, collapsed ? '1' : '0'); } catch { /* ignore */ }
+  }, [collapsed, storageKey]);
+
   return (
     <div className="bg-zinc-800/30 rounded-xl p-4 border border-white/5">
-      <div className="flex items-center gap-2 mb-3">
+      <button
+        type="button"
+        onClick={() => storageKey && setCollapsed(v => !v)}
+        aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
+        className={`w-full flex items-center gap-2 ${collapsed ? '' : 'mb-3'} ${storageKey ? 'cursor-pointer' : 'cursor-default'}`}
+      >
+        {storageKey && (
+          <ChevronDown className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+        )}
         {icon}
         <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{title}</h4>
-      </div>
-      {children}
+      </button>
+      {!collapsed && children}
     </div>
   );
 }

@@ -2,14 +2,33 @@ import { motion, useInView } from "motion/react";
 import { useRef } from "react";
 import { Globe, Smartphone, Monitor, Sparkles } from "lucide-react";
 
+const RELEASES_REPO = "ChristianMThomas/spidr-releases";
+
 const platforms = [
-  { name: "Web", icon: Globe, color: "#C41E3A", status: "in beta", live: true },
-  { name: "Windows", icon: Monitor, color: "#60A5FA", status: "in beta", live: true },
-  { name: "iOS", icon: Smartphone, color: "#60A5FA", status: "in beta", live: true },
-  { name: "Android", icon: Smartphone, color: "#4ADE80", status: "in beta", live: true },
-  { name: "macOS", icon: Monitor, color: "#A2AAAD", status: "in beta", live: true },
-  { name: "Linux", icon: Monitor, color: "#FCD34D", status: "at launch", live: false },
+  { name: "Web", icon: Globe, color: "#C41E3A", status: "in beta", live: true, downloadable: false },
+  { name: "Windows", icon: Monitor, color: "#60A5FA", status: "download", live: true, downloadable: true },
+  { name: "iOS", icon: Smartphone, color: "#60A5FA", status: "in beta", live: true, downloadable: false },
+  { name: "Android", icon: Smartphone, color: "#4ADE80", status: "in beta", live: true, downloadable: false },
+  { name: "macOS", icon: Monitor, color: "#A2AAAD", status: "in beta", live: true, downloadable: false },
+  { name: "Linux", icon: Monitor, color: "#FCD34D", status: "at launch", live: false, downloadable: false },
 ];
+
+async function downloadWindowsInstaller() {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${RELEASES_REPO}/releases/latest`);
+    if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+    const data = await res.json();
+    const asset = (data.assets || []).find(
+      (a: { name: string; browser_download_url: string }) =>
+        a.name.toLowerCase().endsWith(".exe") && !a.name.toLowerCase().includes("blockmap")
+    );
+    if (!asset) throw new Error("No .exe asset in latest release");
+    window.location.href = asset.browser_download_url;
+  } catch (err) {
+    console.error("Windows download failed:", err);
+    window.open(`https://github.com/${RELEASES_REPO}/releases/latest`, "_blank");
+  }
+}
 
 interface PlatformsProps {
   onOpenBeta: () => void;
@@ -79,7 +98,24 @@ export default function Platforms({ onOpenBeta }: PlatformsProps) {
                     initial={{ opacity: 0, scale: 0.85 }}
                     animate={isInView ? { opacity: 1, scale: 1 } : {}}
                     transition={{ duration: 0.4, delay: index * 0.07 }}
-                    className="bg-[#0f0f0f] rounded-xl p-5 border border-[#8B0000]/15 flex flex-col items-center gap-2.5 relative group"
+                    whileHover={platform.downloadable ? { scale: 1.04 } : undefined}
+                    whileTap={platform.downloadable ? { scale: 0.96 } : undefined}
+                    onClick={platform.downloadable ? downloadWindowsInstaller : undefined}
+                    role={platform.downloadable ? "button" : undefined}
+                    tabIndex={platform.downloadable ? 0 : undefined}
+                    onKeyDown={
+                      platform.downloadable
+                        ? (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              downloadWindowsInstaller();
+                            }
+                          }
+                        : undefined
+                    }
+                    className={`bg-[#0f0f0f] rounded-xl p-5 border border-[#8B0000]/15 flex flex-col items-center gap-2.5 relative group ${
+                      platform.downloadable ? "cursor-pointer hover:border-[#8B0000]/60" : ""
+                    }`}
                   >
                     {/* Hover glow */}
                     <div

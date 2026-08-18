@@ -118,7 +118,7 @@ function AppRoutes() {
   return (
     <Routes>
       {/* Public */}
-      <Route path="/" element={isAuthenticated ? <Navigate to="/home" replace /> : <LandingPage />} />
+      <Route path="/" element={isAuthenticated ? <Navigate to="/home" replace /> : (isElectron ? <Navigate to="/login" replace /> : <LandingPage />)} />
       <Route path="/login" element={isAuthenticated ? <Navigate to="/home" replace /> : <LoginPage />} />
       {/* Public: /join/:code shows the invite preview to EVERYONE. If the
           viewer isn't logged in, JoinServer stashes the invite code and

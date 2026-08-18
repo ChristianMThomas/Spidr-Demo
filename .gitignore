@@ -8,6 +8,19 @@ spidr-client/.env.production
 spidr-client/.env.local
 spidr-client/.env.staging
 
+# HARD-EXCLUDE all secret material — Firebase admin service accounts,
+# Apple APNs/VoIP keys, distribution certificates, provisioning profiles.
+# These grant admin power over prod; NEVER commit under any circumstance.
+spidr-secure/
+**/spidr-secure/
+*firebase-adminsdk*.json
+*serviceAccount*.json
+AuthKey_*.p8
+*.p8
+*.p12
+*.mobileprovision
+*.keystore
+
 # Logs
 logs
 *.log

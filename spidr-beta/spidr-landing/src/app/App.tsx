@@ -1,5 +1,5 @@
 import { motion, useScroll, useTransform } from "motion/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useBetaStatus } from "./useBetaStatus";
 import Hero from "./components/Hero";
 import ProductShowcase from "./components/ProductShowcase";
@@ -11,6 +11,7 @@ import FAQ from "./components/FAQ";
 import Footer from "./components/Footer";
 import Navbar from "./components/Navbar";
 import BetaSignupModal from "./components/BetaSignupModal";
+import PrivacyPolicy from "./components/PrivacyPolicy";
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -19,6 +20,16 @@ export default function App() {
   const closeBeta = () => setBetaOpen(false);
   const betaStatus = useBetaStatus();
 
+  const [route, setRoute] = useState<string>(() => window.location.hash);
+  useEffect(() => {
+    const onHash = () => {
+      setRoute(window.location.hash);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
   const { scrollYProgress } = useScroll({
     target: containerRef,
     offset: ["start start", "end end"],
@@ -26,6 +37,18 @@ export default function App() {
 
   const blobY = useTransform(scrollYProgress, [0, 1], ["0%", "80%"]);
   const blobScale = useTransform(scrollYProgress, [0, 0.5, 1], [1, 1.4, 1]);
+
+  // Must stay below every hook call — an early return here changes the hook
+  // count between routes and crashes React.
+  if (route === "#privacy") {
+    return (
+      <PrivacyPolicy
+        onBack={() => {
+          window.location.hash = "";
+        }}
+      />
+    );
+  }
 
   return (
     <div ref={containerRef} className="relative bg-[#080808] overflow-hidden min-h-screen">
