@@ -108,22 +108,66 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
           ? 'w-full h-[64px] flex flex-row items-center px-4 border-b'
           : 'w-[72px] flex flex-col items-center py-4 border-r h-full'
         } z-50 relative transition-all ${isGlass ? "bg-black/30 backdrop-blur-xl border-white/10" : "bg-[#050505] border-white/5"}`}>
-      {/* Home — top-of-sidebar button that returns to /home. Replaces the
-          old SpiderLogo home button with a literal Home icon. */}
-      <motion.button
-        onClick={() => setActiveTab('home')}
-        whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: 0.94 }}
-        className={`${horizontal ? 'mr-3' : 'mb-4'} w-12 h-12 rounded-xl flex items-center justify-center transition-colors flex-shrink-0 ${
-          activeTab === 'home'
-            ? 'bg-red-600/20 text-red-400 border border-red-500/40'
-            : 'bg-[#0a0a0a] text-zinc-400 border border-white/5 hover:text-white hover:border-white/15'
-        }`}
-        aria-label="Home"
-        title="Home"
-      >
-        <Home size={20} strokeWidth={activeTab === 'home' ? 3 : 2} />
-      </motion.button>
+      {/* ── SPIDR CORE ─────────────────────────────────────────────────────
+          The app's anchor point. Dormant: desaturated + dimmed behind a
+          glass sheen. Hover: grayscale drops, brightness cranks, the spider
+          lunges up in scale. Awoken (active): a 3s symbiote-breathe loop
+          where the mascot and its red aura expand/contract, plus a left
+          indicator bar. Clicking fires a synthesized heartbeat.
+
+          NOTE: no mix-blend-screen here. Our mascot is a true transparent
+          PNG; screen-blending would also erase the art's intentional BLACK
+          OUTLINES and dissolve the spider's silhouette. */}
+      <div className={`${horizontal ? 'mr-3' : 'mb-4'} relative flex flex-col items-center gap-1 flex-shrink-0`}>
+        {/* Active indicator bar (vertical rail only) */}
+        {activeTab === 'home' && !horizontal && (
+          <motion.div
+            layoutId="spidr-core-indicator"
+            className="absolute -left-3 top-6 -translate-y-1/2 w-1.5 h-9 bg-red-600 rounded-r-full z-20"
+            style={{ boxShadow: '0 0 15px rgba(220,38,38,0.9)' }}
+          />
+        )}
+        <motion.button
+          onClick={() => { playSound('heartbeat'); setActiveTab('home'); }}
+          whileTap={{ scale: 0.94 }}
+          className={`group relative w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden border transition-all duration-500 ${
+            activeTab === 'home'
+              ? 'bg-red-950/40 border-red-500/40 shadow-[0_0_28px_rgba(220,38,38,0.28)]'
+              : 'bg-[#0a0a0a] border-white/5 hover:bg-[#141414] hover:border-white/10'
+          }`}
+          aria-label="Home"
+          aria-current={activeTab === 'home' ? 'page' : undefined}
+          title="Home"
+        >
+          {/* Awoken background pulse */}
+          {activeTab === 'home' && (
+            <span className="absolute inset-0 bg-red-500/10 animate-pulse pointer-events-none" />
+          )}
+          {/* Dormant glass sheen */}
+          {activeTab !== 'home' && (
+            <span className="absolute inset-0 bg-gradient-to-b from-white/[0.03] to-transparent pointer-events-none z-20" />
+          )}
+          <img
+            src="/spidr-mascot.png"
+            alt=""
+            draggable={false}
+            className={`w-full h-full object-contain p-1.5 relative z-10 transition-all duration-500 ${
+              activeTab === 'home'
+                ? 'animate-symbiote'
+                : 'grayscale-[60%] brightness-[0.6] group-hover:grayscale-0 group-hover:brightness-100 group-hover:scale-110'
+            }`}
+          />
+        </motion.button>
+        {!horizontal && (
+          <span className={`text-[9px] font-black tracking-widest uppercase transition-colors duration-500 ${
+            activeTab === 'home'
+              ? 'text-red-500 drop-shadow-[0_0_8px_rgba(220,38,38,0.8)]'
+              : 'text-white/30 group-hover:text-white/70'
+          }`}>
+            Home
+          </span>
+        )}
+      </div>
 
       {/* Navigation */}
       <div className={`${horizontal ? 'flex flex-row gap-2 flex-1 items-center overflow-x-auto' : 'flex flex-col gap-4 flex-1 w-full px-2 overflow-y-auto overflow-x-hidden pb-4 scrollbar-thin min-h-0'}`}>

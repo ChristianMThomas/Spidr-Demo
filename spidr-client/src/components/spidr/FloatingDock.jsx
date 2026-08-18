@@ -1,3 +1,14 @@
+/**
+ * ⚠️  UNUSED / ORPHANED COMPONENT — NOT RENDERED ANYWHERE.
+ *
+ * The desktop navigation rail is `components/spidr/Sidebar.jsx`; the mobile
+ * one is `components/spidr/MobileBottomBar.jsx`. This dock was superseded
+ * and nothing imports it (verified by grep across the whole client).
+ *
+ * Kept only for reference. Edits here have NO effect on the running app —
+ * change Sidebar.jsx instead. (This banner exists because a UI change was
+ * once implemented here and appeared to "not work" for exactly that reason.)
+ */
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Server, Settings, Film, Plus, ChevronDown, ChevronUp } from 'lucide-react';
