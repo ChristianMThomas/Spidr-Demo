@@ -232,3 +232,22 @@ button, a, input, textarea, select, label,
     filter: drop-shadow(0 0 12px rgba(220, 38, 38, 0.7));
   }
 }
+
+/* ─── Spidr custom scrollbar ────────────────────────────────────────────────
+ * Thin, transparent-track scrollbar that fades to symbiote red on hover.
+ * Applied via the .spidr-scroll class (SpidrWebMatrix and anywhere else a
+ * scroll region shouldn't show the default chunky browser bar).
+ * Firefox honors scrollbar-width/color; WebKit/Blink use ::-webkit-*.
+ */
+.spidr-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+.spidr-scroll::-webkit-scrollbar { width: 4px; }
+.spidr-scroll::-webkit-scrollbar-track { background: transparent; }
+.spidr-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+.spidr-scroll:hover::-webkit-scrollbar-thumb { background: rgba(220, 38, 38, 0.5); }
+.spidr-scroll:hover { scrollbar-color: rgba(220, 38, 38, 0.5) transparent; }

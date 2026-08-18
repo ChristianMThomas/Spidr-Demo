@@ -12,6 +12,7 @@ import EnhancedFeed from '@/components/spidr/EnhancedFeed';
 import EngagementHub from '@/components/spidr/EngagementHub';
 import TensionBar from '@/components/spidr/TensionBar';
 import SpidrSystem from '@/components/spidr/SpidrSystem';
+import SpidrWebMatrix from '@/components/spidr/SpidrWebMatrix';
 
 /**
  * /home — the landing dashboard.
@@ -84,6 +85,19 @@ export default function HomeDashboard() {
     enabled: !!currentUser?.id,
     staleTime: 60_000,
   });
+  // Presence for the Spidr Web tab's pinned-DM status dots. Same query key
+  // the Friends page uses, so it's a cache hit when navigating between them.
+  const { data: profiles = [] } = useQuery({
+    queryKey: ['profiles'],
+    queryFn: () => entities.UserProfile.list(),
+    staleTime: 60000,
+  });
+  const statusByUser = React.useMemo(() => {
+    const m = {};
+    for (const p of profiles) m[p.user_id] = p.status;
+    return m;
+  }, [profiles]);
+
   const { data: friends = [] } = useQuery({
     queryKey: ['friends', currentUser?.id],
     queryFn: () => entities.Friend.filter({ user_id: currentUser?.id, status: 'accepted' }),
@@ -484,9 +498,11 @@ export default function HomeDashboard() {
               rail is hidden. Same component, same data: one source of truth,
               visible on EVERY device size. */}
           <div className="xl:hidden">
-            <JumpBackIn
+            <SpidrWebMatrix
+              className="h-[26rem]"
               recentConversations={recentConversations}
               myGroups={myGroups}
+              statusByUser={statusByUser}
               navigateToDM={navigateToDM}
               navigate={navigate}
             />
@@ -595,9 +611,11 @@ export default function HomeDashboard() {
             active conversation is one click from the homepage. Hidden on
             narrower widths to protect the main column. */}
         <aside className="hidden xl:block w-[320px] shrink-0 sticky top-4 self-start">
-          <JumpBackIn
+          <SpidrWebMatrix
+            className="h-[28rem]"
             recentConversations={recentConversations}
             myGroups={myGroups}
+            statusByUser={statusByUser}
             navigateToDM={navigateToDM}
             navigate={navigate}
           />
@@ -649,78 +667,5 @@ function StatTile({ value, label, onClick, valueClassName = 'text-white' }) {
       </p>
       <p className="relative text-zinc-500 text-xs">{label}</p>
     </motion.button>
-  );
-}
-
-
-/* ── Jump Back In — recent DMs + group chats, one-tap re-entry ────────────
- * Shared by the xl+ right rail AND the in-column section below xl, so the
- * quick-access surface exists on every viewport — desktop, laptop, tablet,
- * and phone — without duplicated markup drifting apart.
- */
-function JumpBackIn({ recentConversations, myGroups, navigateToDM, navigate }) {
-  return (
-    <div
-      className="relative overflow-hidden rounded-2xl p-4"
-      style={{
-        background: 'rgba(10, 10, 10, 0.60)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255, 255, 255, 0.05)',
-      }}
-    >
-      <div className="flex items-center gap-2 mb-3">
-        <span className="w-2 h-2 rounded-full bg-red-500" style={{ boxShadow: '0 0 6px rgba(239, 68, 68, 0.8)' }} />
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">Jump Back In</h2>
-      </div>
-      <div className="space-y-1.5">
-        {recentConversations.slice(0, 6).map((c) => (
-          <button
-            key={c.conversationId}
-            onClick={() => navigateToDM(c.friendId, c.conversationId)}
-            className="w-full flex items-center gap-3 p-2 rounded-xl text-left transition-all hover:bg-white/[0.05]"
-            style={{ border: '1px solid rgba(255,255,255,0.04)' }}
-          >
-            <img
-              src={c.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${c.friendId}`}
-              alt="" className="w-8 h-8 rounded-full object-cover border border-white/10 shrink-0"
-            />
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-semibold text-white truncate">{c.name}</p>
-              <p className="text-[10px] text-zinc-500 truncate">{c.last || 'Open conversation'}</p>
-            </div>
-            <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 shrink-0">DM</span>
-          </button>
-        ))}
-        {myGroups.slice(0, 6).map((g) => (
-          <button
-            key={g.id}
-            onClick={() => {
-              window.__spidrPendingGroup = { groupId: g.id, at: Date.now() };
-              navigate('/friends');
-              window.dispatchEvent(new CustomEvent('spidr-pending-group'));
-            }}
-            className="w-full flex items-center gap-3 p-2 rounded-xl text-left transition-all hover:bg-white/[0.05]"
-            style={{ border: '1px solid rgba(255,255,255,0.04)' }}
-          >
-            <div className="w-8 h-8 rounded-full overflow-hidden border border-white/10 shrink-0 bg-gradient-to-br from-red-900/60 to-zinc-900 flex items-center justify-center">
-              {(g.avatar_url || g.icon_url)
-                ? <img src={g.avatar_url || g.icon_url} alt="" className="w-full h-full object-cover" />
-                : <Users className="w-4 h-4 text-red-400" />}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-semibold text-white truncate">{g.name || 'Group Chat'}</p>
-              <p className="text-[10px] text-zinc-500 truncate">{(g.members || []).length} members</p>
-            </div>
-            <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-600 shrink-0">GROUP</span>
-          </button>
-        ))}
-        {recentConversations.length === 0 && myGroups.length === 0 && (
-          <p className="text-[11px] text-zinc-500 text-center py-4">
-            No recent conversations yet
-          </p>
-        )}
-      </div>
-    </div>
   );
 }
