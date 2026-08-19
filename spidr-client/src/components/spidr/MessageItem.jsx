@@ -93,7 +93,11 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
   // the wording — declined vs. unanswered vs. cancelled.
   if (msg.is_missed_call) {
     const iSentCall = msg.caller_id === currentUser?.id;
-    const other = msg.caller_name || 'Someone';
+    // When I made the call, "other" = the recipient (who didn't answer /
+    // who declined). When I missed the call, "other" = the caller.
+    const other = iSentCall
+      ? (msg.recipient_name || 'Someone')
+      : (msg.caller_name || 'Someone');
     const label = iSentCall
       ? (msg.missed_call_reason === 'declined' ? `${other} declined your call` : `${other} didn't answer`)
       : `You missed a call from ${other}`;

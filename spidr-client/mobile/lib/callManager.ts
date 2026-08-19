@@ -16,6 +16,7 @@
  */
 import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
 import api from './apiClient';
 import { getSocket } from './socket';
 import { emitter } from './eventEmitter';
@@ -512,6 +513,13 @@ class CallManager {
       } else {
         getCallKeep()?.reportEndCallWithUUID?.(callUUID(data.conversationId), 2 /* remote ended */);
       }
+    } else if (data.type === 'dm') {
+      // Tap on a DM banner → open the conversation.
+      try { router.push(`/dm/${data.conversationId}`); } catch {}
+    } else if (data.type === 'server_mention') {
+      try { router.push(`/server/${data.serverId}/channel/${data.channelId}`); } catch {}
+    } else if (data.type === 'friend_request') {
+      try { router.push('/(tabs)/friends'); } catch {}
     }
   }
 

@@ -104,6 +104,52 @@ async function sendDataPush(userId, data) {
   }
 }
 
+/**
+ * Send a visible push (banner + sound) that is NOT a call ring.
+ * Used for DMs, mentions, friend requests, etc. — anything that should
+ * wake the lock screen with a normal notification, not CallKit.
+ *
+ * `data` fuels the mobile handlePushData deep-link. `notification` fuels
+ * the OS-native tray entry so the banner still fires when the app is dead.
+ */
+async function sendVisiblePush(userId, { title, body, data = {} }) {
+  const admin = getAdmin();
+  if (!admin || !userId) return;
+
+  const tokens = await PushToken.find({ user_id: userId, provider: 'fcm' }).lean();
+  if (tokens.length === 0) return;
+
+  const stringData = {};
+  for (const [k, v] of Object.entries(data)) {
+    stringData[k] = typeof v === 'string' ? v : JSON.stringify(v ?? '');
+  }
+
+  const res = await admin.messaging().sendEachForMulticast({
+    tokens: tokens.map((t) => t.token),
+    data: stringData,
+    notification: { title, body },
+    android: {
+      priority: 'high',
+      notification: { sound: 'default', channelId: 'default' },
+    },
+    apns: {
+      headers: { 'apns-priority': '10', 'apns-push-type': 'alert' },
+      payload: { aps: { alert: { title, body }, sound: 'default', 'content-available': 1 } },
+    },
+  });
+
+  const dead = [];
+  res.responses.forEach((r, i) => {
+    const code = r.error?.code || '';
+    if (code.includes('registration-token-not-registered') || code.includes('invalid-argument')) {
+      dead.push(tokens[i].token);
+    }
+  });
+  if (dead.length) {
+    await PushToken.deleteMany({ token: { $in: dead } }).catch(() => {});
+  }
+}
+
 /** Ring a user's devices for an incoming call. */
 function sendCallPush(recipientId, { conversationId, caller, kind }) {
   return sendDataPush(recipientId, {
@@ -125,4 +171,4 @@ function sendCallEndPush(recipientId, { conversationId, reason }) {
   }).catch((err) => console.warn('call-end push failed:', err.message));
 }
 
-module.exports = { sendDataPush, sendCallPush, sendCallEndPush };
+module.exports = { sendDataPush, sendVisiblePush, sendCallPush, sendCallEndPush };

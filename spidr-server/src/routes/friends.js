@@ -37,6 +37,21 @@ router.get('/', authMW, async (req, res) => {
   }
 });
 
+// PATCH /:id/close — toggle the close-friend flag on a Friend row.
+// Only the row's owner (user_id) can flip their own side.
+router.patch('/:id/close', authMW, async (req, res) => {
+  try {
+    const row = await Friend.findById(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Friend not found' });
+    if (row.user_id !== req.user.id) return res.status(403).json({ error: 'Not your friend row' });
+    row.is_close_friend = !!req.body.close;
+    await row.save();
+    res.json({ id: row._id.toString(), is_close_friend: row.is_close_friend });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.use('/', crudRouter(Friend, { ownerField: 'user_id' }));
 
 module.exports = router;

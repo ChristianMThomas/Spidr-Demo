@@ -13,6 +13,10 @@ const s = new Schema({
     index: true,
   },
   nickname:    String,
+  // Close-friend flag — sender-side. When the recipient's DND is active
+  // AND urgent_dms is on, only signals from close friends break through.
+  // Both directions must set this independently.
+  is_close_friend: { type: Boolean, default: false, index: true },
   created_date:{ type: Date, default: Date.now },
 }, { timestamps: true });
 s.index({ user_id: 1, friend_id: 1 }, { unique: true, sparse: true });

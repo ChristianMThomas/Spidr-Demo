@@ -332,8 +332,12 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     }
   });
 
-  const handleStartCall = (skipInvite = false) => {
+  const handleStartCall = (skipInvite = false, startWithVideo = false) => {
     playSound('join');
+    // Camera button routes here with startWithVideo=true so the invite goes
+    // out as a video ring — otherwise it always fell back to voice.
+    const videoOn = startWithVideo || isVideoOn;
+    if (startWithVideo && !isVideoOn) setIsVideoOn(true);
     setInCall(true);
     setShowCallDeck(true); // legacy flag, kept for header toggle compatibility
     // Start the shell-level persistent voice deck (survives navigation).
@@ -349,7 +353,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       user_name: currentUser?.full_name || currentUser?.username,
       user_avatar: currentUser?.avatar_url || '',
       is_muted: isMuted,
-      is_video_on: isVideoOn,
+      is_video_on: videoOn,
       is_speaking: false
     });
     // Ring the other person — unless we're answering their call (skipInvite).
@@ -360,7 +364,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         socket.emit('call:invite', {
           recipientId: activeRecipientId,
           conversationId: activeConversationId,
-          kind: isVideoOn ? 'video' : 'voice',
+          kind: videoOn ? 'video' : 'voice',
           caller: {
             id: currentUser?.id,
             name: callerName,
@@ -679,7 +683,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Call'}>
             <Phone size={17} />
           </button>
-          <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Video'}>
+          <button onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false, true)} className={`p-2 rounded-lg transition-all ${inCall ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title={inCall ? 'Toggle Call Deck' : 'Start Video'}>
             <Video size={17} />
           </button>
           {inCall && (
@@ -732,7 +736,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
                 <Phone size={15} className={inCall ? 'text-green-500' : 'text-zinc-400'} />
                 {inCall ? 'Toggle Call Deck' : 'Voice Call'}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false)} className="gap-2">
+              <DropdownMenuItem onClick={inCall ? () => setShowCallDeck(!showCallDeck) : () => handleStartCall(false, true)} className="gap-2">
                 <Video size={15} className={inCall ? 'text-green-500' : 'text-zinc-400'} />
                 {inCall ? 'Toggle Call Deck' : 'Video Call'}
               </DropdownMenuItem>

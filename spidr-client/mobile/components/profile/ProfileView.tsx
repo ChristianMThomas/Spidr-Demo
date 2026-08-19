@@ -31,10 +31,11 @@ import {
   UserX,
   ShieldAlert,
   Users as UsersIcon,
+  Star,
 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useAppShell } from '../../lib/appShellContext';
-import { entities } from '../../lib/apiClient';
+import api, { entities } from '../../lib/apiClient';
 import { emitter } from '../../lib/eventEmitter';
 import { dmConversationId } from '../../lib/utils';
 import { useTension } from '../../hooks/useTension';
@@ -628,6 +629,7 @@ function ProfileActions({
             bordered
             onPress={() => setShowServerPicker(true)}
           />
+          <CloseFriendStar friendship={friendship} invalidate={invalidate} />
         </View>
       ) : (
         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -732,6 +734,42 @@ function ProfileActions({
         currentUser={currentUser}
       />
     </View>
+  );
+}
+
+// Star toggle marking this friend as "close" — the recipient's DND +
+// urgent_dms combo lets close-friend signals ring through.
+function CloseFriendStar({ friendship, invalidate }: { friendship: any; invalidate: () => void }) {
+  const [on, setOn] = useState<boolean>(!!friendship?.is_close_friend);
+  useEffect(() => { setOn(!!friendship?.is_close_friend); }, [friendship?.is_close_friend]);
+  const toggle = async () => {
+    if (!friendship?.id) return;
+    const next = !on;
+    setOn(next); // optimistic
+    try {
+      await api.patch(`/friends/${friendship.id}/close`, { close: next });
+      invalidate();
+    } catch {
+      setOn(!next);
+    }
+  };
+  return (
+    <TouchableOpacity
+      onPress={toggle}
+      activeOpacity={0.85}
+      style={{
+        width: 44,
+        paddingVertical: 12,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: on ? 'rgba(234,179,8,0.15)' : 'rgba(0,0,0,0.8)',
+        borderWidth: 1,
+        borderColor: on ? 'rgba(234,179,8,0.5)' : 'rgba(255,255,255,0.1)',
+      }}
+    >
+      <Star size={14} color={on ? '#eab308' : '#a1a1aa'} fill={on ? '#eab308' : 'none'} />
+    </TouchableOpacity>
   );
 }
 

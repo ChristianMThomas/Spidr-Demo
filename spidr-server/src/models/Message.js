@@ -86,10 +86,12 @@ s.post('save', async function (doc) {
     // Truncate the message to a short snippet for the feed card
     const snippet = doc.content.length > 140 ? doc.content.slice(0, 137) + '…' : doc.content;
 
+    const notifications = require('../utils/notifications');
+    const senderName = doc.author_name || doc.user_name || 'Someone';
     for (const m of mentioned) {
       feedEvents.mention({
         sender_id:     senderId,
-        sender_name:   doc.author_name || doc.user_name || 'Someone',
+        sender_name:   senderName,
         sender_avatar: doc.author_avatar || doc.user_avatar || '',
         recipient_id:  m.user_id,
         context:       'server',
@@ -100,6 +102,18 @@ s.post('save', async function (doc) {
         message_id:    doc._id.toString(),
         snippet,
       });
+      notifications.dispatch('server_mention', m.user_id, {
+        title: `${senderName} mentioned you in #${channel?.name || 'a channel'}`,
+        body: snippet,
+        data: {
+          type: 'server_mention',
+          serverId: doc.server_id,
+          channelId: String(doc.channel_id),
+          messageId: doc._id.toString(),
+          senderId,
+          senderName,
+        },
+      }, { senderId });
     }
   } catch (err) {
     console.warn('Message mention scan failed:', err?.message);

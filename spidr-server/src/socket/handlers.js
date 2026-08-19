@@ -15,6 +15,7 @@ const UserProfile  = require('../models/UserProfile');
 const { recordMessage, checkContent, isAutoModInstalled } = require('../utils/automod');
 const spotifyPresence = require('../utils/spotifyPresence');
 const { sendCallPush, sendCallEndPush } = require('../utils/push');
+const notifications = require('../utils/notifications');
 
 // Shared secret resolver — keeps HTTP, socket, and rate-limit verification in sync.
 const { getSecret } = require('../utils/jwtSecret');
@@ -387,6 +388,23 @@ module.exports = function registerHandlers(io) {
         if (recvSockets) {
           for (const sid of recvSockets) io.to(sid).emit('dm:notification', out);
         }
+        // Push (mobile banner + sound). Broker gates on prefs/DND/close-friend.
+        try {
+          const sender = await UserProfile.findOne({ user_id: userId })
+            .select('display_name avatar_url').lean();
+          const senderName = sender?.display_name || 'Someone';
+          const snippet = (data.content || '').slice(0, 140) || 'Sent an attachment';
+          notifications.dispatch('dm', data.receiver_id, {
+            title: senderName,
+            body: snippet,
+            data: {
+              type: 'dm',
+              conversationId: data.conversation_id,
+              senderId: userId,
+              senderName,
+            },
+          }, { senderId: userId });
+        } catch {}
       } catch (err) {
         socket.emit('error', { message: err.message });
       }
@@ -473,10 +491,15 @@ module.exports = function registerHandlers(io) {
           io.to(sid).emit('friend:incoming', { senderName, senderAvatar });
         }
       }
+      notifications.dispatch('friend_request', recipientId, {
+        title: 'New friend request',
+        body: `${senderName || 'Someone'} wants to add you`,
+        data: { type: 'friend_request', senderId: userId, senderName: senderName || '' },
+      }, { senderId: userId });
     });
 
     // ── DM real-time relay (no DB write — just broadcasts to room) ───────────
-    socket.on('dm:notify', ({ conversationId, recipientId }) => {
+    socket.on('dm:notify', async ({ conversationId, recipientId, content }) => {
       // NOTIFICATION FIX: broadcasting dm:new to the whole conversation
       // room (which includes the sender) with an empty payload caused the
       // sender's OWN bell to fire on every message they sent (the
@@ -496,6 +519,18 @@ module.exports = function registerHandlers(io) {
       if (senderSockets) {
         for (const sid of senderSockets) io.to(sid).emit('dm:sent', { conversation_id: conversationId });
       }
+      // Native push to the recipient (broker gates prefs/DND/close-friend).
+      try {
+        const sender = await UserProfile.findOne({ user_id: userId })
+          .select('display_name').lean();
+        const senderName = sender?.display_name || 'Someone';
+        const snippet = (content || '').slice(0, 140) || 'New message';
+        notifications.dispatch('dm', recipientId, {
+          title: senderName,
+          body: snippet,
+          data: { type: 'dm', conversationId, senderId: userId, senderName },
+        }, { senderId: userId });
+      } catch {}
     });
 
     // ── DM call signaling ─────────────────────────────────────────────────────
@@ -514,14 +549,20 @@ module.exports = function registerHandlers(io) {
           });
         }
       }
-      // Also ring native devices (Android FCM / iOS APNs) — silent no-op if
+      // Also ring native devices (Android FCM / iOS APNs) via broker so per-user
+      // voice_calls toggle + DND + close-friend rules apply. Silent no-op if
       // FIREBASE_SERVICE_ACCOUNT isn't set locally.
-      sendCallPush(recipientId, { conversationId, caller: caller || { id: userId }, kind: kind || 'voice' });
+      notifications.dispatch('voice_call', recipientId, {
+        conversationId,
+        caller: caller || { id: userId },
+        kind: kind || 'voice',
+      }, { senderId: userId });
     });
     socket.on('call:accept', ({ callerId, conversationId }) => {
       const sockets = onlineUsers.get(callerId);
       if (sockets) for (const sid of sockets) io.to(sid).emit('call:accepted', { conversationId, byUserId: userId });
-      // Stop the ring on the acceptor's OTHER devices (they answered here).
+      // Stop the ring on the acceptor's OTHER devices — bypass the gate so
+      // the ring always dies even if voice_calls is disabled on this account.
       sendCallEndPush(userId, { conversationId, reason: 'answered' });
     });
     // ── Missed-call writer ────────────────────────────────────────────────
@@ -547,10 +588,19 @@ module.exports = function registerHandlers(io) {
           io.to(`group:${groupId}`).emit('group-message:new', {});
         } else if (conversationId) {
           const DirectMessage = require('../models/DirectMessage');
+          // Look up the recipient's display name so the caller's side can
+          // render "Sammy123 didn't answer" instead of a generic "Someone".
+          let recipientName = '';
+          if (receiverId) {
+            const p = await UserProfile.findOne({ user_id: receiverId })
+              .select('display_name').lean();
+            recipientName = p?.display_name || '';
+          }
           await DirectMessage.create({
             sender_id: callerId,
             receiver_id: receiverId || '',
             recipient_id: receiverId || '',
+            recipient_name: recipientName,
             conversation_id: conversationId,
             sender_name: callerName || 'Someone',
             content: `Missed call from ${callerName || 'Someone'}`,
