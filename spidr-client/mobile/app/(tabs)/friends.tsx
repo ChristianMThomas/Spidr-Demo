@@ -109,11 +109,13 @@ function SpidrWebHead({
   name,
   avatar,
   status,
+  unread,
   onPress,
 }: {
   name: string;
   avatar?: string;
   status?: string;
+  unread?: number;
   onPress: () => void;
 }) {
   const statusColor = STATUS_COLORS[status || 'offline'] || STATUS_COLORS.offline;
@@ -152,6 +154,30 @@ function SpidrWebHead({
             borderColor: '#0a0a0a',
           }}
         />
+        {/* Unread badge — top-right of the avatar so it stays visible when
+            the RECENTS strip pushes this friend to the front. */}
+        {!!unread && unread > 0 && (
+          <View
+            style={{
+              position: 'absolute',
+              top: -2,
+              right: -4,
+              backgroundColor: '#dc2626',
+              borderRadius: 999,
+              minWidth: 18,
+              height: 18,
+              paddingHorizontal: 4,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 2,
+              borderColor: '#0a0a0a',
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 10, fontWeight: '900' }}>
+              {unread > 9 ? '9+' : unread}
+            </Text>
+          </View>
+        )}
       </View>
       <Text
         numberOfLines={1}
@@ -463,22 +489,32 @@ export default function Friends() {
     } as any);
   };
 
-  // SPIDR WEB strip — pulls accepted friends ranked online-first.
+  // SPIDR WEB strip — pulls accepted friends ranked unread-first, then
+  // online-first. Threads with unread DMs bubble to the front so the strip
+  // doubles as an at-a-glance "someone messaged you" indicator.
   const webHeads = useMemo(() => {
     return [...accepted]
       .map((f) => {
         const p = getProfile(f.friend_id);
+        const unread = unreadCounts[dmConversationId(user?.id, f.friend_id)] || 0;
         return {
           id: f.friend_id,
           name: p?.display_name || f.friend_name || 'Friend',
           avatar: p?.avatar_url || f.friend_avatar,
           status: p?.status || 'offline',
+          unread,
           rank: p?.status === 'online' ? 0 : p?.status === 'idle' ? 1 : p?.status === 'dnd' ? 2 : 3,
         };
       })
-      .sort((a, b) => a.rank - b.rank)
+      .sort((a, b) => {
+        if ((b.unread > 0 ? 1 : 0) !== (a.unread > 0 ? 1 : 0)) {
+          return (b.unread > 0 ? 1 : 0) - (a.unread > 0 ? 1 : 0);
+        }
+        if (a.unread !== b.unread) return b.unread - a.unread;
+        return a.rank - b.rank;
+      })
       .slice(0, 12);
-  }, [accepted, profiles]);
+  }, [accepted, profiles, unreadCounts, user?.id]);
 
   const activeCount = webHeads.filter((h) => h.status !== 'offline').length;
 
@@ -581,6 +617,7 @@ export default function Friends() {
                 name={h.name}
                 avatar={h.avatar}
                 status={h.status}
+                unread={h.unread}
                 onPress={() => openDM(h.id, h.name)}
               />
             ))}
@@ -692,8 +729,8 @@ export default function Friends() {
                       gap: 12,
                     }}
                   >
-                    {g.icon_url ? (
-                      <Image source={{ uri: g.icon_url }} style={{ width: 44, height: 44, borderRadius: 22 }} />
+                    {(g.avatar_url || g.icon_url) ? (
+                      <Image source={{ uri: g.avatar_url || g.icon_url }} style={{ width: 44, height: 44, borderRadius: 22 }} />
                     ) : (
                       <View
                         style={{

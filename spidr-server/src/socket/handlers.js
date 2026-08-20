@@ -56,6 +56,10 @@ module.exports = function registerHandlers(io) {
   // ── Presence tracking ──────────────────────────────────────────────────────
   // userId → Set<socketId>  (a user can have multiple tabs / devices)
   const onlineUsers = new Map();
+  // conversationId | groupId -> true, set the moment a call is answered.
+  // Hanging up a connected call also emits call:cancel, which otherwise
+  // wrote a bogus "didn't answer" row for every completed call.
+  const answeredCalls = new Set();
   // socketId → { userId, lastSeen }  (for heartbeat reaper)
   const socketHeartbeats = new Map();
 
@@ -538,6 +542,7 @@ module.exports = function registerHandlers(io) {
     // the incoming-call banner can show. Pure signaling; the actual media is
     // handled by the existing voice session join once the callee accepts.
     socket.on('call:invite', ({ recipientId, conversationId, caller, kind }) => {
+      if (conversationId) answeredCalls.delete(conversationId);
       const recvSockets = onlineUsers.get(recipientId);
       if (recvSockets) {
         for (const sid of recvSockets) {
@@ -558,7 +563,9 @@ module.exports = function registerHandlers(io) {
         kind: kind || 'voice',
       }, { senderId: userId });
     });
-    socket.on('call:accept', ({ callerId, conversationId }) => {
+    socket.on('call:accept', ({ callerId, conversationId, groupId }) => {
+      const key = groupId || conversationId;
+      if (key) answeredCalls.add(key);
       const sockets = onlineUsers.get(callerId);
       if (sockets) for (const sid of sockets) io.to(sid).emit('call:accepted', { conversationId, byUserId: userId });
       // Stop the ring on the acceptor's OTHER devices — bypass the gate so
@@ -571,43 +578,62 @@ module.exports = function registerHandlers(io) {
     // reloads. reason = 'declined' | 'unanswered' | 'cancelled'.
     //   DM lane   → DirectMessage row (conversationId present)
     //   Group lane → GroupChatMessage row (groupId present)
+    // Names are resolved HERE, never trusted from the client: mobile's
+    // call:cancel / call:decline carry no callerName, which is why rows
+    // written from a phone all rendered as "Someone".
+    async function displayNameOf(uid, fallback) {
+      if (!uid) return fallback || 'Someone';
+      try {
+        const p = await UserProfile.findOne({ user_id: uid }).select('display_name username').lean();
+        return p?.display_name || p?.username || fallback || 'Someone';
+      } catch {
+        return fallback || 'Someone';
+      }
+    }
+
     async function writeMissedCall({ conversationId, groupId, callerId, callerName, receiverId, reason }) {
       try {
+        // A call that was actually answered never "missed" anything — the
+        // hang-up that follows must not leave a missed-call bubble behind.
+        const key = groupId || conversationId;
+        if (key && answeredCalls.has(key)) {
+          answeredCalls.delete(key);
+          return;
+        }
+        const resolvedCaller = await displayNameOf(callerId, callerName);
         if (groupId) {
-          const GroupChatMessage = require('../models/GroupChatMessage');
+          const group = await GroupChat.findById(groupId).select('name').lean();
+          const groupName = group?.name || 'the group';
           await GroupChatMessage.create({
             group_id: groupId,
             user_id: callerId,
-            user_name: callerName || 'Someone',
-            content: `Missed call from ${callerName || 'Someone'}`,
+            user_name: resolvedCaller,
+            // Receiving members read "<caller> called <group>"; the caller's
+            // own client flips this to "You tried calling <group>".
+            content: `${resolvedCaller} called ${groupName}`,
             is_missed_call: true,
             missed_call_reason: reason,
             caller_id: callerId,
-            caller_name: callerName || 'Someone',
+            caller_name: resolvedCaller,
+            group_name: groupName,
           });
           io.to(`group:${groupId}`).emit('group-message:new', {});
         } else if (conversationId) {
-          const DirectMessage = require('../models/DirectMessage');
-          // Look up the recipient's display name so the caller's side can
-          // render "Sammy123 didn't answer" instead of a generic "Someone".
-          let recipientName = '';
-          if (receiverId) {
-            const p = await UserProfile.findOne({ user_id: receiverId })
-              .select('display_name').lean();
-            recipientName = p?.display_name || '';
-          }
+          // The recipient's display name lets the caller's side render
+          // "Sammy123 didn't answer" instead of a generic "Someone".
+          const recipientName = receiverId ? await displayNameOf(receiverId, '') : '';
           await DirectMessage.create({
             sender_id: callerId,
             receiver_id: receiverId || '',
             recipient_id: receiverId || '',
             recipient_name: recipientName,
             conversation_id: conversationId,
-            sender_name: callerName || 'Someone',
-            content: `Missed call from ${callerName || 'Someone'}`,
+            sender_name: resolvedCaller,
+            content: `Missed call from ${resolvedCaller}`,
             is_missed_call: true,
             missed_call_reason: reason,
             caller_id: callerId,
-            caller_name: callerName || 'Someone',
+            caller_name: resolvedCaller,
           });
           // Notify the receiver (their bell + DM list refresh)
           const recvSockets = onlineUsers.get(receiverId);

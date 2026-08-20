@@ -62,7 +62,8 @@
       [
         "@config-plugins/react-native-callkeep"
       ],
-      "expo-asset"
+      "expo-asset",
+      "expo-notifications"
     ],
     "extra": {
       "apiUrl": "https://cooperative-simplicity-production-bb44.up.railway.app",

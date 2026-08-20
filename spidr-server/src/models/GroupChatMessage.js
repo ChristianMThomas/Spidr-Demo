@@ -16,6 +16,9 @@ const s = new Schema({
   missed_call_reason:  { type: String, default: '' },
   caller_id:           { type: String, default: '' },
   caller_name:         { type: String, default: '' },
+  // Group name snapshotted at write time so the caller's client can render
+  // "<group> didn't answer" without a second lookup.
+  group_name:          { type: String, default: '' },
   created_date: { type: Date, default: Date.now },
 }, { timestamps: true });
 

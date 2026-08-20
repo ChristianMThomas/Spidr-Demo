@@ -48,6 +48,20 @@ body {
   overscroll-behavior: none;
 }
 
+/* IRON FRAME — phones only.
+ * The 900px floor above is the desktop guarantee, but html/body are
+ * overflow:hidden, so on a narrower viewport the extra width could not be
+ * scrolled to: everything past the viewport edge (the DM header's search +
+ * hamburger cluster, every right-aligned action) was clipped off-screen and
+ * untappable. The responsive tiers below lg already exist — they just never
+ * had room to lay out. Release the floor under 900px and let them. */
+@media (max-width: 899px) {
+  #root {
+    min-width: 0;
+    min-height: 0;
+  }
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: #333 #0a0a0a;

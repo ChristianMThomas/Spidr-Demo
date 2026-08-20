@@ -308,8 +308,11 @@ export default function GroupChat() {
           <ArrowLeft size={20} color="#a1a1aa" />
         </TouchableOpacity>
 
-        {(group as any)?.icon_url ? (
-          <Image source={{ uri: (group as any).icon_url }} style={{ width: 36, height: 36, borderRadius: 18 }} />
+        {((group as any)?.avatar_url || (group as any)?.icon_url) ? (
+          <Image
+            source={{ uri: (group as any).avatar_url || (group as any).icon_url }}
+            style={{ width: 36, height: 36, borderRadius: 18 }}
+          />
         ) : (
           <View
             style={{
@@ -371,6 +374,8 @@ export default function GroupChat() {
                   peerAvatar={item.peerAvatar}
                   myName={item.myName}
                   myAvatar={item.myAvatar}
+                  currentUserId={user?.id}
+                  groupName={groupName}
                   onAvatarPress={(uid) => router.push(`/user/${uid}`)}
                 />
               );

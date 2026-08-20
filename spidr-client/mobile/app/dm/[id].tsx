@@ -586,6 +586,7 @@ export default function DM() {
                       peerAvatar={headerAvatar}
                       myName={myProfile?.display_name || user?.full_name || user?.username}
                       myAvatar={myProfile?.avatar_url}
+                      currentUserId={user?.id}
                       onAvatarPress={(uid) => router.push(`/user/${uid}`)}
                     />
                     {isPinned && (

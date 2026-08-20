@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useCallback } from 'react';
+import { AppState } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api, { entities } from './apiClient';
 import { useAuth } from './authContext';
@@ -67,14 +68,31 @@ export function UnreadProvider({ children }: { children: React.ReactNode }) {
     return () => { mounted = false; cleanup?.(); };
   }, [isAuthenticated, user?.id, queryClient]);
 
+  // Re-check unread when the app returns to the foreground. Socket events
+  // don't fire while backgrounded, so a DM that arrived overnight would
+  // otherwise never bump the badge until the user manually opened the DMs.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        queryClient.invalidateQueries({ queryKey: ['unread-dms', user?.id] });
+      }
+    });
+    return () => sub.remove();
+  }, [isAuthenticated, user?.id, queryClient]);
+
   const markConversationRead = useCallback(
     async (conversationId: string) => {
       if (!user?.id || !conversationId) return;
       // Single server-side updateMany — replaces the per-message PATCH loop
       // whose race conditions (cache hydration + `is_read=false` boolean
       // coercion through URL query params) left Spidr System badges stuck.
+      // Endpoint name must match the server route in
+      // spidr-server/src/routes/directMessages.js — POST /read-conversation.
+      // The old '/mark-conversation-read' name 404'd, so the badge never
+      // cleared when a DM was opened.
       try {
-        await api.post('/direct-messages/mark-conversation-read', {
+        await api.post('/direct-messages/read-conversation', {
           conversation_id: conversationId,
         });
       } catch { /* non-fatal — still invalidate so the badge re-checks */ }

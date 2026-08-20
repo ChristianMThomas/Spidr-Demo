@@ -71,6 +71,10 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     return next;
   });
   const bottomRef = useRef(null);
+  // 60s "nobody joined" timer for a group call I started — mirrors the DM
+  // lane. Pending timer == the call never connected, which is also the
+  // gate for writing the missed-call row when I hang up.
+  const noAnswerTimerRef = useRef(null);
   const queryClient = useQueryClient();
   const { report: reportXp } = useTension();
   // ── Socket.io: instant group message delivery ────────────────────────────
@@ -271,6 +275,15 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     refetchInterval: 8000, // periodic refresh as a fallback for missed sockets
   });
 
+  // Someone else picked up → the call connected, so no missed-call row.
+  useEffect(() => {
+    const humanCount = (voiceSessions || []).filter(s => !s.is_spidr_ai).length;
+    if (humanCount >= 2 && noAnswerTimerRef.current) {
+      clearTimeout(noAnswerTimerRef.current);
+      noAnswerTimerRef.current = null;
+    }
+  }, [voiceSessions]);
+
   const sendMessageMutation = useMutation({
     mutationFn: (data) => entities.GroupChatMessage.create(data),
     onSuccess: () => {
@@ -370,6 +383,23 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
       is_video_on: isVideoOn,
       is_speaking: false
     });
+    // Only the member who OPENS the call arms the no-answer timer — anyone
+    // joining an existing call isn't waiting on a pickup. If it fires, the
+    // server writes the group missed-call row: "<me> called <group>" for
+    // every other member, "<group> didn't answer" on my own side.
+    const humansAlreadyIn = (voiceSessions || []).filter(s => !s.is_spidr_ai).length;
+    if (humansAlreadyIn === 0) {
+      clearTimeout(noAnswerTimerRef.current);
+      noAnswerTimerRef.current = setTimeout(() => {
+        try {
+          getSocket().emit('call:cancel', {
+            groupId,
+            reason: 'unanswered',
+            callerName: currentUser?.full_name || currentUser?.username,
+          });
+        } catch { /* non-fatal */ }
+      }, 60_000);
+    }
     if (onVoiceJoin) {
       onVoiceJoin(groupId, group?.name || 'Group Chat');
     }
@@ -380,6 +410,18 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     const mySession = voiceSessions.find(s => s.user_id === currentUser?.id);
     if (mySession) {
       deleteSessionMutation.mutate(mySession.id);
+    }
+    // Hanging up while still alone == nobody answered the group call.
+    if (noAnswerTimerRef.current) {
+      try {
+        getSocket().emit('call:cancel', {
+          groupId,
+          reason: 'cancelled',
+          callerName: currentUser?.full_name || currentUser?.username,
+        });
+      } catch { /* non-fatal */ }
+      clearTimeout(noAnswerTimerRef.current);
+      noAnswerTimerRef.current = null;
     }
     setInCall(false);
     endVoiceSession();

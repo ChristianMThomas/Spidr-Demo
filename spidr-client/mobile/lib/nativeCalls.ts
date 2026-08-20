@@ -17,6 +17,9 @@ function safeRequire(name: string): any | null {
       case 'callkeep': return require('react-native-callkeep').default;
       case 'messaging': return require('@react-native-firebase/messaging').default;
       case 'incall': return require('react-native-incall-manager').default;
+      // Expo module — unlike the four above it DOES exist in Expo Go, which
+      // is the whole point: it can raise the OS notification dialog there.
+      case 'expoNotifications': return require('expo-notifications');
       default: return null;
     }
   } catch {
@@ -34,6 +37,7 @@ export const getWebRTC = () => mod('webrtc');       // { RTCPeerConnection, RTCI
 export const getCallKeep = () => mod('callkeep');   // RNCallKeep
 export const getMessaging = () => mod('messaging'); // firebase messaging()
 export const getInCallManager = () => mod('incall');
+export const getExpoNotifications = () => mod('expoNotifications'); // permission prompt only
 
 /** True when running in a build that has the native call stack. */
 export function callsSupported(): boolean {

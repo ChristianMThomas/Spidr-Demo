@@ -6,7 +6,13 @@ import SpidrMenu from '@/components/ui/SpidrMenu';
 export default function Layout({ children }) {
   return (
     <MenuProvider>
-    <div className="bg-black w-full box-border" style={{ minWidth: '900px', minHeight: '550px', height: '100%', overflow: 'hidden' }}>
+    {/* The 900x550 frame applies from 900px up only — below that the inline
+        floor pushed the UI wider than an unscrollable viewport (see the
+        matching #root rule in globals.css). */}
+    <div
+      className="bg-black w-full box-border min-[900px]:min-w-[900px] min-[900px]:min-h-[550px]"
+      style={{ height: '100%', overflow: 'hidden' }}
+    >
       <style>{`
         :root {
           --background: 0 0% 0%;

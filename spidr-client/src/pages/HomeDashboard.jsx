@@ -97,6 +97,14 @@ export default function HomeDashboard() {
     for (const p of profiles) m[p.user_id] = p.status;
     return m;
   }, [profiles]);
+  // Live pfps for the same panel — pins and recent rows carry a snapshot
+  // taken when they were created, so without this a pinned friend showed a
+  // stand-in disc (or their old picture) forever.
+  const avatarByUser = React.useMemo(() => {
+    const m = {};
+    for (const p of profiles) if (p.avatar_url) m[p.user_id] = p.avatar_url;
+    return m;
+  }, [profiles]);
 
   const { data: friends = [] } = useQuery({
     queryKey: ['friends', currentUser?.id],
@@ -503,6 +511,7 @@ export default function HomeDashboard() {
               recentConversations={recentConversations}
               myGroups={myGroups}
               statusByUser={statusByUser}
+              avatarByUser={avatarByUser}
               navigateToDM={navigateToDM}
               navigate={navigate}
             />
@@ -616,6 +625,7 @@ export default function HomeDashboard() {
             recentConversations={recentConversations}
             myGroups={myGroups}
             statusByUser={statusByUser}
+            avatarByUser={avatarByUser}
             navigateToDM={navigateToDM}
             navigate={navigate}
           />

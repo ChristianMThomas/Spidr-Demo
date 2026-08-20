@@ -18,6 +18,8 @@ import { getPins } from '@/lib/spidrWebPins';
  *   recentConversations: [{ conversationId, friendId, name, avatar, last }]
  *   myGroups:            [{ id, name, avatar_url|icon_url, members[] }]
  *   statusByUser:        { [user_id]: 'online'|'idle'|'dnd'|'offline' }
+ *   avatarByUser:        { [user_id]: avatar_url }  — live pfps, so pinned
+ *                        rows never render a stale snapshot or a stand-in
  *   navigateToDM(friendId, conversationId)
  *   navigate(path)  — react-router navigate, used for the group lane
  *
@@ -25,6 +27,20 @@ import { getPins } from '@/lib/spidrWebPins';
  * and re-render on the `spidr-web-pins-changed` event, so pinning from a
  * right-click menu anywhere in the app updates this panel instantly.
  */
+
+// Avatar stand-in when nobody has a picture: the first letter on a dark
+// disc. Beats a generated-face service — it never 404s, never leaks the
+// user id to a third party, and matches the rest of the UI.
+function InitialsDisc({ name, className = '', style }) {
+  return (
+    <div
+      className={`flex items-center justify-center bg-zinc-900 text-white/70 font-black ${className}`}
+      style={style}
+    >
+      {(name || '?').trim().charAt(0).toUpperCase()}
+    </div>
+  );
+}
 
 const STATUS_COLORS = {
   online: 'bg-green-500',
@@ -37,6 +53,7 @@ export default function SpidrWebMatrix({
   recentConversations = [],
   myGroups = [],
   statusByUser = {},
+  avatarByUser = {},
   navigateToDM,
   navigate,
   className = '',
@@ -65,7 +82,9 @@ export default function SpidrWebMatrix({
       kind: 'DM',
       name: c.name,
       sub: c.last || 'Open conversation',
-      avatar: c.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${c.friendId}`,
+      // Live profile pfp first — the row's denormalized avatar is a
+      // send-time snapshot and goes stale when someone changes their pfp.
+      avatar: avatarByUser[c.friendId] || c.avatar || '',
       onClick: () => navigateToDM?.(c.friendId, c.conversationId),
     })),
     ...myGroups.map((g) => ({
@@ -77,7 +96,14 @@ export default function SpidrWebMatrix({
       isGroup: true,
       onClick: () => openGroup(g.id),
     })),
-  ]), [recentConversations, myGroups]);
+  ]), [recentConversations, myGroups, avatarByUser]);
+
+  // Live group pfps by id — the same reason pins can't trust their snapshot.
+  const groupById = useMemo(() => {
+    const m = {};
+    for (const g of myGroups) m[g.id] = g;
+    return m;
+  }, [myGroups]);
 
   return (
     <div
@@ -113,7 +139,7 @@ export default function SpidrWebMatrix({
           }`}
         >
           <Users size={11} />
-          Spidr Web
+          Pinned
           {pins.length > 0 && (
             <span className="text-[9px] font-mono text-white/30">{pins.length}</span>
           )}
@@ -139,15 +165,20 @@ export default function SpidrWebMatrix({
               className="group w-full flex items-center justify-between p-2.5 rounded-xl text-left border border-transparent hover:bg-white/[0.03] hover:border-white/5 transition-all"
             >
               <div className="flex items-center gap-3 min-w-0">
-                {row.isGroup && !row.avatar ? (
-                  <div className="w-10 h-10 rounded-full shrink-0 bg-gradient-to-br from-red-900/60 to-zinc-900 flex items-center justify-center border border-white/10 group-hover:ring-2 group-hover:ring-red-500/50 transition-all">
-                    <Users className="w-4 h-4 text-red-400" />
-                  </div>
-                ) : (
+                {row.avatar ? (
                   <img
                     src={row.avatar}
                     alt=""
                     className="w-10 h-10 rounded-full bg-[#111] object-cover shrink-0 group-hover:ring-2 group-hover:ring-red-500/50 transition-all"
+                  />
+                ) : row.isGroup ? (
+                  <div className="w-10 h-10 rounded-full shrink-0 bg-gradient-to-br from-red-900/60 to-zinc-900 flex items-center justify-center border border-white/10 group-hover:ring-2 group-hover:ring-red-500/50 transition-all">
+                    <Users className="w-4 h-4 text-red-400" />
+                  </div>
+                ) : (
+                  <InitialsDisc
+                    name={row.name}
+                    className="w-10 h-10 rounded-full shrink-0 text-sm border border-white/10 group-hover:ring-2 group-hover:ring-red-500/50 transition-all"
                   />
                 )}
                 <div className="flex flex-col min-w-0">
@@ -164,7 +195,7 @@ export default function SpidrWebMatrix({
           ))
         )}
 
-        {/* SPIDR WEB (PINNED) */}
+        {/* PINNED */}
         {activeTab === 'web' && (
           pins.length === 0 ? (
             <div className="text-center py-8 px-3">
@@ -176,6 +207,15 @@ export default function SpidrWebMatrix({
             </div>
           ) : pins.map((pin) => {
             const status = pin.kind === 'dm' ? (statusByUser[pin.id] || 'offline') : null;
+            // Pins store a name/avatar snapshot taken when they were pinned,
+            // which is why rows fell back to a stand-in disc whenever the
+            // snapshot was empty (or wrong after a pfp change). Resolve the
+            // live picture first, snapshot second.
+            const group = pin.kind === 'group' ? groupById[pin.id] : null;
+            const liveAvatar = pin.kind === 'group'
+              ? (group?.avatar_url || group?.icon_url || pin.avatar || '')
+              : (avatarByUser[pin.id] || pin.avatar || '');
+            const displayName = (pin.kind === 'group' ? group?.name : null) || pin.name;
             return (
               <button
                 key={`${pin.kind}-${pin.id}`}
@@ -195,16 +235,21 @@ export default function SpidrWebMatrix({
                     className="p-[2px] rounded-full bg-gradient-to-tr from-red-600 to-purple-600"
                     style={{ boxShadow: '0 0 10px rgba(220,38,38,0.3)' }}
                   >
-                    {pin.avatar ? (
+                    {liveAvatar ? (
                       <img
-                        src={pin.avatar}
+                        src={liveAvatar}
                         alt=""
                         className="w-9 h-9 rounded-full border-2 border-[#050505] object-cover block"
                       />
-                    ) : (
+                    ) : pin.kind === 'group' ? (
                       <div className="w-9 h-9 rounded-full border-2 border-[#050505] bg-zinc-900 flex items-center justify-center">
                         <Users className="w-4 h-4 text-red-400" />
                       </div>
+                    ) : (
+                      <InitialsDisc
+                        name={displayName}
+                        className="w-9 h-9 rounded-full border-2 border-[#050505] text-sm"
+                      />
                     )}
                   </div>
                   {/* Presence dot — DMs only; groups have no single status */}
@@ -215,7 +260,7 @@ export default function SpidrWebMatrix({
                   )}
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <span className="text-sm font-bold text-white truncate">{pin.name}</span>
+                  <span className="text-sm font-bold text-white truncate">{displayName}</span>
                   <span className="text-[10px] text-purple-400 font-bold uppercase tracking-widest">
                     {pin.kind === 'group' ? 'Pinned Group' : 'Pinned'}
                   </span>

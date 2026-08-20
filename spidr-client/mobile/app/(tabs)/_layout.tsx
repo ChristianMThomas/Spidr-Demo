@@ -41,7 +41,8 @@ export default function TabsLayout() {
         options={{
           title: 'FRIENDS',
           tabBarIcon: ({ color, size }) => <Users color={color} size={size - 2} />,
-          tabBarBadge: unreadTotal > 0 ? (unreadTotal > 99 ? '99+' : unreadTotal) : undefined,
+          tabBarBadge:
+            unreadTotal > 0 ? (unreadTotal > 99 ? '99+' : String(unreadTotal)) : undefined,
           tabBarBadgeStyle: { backgroundColor: '#dc2626', color: '#fff', fontSize: 10 },
         }}
       />

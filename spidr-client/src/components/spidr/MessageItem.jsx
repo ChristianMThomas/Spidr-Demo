@@ -93,14 +93,23 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
   // the wording — declined vs. unanswered vs. cancelled.
   if (msg.is_missed_call) {
     const iSentCall = msg.caller_id === currentUser?.id;
-    // When I made the call, "other" = the recipient (who didn't answer /
-    // who declined). When I missed the call, "other" = the caller.
-    const other = iSentCall
-      ? (msg.recipient_name || 'Someone')
-      : (msg.caller_name || 'Someone');
-    const label = iSentCall
-      ? (msg.missed_call_reason === 'declined' ? `${other} declined your call` : `${other} didn't answer`)
-      : `You missed a call from ${other}`;
+    const caller = msg.caller_name || 'Someone';
+    // Group lane: the row is shared by every member, so the label flips per
+    // viewer — the caller sees their own unanswered attempt, everyone else
+    // sees who rang the group.
+    const isGroupRow = !!(msg.group_name || msg.group_id);
+    const groupName = isGroupRow ? (msg.group_name || 'the group') : null;
+    let label;
+    if (isGroupRow) {
+      label = iSentCall ? `You tried calling ${groupName}` : `${caller} called ${groupName}`;
+    } else {
+      // DM lane: when I made the call, "other" = the recipient (who didn't
+      // answer / who declined). When I missed it, "other" = the caller.
+      const other = iSentCall ? (msg.recipient_name || 'Someone') : caller;
+      label = iSentCall
+        ? (msg.missed_call_reason === 'declined' ? `${other} declined your call` : `${other} didn't answer`)
+        : `You missed a call from ${other}`;
+    }
     const when = msg.created_date ? new Date(msg.created_date) : null;
     return (
       <div className="flex items-center justify-center w-full my-3">

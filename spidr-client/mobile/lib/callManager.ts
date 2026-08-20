@@ -20,7 +20,7 @@ import { router } from 'expo-router';
 import api from './apiClient';
 import { getSocket } from './socket';
 import { emitter } from './eventEmitter';
-import { getWebRTC, getCallKeep, getMessaging, getInCallManager, callsSupported } from './nativeCalls';
+import { getWebRTC, getCallKeep, getMessaging, getInCallManager, getExpoNotifications, callsSupported } from './nativeCalls';
 import { loadAvPrefs } from './avPrefs';
 
 export interface CallPeerInfo { id: string; name?: string; avatar?: string }
@@ -33,6 +33,12 @@ export interface CallInfo {
 export type CallState = 'idle' | 'ringing' | 'active';
 
 const FALLBACK_ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+// RNFB AuthorizationStatus: -1 NOT_DETERMINED, 0 DENIED, 1 AUTHORIZED,
+// 2 PROVISIONAL, 3 EPHEMERAL — anything from AUTHORIZED up can receive push.
+function pushAuthorized(status: number): boolean {
+  return status === 1 || status === 2 || status === 3;
+}
 
 // Deterministic UUID-shaped id from the conversation id so every surface
 // (socket ring, push ring, accept, end) addresses the same CallKeep call.
@@ -60,6 +66,7 @@ class CallManager {
   private recentRings = new Map<string, number>(); // conversationId → ts (dedupe socket+push)
   private callKeepReady = false;
   private initialized = false;
+  private pushListenersAttached = false;
 
   // ── Bootstrap (call once, after login) ────────────────────────────────────
   async init(currentUser: any) {
@@ -405,6 +412,12 @@ class CallManager {
   }
 
   // ── Push (FCM) ────────────────────────────────────────────────────────────
+  // Permission is deliberately NOT requested here. iOS and Android 13+ show
+  // the dialog exactly once — if it fires on the login screen the user says
+  // no to a prompt they have no context for and the only way back is the
+  // system settings app. Instead the Notifications switch in Settings →
+  // Signal Control calls ensurePushPermission() on its first flip. Boot only
+  // picks up a permission that was already granted.
   private async setupPush() {
     const messaging = getMessaging();
     console.log('[callManager.setupPush] messaging module loaded:', !!messaging);
@@ -413,61 +426,15 @@ class CallManager {
       return;
     }
     try {
-      console.log('[callManager.setupPush] requesting notification permission');
-      const authStatus = await messaging().requestPermission();
-      console.log('[callManager.setupPush] permission authStatus =', authStatus);
+      this.attachPushListeners();
 
-      // iOS: force APNs registration + wait for the APNs token before asking
-      // for the FCM token. Without this, getToken() can race and return "" on
-      // cold launch, leaving the device un-pushable until the next foreground.
-      if (Platform.OS === 'ios') {
-        try {
-          console.log('[callManager.setupPush] iOS: registerDeviceForRemoteMessages');
-          await messaging().registerDeviceForRemoteMessages();
-          for (let i = 0; i < 10; i++) {
-            const apns = await messaging().getAPNSToken();
-            if (apns) {
-              console.log('[callManager.setupPush] iOS: APNs token ready');
-              break;
-            }
-            console.log(`[callManager.setupPush] iOS: awaiting APNs token (${i + 1}/10)`);
-            await new Promise((r) => setTimeout(r, 500));
-          }
-        } catch (err: any) {
-          console.warn('[callManager.setupPush] iOS APNs registration failed:', err?.message);
-        }
+      const granted = await this.hasPushPermission();
+      console.log('[callManager.setupPush] existing permission granted =', granted);
+      if (granted) {
+        await this.registerForPush();
+      } else {
+        console.log('[callManager.setupPush] not granted yet — waiting for the Notifications toggle');
       }
-
-      console.log('[callManager.setupPush] fetching FCM token');
-      let token: string | null = null;
-      for (let i = 0; i < 3; i++) {
-        try {
-          token = await messaging().getToken();
-          if (token) break;
-        } catch (err: any) {
-          console.warn(`[callManager.setupPush] getToken attempt ${i + 1} threw:`, err?.message);
-        }
-        await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
-      }
-      console.log('[callManager.setupPush] FCM token =', token ? `${token.slice(0, 24)}...(${token.length} chars)` : 'EMPTY');
-      if (token) await this.registerToken(token);
-
-      messaging().onTokenRefresh((t: string) => {
-        console.log('[callManager.setupPush] token refreshed');
-        this.registerToken(t);
-      });
-
-      // Foreground push (app is open) — socket usually beats it; dedupe by conversationId.
-      messaging().onMessage(async (msg: any) => {
-        console.log('[callManager.setupPush] foreground push received:', msg?.data);
-        this.handlePushData(msg?.data);
-      });
-
-      // Notification tap: app was in BACKGROUND when user tapped the banner.
-      messaging().onNotificationOpenedApp((msg: any) => {
-        console.log('[callManager.setupPush] notification tapped from background:', msg?.data);
-        this.handlePushData(msg?.data);
-      });
 
       // Cold-boot: app was KILLED, user tapped the banner, iOS launched us.
       const initialMsg = await messaging().getInitialNotification();
@@ -478,6 +445,161 @@ class CallManager {
     } catch (err: any) {
       console.warn('[callManager.setupPush] threw:', err?.message, err?.code);
     }
+  }
+
+  private attachPushListeners() {
+    const messaging = getMessaging();
+    if (!messaging || this.pushListenersAttached) return;
+    this.pushListenersAttached = true;
+
+    messaging().onTokenRefresh((t: string) => {
+      console.log('[callManager.setupPush] token refreshed');
+      this.registerToken(t);
+    });
+
+    // Foreground push (app is open) — socket usually beats it; dedupe by conversationId.
+    messaging().onMessage(async (msg: any) => {
+      console.log('[callManager.setupPush] foreground push received:', msg?.data);
+      this.handlePushData(msg?.data);
+    });
+
+    // Notification tap: app was in BACKGROUND when user tapped the banner.
+    messaging().onNotificationOpenedApp((msg: any) => {
+      console.log('[callManager.setupPush] notification tapped from background:', msg?.data);
+      this.handlePushData(msg?.data);
+    });
+  }
+
+  /** Current OS permission — never prompts. */
+  async hasPushPermission(): Promise<boolean> {
+    const messaging = getMessaging();
+    if (messaging) {
+      try {
+        return pushAuthorized(await messaging().hasPermission());
+      } catch (err: any) {
+        console.warn('[callManager.hasPushPermission] threw:', err?.message);
+        return false;
+      }
+    }
+    const Notifications = getExpoNotifications();
+    if (!Notifications) return false;
+    try {
+      const current = await Notifications.getPermissionsAsync();
+      return !!current?.granted;
+    } catch (err: any) {
+      console.warn('[callManager.hasPushPermission] expo-notifications threw:', err?.message);
+      return false;
+    }
+  }
+
+  /**
+   * Prompt for notification permission and, when allowed, register this
+   * device for push. Drives the Notifications switch in Signal Control.
+   *   'granted'     — allowed; the FCM token is registered with the server
+   *   'blocked'     — declined now, or declined earlier (the OS won't
+   *                   re-prompt, so system settings is the only way back)
+   *   'unavailable' — Expo Go / no native messaging module in this build
+   */
+  async ensurePushPermission(): Promise<'granted' | 'blocked' | 'unavailable'> {
+    const messaging = getMessaging();
+    if (!messaging) {
+      // Expo Go has no Firebase messaging native module. expo-notifications
+      // does load there and asks for the very same OS permission, so the
+      // dialog still appears and the flow is testable without a dev build —
+      // it just can't mint an FCM token, so no remote push actually lands
+      // until you're on a dev/EAS build (which takes the branch below).
+      console.log('[callManager.ensurePushPermission] no Firebase messaging — falling back to expo-notifications');
+      return this.ensureExpoNotificationPermission();
+    }
+    try {
+      if (await this.hasPushPermission()) {
+        await this.registerForPush();
+        return 'granted';
+      }
+      console.log('[callManager.ensurePushPermission] requesting notification permission');
+      const authStatus = await messaging().requestPermission();
+      console.log('[callManager.ensurePushPermission] authStatus =', authStatus);
+      if (!pushAuthorized(authStatus)) return 'blocked';
+      await this.registerForPush();
+      return 'granted';
+    } catch (err: any) {
+      console.warn('[callManager.ensurePushPermission] threw:', err?.message, err?.code);
+      return 'blocked';
+    }
+  }
+
+  /**
+   * Expo Go path: raise the OS notification dialog through expo-notifications.
+   * Grants permission only — there is no FCM token here, so remote push stays
+   * dead until the app runs in a build that has Firebase messaging.
+   */
+  private async ensureExpoNotificationPermission(): Promise<'granted' | 'blocked' | 'unavailable'> {
+    const Notifications = getExpoNotifications();
+    if (!Notifications) {
+      console.warn('[callManager.ensurePushPermission] expo-notifications unavailable — no OS prompt possible');
+      return 'unavailable';
+    }
+    try {
+      const current = await Notifications.getPermissionsAsync();
+      console.log('[callManager.ensurePushPermission] expo current status =', current?.status, 'canAskAgain =', current?.canAskAgain);
+      if (current?.granted) return 'granted';
+      // Already declined once: iOS won't show the dialog again, so sending
+      // the user to system settings is the only honest answer.
+      if (current?.canAskAgain === false) return 'blocked';
+
+      console.log('[callManager.ensurePushPermission] requesting via expo-notifications');
+      const asked = await Notifications.requestPermissionsAsync({
+        ios: { allowAlert: true, allowBadge: true, allowSound: true },
+      });
+      console.log('[callManager.ensurePushPermission] expo result status =', asked?.status);
+      if (!asked?.granted) return 'blocked';
+      console.log('[callManager.ensurePushPermission] granted — note: no FCM token in Expo Go, remote push needs a dev build');
+      return 'granted';
+    } catch (err: any) {
+      console.warn('[callManager.ensurePushPermission] expo-notifications threw:', err?.message);
+      return 'blocked';
+    }
+  }
+
+  /** Token acquisition — only meaningful once permission is granted. */
+  private async registerForPush() {
+    const messaging = getMessaging();
+    if (!messaging) return;
+
+    // iOS: force APNs registration + wait for the APNs token before asking
+    // for the FCM token. Without this, getToken() can race and return "" on
+    // cold launch, leaving the device un-pushable until the next foreground.
+    if (Platform.OS === 'ios') {
+      try {
+        console.log('[callManager.registerForPush] iOS: registerDeviceForRemoteMessages');
+        await messaging().registerDeviceForRemoteMessages();
+        for (let i = 0; i < 10; i++) {
+          const apns = await messaging().getAPNSToken();
+          if (apns) {
+            console.log('[callManager.registerForPush] iOS: APNs token ready');
+            break;
+          }
+          console.log(`[callManager.registerForPush] iOS: awaiting APNs token (${i + 1}/10)`);
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      } catch (err: any) {
+        console.warn('[callManager.registerForPush] iOS APNs registration failed:', err?.message);
+      }
+    }
+
+    console.log('[callManager.registerForPush] fetching FCM token');
+    let token: string | null = null;
+    for (let i = 0; i < 3; i++) {
+      try {
+        token = await messaging().getToken();
+        if (token) break;
+      } catch (err: any) {
+        console.warn(`[callManager.registerForPush] getToken attempt ${i + 1} threw:`, err?.message);
+      }
+      await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+    }
+    console.log('[callManager.registerForPush] FCM token =', token ? `${token.slice(0, 24)}...(${token.length} chars)` : 'EMPTY');
+    if (token) await this.registerToken(token);
   }
 
   private async registerToken(token: string) {

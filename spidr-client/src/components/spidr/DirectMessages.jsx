@@ -407,14 +407,20 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     // Stop ringing the other side if they haven't picked up yet — carry
     // reason + callerName so the server can write the correct missed-call
     // row (labeled "Missed call from {you}").
-    try {
-      getSocket().emit('call:cancel', {
-        recipientId: activeRecipientId,
-        conversationId: activeConversationId,
-        reason: 'cancelled',
-        callerName: currentUser?.full_name || currentUser?.username,
-      });
-    } catch { /* non-fatal */ }
+    // Only while the no-answer timer is still pending: once it's cleared the
+    // call either connected (someone joined) or already wrote its own
+    // 'unanswered' row, and cancelling again duplicated the missed-call
+    // bubble / stamped one onto a call that actually happened.
+    if (noAnswerTimerRef.current) {
+      try {
+        getSocket().emit('call:cancel', {
+          recipientId: activeRecipientId,
+          conversationId: activeConversationId,
+          reason: 'cancelled',
+          callerName: currentUser?.full_name || currentUser?.username,
+        });
+      } catch { /* non-fatal */ }
+    }
     clearTimeout(noAnswerTimerRef.current);
     noAnswerTimerRef.current = null;
     setInCall(false);
@@ -717,17 +723,22 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
             a hamburger dropdown. Spidr Protocol (Ghost mode) is
             intentionally omitted at this tier — it's a laptop+ feature
             only, per spec. */}
-        <div className="flex lg:hidden items-center gap-0.5">
+        {/* self-stretch so both buttons run the full 56px header height:
+            padding alone left a 33px box floating in the middle of the bar,
+            and an inline SVG's baseline gap pushed the glyph below centre.
+            h-full + grid place-items-center gives a full-height, 44px-wide
+            target with the icon optically centred. */}
+        <div className="flex lg:hidden items-center self-stretch gap-0.5">
           <button
             onClick={() => setMobileSearchOpen(v => !v)}
-            className={`p-2 rounded-lg transition-all ${mobileSearchOpen ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
+            className={`h-full w-11 grid place-items-center rounded-lg transition-all ${mobileSearchOpen ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`}
             title="Search DM"
           >
             <Search size={17} />
           </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Quick actions" aria-label="Quick actions">
+              <button className="h-full w-11 -mr-1 grid place-items-center text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Quick actions" aria-label="Quick actions">
                 <Menu size={17} />
               </button>
             </DropdownMenuTrigger>

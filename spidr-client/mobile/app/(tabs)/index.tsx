@@ -14,6 +14,7 @@ import { useThemeColors } from '../../lib/theme';
 import { Sparkles, RefreshCw, Users as UsersIcon, Infinity as InfinityIcon } from 'lucide-react-native';
 import { entities, tension } from '../../lib/apiClient';
 import { useAuth } from '../../lib/authContext';
+import { useUnread } from '../../lib/unreadContext';
 import SpidrSysChip from '../../components/spidr/SpidrSysChip';
 
 // ─── Welcome banner ────────────────────────────────────────────────────────────
@@ -95,11 +96,13 @@ function StatTile({
   label,
   onPress,
   redValue = false,
+  badge,
 }: {
   value: React.ReactNode;
   label: string;
   onPress: () => void;
   redValue?: boolean;
+  badge?: number;
 }) {
   return (
     <TouchableOpacity
@@ -126,6 +129,30 @@ function StatTile({
         {value}
       </Text>
       <Text style={{ color: '#71717a', fontSize: 12 }}>{label}</Text>
+      {!!badge && badge > 0 && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            backgroundColor: '#dc2626',
+            borderRadius: 999,
+            minWidth: 22,
+            height: 22,
+            paddingHorizontal: 6,
+            alignItems: 'center',
+            justifyContent: 'center',
+            shadowColor: '#dc2626',
+            shadowOpacity: 0.6,
+            shadowRadius: 6,
+            elevation: 4,
+          }}
+        >
+          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '900' }}>
+            {badge > 99 ? '99+' : badge}
+          </Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -544,6 +571,7 @@ export default function Home() {
   const router = useRouter();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const { total: unreadTotal } = useUnread();
   const [refreshing, setRefreshing] = React.useState(false);
 
   const { data: allServers = [] } = useQuery({
@@ -615,6 +643,7 @@ export default function Home() {
           <StatTile
             value={uniqueFriendCount}
             label="Friends"
+            badge={unreadTotal}
             onPress={() => router.push('/(tabs)/friends')}
           />
           <StatTile

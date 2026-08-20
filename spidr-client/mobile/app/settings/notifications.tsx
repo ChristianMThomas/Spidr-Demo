@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Alert, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -8,6 +8,7 @@ import { entities } from '../../lib/apiClient';
 import { useAppShell } from '../../lib/appShellContext';
 import { useThemeColors } from '../../lib/theme';
 import { Toggle } from '../../components/ui/Toggle';
+import { callManager } from '../../lib/callManager';
 
 // ── Notifications (mobile) ───────────────────────────────────────────────────
 // Same pref keys + storage strategy as the web Settings panel: AsyncStorage
@@ -15,8 +16,12 @@ import { Toggle } from '../../components/ui/Toggle';
 // is best-effort mirrored to UserProfile.notification_prefs so the toggles
 // sync with web/desktop.
 
+// Master starts OFF. Nothing is pushed until the user turns it on, and that
+// first flip is what asks the OS for permission — the prompt then arrives
+// attached to an action the user just took instead of firing unexplained at
+// login (the OS only ever shows it once).
 const NOTIF_DEFAULTS = {
-  enabled: true,
+  enabled: false,
   dm: true,
   server_mentions: false,
   friend_requests: true,
@@ -35,31 +40,45 @@ export default function Notifications() {
   const [prefs, setPrefs] = useState<NotifPrefs>(NOTIF_DEFAULTS);
   const [hydrated, setHydrated] = useState(false);
 
+  const profileIdRef = useRef<string | null>(null);
+
   // AsyncStorage first (instant), then overlay whatever the profile has synced.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       let next = { ...NOTIF_DEFAULTS };
+      let saved = false;
       try {
         const raw = await AsyncStorage.getItem('spidr_notification_prefs');
-        if (raw) next = { ...next, ...JSON.parse(raw) };
+        if (raw) { next = { ...next, ...JSON.parse(raw) }; saved = true; }
       } catch {}
+      let profileId: string | null = null;
       try {
         if (currentUser?.id) {
           const profiles: any = await entities.UserProfile.filter({ user_id: currentUser.id });
+          profileId = profiles?.[0]?.id ?? null;
           const synced = profiles?.[0]?.notification_prefs;
-          if (synced && typeof synced === 'object') next = { ...next, ...synced };
+          if (synced && typeof synced === 'object') { next = { ...next, ...synced }; saved = true; }
         }
       } catch {}
-      if (!cancelled) {
-        setPrefs(next);
-        setHydrated(true);
+      if (cancelled) return;
+      profileIdRef.current = profileId;
+      setPrefs(next);
+      setHydrated(true);
+
+      // Never saved anywhere: write the opt-out defaults down. The server
+      // treats a missing notification_prefs as "push everything", so without
+      // this the screen would read ALL SIGNALS MUTED while the broker still
+      // pushed to any device that already holds a token.
+      if (!saved) {
+        AsyncStorage.setItem('spidr_notification_prefs', JSON.stringify(next)).catch(() => {});
+        if (profileId) {
+          entities.UserProfile.update(profileId, { notification_prefs: next }).catch(() => {});
+        }
       }
     })();
     return () => { cancelled = true; };
   }, [currentUser?.id]);
-
-  const profileIdRef = useRef<string | null>(null);
 
   const setPref = (key: keyof NotifPrefs, value: boolean) => {
     setPrefs((prev) => {
@@ -81,6 +100,41 @@ export default function Notifications() {
   };
 
   const masterOff = !prefs.enabled;
+  const [requesting, setRequesting] = useState(false);
+
+  // Master switch. OFF is immediate; ON has to clear the OS permission first,
+  // otherwise the switch would claim notifications are on while the system
+  // silently drops every one of them.
+  const setMaster = async (on: boolean) => {
+    if (!on) {
+      setPref('enabled', false);
+      return;
+    }
+    setRequesting(true);
+    try {
+      const result = await callManager.ensurePushPermission();
+      if (result === 'blocked') {
+        // Permission was declined — now, or in an earlier session. Either way
+        // the OS won't ask again, so system settings is the only route back.
+        setPref('enabled', false);
+        Alert.alert(
+          'Notifications are blocked',
+          'Spidr needs system permission to send signals. Turn notifications on for Spidr in your device settings, then flip this switch again.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings().catch(() => {}) },
+          ],
+        );
+        return;
+      }
+      // 'granted' — allowed and the push token is registered.
+      // 'unavailable' — Expo Go has no native push, but the pref still syncs
+      // to the profile and governs web/desktop, so honour the switch.
+      setPref('enabled', true);
+    } finally {
+      setRequesting(false);
+    }
+  };
 
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -115,7 +169,7 @@ export default function Notifications() {
                 {prefs.enabled ? '● RECEIVING SIGNALS' : '○ ALL SIGNALS MUTED'}
               </Text>
             </View>
-            <Toggle value={prefs.enabled} onChange={(v) => setPref('enabled', v)} accent={colors.accent} disabled={!hydrated} />
+            <Toggle value={prefs.enabled} onChange={setMaster} accent={colors.accent} disabled={!hydrated || requesting} />
           </View>
         </View>
 

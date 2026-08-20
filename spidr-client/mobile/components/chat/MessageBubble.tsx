@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
+import { PhoneMissed } from 'lucide-react-native';
 import { Avatar } from '../ui/Avatar';
 import { EmojiText } from './EmojiText';
 import { AudioPlayer } from './AudioPlayer';
@@ -17,6 +18,15 @@ interface Message {
   attachments?: any[];
   created_at?: string;
   created_date?: string;
+  // Missed-call system rows (written by the server on decline / cancel /
+  // no-answer) render as a centered alert instead of a chat bubble.
+  is_missed_call?: boolean;
+  missed_call_reason?: string;
+  caller_id?: string;
+  caller_name?: string;
+  recipient_name?: string;
+  group_id?: string;
+  group_name?: string;
 }
 
 // Attachments are stored as arrays of URL strings (web writes
@@ -85,6 +95,10 @@ export function MessageBubble({
   peerAvatar,
   myName,
   myAvatar,
+  // Needed by missed-call rows: the label flips depending on whether the
+  // viewer placed the call or missed it.
+  currentUserId,
+  groupName,
   // Tapping the avatar opens that user's profile card (parent supplies
   // navigation since bubbles don't know the router).
   onAvatarPress,
@@ -97,6 +111,8 @@ export function MessageBubble({
   peerAvatar?: string;
   myName?: string;
   myAvatar?: string;
+  currentUserId?: string;
+  groupName?: string;
   onAvatarPress?: (userId: string) => void;
 }) {
   // Always prefer the live values; fall back to snapshot only if the
@@ -111,6 +127,60 @@ export function MessageBubble({
 
   const attachments = attachmentUrls(msg);
   const hasText = !!(msg.content && msg.content.trim());
+
+  // Missed-call system row — centered red alert, mirrors web MessageItem.
+  // DM lane:    caller sees "<peer> didn't answer",  callee sees "You missed a call from <caller>"
+  // Group lane: caller sees "You tried calling <group>", members see "<caller> called <group>"
+  if (msg.is_missed_call) {
+    // `mine` is the fallback when the parent didn't pass an id: the row's
+    // author IS the caller, so "my row" == "I placed the call".
+    const iSentCall = currentUserId ? msg.caller_id === currentUserId : !!mine;
+    const caller = msg.caller_name || msg.user_name || msg.sender_name || 'Someone';
+    const isGroupRow = !!(msg.group_name || msg.group_id || groupName);
+    let label: string;
+    if (isGroupRow) {
+      const gName = msg.group_name || groupName || 'the group';
+      label = iSentCall ? `You tried calling ${gName}` : `${caller} called ${gName}`;
+    } else {
+      const other = iSentCall ? (msg.recipient_name || peerName || 'Someone') : caller;
+      label = iSentCall
+        ? (msg.missed_call_reason === 'declined' ? `${other} declined your call` : `${other} didn't answer`)
+        : `You missed a call from ${other}`;
+    }
+    const stamp = msg.created_date || msg.created_at;
+    const when = stamp ? new Date(stamp) : null;
+    return (
+      <View style={{ alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6 }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            paddingHorizontal: 14,
+            paddingVertical: 7,
+            borderRadius: 16,
+            backgroundColor: 'rgba(239,68,68,0.10)',
+            borderWidth: 1,
+            borderColor: 'rgba(239,68,68,0.25)',
+            maxWidth: '92%',
+          }}
+        >
+          <PhoneMissed size={14} color="#ef4444" />
+          <Text
+            style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '800', letterSpacing: 0.3, flexShrink: 1 }}
+            numberOfLines={2}
+          >
+            {label}
+          </Text>
+          {when && !isNaN(when.getTime()) && (
+            <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10 }}>
+              {when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+            </Text>
+          )}
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View
