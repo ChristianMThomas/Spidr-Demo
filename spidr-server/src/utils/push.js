@@ -25,8 +25,12 @@ function getAdmin() {
   }
   try {
     const admin = require('firebase-admin');
+    const { getMessaging } = require('firebase-admin/messaging');
     const creds = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
-    admin.initializeApp({ credential: admin.credential.cert(creds) });
+    admin.initializeApp({ credential: admin.cert(creds) });
+    // firebase-admin v12+ modular API — attach messaging() so downstream
+    // callers can keep using admin.messaging().sendEachForMulticast(...).
+    admin.messaging = () => getMessaging();
     _admin = admin;
   } catch (err) {
     _initFailed = true;

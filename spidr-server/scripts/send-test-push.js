@@ -38,7 +38,7 @@ function getAdmin() {
   }
   const admin = require('firebase-admin');
   const creds = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
-  admin.initializeApp({ credential: admin.credential.cert(creds) });
+  admin.initializeApp({ credential: admin.cert(creds) });
   console.log(`Firebase project: ${creds.project_id}`);
   return admin;
 }
@@ -98,6 +98,7 @@ async function main() {
   }
 
   const admin = getAdmin();
+  const { getMessaging } = require('firebase-admin/messaging');
 
   // Mirrors utils/push.js exactly: --call is the data-only high-priority ring
   // CallKeep consumes, the default is the hybrid alert a DM would send.
@@ -142,7 +143,7 @@ async function main() {
       };
 
   console.log(`\nSending ${asCall ? 'CALL (data-only ring)' : 'VISIBLE (banner)'} push to ${tokens.length} token(s)...\n`);
-  const res = await admin.messaging().sendEachForMulticast(message);
+  const res = await getMessaging().sendEachForMulticast(message);
 
   res.responses.forEach((r, i) => {
     const short = `${tokens[i].slice(0, 24)}...`;

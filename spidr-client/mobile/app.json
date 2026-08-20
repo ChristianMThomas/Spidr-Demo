@@ -6,13 +6,16 @@
     "orientation": "portrait",
     "scheme": "spidr",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/logo.png",
     "splash": {
+      "image": "./assets/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#111111"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.infinitetechteam.spidr",
+      "icon": "./assets/logo.png",
       "googleServicesFile": "./GoogleService-Info.plist",
       "entitlements": {
         "aps-environment": "development"
@@ -32,6 +35,11 @@
     "android": {
       "package": "com.infinitetechteam.spidr",
       "googleServicesFile": "./google-services.json",
+      "icon": "./assets/logo.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#111111"
+      },
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA",

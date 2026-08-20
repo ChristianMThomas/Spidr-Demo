@@ -9,10 +9,16 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 
 try {
-  const messaging = require('@react-native-firebase/messaging').default;
+  // RNFB v22+ modular API: no callable default export. Use getMessaging()
+  // to get an instance, then setBackgroundMessageHandler(instance, cb).
+  const fbMsg = require('@react-native-firebase/messaging');
+  if (typeof fbMsg?.getMessaging !== 'function') {
+    throw new Error('firebase messaging: modular getMessaging() missing');
+  }
+  const messagingInstance = fbMsg.getMessaging();
   const AsyncStorage = require('@react-native-async-storage/async-storage').default;
 
-  messaging().setBackgroundMessageHandler(async (msg) => {
+  fbMsg.setBackgroundMessageHandler(messagingInstance, async (msg) => {
     const data = msg?.data || {};
     if (data.type === 'incoming_call') {
       // Stash the ring so the JS side (callManager) can connect the call
@@ -62,6 +68,9 @@ try {
       } catch { /* callkeep unavailable */ }
     }
   });
-} catch { /* Expo Go — no firebase native module */ }
+} catch (err) {
+  // Expo Go OR modular-import mismatch. Log so the latter can't hide.
+  console.warn('[index] background messaging setup skipped:', err?.message || err);
+}
 
 require('expo-router/entry');

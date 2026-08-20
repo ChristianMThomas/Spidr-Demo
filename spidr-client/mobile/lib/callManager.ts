@@ -101,6 +101,14 @@ class CallManager {
       }
     });
 
+    // One-line native inventory — tells dev build (webrtc/callkeep present)
+    // apart from Expo Go (all absent) at a glance in any log paste.
+    console.log(
+      '[callManager] native modules — webrtc:', !!getWebRTC(),
+      'callkeep:', !!getCallKeep(),
+      'messaging:', !!getMessaging(),
+      'expoNotifications:', !!getExpoNotifications(),
+    );
     console.log('[callManager] socket handlers registered, setting up CallKeep');
     try { this.setupCallKeep(); } catch (err: any) { console.warn('[callManager] setupCallKeep FAILED:', err?.message); }
 

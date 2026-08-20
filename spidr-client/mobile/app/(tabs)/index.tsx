@@ -11,11 +11,12 @@ import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../lib/theme';
-import { Sparkles, RefreshCw, Users as UsersIcon, Infinity as InfinityIcon } from 'lucide-react-native';
+import { Sparkles, RefreshCw, Users as UsersIcon, Infinity as InfinityIcon, ChevronDown, ChevronRight } from 'lucide-react-native';
 import { entities, tension } from '../../lib/apiClient';
 import { useAuth } from '../../lib/authContext';
 import { useUnread } from '../../lib/unreadContext';
 import SpidrSysChip from '../../components/spidr/SpidrSysChip';
+import SpidrWebMatrix from '../../components/spidr/SpidrWebMatrix';
 
 // ─── Welcome banner ────────────────────────────────────────────────────────────
 function WelcomeBanner({ name }: { name: string }) {
@@ -413,6 +414,7 @@ function DiscoverPeople({ currentUserId }: { currentUserId?: string }) {
 // ─── Activity Feed (mobile mini) ──────────────────────────────────────────────
 function ActivityFeed({ onViewAll }: { onViewAll: () => void }) {
   const router = useRouter();
+  const [collapsed, setCollapsed] = React.useState(false);
   const { data } = useQuery({
     queryKey: ['feed-mini'],
     queryFn: () => entities.Clip.list('-created_date', 5),
@@ -451,16 +453,28 @@ function ActivityFeed({ onViewAll }: { onViewAll: () => void }) {
           justifyContent: 'space-between',
           paddingHorizontal: 16,
           paddingTop: 14,
-          paddingBottom: 10,
+          paddingBottom: collapsed ? 14 : 10,
         }}
       >
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {/* Header doubles as the collapse control — VIEW ALL stays its own
+            tap target so collapsing never swallows a jump to the feed. */}
+        <TouchableOpacity
+          onPress={() => setCollapsed((v) => !v)}
+          activeOpacity={0.8}
+          style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+        >
+          {collapsed ? (
+            <ChevronRight size={16} color="rgba(255,255,255,0.6)" />
+          ) : (
+            <ChevronDown size={16} color="rgba(255,255,255,0.6)" />
+          )}
           <View
             style={{
               width: 8,
               height: 8,
               borderRadius: 4,
               backgroundColor: '#ef4444',
+              marginLeft: 8,
               marginRight: 8,
             }}
           />
@@ -474,7 +488,7 @@ function ActivityFeed({ onViewAll }: { onViewAll: () => void }) {
           >
             ACTIVITY FEED
           </Text>
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity onPress={onViewAll}>
           <Text
             style={{
@@ -489,6 +503,7 @@ function ActivityFeed({ onViewAll }: { onViewAll: () => void }) {
         </TouchableOpacity>
       </View>
 
+      {!collapsed && (
       <View style={{ paddingHorizontal: 12, paddingBottom: 16, gap: 8 }}>
         {posts.length === 0 ? (
           <Text style={{ color: '#52525b', fontSize: 12, paddingVertical: 14, textAlign: 'center' }}>
@@ -562,6 +577,95 @@ function ActivityFeed({ onViewAll }: { onViewAll: () => void }) {
           })
         )}
       </View>
+      )}
+    </View>
+  );
+}
+
+// ─── Recent Servers ───────────────────────────────────────────────────────────
+// Mirrors the collapsible section under the connections panel on the web
+// homepage: monospace header, red status dot, up to four server tiles.
+function RecentServers({ servers }: { servers: any[] }) {
+  const router = useRouter();
+  const [collapsed, setCollapsed] = React.useState(false);
+  if (servers.length === 0) return null;
+
+  return (
+    <View
+      style={{
+        backgroundColor: 'rgba(10,10,10,0.6)',
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.05)',
+        padding: 16,
+      }}
+    >
+      <TouchableOpacity
+        onPress={() => setCollapsed((v) => !v)}
+        activeOpacity={0.8}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: collapsed ? 0 : 14 }}
+      >
+        {collapsed ? (
+          <ChevronRight size={16} color="rgba(255,255,255,0.6)" />
+        ) : (
+          <ChevronDown size={16} color="rgba(255,255,255,0.6)" />
+        )}
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
+        <Text
+          style={{
+            color: 'rgba(255,255,255,0.8)',
+            fontSize: 11,
+            fontFamily: 'monospace',
+            letterSpacing: 2,
+          }}
+        >
+          RECENT SERVERS
+        </Text>
+      </TouchableOpacity>
+
+      {!collapsed && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {servers.slice(0, 4).map((server: any) => (
+            <TouchableOpacity
+              key={server.id || server._id}
+              onPress={() => router.push(`/server/${server.id || server._id}`)}
+              activeOpacity={0.85}
+              style={{
+                width: '47.5%',
+                alignItems: 'center',
+                backgroundColor: 'rgba(255,255,255,0.03)',
+                borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.05)',
+                borderRadius: 14,
+                padding: 12,
+              }}
+            >
+              <View style={{ width: 48, height: 48, borderRadius: 12, overflow: 'hidden', marginBottom: 8 }}>
+                {server.icon_url ? (
+                  <Image source={{ uri: server.icon_url }} style={{ width: 48, height: 48 }} />
+                ) : (
+                  <View
+                    style={{
+                      width: 48,
+                      height: 48,
+                      backgroundColor: '#991b1b',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 18, fontWeight: '900' }}>
+                      {(server.name || '?').charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }} numberOfLines={1}>
+                {server.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -616,6 +720,9 @@ export default function Home() {
       queryClient.invalidateQueries({ queryKey: ['tension-me'] }),
       queryClient.invalidateQueries({ queryKey: ['feed-mini'] }),
       queryClient.invalidateQueries({ queryKey: ['profiles-discover'] }),
+      queryClient.invalidateQueries({ queryKey: ['home-recent-dms', user?.id] }),
+      queryClient.invalidateQueries({ queryKey: ['group-chats', user?.id] }),
+      queryClient.invalidateQueries({ queryKey: ['profiles'] }),
     ]);
     setRefreshing(false);
   }, [queryClient, user?.id]);
@@ -674,6 +781,11 @@ export default function Home() {
         <DiscoverPeople currentUserId={user?.id} />
 
         <ActivityFeed onViewAll={() => router.push('/(tabs)/feed')} />
+
+        {/* Same pair the web homepage shows below the feed on a small screen. */}
+        <SpidrWebMatrix currentUserId={user?.id} />
+
+        <RecentServers servers={myServers} />
       </ScrollView>
 
       <SpidrSysChip />
