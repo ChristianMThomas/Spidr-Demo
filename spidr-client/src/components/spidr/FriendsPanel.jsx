@@ -88,15 +88,23 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     });
   }, [allGroups, currentUser?.id]);
 
-  // Pinned group chats — IDs persisted in localStorage. Pinned groups sort to
-  // the top of the Groups list for instant access ("Spidr Web" pinning).
-  const [pinnedGroups, setPinnedGroups] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('spidr_pinned_groups') || '[]'); } catch { return []; }
-  });
+  // Pinned group chats — IDs persisted in localStorage under a per-user key
+  // so account switching on the same browser can't leak pins across accounts.
+  const pinnedGroupsKey = currentUser?.id ? `spidr_pinned_groups:${currentUser.id}` : null;
+  const [pinnedGroups, setPinnedGroups] = useState([]);
+  useEffect(() => {
+    if (!pinnedGroupsKey) { setPinnedGroups([]); return; }
+    try { setPinnedGroups(JSON.parse(localStorage.getItem(pinnedGroupsKey) || '[]')); }
+    catch { setPinnedGroups([]); }
+    // One-time purge of the legacy unscoped key so it can't leak to the
+    // next account that logs in on this browser.
+    try { localStorage.removeItem('spidr_pinned_groups'); } catch {}
+  }, [pinnedGroupsKey]);
   const togglePinGroup = (groupId) => {
+    if (!pinnedGroupsKey) return;
     setPinnedGroups((prev) => {
       const next = prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId];
-      try { localStorage.setItem('spidr_pinned_groups', JSON.stringify(next)); } catch {}
+      try { localStorage.setItem(pinnedGroupsKey, JSON.stringify(next)); } catch {}
       return next;
     });
   };
@@ -114,9 +122,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
   // did not exist anywhere — a silent ReferenceError made "Pin to Spidr Web"
   // an empty click. Real store: localStorage list of {kind,id,name,avatar},
   // rendered as a PINNED strip at the top of the panel.
-  const [webPins, setWebPins] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('spidr_web_pins') || '[]'); } catch { return []; }
-  });
+  const [webPins, setWebPins] = useState(() => libGetPins());
   const isPinned = (id) => webPins.some(p => p.id === id);
   // Delegate to the lib: localStorage + UserProfile.pinned_conversations sync
   // + a change event — so pins survive reinstalls and other surfaces update.

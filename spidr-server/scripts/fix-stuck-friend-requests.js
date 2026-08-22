@@ -54,6 +54,46 @@ const MODE    = DELETE ? 'delete' : 'backfill';
   }
   console.log(`Resynced ${desynced} desynced accept mirrors.\n`);
 
+  // Orphan accepts: `accepted` with NO mirror row at all. Recipient's
+  // friends list stays empty on this pair. Backfill the mirror as
+  // accepted. Live PATCH now self-heals (friends.js:141), so this only
+  // matters for legacy rows created before that upsert existed.
+  let orphaned = 0;
+  for (const row of accepted) {
+    const mirror = await Friend.findOne({
+      user_id:   row.friend_id,
+      friend_id: row.user_id,
+    }).lean();
+    if (mirror) continue;
+    orphaned++;
+    const [senderProfile, senderUser, targetUser] = await Promise.all([
+      UserProfile.findOne({ user_id: row.user_id }).lean(),
+      User.findById(row.user_id).lean(),
+      User.findById(row.friend_id).lean(),
+    ]);
+    if (!targetUser) {
+      console.log(`  [drop orphan accept — target gone] ${row._id}`);
+      if (APPLY) await Friend.deleteOne({ _id: row._id });
+      continue;
+    }
+    const senderName   = senderProfile?.display_name || senderUser?.full_name || senderUser?.username || 'User';
+    const senderAvatar = senderProfile?.avatar_url   || senderUser?.avatar_url || '';
+    console.log(`  [backfill accepted mirror] ${row.friend_id} <- ${row.user_id} (${senderName})`);
+    if (APPLY) {
+      try {
+        await Friend.create({
+          user_id:      row.friend_id,
+          friend_id:    row.user_id,
+          friend_name:  senderName,
+          friend_avatar: senderAvatar,
+          friend_discriminator: senderProfile?.discriminator || '',
+          status: 'accepted',
+        });
+      } catch (e) { if (e.code !== 11000) throw e; }
+    }
+  }
+  console.log(`Backfilled ${orphaned} orphan accepted mirrors.\n`);
+
   // Self-friendship rows (user_id === friend_id) — never valid. Created when
   // the old crudRouter rewrote the client's mirror-row user_id to the sender.
   const selfies = await Friend.find({ $expr: { $eq: ['$user_id', '$friend_id'] } }).lean();
@@ -63,8 +103,27 @@ const MODE    = DELETE ? 'delete' : 'backfill';
     if (APPLY) await Friend.deleteOne({ _id: row._id });
   }
 
+  // Orphan pending_incoming: recipient sees an incoming request but the
+  // sender has no matching pending_outgoing row (usually because the sender
+  // deleted their side via the old unmirrored crudRouter DELETE). Delete
+  // the ghost — sender can send a fresh request. Live DELETE now removes
+  // both sides (friends.js:170), so this only matters for legacy rows.
+  const incoming = await Friend.find({ status: 'pending_incoming' }).lean();
+  let ghostIncoming = 0;
+  for (const row of incoming) {
+    const mirror = await Friend.findOne({
+      user_id:   row.friend_id,
+      friend_id: row.user_id,
+    }).lean();
+    if (mirror) continue;
+    ghostIncoming++;
+    console.log(`  [delete ghost incoming] ${row._id} ${row.user_id} <- ${row.friend_id} (${row.friend_name || '?'})`);
+    if (APPLY) await Friend.deleteOne({ _id: row._id });
+  }
+  console.log(`Deleted ${ghostIncoming} ghost pending_incoming rows.\n`);
+
   const outgoing = await Friend.find({ status: 'pending_outgoing' }).lean();
-  console.log(`\nFound ${outgoing.length} pending_outgoing rows.`);
+  console.log(`Found ${outgoing.length} pending_outgoing rows.`);
 
   let stuck = [];
   for (const row of outgoing) {

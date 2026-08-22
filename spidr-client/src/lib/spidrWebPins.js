@@ -1,25 +1,44 @@
-import { entities, auth } from '@/api/apiClient';
+import { entities } from '@/api/apiClient';
 
 /**
- * spidrWebPins — manage the user's "Spidr Web" pinned conversations
- * (pinned_conversations on the UserProfile). Each pin is
- * { kind: 'dm'|'group', id, name, avatar }.
+ * spidrWebPins — per-user "Spidr Web" pinned conversations.
+ * Each pin = { kind: 'dm'|'group', id, name, avatar }.
  *
- * Pins are cached in localStorage for instant UI and synced to the profile.
- * A `spidr-web-pins-changed` window event is dispatched on every change so
- * sidebars can re-render live.
+ * IMPORTANT: pins are cached in localStorage under a user-scoped key so
+ * account switching on the same browser can't leak pins between accounts.
+ * The current user must be set via setCurrentUser(uid) before any read or
+ * write; before that, getPins() returns [] and writes are no-ops.
+ *
+ * A `spidr-web-pins-changed` window event fires on every change so live
+ * views can re-render.
  */
-const LS_KEY = 'spidr_web_pins';
+const LEGACY_KEY = 'spidr_web_pins';
+const keyFor = (uid) => `spidr_web_pins:${uid}`;
+
+let currentUid = null;
+
+export function setCurrentUser(uid) {
+  currentUid = uid ? String(uid) : null;
+  // One-time purge of the pre-scoping key so it can't leak to whichever
+  // account happens to log in next on this browser.
+  try { localStorage.removeItem(LEGACY_KEY); } catch {}
+}
+
+export function clearCurrentUser() {
+  currentUid = null;
+}
 
 export function getPins() {
+  if (!currentUid) return [];
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = localStorage.getItem(keyFor(currentUid));
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
 }
 
 function savePins(pins) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(pins)); } catch {}
+  if (!currentUid) return;
+  try { localStorage.setItem(keyFor(currentUid), JSON.stringify(pins)); } catch {}
   window.dispatchEvent(new CustomEvent('spidr-web-pins-changed', { detail: pins }));
 }
 
@@ -27,12 +46,14 @@ export function isPinned(id) {
   return getPins().some(p => p.id === id);
 }
 
-// Hydrate from the profile (call once on app load). Merges server → local.
-export async function hydratePins() {
+// Hydrate this user's pins from their server-side profile. Call once per
+// login. Server wins over any cached local pins for this user.
+export async function hydratePins(uid) {
+  const target = uid ? String(uid) : currentUid;
+  if (!target) return [];
+  setCurrentUser(target);
   try {
-    const me = await auth.me().catch(() => null);
-    if (!me?.id) return getPins();
-    const profiles = await entities.UserProfile.filter({ user_id: me.id });
+    const profiles = await entities.UserProfile.filter({ user_id: target });
     const serverPins = profiles[0]?.pinned_conversations;
     if (Array.isArray(serverPins)) { savePins(serverPins); return serverPins; }
   } catch { /* fall through to local */ }
@@ -40,10 +61,10 @@ export async function hydratePins() {
 }
 
 async function persistToProfile(pins) {
+  if (!currentUid) return;
+  const uid = currentUid;
   try {
-    const me = await auth.me().catch(() => null);
-    if (!me?.id) return;
-    const profiles = await entities.UserProfile.filter({ user_id: me.id });
+    const profiles = await entities.UserProfile.filter({ user_id: uid });
     if (profiles[0]?.id) {
       await entities.UserProfile.update(profiles[0].id, { pinned_conversations: pins }).catch(() => {});
     }
@@ -51,7 +72,7 @@ async function persistToProfile(pins) {
 }
 
 export function togglePin(entry) {
-  if (!entry?.id) return getPins();
+  if (!entry?.id || !currentUid) return getPins();
   const pins = getPins();
   const exists = pins.some(p => p.id === entry.id);
   const next = exists ? pins.filter(p => p.id !== entry.id) : [...pins, entry];

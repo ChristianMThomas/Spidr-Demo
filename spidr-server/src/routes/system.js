@@ -18,6 +18,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1966',
+    title: 'Patch 1.9.66 — Friends flow self-heals',
+    date: '2026-08-22',
+    type: 'FIX',
+    description: 'Accepting a friend request no longer leaves your friends list one-sided — if the sender\'s side never mirrored to you the first time, accepting now creates the missing row so both of you actually see each other as friends. Unfriending someone also clears both sides at once, so nobody is left with a phantom friend that has no record of them. And on a shared browser, your pinned conversations and pinned group chats are now scoped to your account, so switching users doesn\'t leak the last person\'s pins into your sidebar.',
+  },
+  {
     id: 'p1965',
     title: 'Patch 1.9.65 — Account safety + mobile polish',
     date: '2026-08-21',

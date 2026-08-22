@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { auth, streak } from '@/api/apiClient';
+import { setCurrentUser as setPinsUser, clearCurrentUser as clearPinsUser, hydratePins } from '@/lib/spidrWebPins';
 
 // Fire once per authenticated session — the /streak/ping endpoint dedupes
 // same-day calls server-side so extra pings from re-mounts are harmless, but
@@ -27,7 +28,7 @@ export const AuthProvider = ({ children }) => {
     const token = localStorage.getItem('spidr_token');
     if (!token) { setLoadingAuth(false); return; }
     auth.me()
-      .then((u) => { setUser(u); setIsAuth(true); pingStreak(); })
+      .then((u) => { setUser(u); setIsAuth(true); pingStreak(); if (u?.id) hydratePins(u.id); })
       .catch(() => { localStorage.removeItem('spidr_token'); })
       .finally(() => setLoadingAuth(false));
   }, []);
@@ -40,6 +41,7 @@ export const AuthProvider = ({ children }) => {
       setIsAuth(false);
       setPendingEmail(null);
       setOtpMode(null);
+      clearPinsUser();
     };
     window.addEventListener('spidr:auth-expired', onExpired);
     return () => window.removeEventListener('spidr:auth-expired', onExpired);
@@ -59,6 +61,7 @@ export const AuthProvider = ({ children }) => {
       const user = await auth.me();
       setUser(user); setIsAuth(true); setAuthError(null);
       pingStreak();
+      if (user?.id) hydratePins(user.id);
     }
     return data;
   };
@@ -74,6 +77,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('spidr_token', res.token);
       setUser(res.user); setIsAuth(true); setAuthError(null);
       pingStreak();
+      if (res.user?.id) hydratePins(res.user.id);
     }
     return res;
   };
@@ -86,6 +90,7 @@ export const AuthProvider = ({ children }) => {
     setUser(user); setIsAuth(true); setAuthError(null);
     setPendingEmail(null); setOtpMode(null);
     pingStreak();
+    if (user?.id) hydratePins(user.id);
     return data;
   };
 
@@ -97,6 +102,7 @@ export const AuthProvider = ({ children }) => {
     auth.logout();
     setUser(null); setIsAuth(false);
     setPendingEmail(null); setOtpMode(null);
+    clearPinsUser();
     if (shouldRedirect) window.location.reload();
   };
 

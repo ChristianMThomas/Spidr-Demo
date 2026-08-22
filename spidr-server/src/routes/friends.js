@@ -150,7 +150,7 @@ router.patch('/:id', authMW, async (req, res, next) => {
 
     // Flip the mirror row only if it's still pending — don't clobber blocked
     // or anything else the other side has set independently.
-    await Friend.updateOne(
+    const mirrorFlip = await Friend.updateOne(
       {
         user_id:   row.friend_id,
         friend_id: row.user_id,
@@ -159,9 +159,60 @@ router.patch('/:id', authMW, async (req, res, next) => {
       { $set: { status: 'accepted' } },
     );
 
+    // No mirror at all (legacy row, or the original request write never
+    // mirrored) — create one now so the accepter's friends list isn't
+    // one-sided. Guarded by matchedCount so we don't clobber an existing
+    // blocked/accepted mirror.
+    if (mirrorFlip.matchedCount === 0) {
+      const anyMirror = await Friend.findOne({
+        user_id: row.friend_id, friend_id: row.user_id,
+      }).lean();
+      if (!anyMirror) {
+        // Mirror sits on the OTHER user's side, so its friend_* fields
+        // describe ME (row.user_id === req.user.id).
+        const [myProfile, myUser] = await Promise.all([
+          UserProfile.findOne({ user_id: row.user_id }).lean(),
+          User.findById(row.user_id).lean(),
+        ]);
+        const myName   = myProfile?.display_name || myUser?.full_name || myUser?.username || 'User';
+        const myAvatar = myProfile?.avatar_url   || myUser?.avatar_url || '';
+        try {
+          await Friend.create({
+            user_id:      row.friend_id,
+            friend_id:    row.user_id,
+            friend_name:  myName,
+            friend_avatar: myAvatar,
+            friend_discriminator: myProfile?.discriminator || '',
+            status: 'accepted',
+          });
+        } catch (e) { if (e.code !== 11000) throw e; }
+      }
+    }
+
     const obj = row.toObject();
     const { _id, __v, ...rest } = obj;
     return res.json({ id: _id.toString(), ...rest });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// DELETE /:id — mutual unfriend. crudRouter would only delete the caller's
+// side, leaving the other user with an orphan accepted mirror ("half friend"
+// — visible in their list but the sender has no record). Wipe both sides,
+// but never touch a mirror the other user has independently set to `blocked`.
+router.delete('/:id', authMW, async (req, res) => {
+  try {
+    const row = await Friend.findById(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    if (row.user_id !== req.user.id) return res.status(403).json({ error: 'Not your friend row' });
+    await Friend.deleteOne({ _id: row._id });
+    await Friend.deleteOne({
+      user_id:   row.friend_id,
+      friend_id: row.user_id,
+      status:    { $ne: 'blocked' },
+    });
+    return res.status(204).end();
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
