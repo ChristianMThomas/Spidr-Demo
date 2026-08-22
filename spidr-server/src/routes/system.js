@@ -18,6 +18,13 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1965',
+    title: 'Patch 1.9.65 — Account safety + mobile polish',
+    date: '2026-08-21',
+    type: 'UPDATE',
+    description: 'Sign-in, verification, and account-recovery messages no longer reveal whether an email is registered, so nobody can fish for who has a Spidr account. Rate limits on those flows now apply per email address instead of only per network, so someone rotating networks can\'t keep hammering one account. The mobile app also picks up its new branded icon and splash screen, the Settings screen is stripped down to clean rows, and a maintenance fix backfills friend requests that could get stuck showing accepted on one side and still pending on the other.',
+  },
+  {
     id: 'p1964',
     title: 'Patch 1.9.64 — iOS notifications now work',
     date: '2026-08-20',

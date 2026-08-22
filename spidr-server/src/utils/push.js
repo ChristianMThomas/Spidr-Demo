@@ -12,6 +12,13 @@
  */
 const PushToken = require('../models/PushToken');
 
+// Base URL APNs/FCM can fetch images from over plain HTTP — never behind
+// auth. Falls back to the known Railway origin so this doesn't silently
+// break in an environment missing the env var.
+const PUBLIC_BASE_URL =
+  process.env.SERVER_URL || 'https://cooperative-simplicity-production-bb44.up.railway.app';
+const DEFAULT_AVATAR_URL = `${PUBLIC_BASE_URL}/public/spidr-app-mobile.png`;
+
 let _admin = null;
 let _initFailed = false;
 
@@ -116,7 +123,7 @@ async function sendDataPush(userId, data) {
  * `data` fuels the mobile handlePushData deep-link. `notification` fuels
  * the OS-native tray entry so the banner still fires when the app is dead.
  */
-async function sendVisiblePush(userId, { title, body, data = {} }) {
+async function sendVisiblePush(userId, { title, body, data = {}, image }) {
   const admin = getAdmin();
   if (!admin || !userId) return;
 
@@ -128,17 +135,36 @@ async function sendVisiblePush(userId, { title, body, data = {} }) {
     stringData[k] = typeof v === 'string' ? v : JSON.stringify(v ?? '');
   }
 
+  // Rich notification image — the sender's current pfp, falling back to the
+  // Spidr logo so a signal never renders with no avatar at all.
+  const imageUrl = image || DEFAULT_AVATAR_URL;
+  // FCM flattens `data` keys onto the raw APNs payload alongside `aps`, so
+  // this is the ONLY reliable way to hand the URL to our own iOS
+  // NotificationService extension (mobile/targets/notification-service) —
+  // it reads this exact key via request.content.userInfo["image"].
+  // notification.imageUrl below covers Android, which renders it natively
+  // with no extension needed.
+  stringData.image = imageUrl;
+
   const res = await admin.messaging().sendEachForMulticast({
     tokens: tokens.map((t) => t.token),
     data: stringData,
-    notification: { title, body },
+    notification: { title, body, imageUrl },
     android: {
       priority: 'high',
-      notification: { sound: 'default', channelId: 'default' },
+      notification: { sound: 'default', channelId: 'default', imageUrl },
     },
     apns: {
       headers: { 'apns-priority': '10', 'apns-push-type': 'alert' },
-      payload: { aps: { alert: { title, body }, sound: 'default', 'content-available': 1 } },
+      // mutable-content triggers our NotificationService extension, which
+      // reads the `image` data key above, downloads it, and attaches it as
+      // the big leading avatar — iOS composites the app icon as the small
+      // corner badge automatically, nothing extra needed for that part.
+      // content-available keeps the JS onMessage handler firing while the
+      // app is foregrounded, same as before this change.
+      payload: {
+        aps: { alert: { title, body }, sound: 'default', 'mutable-content': 1, 'content-available': 1 },
+      },
     },
   });
 

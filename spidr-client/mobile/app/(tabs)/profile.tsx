@@ -2,22 +2,7 @@ import React from 'react';
 import { ScrollView, View, Text, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import {
-  ChevronRight,
-  User as UserIcon,
-  Palette,
-  Bell,
-  Lock,
-  Mic,
-  Video,
-  Plug,
-  Shield,
-  Cpu,
-  Blocks,
-  Crown,
-  LogOut,
-  Info,
-} from 'lucide-react-native';
+import { ChevronRight, LogOut } from 'lucide-react-native';
 import { useAppShell } from '../../lib/appShellContext';
 import { useThemeColors } from '../../lib/theme';
 import { useAuth } from '../../lib/authContext';
@@ -28,8 +13,6 @@ interface Row {
   key: string;
   label: string;
   hint?: string;
-  Icon: any;
-  color?: string;
   onPress: () => void;
 }
 
@@ -56,24 +39,18 @@ export default function Settings() {
           key: 'profile',
           label: 'My Profile',
           hint: 'View and edit your public profile',
-          Icon: UserIcon,
-          color: '#dc2626',
           onPress: () => router.push('/profile-edit'),
         },
         {
           key: 'connections',
           label: 'Connections',
           hint: 'Spotify, Steam, Twitch, etc.',
-          Icon: Plug,
-          color: '#a855f7',
           onPress: () => router.push('/settings/connections'),
         },
         {
           key: 'security',
           label: 'Security & 2FA',
           hint: 'Password, two-factor, sessions',
-          Icon: Shield,
-          color: '#22c55e',
           onPress: () => router.push('/settings/security'),
         },
       ],
@@ -85,24 +62,18 @@ export default function Settings() {
           key: 'appearance',
           label: 'Appearance',
           hint: 'Theme, accent color, layout',
-          Icon: Palette,
-          color: '#f97316',
           onPress: () => router.push('/settings/appearance'),
         },
         {
           key: 'notifications',
           label: 'Notifications',
           hint: 'Push, sound, badge',
-          Icon: Bell,
-          color: '#eab308',
           onPress: () => router.push('/settings/notifications'),
         },
         {
           key: 'privacy',
           label: 'Privacy',
           hint: 'Who can DM, friend, find you',
-          Icon: Lock,
-          color: '#60a5fa',
           onPress: () => router.push('/settings/privacy'),
         },
       ],
@@ -114,16 +85,12 @@ export default function Settings() {
           key: 'voice',
           label: 'Voice & Video',
           hint: 'Mic, camera, push-to-talk',
-          Icon: Mic,
-          color: '#ec4899',
           onPress: () => router.push('/settings/voice-video'),
         },
         {
           key: 'avlab',
           label: 'A/V Lab',
           hint: 'Studio + clip uploader',
-          Icon: Video,
-          color: '#06b6d4',
           onPress: () => router.push('/settings/avlab'),
         },
       ],
@@ -135,16 +102,12 @@ export default function Settings() {
           key: 'protocol',
           label: 'Protocol',
           hint: 'Network & socket diagnostics',
-          Icon: Cpu,
-          color: '#84cc16',
           onPress: () => router.push('/settings/protocol'),
         },
         {
           key: 'widgets',
           label: 'Widgets',
           hint: 'Manage installed modules',
-          Icon: Blocks,
-          color: '#60a5fa',
           onPress: () => router.push('/settings/widgets'),
         },
         ...(isApex
@@ -153,8 +116,6 @@ export default function Settings() {
                 key: 'apex',
                 label: 'APEX',
                 hint: 'Frame, nameplate, halo',
-                Icon: Crown,
-                color: '#eab308',
                 onPress: () => router.push('/settings/apex'),
               } as Row,
             ]
@@ -163,8 +124,6 @@ export default function Settings() {
           key: 'about',
           label: 'About',
           hint: 'Patch notes, version, credits',
-          Icon: Info,
-          color: '#a1a1aa',
           onPress: () => router.push('/settings/about'),
         },
       ],
@@ -305,7 +264,7 @@ export default function Settings() {
 }
 
 function SettingsRow({ row, isLast }: { row: Row; isLast: boolean }) {
-  const { Icon, label, hint, color, onPress } = row;
+  const { label, hint, onPress } = row;
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -313,25 +272,13 @@ function SettingsRow({ row, isLast }: { row: Row; isLast: boolean }) {
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 14,
-        paddingVertical: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
         borderBottomWidth: isLast ? 0 : 1,
         borderBottomColor: 'rgba(255,255,255,0.05)',
         gap: 12,
       }}
     >
-      <View
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          backgroundColor: (color || '#dc2626') + '1F',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon size={16} color={color || '#dc2626'} />
-      </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }} numberOfLines={1}>
           {label}

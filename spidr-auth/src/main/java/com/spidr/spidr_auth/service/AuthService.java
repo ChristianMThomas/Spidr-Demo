@@ -112,8 +112,10 @@ public class AuthService {
     // ── Verify OTP ────────────────────────────────────────────────────────────
 
     public void verifyUser(VerifyUserDTO dto) {
+        // Same message for unknown email as for wrong code — prevents account
+        // enumeration via the /auth/verify endpoint.
         users user = userRepo.findByEmail(dto.getEmail().toLowerCase().trim())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new RuntimeException("Invalid verification code."));
 
         if (user.getVerificationExpiration() == null ||
                 LocalDateTime.now().isAfter(user.getVerificationExpiration())) {
@@ -134,12 +136,12 @@ public class AuthService {
 
     public void resendVerificationCode(String email) {
         String normalizedEmail = email.toLowerCase().trim();
-        users user = userRepo.findByEmail(normalizedEmail)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        if (user.isEnabled()) {
-            throw new RuntimeException("Account is already verified.");
-        }
+        // Silent no-op for unknown emails or already-verified accounts — same
+        // response either way to prevent enumeration via /auth/resend.
+        Optional<users> maybeUser = userRepo.findByEmail(normalizedEmail);
+        if (maybeUser.isEmpty()) return;
+        users user = maybeUser.get();
+        if (user.isEnabled()) return;
 
         // Rate limit: max 3 resends per 24 hours per account
         LocalDateTime now = LocalDateTime.now();
@@ -167,7 +169,7 @@ public class AuthService {
 
     public users loadUser(String email) {
         return userRepo.findByEmail(email.toLowerCase().trim())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new RuntimeException("Invalid credentials."));
     }
 
     // ── Forgot Password ───────────────────────────────────────────────────────

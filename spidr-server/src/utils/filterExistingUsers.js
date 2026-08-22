@@ -36,10 +36,16 @@ async function filterOrphans(rows, refFields) {
   ).lean();
   const live = new Set(existing.map(u => u._id.toString()));
 
+  // A row survives when every PRESENT ref resolves to a live user. A missing
+  // or empty ref is not treated as an orphan — some ref fields are declared
+  // aliases (e.g. DirectMessage.recipient_id mirrors receiver_id) that some
+  // write paths simply don't populate. Requiring the alias to be non-empty
+  // would silently drop every DM sent through those paths.
   return rows.filter(row =>
     fields.every(f => {
       const v = row?.[f];
-      return v && live.has(v.toString());
+      if (!v) return true;
+      return live.has(v.toString());
     })
   );
 }

@@ -105,6 +105,7 @@ s.post('save', async function (doc) {
       notifications.dispatch('server_mention', m.user_id, {
         title: `${senderName} mentioned you in #${channel?.name || 'a channel'}`,
         body: snippet,
+        image: doc.author_avatar || doc.user_avatar || undefined,
         data: {
           type: 'server_mention',
           serverId: doc.server_id,

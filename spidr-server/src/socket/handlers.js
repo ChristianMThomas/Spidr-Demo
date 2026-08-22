@@ -379,10 +379,12 @@ module.exports = function registerHandlers(io) {
       if (!socketRateLimit(socket, 5)) return;
       try {
         const dm = await DirectMessage.create({
-          sender_id:   userId,
-          receiver_id: data.receiver_id,
-          content:     data.content,
-          attachments: data.attachments || [],
+          sender_id:       userId,
+          receiver_id:     data.receiver_id,
+          recipient_id:    data.receiver_id, // alias — keep both in lockstep
+          conversation_id: data.conversation_id || '',
+          content:         data.content,
+          attachments:     data.attachments || [],
         });
         const out = normalise(dm.toObject());
         // Emit to both sides of the conversation
@@ -401,6 +403,7 @@ module.exports = function registerHandlers(io) {
           notifications.dispatch('dm', data.receiver_id, {
             title: senderName,
             body: snippet,
+            image: sender?.avatar_url || undefined,
             data: {
               type: 'dm',
               conversationId: data.conversation_id,
@@ -498,6 +501,7 @@ module.exports = function registerHandlers(io) {
       notifications.dispatch('friend_request', recipientId, {
         title: 'New friend request',
         body: `${senderName || 'Someone'} wants to add you`,
+        image: senderAvatar || undefined,
         data: { type: 'friend_request', senderId: userId, senderName: senderName || '' },
       }, { senderId: userId });
     });
@@ -526,12 +530,13 @@ module.exports = function registerHandlers(io) {
       // Native push to the recipient (broker gates prefs/DND/close-friend).
       try {
         const sender = await UserProfile.findOne({ user_id: userId })
-          .select('display_name').lean();
+          .select('display_name avatar_url').lean();
         const senderName = sender?.display_name || 'Someone';
         const snippet = (content || '').slice(0, 140) || 'New message';
         notifications.dispatch('dm', recipientId, {
           title: senderName,
           body: snippet,
+          image: sender?.avatar_url || undefined,
           data: { type: 'dm', conversationId, senderId: userId, senderName },
         }, { senderId: userId });
       } catch {}

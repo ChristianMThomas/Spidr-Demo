@@ -26,7 +26,7 @@ export default function PulseDeck({ currentUser, onNavigateDM, onNavigateServer 
   // Fetch pending friend requests
   const { data: friendRequests = [] } = useQuery({
     queryKey: ['friend-requests-pulse', currentUser?.id],
-    queryFn: () => entities.Friend.filter({ friend_id: currentUser?.id, status: 'pending_incoming' }),
+    queryFn: () => entities.Friend.filter({ user_id: currentUser?.id, status: 'pending_incoming' }),
     enabled: !!currentUser?.id,
   });
 

@@ -28,24 +28,33 @@ const DELETE_CASCADE = [
   ['UserProfile',     (uid) => ({ user_id: uid })],
   ['BiomassWallet',   (uid) => ({ user_id: uid })],
   ['EngagementProfile', (uid) => ({ user_id: uid })],
+  ['TensionProfile',  (uid) => ({ user_id: uid })],
   ['Friend',          (uid) => ({ $or: [{ user_id: uid }, { friend_id: uid }] })],
+  ['Follow',          (uid) => ({ $or: [{ follower_id: uid }, { following_id: uid }] })],
   ['DirectMessage',   (uid) => ({ $or: [{ sender_id: uid }, { recipient_id: uid }, { receiver_id: uid }] })],
   ['GroupChat',       (uid) => ({ owner_id: uid })], // owned groups die; non-owned handled below
   ['GroupChatMessage',(uid) => ({ user_id: uid })],
   ['Message',         (uid) => ({ $or: [{ user_id: uid }, { author_id: uid }] })],
   ['Clip',            (uid) => ({ author_id: uid })],
-  ['Comment',         (uid) => ({ author_id: uid })],
-  ['Feed',            (uid) => ({ author_id: uid })],
+  ['Comment',         (uid) => ({ $or: [{ author_id: uid }, { user_id: uid }] })],
+  ['Feed',            (uid) => ({ user_id: uid })],
   ['FeedComment',     (uid) => ({ author_id: uid })],
   ['Collection',      (uid) => ({ user_id: uid })],
-  ['Notification',    (uid) => ({ user_id: uid })],
+  ['CommunityAsset',  (uid) => ({ $or: [{ user_id: uid }, { author_id: uid }] })],
+  ['Module',          (uid) => ({ author_id: uid })],
   ['InstalledModule', (uid) => ({ user_id: uid })],
-  ['CustomBot',       (uid) => ({ owner_id: uid })],
+  ['CustomBot',       (uid) => ({ $or: [{ owner_id: uid }, { author_id: uid }] })],
+  ['PushToken',       (uid) => ({ user_id: uid })],
   ['AudioTrack',      (uid) => ({ user_id: uid })],
   ['SavedAudio',      (uid) => ({ user_id: uid })],
-  ['Report',          (uid) => ({ $or: [{ reporter_id: uid }, { reported_user_id: uid }] })],
+  ['Report',          (uid) => ({ $or: [
+    { reporter_id: uid },
+    { target_id: uid, target_type: 'user' },
+    { reviewer_id: uid },
+    { resolved_by: uid },
+  ] })],
   ['VoiceSession',    (uid) => ({ user_id: uid })],
-  ['Event',           (uid) => ({ created_by: uid })],
+  ['Event',           (uid) => ({ $or: [{ created_by: uid }, { creator_id: uid }] })],
   ['DJSession',       (uid) => ({ host_id: uid })],
   ['WebMessage',      (uid) => ({ $or: [{ sender_id: uid }, { recipient_id: uid }] })],
   ['AIChatLog',       (uid) => ({ user_id: uid })],
@@ -63,22 +72,61 @@ async function deleteUserData(userId) {
       results[modelName] = `error: ${err.message}`;
     }
   }
-  // Remove the user from every server's members / banned_users arrays too.
+  // Remove the user from every server's members / banned_users / muted_members.
   try {
     const Server = require('../models/Server');
     await Server.updateMany(
       {},
-      { $pull: { members: { user_id: userId }, banned_users: userId } }
+      { $pull: {
+        members:       { user_id: userId },
+        banned_users:  userId,
+        muted_members: userId,
+      } }
     );
     // Delete servers owned by this user
     const owned = await Server.deleteMany({ owner_id: userId });
     results.Server = owned.deletedCount || 0;
   } catch (err) { results.Server = `error: ${err.message}`; }
-  // Remove from every group's member list
+  // Remove from every group's member list (both shapes: objects + legacy [String] ids)
   try {
     const GroupChat = require('../models/GroupChat');
-    await GroupChat.updateMany({}, { $pull: { members: { user_id: userId } } });
+    await GroupChat.updateMany({}, { $pull: {
+      members:    { user_id: userId },
+      member_ids: userId,
+    } });
   } catch {}
+  // Prune the user from social-engagement arrays on other users' content so
+  // like counts / relay counts / attendee lists stay accurate after deletion.
+  try {
+    const Clip = require('../models/Clip');
+    await Clip.updateMany({}, { $pull: { likes: userId, relays: userId } });
+  } catch {}
+  try {
+    const Feed = require('../models/Feed');
+    await Feed.updateMany({}, { $pull: { likes: userId, recipient_ids: userId } });
+    // Reactions is a Mixed { emoji: [user_id, …] } map — pull the user id from
+    // every emoji bucket in one pass. $[] with $pull on Mixed needs the array
+    // path to be spelled out at read-time; keep it simple with a per-doc pass
+    // only if a doc actually has reactions (cheap: skip docs with empty map).
+    const withReacts = await Feed.find({ reactions: { $exists: true, $ne: {} } }, { reactions: 1 }).lean();
+    for (const f of withReacts) {
+      const r = f.reactions || {};
+      let dirty = false;
+      for (const emoji of Object.keys(r)) {
+        if (Array.isArray(r[emoji]) && r[emoji].includes(userId)) {
+          r[emoji] = r[emoji].filter(u => u !== userId);
+          dirty = true;
+        }
+      }
+      if (dirty) await Feed.updateOne({ _id: f._id }, { $set: { reactions: r } });
+    }
+  } catch {}
+  try {
+    const Event = require('../models/Event');
+    await Event.updateMany({}, { $pull: { attendees: userId } });
+  } catch {}
+  // NOTE: ServerAuditLog.actor_id intentionally NOT swept — audit trail must
+  // survive account deletion so past moderation actions remain attributable.
   // Finally the User record itself
   try {
     const r = await User.deleteOne({ _id: userId });

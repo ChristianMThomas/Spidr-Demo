@@ -6,16 +6,16 @@
     "orientation": "portrait",
     "scheme": "spidr",
     "userInterfaceStyle": "dark",
-    "icon": "./assets/logo.png",
+    "icon": "./assets/spidr-app-mobile.png",
     "splash": {
-      "image": "./assets/logo.png",
+      "image": "./assets/spidr-app-mobile-splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#111111"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.infinitetechteam.spidr",
-      "icon": "./assets/logo.png",
+      "icon": "./assets/spidr-app-mobile.png",
       "googleServicesFile": "./GoogleService-Info.plist",
       "entitlements": {
         "aps-environment": "development"
@@ -35,9 +35,9 @@
     "android": {
       "package": "com.infinitetechteam.spidr",
       "googleServicesFile": "./google-services.json",
-      "icon": "./assets/logo.png",
+      "icon": "./assets/spidr-app-mobile.png",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/logo.png",
+        "foregroundImage": "./assets/spidr-app-mobile.png",
         "backgroundColor": "#111111"
       },
       "permissions": [
@@ -71,7 +71,8 @@
         "@config-plugins/react-native-callkeep"
       ],
       "expo-asset",
-      "expo-notifications"
+      "expo-notifications",
+      "@bacons/apple-targets"
     ],
     "extra": {
       "apiUrl": "https://cooperative-simplicity-production-bb44.up.railway.app",

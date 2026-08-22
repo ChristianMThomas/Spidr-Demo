@@ -259,7 +259,11 @@ export const biomass = {
 // ─── Account lifecycle (Apple 5.1.1(v) / Play deletion policy) ───────────────
 export const account = {
   deactivate: () => api.post('/users/me/deactivate', {}),
-  deleteAccount: () => api.delete('/users/me'),
+  // Routes through spidr-server's cascading delete (accountAdmin.js) which
+  // purges every user-referencing collection AND removes the User row that
+  // spidr-auth shares. Prior version hit /users/me on spidr-auth which only
+  // dropped the User doc and left ~28 collections orphaned.
+  deleteAccount: () => api.delete('/account/me'),
 };
 
 // ─── Tension (XP / leveling) ─────────────────────────────────────────────────

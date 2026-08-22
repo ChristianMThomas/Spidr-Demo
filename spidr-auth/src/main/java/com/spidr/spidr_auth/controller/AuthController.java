@@ -45,71 +45,89 @@ public class AuthController {
         ));
     }
 
-    // ── Login — 10 per 15 min per IP ──────────────────────────────────────────
+    // ── Login — 10/15min per IP AND per email ─────────────────────────────────
 
     @PostMapping("/login")
     public ResponseEntity<?> login(
             @Valid @RequestBody LoginUserDTO dto,
             HttpServletRequest request) {
-        rateLimiter.check(clientIp(request) + ":login", 10, 900);
+        String ip = clientIp(request);
+        String email = normalize(dto.getEmail());
+        rateLimiter.check(ip + ":login", 10, 900);
+        rateLimiter.check(email + ":login", 10, 900);
         users user = authService.login(dto);
         String token = jwtService.generateToken(user);
         return ResponseEntity.ok(new LoginResponse(token, jwtService.getExpirationTime()));
     }
 
-    // ── Verify OTP — 10 per 15 min per IP (brute-force OTP guard) ────────────
+    // ── Verify OTP — 10/15min per IP AND per email (brute-force OTP guard) ────
 
     @PostMapping("/verify")
     public ResponseEntity<?> verify(
             @Valid @RequestBody VerifyUserDTO dto,
             HttpServletRequest request) {
-        rateLimiter.check(clientIp(request) + ":verify", 10, 900);
+        String ip = clientIp(request);
+        String email = normalize(dto.getEmail());
+        rateLimiter.check(ip + ":verify", 10, 900);
+        rateLimiter.check(email + ":verify", 10, 900);
         authService.verifyUser(dto);
         users user = authService.loadUser(dto.getEmail());
         String token = jwtService.generateToken(user);
         return ResponseEntity.ok(new LoginResponse(token, jwtService.getExpirationTime()));
     }
 
-    // ── Resend OTP — 5 per hour per IP (account-level limit in AuthService) ──
+    // ── Resend OTP — 5/hour per IP AND 3/hour per email (account-level daily cap in AuthService) ──
 
     @PostMapping("/resend")
     public ResponseEntity<?> resend(
             @Valid @RequestBody ResendOtpDTO dto,
             HttpServletRequest request) {
-        rateLimiter.check(clientIp(request) + ":resend", 5, 3600);
+        String ip = clientIp(request);
+        String email = normalize(dto.getEmail());
+        rateLimiter.check(ip + ":resend", 5, 3600);
+        rateLimiter.check(email + ":resend", 3, 3600);
         authService.resendVerificationCode(dto.getEmail());
         return ResponseEntity.ok(Map.of("message", "New verification code sent."));
     }
 
-    // ── Forgot Password — 3 per hour per IP ──────────────────────────────────
+    // ── Forgot Password — 3/hour per IP AND per email ─────────────────────────
 
     @PostMapping("/forgot-password")
     public ResponseEntity<?> forgotPassword(
             @Valid @RequestBody ForgotPasswordDTO dto,
             HttpServletRequest request) {
-        rateLimiter.check(clientIp(request) + ":forgot", 3, 3600);
+        String ip = clientIp(request);
+        String email = normalize(dto.getEmail());
+        rateLimiter.check(ip + ":forgot", 3, 3600);
+        rateLimiter.check(email + ":forgot", 3, 3600);
         authService.forgotPassword(dto);
         return ResponseEntity.ok(Map.of("message", "Password reset code sent to your email."));
     }
 
-    // ── Verify Reset Code — 10 per 15 min per IP (brute-force code guard) ─────
+    // ── Verify Reset Code — 10/15min per IP AND per email (brute-force code guard) ─────
 
     @PostMapping("/verify-reset-code")
     public ResponseEntity<?> verifyResetCode(
             @Valid @RequestBody VerifyResetCodeDTO dto,
             HttpServletRequest request) {
-        rateLimiter.check(clientIp(request) + ":verify-reset", 10, 900);
+        String ip = clientIp(request);
+        String email = normalize(dto.getEmail());
+        rateLimiter.check(ip + ":verify-reset", 10, 900);
+        rateLimiter.check(email + ":verify-reset", 10, 900);
         authService.verifyResetCode(dto);
         return ResponseEntity.ok(Map.of("message", "Code verified. You may now reset your password."));
     }
 
-    // ── Reset Password — 10 per 15 min per IP ─────────────────────────────────
+    // ── Reset Password — 10/15min per IP AND per email ────────────────────────
 
     @PostMapping("/reset-password")
     public ResponseEntity<?> resetPassword(
             @Valid @RequestBody ResetPasswordDTO dto,
             HttpServletRequest request) {
-        rateLimiter.check(clientIp(request) + ":reset", 10, 900);
+        String ip = clientIp(request);
+        String email = normalize(dto.getEmail());
+        rateLimiter.check(ip + ":reset", 10, 900);
+        rateLimiter.check(email + ":reset", 10, 900);
         authService.resetPassword(dto);
         return ResponseEntity.ok(Map.of("message", "Password reset successfully. You can now log in."));
     }
@@ -121,5 +139,9 @@ public class AuthController {
         return (forwarded != null && !forwarded.isBlank())
                 ? forwarded.split(",")[0].trim()
                 : request.getRemoteAddr();
+    }
+
+    private String normalize(String email) {
+        return email == null ? "" : email.toLowerCase().trim();
     }
 }

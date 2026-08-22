@@ -24,7 +24,20 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   crossOriginOpenerPolicy: false,
   crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: false,  // Disabled - frontend handles CSP via meta tags
+  // API-only CSP: this service returns JSON and serves images from /uploads
+  // and /public. Nothing renders HTML, so lock everything else down as
+  // defense-in-depth (clickjacking, injected-form actions, base-tag hijack).
+  // The web client sets its own CSP via meta tags for its own document.
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      'default-src':     ["'none'"],
+      'img-src':         ["'self'", 'data:'],
+      'frame-ancestors': ["'none'"],
+      'base-uri':        ["'none'"],
+      'form-action':     ["'none'"],
+    },
+  },
 }));
 // Explicit CORP header for all responses
 app.use((req, res, next) => {
@@ -171,6 +184,10 @@ app.use('/streak',             require('./routes/streak'));
 app.use('/payments',           require('./routes/payments'));
 app.use('/support',            require('./routes/support'));
 app.use('/uploads',            require('express').static(path.join(__dirname, '../uploads')));
+// Stable, publicly-fetchable asset URL — needed for the iOS rich-notification
+// fallback image (APNs downloads the avatar/logo over plain HTTP; it can't
+// reach anything behind auth or bundled into the app).
+app.use('/public',             require('express').static(path.join(__dirname, '../public')));
 
 // WebRTC ICE config (STUN+TURN) for voice channels
 const { getTurnConfig } = require('./socket/voiceSignaling');

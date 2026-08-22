@@ -9,6 +9,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@bacons/apple-targets": "^5.0.0",
     "@config-plugins/react-native-callkeep": "^14.0.2",
     "@config-plugins/react-native-webrtc": "^15.0.2",
     "@expo/metro-runtime": "~6.1.2",
