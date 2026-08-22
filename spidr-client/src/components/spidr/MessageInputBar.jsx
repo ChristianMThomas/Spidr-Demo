@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Send, ImagePlus, Smile, Ghost, Zap, Waves, Radio } from 'lucide-react';
+import { Send, ImagePlus, Smile, Ghost, Zap, Waves, Radio, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { toast } from 'sonner';
@@ -134,6 +134,14 @@ export default function MessageInputBar({
         return;
       }
     }
+    // Escape cancels an in-progress edit. The bar advertises "esc to cancel",
+    // so that has to be real — previously Escape only dismissed the command
+    // palette and the keypress fell through with nothing listening for it.
+    if (e.key === 'Escape' && showEditingIndicator && onCancelEdit) {
+      e.preventDefault();
+      onCancelEdit();
+      return;
+    }
     onKeyDown?.(e);
   };
 
@@ -209,11 +217,44 @@ export default function MessageInputBar({
         </div>
       )}
 
-      {/* Editing indicator */}
+      {/* Editing indicator — a symbiote clamp over the composer. The border
+          aura breathes and a highlight crawls the top edge; the bar sits
+          flush on the input below it (no bottom rounding) so it reads as a
+          physical extension rather than a floating box. */}
       {showEditingIndicator && (
-        <div className="flex items-center gap-2 text-xs text-zinc-400 bg-zinc-800/50 px-3 py-2 rounded-lg">
-          <span>✏️ Editing message</span>
-          <button onClick={onCancelEdit} className="ml-auto text-zinc-500 hover:text-white text-[10px] uppercase tracking-wider">Cancel</button>
+        <div
+          className="symbiote-edit relative overflow-hidden flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl"
+          style={{
+            background: 'linear-gradient(180deg, rgba(30,8,8,0.92) 0%, rgba(10,10,10,0.92) 100%)',
+            border: '1px solid rgba(239, 68, 68, 0.45)',
+          }}
+        >
+          {/* Left: sharp vector pencil + status. No OS emoji — those render
+              differently on every platform and read as a web template. */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <svg
+              className="w-3.5 h-3.5 text-red-500 shrink-0"
+              fill="none" stroke="currentColor" strokeWidth="2.5"
+              strokeLinecap="square" strokeLinejoin="miter" viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path d="M17 3l4 4L7 21H3v-4L17 3z" />
+              <path d="M14 6l4 4" />
+            </svg>
+            <div className="flex flex-col leading-tight min-w-0">
+              <span className="text-xs font-bold text-red-400">Editing message</span>
+              <span className="text-[10px] text-white/35 font-mono">esc to cancel</span>
+            </div>
+          </div>
+
+          {/* Right: explicit cancel pill */}
+          <button
+            onClick={onCancelEdit}
+            className="shrink-0 flex items-center gap-1.5 pl-3 pr-2 py-1 rounded-full border border-white/10 bg-white/[0.04] text-[10px] font-black tracking-widest uppercase text-white/60 hover:text-white hover:border-white/25 hover:bg-white/[0.08] transition-all"
+          >
+            Cancel
+            <X size={11} />
+          </button>
         </div>
       )}
 

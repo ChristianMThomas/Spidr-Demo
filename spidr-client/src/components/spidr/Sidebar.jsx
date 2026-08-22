@@ -83,12 +83,18 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
 
   const totalMentions = friendRequestCount + dmUnreadCount;
 
+  // Screen-space rect of the hovered nav item. The pop-out is rendered as a
+  // position:fixed overlay anchored to this rect, which is the only way to
+  // escape the nav list's overflow-x-hidden clip (an in-flow hover:w-48 or an
+  // absolutely-positioned child would both be cut off at the 72px rail).
+  const [hoverRect, setHoverRect] = useState(null);
+
   const navItems = [
     { id: 'friends', icon: Users, label: 'Friends', mentions: totalMentions },
     { id: 'servers', icon: Server, label: 'Servers' },
     { id: 'radar', icon: Radio, label: 'Signal Radar' },
     { id: 'feed', icon: Network, label: 'THE WEB' },
-    { id: 'bots', icon: MessageCircle, label: 'Bot Lab' },
+    { id: 'bots', icon: MessageCircle, label: 'Bot Lab', image: '/bot-lab.png', mech: true },
     { id: 'ai', icon: null, label: 'Spidr AI' },
     { id: 'modules', icon: Blocks, label: 'Module Nexus' },
     { id: 'nerve-center', icon: Activity, label: 'Nerve Center' },
@@ -179,11 +185,12 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
             <div
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              onMouseEnter={() => {
+              onMouseEnter={(e) => {
                 setHovered(item.id);
+                setHoverRect(e.currentTarget.getBoundingClientRect());
                 playSound('hover');
               }}
-              onMouseLeave={() => setHovered(null)}
+              onMouseLeave={() => { setHovered(null); setHoverRect(null); }}
               className="relative w-full aspect-square flex items-center justify-center cursor-pointer"
             >
               {/* Spider Thread - The Silk Connection */}
@@ -230,6 +237,13 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
               >
                 {item.id === 'ai' ? (
                   <SpiderLogo size={20} />
+                ) : item.image ? (
+                  <img
+                    src={item.image}
+                    alt=""
+                    draggable={false}
+                    className="w-8 h-8 object-contain transition-transform duration-300"
+                  />
                 ) : (
                   <item.icon size={20} strokeWidth={isActive ? 3 : 2} />
                 )}
@@ -242,19 +256,9 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
                 )}
               </div>
 
-              {/* Tooltip */}
-              {isHovered && (
-                <motion.div
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 20 }}
-                  exit={{ opacity: 0, x: 5 }}
-                  className="absolute left-full ml-2 bg-[#111] border border-red-600/30 text-white text-xs font-bold px-2 py-1 rounded whitespace-nowrap z-50 pointer-events-none"
-                  style={{ boxShadow: '0 0 10px rgba(0, 0, 0, 0.5)' }}
-                >
-                  {item.label}
-                  <div className="absolute top-1/2 -left-1 w-2 h-2 bg-[#111] border-l border-b border-red-600/30 transform rotate-45 -translate-y-1/2"></div>
-                </motion.div>
-              )}
+              {/* Pop-out — see NavPopout below. Rendered from the rail's
+                  root as a fixed overlay so it isn't clipped by the nav
+                  list's overflow-x-hidden. */}
             </div>
           );
         })}
@@ -342,6 +346,85 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
         </motion.button>
       </div>
     </div>
+
+    {/* Expanding hover pop-out — fixed-position so it escapes the nav
+        list's overflow clip. Standard entries get a soft rounded red glow;
+        Bot Lab gets the aggressive mech-border chassis. */}
+    <NavPopout
+      item={navItems.find(i => i.id === hovered) || null}
+      rect={hoverRect}
+      isActive={hovered === activeTab}
+      horizontal={horizontal}
+    />
     </>
+  );
+}
+
+/**
+ * NavPopout — the sliding label that appears when a sidebar icon is hovered.
+ *
+ * Rendered as position:fixed anchored to the hovered item's measured rect.
+ * That's deliberate: the nav list is `overflow-y-auto overflow-x-hidden`, so
+ * an in-flow `hover:w-48` expansion (or any absolutely-positioned child)
+ * would be clipped flat at the 72px rail edge. Measuring the rect and
+ * escaping to the viewport layer is the only approach that reliably works.
+ *
+ * Two visual grades, sharing identical expansion physics so the rail feels
+ * cohesive when the mouse slides down it:
+ *   • standard  — rounded-2xl chassis, red border, 0.4-alpha glow, bold text
+ *   • mech      — clip-path angled corners, 0.6-alpha glow, black italic text
+ */
+function NavPopout({ item, rect, isActive, horizontal }) {
+  // Horizontal (mobile top-bar) layout has no room to slide sideways.
+  if (!item || !rect || horizontal) return null;
+  const isMech = !!item.mech;
+  return (
+    <AnimatePresence>
+      <motion.div
+        key={item.id}
+        initial={{ width: rect.width, opacity: 0 }}
+        animate={{ width: 208, opacity: 1 }}
+        exit={{ width: rect.width, opacity: 0 }}
+        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+        className="fixed z-[120] pointer-events-none flex items-center"
+        style={{ top: rect.top, left: rect.left, height: rect.height }}
+      >
+        {/* Chassis */}
+        <div
+          className={`absolute inset-0 bg-[#0a0a0a] border-[1.5px] border-red-500 ${
+            isMech ? 'mech-border' : 'rounded-2xl'
+          }`}
+          style={{
+            boxShadow: isMech
+              ? '0 0 20px rgba(239,68,68,0.6)'
+              : '0 0 20px rgba(239,68,68,0.4)',
+          }}
+        />
+        {/* Icon — mirrors the rail glyph so the pill reads as one object */}
+        <div
+          className="relative z-10 flex items-center justify-center flex-shrink-0"
+          style={{ width: rect.width, height: rect.height }}
+        >
+          {item.image ? (
+            <img src={item.image} alt="" draggable={false} className="w-8 h-8 object-contain" />
+          ) : item.icon ? (
+            <item.icon size={20} className="text-red-500" strokeWidth={isActive ? 3 : 2} />
+          ) : (
+            <SpiderLogo size={20} />
+          )}
+        </div>
+        {/* Label */}
+        <motion.span
+          initial={{ opacity: 0, x: -16 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.25, delay: 0.075 }}
+          className={`relative z-10 text-white text-sm tracking-widest uppercase whitespace-nowrap ${
+            isMech ? 'font-black italic' : 'font-bold'
+          }`}
+        >
+          {item.label}
+        </motion.span>
+      </motion.div>
+    </AnimatePresence>
   );
 }
