@@ -461,6 +461,9 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       socket.emit('dm:notify', {
         conversationId: vars.conversation_id,
         recipientId: vars.receiver_id,
+        // Fills the push banner's body — without it the server falls back
+        // to a bare "New message" placeholder.
+        content: vars.content,
       });
       // Award activity XP (server-capped; fires level-up toast if crossed).
       reportXp('message', 'Message sent');

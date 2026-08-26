@@ -19,6 +19,22 @@ const PUBLIC_BASE_URL =
   process.env.SERVER_URL || 'https://cooperative-simplicity-production-bb44.up.railway.app';
 const DEFAULT_AVATAR_URL = `${PUBLIC_BASE_URL}/public/spidr-app-mobile.png`;
 
+/**
+ * APNs/FCM fetch avatar images from their own servers, so anything that isn't
+ * a plain absolute http(s) URL is unusable: a `/uploads/...` path resolves to
+ * nothing, and `data:`/`blob:` URIs can't be fetched at all. Absolutise what
+ * we can and drop what we can't, so a bad value falls back to the Spidr logo
+ * instead of silently delivering a banner with no avatar.
+ */
+function normalizeImageUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('/')) return `${PUBLIC_BASE_URL}${trimmed}`;
+  return null; // data:, blob:, bare filenames — not fetchable by APNs/FCM
+}
+
 let _admin = null;
 let _initFailed = false;
 
@@ -122,8 +138,13 @@ async function sendDataPush(userId, data) {
  *
  * `data` fuels the mobile handlePushData deep-link. `notification` fuels
  * the OS-native tray entry so the banner still fires when the app is dead.
+ *
+ * `subtitle` is the middle line of the iOS three-line layout (sender /
+ * context / message) — used for server mentions, where the context is the
+ * server the mention happened in. Android has no subtitle slot, so it gets
+ * folded into the title there.
  */
-async function sendVisiblePush(userId, { title, body, data = {}, image }) {
+async function sendVisiblePush(userId, { title, body, subtitle, data = {}, image }) {
   const admin = getAdmin();
   if (!admin || !userId) return;
 
@@ -137,7 +158,7 @@ async function sendVisiblePush(userId, { title, body, data = {}, image }) {
 
   // Rich notification image — the sender's current pfp, falling back to the
   // Spidr logo so a signal never renders with no avatar at all.
-  const imageUrl = image || DEFAULT_AVATAR_URL;
+  const imageUrl = normalizeImageUrl(image) || DEFAULT_AVATAR_URL;
   // FCM flattens `data` keys onto the raw APNs payload alongside `aps`, so
   // this is the ONLY reliable way to hand the URL to our own iOS
   // NotificationService extension (mobile/targets/notification-service) —
@@ -145,11 +166,30 @@ async function sendVisiblePush(userId, { title, body, data = {}, image }) {
   // notification.imageUrl below covers Android, which renders it natively
   // with no extension needed.
   stringData.image = imageUrl;
+  // Mentions also carry the mentioner's own pfp so the extension can put a
+  // person inside the group icon. Same fetchability rules apply — drop it
+  // rather than hand the extension a URL it can't resolve.
+  if (stringData.senderAvatar) {
+    const senderAvatarUrl = normalizeImageUrl(stringData.senderAvatar);
+    if (senderAvatarUrl) stringData.senderAvatar = senderAvatarUrl;
+    else delete stringData.senderAvatar;
+  }
+
+  // Android collapses to two lines, so the context line rides along with the
+  // title rather than being dropped.
+  const androidTitle = subtitle ? `${title} · ${subtitle}` : title;
+  const iosAlert = subtitle ? { title, subtitle, body } : { title, body };
+  // Also send the subtitle as a plain data key. FCM merges the top-level
+  // `notification` block into aps.alert, and that merge is the kind of thing
+  // that can quietly drop a field — but data keys land in userInfo untouched.
+  // The extension keys its group-vs-1:1 decision off THIS, not off aps, so a
+  // mention can't silently render as a DM.
+  if (subtitle) stringData.subtitle = subtitle;
 
   const res = await admin.messaging().sendEachForMulticast({
     tokens: tokens.map((t) => t.token),
     data: stringData,
-    notification: { title, body, imageUrl },
+    notification: { title: androidTitle, body, imageUrl },
     android: {
       priority: 'high',
       notification: { sound: 'default', channelId: 'default', imageUrl },
@@ -157,13 +197,13 @@ async function sendVisiblePush(userId, { title, body, data = {}, image }) {
     apns: {
       headers: { 'apns-priority': '10', 'apns-push-type': 'alert' },
       // mutable-content triggers our NotificationService extension, which
-      // reads the `image` data key above, downloads it, and attaches it as
-      // the big leading avatar — iOS composites the app icon as the small
-      // corner badge automatically, nothing extra needed for that part.
+      // reads the `image` data key above and rebuilds the banner as a
+      // Communication Notification so the leading icon becomes the sender's
+      // avatar (or the server's icon for a mention).
       // content-available keeps the JS onMessage handler firing while the
       // app is foregrounded, same as before this change.
       payload: {
-        aps: { alert: { title, body }, sound: 'default', 'mutable-content': 1, 'content-available': 1 },
+        aps: { alert: iosAlert, sound: 'default', 'mutable-content': 1, 'content-available': 1 },
       },
     },
   });

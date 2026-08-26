@@ -359,7 +359,9 @@ export default function DM() {
     queryClient.invalidateQueries({ queryKey: ['dms', conversationId] });
     try {
       const socket = await getSocket();
-      socket.emit('dm:notify', { conversationId, recipientId: friendId });
+      // `content` is what fills the push banner's body — without it the
+      // server falls back to a bare "New message" placeholder.
+      socket.emit('dm:notify', { conversationId, recipientId: friendId, content: text });
     } catch {
       /* socket unavailable — receive side will catch up on next focus */
     }

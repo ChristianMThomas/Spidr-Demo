@@ -84,8 +84,14 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
   // 3.4 — notification preferences. Controlled, persisted to localStorage
   // (instant local context) AND the user profile (notification_prefs) so the
   // toggles actually save and apply. Defaults match the previous defaultChecked.
+  // Server and group traffic notify on EVERY message by default; the
+  // *_mentions_only switches are the deliberate way to narrow that to
+  // @mentions. `server_mentions` is the pre-rename key, kept so an existing
+  // opt-out still reads correctly (the broker falls back to it too).
   const NOTIF_DEFAULTS = {
-    enabled: true, dm: true, server_mentions: false, friend_requests: true,
+    enabled: true, dm: true, friend_requests: true,
+    server_messages: true, server_mentions_only: false,
+    group_messages: true, group_mentions_only: false,
     voice_calls: true, dnd_suppress: true, urgent_dms: false,
   };
   const [notifPrefs, setNotifPrefs] = useState(() => {
@@ -826,9 +832,41 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-white text-sm">Server Messages</p>
-                        <p className="text-zinc-500 text-xs">Notify for @mentions only</p>
+                        <p className="text-zinc-500 text-xs">Notify for every message in your servers</p>
                       </div>
-                      <Switch checked={notifPrefs.server_mentions} onCheckedChange={(v) => setNotif('server_mentions', v)} />
+                      <Switch checked={notifPrefs.server_messages} onCheckedChange={(v) => setNotif('server_messages', v)} />
+                    </div>
+
+                    <div className="flex items-center justify-between pl-4">
+                      <div>
+                        <p className="text-white text-sm">Servers — @mentions only</p>
+                        <p className="text-zinc-500 text-xs">Narrow servers down to messages that name you</p>
+                      </div>
+                      <Switch
+                        checked={notifPrefs.server_mentions_only}
+                        onCheckedChange={(v) => setNotif('server_mentions_only', v)}
+                        disabled={!notifPrefs.server_messages}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-white text-sm">Group Chats</p>
+                        <p className="text-zinc-500 text-xs">Notify for every message in your group chats</p>
+                      </div>
+                      <Switch checked={notifPrefs.group_messages} onCheckedChange={(v) => setNotif('group_messages', v)} />
+                    </div>
+
+                    <div className="flex items-center justify-between pl-4">
+                      <div>
+                        <p className="text-white text-sm">Groups — @mentions only</p>
+                        <p className="text-zinc-500 text-xs">Narrow group chats down to messages that name you</p>
+                      </div>
+                      <Switch
+                        checked={notifPrefs.group_mentions_only}
+                        onCheckedChange={(v) => setNotif('group_mentions_only', v)}
+                        disabled={!notifPrefs.group_messages}
+                      />
                     </div>
 
                     <div className="flex items-center justify-between">

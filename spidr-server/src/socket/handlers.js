@@ -532,7 +532,7 @@ module.exports = function registerHandlers(io) {
         const sender = await UserProfile.findOne({ user_id: userId })
           .select('display_name avatar_url').lean();
         const senderName = sender?.display_name || 'Someone';
-        const snippet = (content || '').slice(0, 140) || 'New message';
+        const snippet = (content || '').slice(0, 140) || 'Sent an attachment';
         notifications.dispatch('dm', recipientId, {
           title: senderName,
           body: snippet,

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMenu } from '@/components/MenuContext';
+import { getServerMode } from '@/lib/notificationScopes';
 import { useQuery } from '@tanstack/react-query';
 import { entities, auth, integrations } from '@/api/apiClient';
 import {
@@ -241,10 +242,22 @@ export default function SpidrMenu() {
           { icon: LogOut, label: 'Disconnect All Users', color: 'text-[#FF3333]', action: 'disconnect-all' },
           { icon: Trash2, label: 'Delete Channel', color: 'text-[#FF3333]', action: 'delete-channel' },
         ];
-      case 'server_sidebar':
+      case 'server_sidebar': {
+        // Labels reflect the current per-server override so the menu reads as
+        // a state, not a blind toggle.
+        const mode = getServerMode(menu.data?.id || menu.data?.server_id);
         return [
           { icon: CheckCircle, label: 'Mark as Read', color: 'text-white', action: 'mark-read' },
-          { icon: BellOff, label: 'Mute Server', color: 'text-white', action: 'mute-server' },
+          {
+            icon: mode === 'none' ? Bell : BellOff,
+            label: mode === 'none' ? 'Unmute Server' : 'Mute Server',
+            color: 'text-white', action: 'mute-server',
+          },
+          {
+            icon: AtSign,
+            label: mode === 'mentions' ? 'Notify: @mentions only ✓' : 'Only @Mentions',
+            color: 'text-white', action: 'server-notif-mentions',
+          },
           { icon: UserPlus, label: 'Invite People', color: 'text-white', action: 'invite' },
           { icon: Settings, label: 'Server Settings', color: 'text-white', action: 'server-settings' },
           { separator: true },
@@ -252,6 +265,7 @@ export default function SpidrMenu() {
           { separator: true },
           { icon: LogOut, label: 'Leave Server', color: 'text-[#FF3333]', action: 'leave' },
         ];
+      }
       default:
         return [];
     }

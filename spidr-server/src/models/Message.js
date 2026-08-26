@@ -35,89 +35,123 @@ s.pre('save', function (next) {
 });
 
 /**
- * Mention scanner — runs after a message is saved. Parses `@mentions` from
- * content, resolves them against the server's member list, and fires a
- * targeted Feed event for each mentioned user.
+ * Fan-out for a new server message — runs after the message is saved.
  *
- * Skipped for system messages, edits, and bot messages. Errors are swallowed
- * because feed events are decorative and must never block a message send.
+ * Every member but the author gets a push. Mentions ride a separate signal
+ * (`server_mention`) so the "@mentions only" switch has something to keep
+ * when it drops the rest, and mentioned users additionally get a targeted
+ * Feed event.
+ *
+ * Skipped for system messages and edits. Errors are swallowed because none of
+ * this may block a message send.
  */
 s.post('save', async function (doc) {
   if (!doc.wasNew) return;          // only fire on creation, not edits
-  if (doc.is_system) return;        // system messages don't mention people
-  if (!doc.content) return;         // attachments-only message, nothing to scan
-  if (!doc.content.includes('@')) return; // cheap pre-filter
+  if (doc.is_system) return;        // system messages don't notify anyone
 
   try {
     const { scanMentions } = require('../utils/mentionScanner');
     const feedEvents = require('../utils/feedEvents');
+    const notifications = require('../utils/notifications');
     const Server = require('./Server');
     const UserProfile = require('./UserProfile');
 
     const senderId = doc.author_id || doc.user_id;
     if (!senderId) return;
 
-    const server = await Server.findById(doc.server_id).select('name channels members').lean();
+    const server = await Server.findById(doc.server_id).select('name icon_url channels members').lean();
     if (!server) return;
 
-    // Candidates = server members. Cross-reference UserProfile for username/display_name.
     const memberIds = (server.members || []).map(m => m.user_id).filter(Boolean);
     if (memberIds.length === 0) return;
-
-    const profiles = await UserProfile.find({ user_id: { $in: memberIds } })
-      .select('user_id username display_name').lean();
-    const profileById = Object.fromEntries(profiles.map(p => [p.user_id, p]));
-
-    const candidates = (server.members || []).map(m => ({
-      user_id: m.user_id,
-      username:     profileById[m.user_id]?.username,
-      display_name: profileById[m.user_id]?.display_name,
-      user_name:    m.user_name,
-    }));
-
-    const mentioned = scanMentions(doc.content, candidates, senderId);
-    if (mentioned.length === 0) return;
 
     // Resolve channel name for nicer phrasing
     const channel = (server.channels || []).find(c =>
       String(c.id) === String(doc.channel_id) || String(c._id) === String(doc.channel_id)
     );
+    const channelName = channel?.name || '';
 
-    // Truncate the message to a short snippet for the feed card
-    const snippet = doc.content.length > 140 ? doc.content.slice(0, 137) + '…' : doc.content;
-
-    const notifications = require('../utils/notifications');
     const senderName = doc.author_name || doc.user_name || 'Someone';
-    for (const m of mentioned) {
-      feedEvents.mention({
-        sender_id:     senderId,
-        sender_name:   senderName,
-        sender_avatar: doc.author_avatar || doc.user_avatar || '',
-        recipient_id:  m.user_id,
-        context:       'server',
-        server_id:     doc.server_id,
-        server_name:   server.name,
-        channel_id:    String(doc.channel_id),
-        channel_name:  channel?.name,
-        message_id:    doc._id.toString(),
-        snippet,
-      });
-      notifications.dispatch('server_mention', m.user_id, {
-        title: `${senderName} mentioned you in #${channel?.name || 'a channel'}`,
-        body: snippet,
-        image: doc.author_avatar || doc.user_avatar || undefined,
-        data: {
-          type: 'server_mention',
-          serverId: doc.server_id,
-          channelId: String(doc.channel_id),
-          messageId: doc._id.toString(),
-          senderId,
-          senderName,
-        },
-      }, { senderId });
+    const senderAvatar = doc.author_avatar || doc.user_avatar || '';
+    const snippet = !doc.content
+      ? 'Sent an attachment'
+      : (doc.content.length > 140 ? doc.content.slice(0, 137) + '…' : doc.content);
+
+    // Mentions need the member list cross-referenced against UserProfile for
+    // username/display_name, so only pay for that lookup when there's an @.
+    let mentionedIds = new Set();
+    if (doc.content && doc.content.includes('@')) {
+      const profiles = await UserProfile.find({ user_id: { $in: memberIds } })
+        .select('user_id username display_name').lean();
+      const profileById = Object.fromEntries(profiles.map(p => [p.user_id, p]));
+
+      const candidates = (server.members || []).map(m => ({
+        user_id: m.user_id,
+        username:     profileById[m.user_id]?.username,
+        display_name: profileById[m.user_id]?.display_name,
+        user_name:    m.user_name,
+      }));
+
+      const mentioned = scanMentions(doc.content, candidates, senderId);
+      mentionedIds = new Set(mentioned.map(m => String(m.user_id)));
+
+      for (const m of mentioned) {
+        feedEvents.mention({
+          sender_id:     senderId,
+          sender_name:   senderName,
+          sender_avatar: senderAvatar,
+          recipient_id:  m.user_id,
+          context:       'server',
+          server_id:     doc.server_id,
+          server_name:   server.name,
+          channel_id:    String(doc.channel_id),
+          channel_name:  channel?.name,
+          message_id:    doc._id.toString(),
+          snippet,
+        });
+      }
+    }
+
+    // Shaped like an iMessage GROUP notification, not a DM one: the icon is
+    // the server's, the title is who posted, the subtitle is where. iOS builds
+    // that three-line layout from the INSendMessageIntent the
+    // notification-service extension assembles out of these data keys —
+    // `image` is the group icon, `senderAvatar` the person inside it. Icon is
+    // the server's own when it has one, the poster's pfp when it doesn't, so
+    // a banner never falls back to the Spidr logo.
+    const payload = {
+      title: senderName,
+      subtitle: channelName ? `${server.name} · #${channelName}` : server.name,
+      body: snippet,
+      image: server.icon_url || senderAvatar || undefined,
+      data: {
+        type: 'server_message',
+        serverId: doc.server_id,
+        serverName: server.name || '',
+        channelId: String(doc.channel_id),
+        channelName,
+        messageId: doc._id.toString(),
+        senderId,
+        senderName,
+        senderAvatar,
+      },
+    };
+
+    for (const uid of memberIds) {
+      if (String(uid) === String(senderId)) continue;
+      const isMention = mentionedIds.has(String(uid));
+      notifications.dispatch(
+        isMention ? 'server_mention' : 'server_message',
+        uid,
+        isMention
+          ? { ...payload, data: { ...payload.data, type: 'server_mention' } }
+          : payload,
+        // serverId lets the broker apply this member's per-server override.
+        { senderId, serverId: doc.server_id },
+      );
     }
   } catch (err) {
-    console.warn('Message mention scan failed:', err?.message);
+    console.warn('Message fan-out failed:', err?.message);
   }
 });
 
