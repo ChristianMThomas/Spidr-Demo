@@ -186,13 +186,29 @@ async function sendVisiblePush(userId, { title, body, subtitle, data = {}, image
   // mention can't silently render as a DM.
   if (subtitle) stringData.subtitle = subtitle;
 
+  // NO top-level `notification` block on purpose. FCM composes the APNs
+  // payload from that common block and merges the platform override on top,
+  // and `subtitle` has no counterpart there — so a common block silently
+  // rewrites aps.alert and drops the middle line, which is what made server
+  // messages render as 1:1 banners. Each platform gets its own block instead,
+  // so nothing rewrites anything.
+  if (process.env.PUSH_DEBUG === '1') {
+    console.log('[push] visible →', JSON.stringify({
+      userId, devices: tokens.length, title, subtitle, body,
+      image: imageUrl, dataKeys: Object.keys(stringData).sort(),
+    }));
+    // Tells the iOS extension to append which branch it took to the body, so
+    // a banner itself reports whether it rendered as group or 1:1. Remove the
+    // env var to turn both halves off.
+    stringData.pushDebug = '1';
+  }
+
   const res = await admin.messaging().sendEachForMulticast({
     tokens: tokens.map((t) => t.token),
     data: stringData,
-    notification: { title: androidTitle, body, imageUrl },
     android: {
       priority: 'high',
-      notification: { sound: 'default', channelId: 'default', imageUrl },
+      notification: { title: androidTitle, body, sound: 'default', channelId: 'default', imageUrl },
     },
     apns: {
       headers: { 'apns-priority': '10', 'apns-push-type': 'alert' },
