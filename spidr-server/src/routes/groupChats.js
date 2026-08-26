@@ -13,7 +13,7 @@ const GroupChat = require('../models/GroupChat');
 const router = express.Router();
 
 // Collaborative fields any member may PATCH.
-const MEMBER_WRITABLE = new Set(['name', 'avatar_url', 'banner_url', 'icon_url', 'background_url']);
+const MEMBER_WRITABLE = new Set(['name', 'avatar_url', 'banner_url', 'icon_url']);
 
 router.patch('/:id', authMW, async (req, res, next) => {
   try {

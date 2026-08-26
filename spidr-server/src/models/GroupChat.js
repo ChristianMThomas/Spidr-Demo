@@ -12,9 +12,6 @@ const s = new Schema({
   // Group banner — the wide header art (image or gif). Schema-first so the
   // settings PATCH isn't silently dropped by strict mode.
   banner_url:   { type: String, default: '' },
-  // Chat wallpaper behind the message list. Shared by the whole group and
-  // member-writable, matching how avatar/banner already work here.
-  background_url: { type: String, default: '' },
   description:  String,
   is_archived:  { type: Boolean, default: false },
   created_date: { type: Date, default: Date.now },

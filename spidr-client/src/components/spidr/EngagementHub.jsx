@@ -5,7 +5,6 @@ import { motion } from 'framer-motion';
 import { TrendingUp, Users, Flame, Star, Trophy, ArrowRight, ChevronDown } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import HolographicProfile from './HolographicProfile';
-import ServerAvatar from './ServerAvatar';
 
 export default function EngagementHub({ currentUser, onNavigate, onNavigateToDM }) {
   const [selectedProfileId, setSelectedProfileId] = useState(null);
@@ -65,14 +64,13 @@ export default function EngagementHub({ currentUser, onNavigate, onNavigateToDM 
               className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-800/70 transition-colors w-full text-left"
             >
               <div className="relative">
-                <ServerAvatar
-                  src={server.icon_url}
-                  name={server.name}
-                  size={36}
-                  letters={1}
-                  rounded="rounded-lg"
-                  fallbackClassName="bg-red-900/50 text-white"
-                />
+                <div className="w-9 h-9 rounded-lg overflow-hidden bg-red-900/50 flex items-center justify-center shrink-0">
+                  {server.icon_url ? (
+                    <img src={server.icon_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-white font-bold text-sm">{server.name?.charAt(0)}</span>
+                  )}
+                </div>
                 <div className="absolute -top-1 -left-1 bg-orange-500 text-black text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center">
                   {i + 1}
                 </div>

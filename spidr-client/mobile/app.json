@@ -18,13 +18,17 @@
       "icon": "./assets/spidr-app-mobile.png",
       "googleServicesFile": "./GoogleService-Info.plist",
       "entitlements": {
-        "aps-environment": "development"
+        "aps-environment": "development",
+        "com.apple.developer.usernotifications.communication": true
       },
       "infoPlist": {
         "UIBackgroundModes": [
           "audio",
           "voip",
           "remote-notification"
+        ],
+        "NSUserActivityTypes": [
+          "INSendMessageIntent"
         ],
         "NSMicrophoneUsageDescription": "Spidr needs the microphone for voice and video calls.",
         "NSCameraUsageDescription": "Spidr needs the camera for video calls.",

@@ -5,7 +5,6 @@ import {
   Activity, Users, Server as ServerIcon, MessageSquare, Film,
   Heart, Crown, Zap, Hash, Calendar, Clock,
 } from 'lucide-react';
-import ServerAvatar from './ServerAvatar';
 
 /**
  * NerveCenter — personal stats dashboard for the viewing user.
@@ -442,15 +441,15 @@ export default function NerveCenter({ currentUser }) {
                     key={server.id}
                     className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-black/30 border border-white/5"
                   >
-                    <ServerAvatar
-                      src={server.icon_url}
-                      name={server.name}
-                      size={36}
-                      letters={1}
-                      rounded="rounded-lg"
-                      className="flex-shrink-0"
-                      fallbackClassName="bg-gradient-to-br from-red-700 to-red-950 text-white"
-                    />
+                    <div className="w-9 h-9 rounded-lg overflow-hidden bg-zinc-800 flex-shrink-0">
+                      {server.icon_url ? (
+                        <img src={server.icon_url} alt={server.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-red-700 to-red-950 flex items-center justify-center text-white text-sm font-black">
+                          {server.name?.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-white truncate">{server.name}</p>
                       <p className="text-[10px] text-zinc-500 font-mono">

@@ -141,7 +141,6 @@ app.use(
 app.use('/users',              require('./routes/users'));
 app.use('/user-profiles',      require('./routes/userProfiles'));
 app.use('/servers',            require('./routes/servers'));
-app.use('/search-hub',        require('./routes/searchHub'));
 app.use('/messages',           require('./routes/messages'));
 app.use('/direct-messages',    require('./routes/directMessages'));
 app.use('/group-chats',        require('./routes/groupChats'));
@@ -278,10 +277,6 @@ mongoose
     // Auto-expire past server events (3.3) — runs on boot + every 6h.
     const { scheduleEventExpiry } = require('./utils/expireEvents');
     scheduleEventExpiry();
-    // Give any legacy tagless profile a real #tag (idempotent). Without this
-    // every such user renders with the same placeholder tag.
-    const { backfillDiscriminators } = require('./utils/backfillDiscriminators');
-    backfillDiscriminators();
     const PORT = process.env.PORT || 4000;
     server.listen(PORT, () => console.log(`✓ Spidr server running on port ${PORT}`));
   })

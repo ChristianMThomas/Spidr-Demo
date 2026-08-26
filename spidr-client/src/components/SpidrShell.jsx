@@ -103,16 +103,6 @@ export default function SpidrShell() {
     return off;
   }, [activeCall]);
   const [showCreateServer, setShowCreateServer] = useState(false);
-
-  // The Create Server action moved from the left rail into the Server Matrix
-  // panel (servers no longer render in the rail at all). ServersPanel is deep
-  // in the tree and doesn't receive a callback for this, so it fires an event
-  // the shell listens for — same pattern the pending-group open flow uses.
-  useEffect(() => {
-    const onCreate = () => setShowCreateServer(true);
-    window.addEventListener('spidr-create-server', onCreate);
-    return () => window.removeEventListener('spidr-create-server', onCreate);
-  }, []);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   // ── Theater Mode (co-op feed sync inside a voice channel) ──────────
   // When set, every member of `voiceSession.channel` sees the
@@ -328,6 +318,7 @@ export default function SpidrShell() {
           <Sidebar
             activeTab={activeTab}
             setActiveTab={setActiveTab}
+            onCreateServer={() => setShowCreateServer(true)}
             orientation={(sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'horizontal' : 'vertical'}
             isGlass={appTheme?.type === 'image' && !!appTheme?.backgroundImage}
           />
