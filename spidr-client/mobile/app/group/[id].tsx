@@ -25,7 +25,6 @@ import { MessageBubble } from '../../components/chat/MessageBubble';
 import { MessageInput } from '../../components/chat/MessageInput';
 import { Spinner } from '../../components/ui/Spinner';
 import { NotFound } from '../../components/ui/NotFound';
-import { ScopeNotifPicker } from '../../components/ui/ScopeNotifPicker';
 
 function formatDateDivider(d: Date) {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
@@ -512,10 +511,6 @@ function GroupSettingsSheet({
           <Text style={{ color: '#fff', fontSize: 13, fontWeight: '900', letterSpacing: 1, marginBottom: 14 }}>
             GROUP SETTINGS
           </Text>
-
-          {/* Per-group notification override — the escape hatch from the
-              global "every group message" default. */}
-          <ScopeNotifPicker scope="group" id={group?.id} userId={currentUserId} visible={visible} />
 
           {/* Rename */}
           {isOwner && (

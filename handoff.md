@@ -1,31 +1,22 @@
-# Handoff
+# Session Handoff
 
 ## Goal
-Keep the Spidr friends flow bidirectional and per-user localStorage isolated so shared browsers don't cross-leak state — ship as Patch 1.9.66.
+Unblock friend/DM flow between two test users and track down why the Resend "verify your account" email is still going out from the old `noreply@spidrapp.infinitetechteam.com` address after the user thought they'd migrated everything to `noreply@spidrapp.com`.
 
 ## Current State
-Patch 1.9.66 shipped. Committed `ce9fc6e` on `dev` and pushed to `origin/dev`. Security audit was clean (0 critical / 0 high / 0 medium, 2 informational). SPIDR_SYS server `NEWS` and client `MOCK_NEWS` are in lockstep for `p1966`.
+No source files were edited this session. One database mutation was applied against Atlas via the existing `fix-stuck-friend-requests.js` script — a single desynced accept mirror was flipped from `pending_outgoing` to `accepted`. The MAIL_FROM issue was diagnosed but not yet remediated. The working tree is unchanged from the start of the session (the same pre-existing mobile icon/splash/settings work and unrelated dirty server files that were sitting there before, none touched here).
 
 ## Files
-- spidr-server/src/routes/friends.js — added mirror backfill in PATCH `/:id` (accept) + dedicated DELETE `/:id` that wipes both sides atomically, skipping `blocked` mirrors
-- spidr-server/scripts/fix-stuck-friend-requests.js — added orphan-accepted-mirror backfill and ghost pending_incoming cleanup passes
-- spidr-server/scripts/_inspect-user.js — new dev spot-check utility (queries User/UserProfile/Friend rows by username/full_name)
-- spidr-client/src/lib/spidrWebPins.js — rewrote around per-user scoped key `spidr_web_pins:<uid>`; `setCurrentUser` / `clearCurrentUser` / `hydratePins(uid)` API; legacy `spidr_web_pins` key purged on first use
-- spidr-client/src/lib/AuthContext.jsx — wired `setCurrentUser` on boot/login/verify/register, `clearCurrentUser` on logout + auth-expired, `hydratePins(uid)` after `auth.me()`
-- spidr-client/src/components/spidr/FriendsPanel.jsx — pinned groups now use per-user key `spidr_pinned_groups:<uid>` with legacy key purge
-- spidr-server/src/routes/system.js — inserted `p1966` at index 0 of `NEWS`
-- spidr-client/src/components/spidr/SpidrSystem.jsx — inserted `p1966` at index 0 of `MOCK_NEWS` (byte-identical to server)
+- No files modified this session. Diagnosis-only work — the fix for MAIL_FROM lives outside the repo (local `.env` + Railway dashboard).
 
 ## Changes
-- Backfill missing mirror row on friend-request accept so accepter's list is no longer one-sided when the original request never mirrored
-- Add dedicated DELETE `/friends/:id` doing a mutual unfriend (both sides), preserving the other side if they've independently set `blocked`
-- Extend fix-stuck-friend-requests.js with orphan-accepted backfill + ghost pending_incoming cleanup for legacy rows
-- Scope `spidrWebPins` and `FriendsPanel` pinned-groups localStorage to per-user keys with legacy-key purge; wire lifecycle through AuthContext
-- Log Patch 1.9.66 in both SPIDR_SYS sources of truth
-- Ran /ship: security-cleanup (clean) → /patch (p1966) → /git-workflow (commit + push)
+- Ran `spidr-server/scripts/fix-stuck-friend-requests.js` (dry run → `--apply`) against local `MONGO_URI`; resynced 1 desynced accept mirror: `_id 6a88ab5a73daa2586876329d`, `NotKvngChrisAlt (6a88a642…) → 69e53bd9…` flipped `pending_outgoing → accepted`. No orphaned outgoing rows, no self-friendship rows.
+- Diagnosed Alexios ↔ NotKvngChrisAlt DM block as Friends-table desync (not a Users-table issue). Root cause was pre-override accepts that only flipped one row — the PATCH override at `spidr-server/src/routes/friends.js:136-168` prevents new occurrences.
+- Diagnosed Resend "from" showing old domain. Root cause: `spidr-auth/.env` still contains `MAIL_FROM=noreply@spidrapp.infinitetechteam.com`, which overrides the properties-file default (`mail.from=${MAIL_FROM:noreply@spidrapp.com}` in both `application.properties:14` and `application-railway.properties:4`). Railway service likely has the same var set. `EmailService.java:20-21` reads `@Value("${mail.from}")` — no code change needed, only the env var.
+- Cycled `/dev` and `/kill` several times; ports 4000/5173/8080 recovered cleanly each time.
 
 ## Failed
-None.
+- First `/dev` of the session hit `EADDRINUSE` on :4000 and :5173 because a prior session's stack was still bound. Resolved by `/kill` + relaunch. Not a code bug — reflex should be `/kill` before `/dev` when reopening a session.
 
 ## Next Step
-Run `node spidr-server/scripts/fix-stuck-friend-requests.js --apply` against production once the deploy is live so legacy orphan accepted mirrors and ghost pending_incoming rows get healed for existing users.
+Fix the MAIL_FROM env var in two places, then re-test verify email: (1) edit `spidr-auth/.env` and set `MAIL_FROM=noreply@spidrapp.com` (or whichever sender is verified in Resend); (2) update the same var on the Railway `spidr-auth` service and redeploy. No code changes required.

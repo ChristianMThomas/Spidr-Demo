@@ -32,7 +32,6 @@ import { Avatar } from '../../../components/ui/Avatar';
 import { Spinner } from '../../../components/ui/Spinner';
 import { NotFound } from '../../../components/ui/NotFound';
 import { dmConversationId, isSystemFriend } from '../../../lib/utils';
-import { ScopeNotifPicker } from '../../../components/ui/ScopeNotifPicker';
 
 type Channel = { id?: string; _id?: string; name: string; type?: 'text' | 'voice' | string };
 
@@ -335,10 +334,6 @@ function ServerSettingsSheet({
             </Text>
           </View>
         </View>
-
-        {/* Per-server notification override — the escape hatch from the
-            global "every server message" default. */}
-        <ScopeNotifPicker scope="server" id={server?.id} userId={currentUserId} visible={visible} />
 
         {isOwner && (
           <View style={{ marginBottom: 14 }}>

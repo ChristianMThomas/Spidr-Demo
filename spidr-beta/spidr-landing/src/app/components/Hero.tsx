@@ -186,7 +186,7 @@ export default function Hero({ onOpenBeta, betaStatus }: HeroProps) {
               className="font-mono text-[0.6rem] tracking-widest mt-0.5"
               style={{ color: "rgba(196,30,58,0.55)" }}
             >
-              PUBLIC LAUNCH: OCTOBER 2026
+              PUBLIC LAUNCH: AUGUST 2026
             </div>
           </motion.div>
 

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { entities } from '@/api/apiClient';
 import { useAppShell } from '@/context/AppShellContext';
-import { getServerMode, isServerMuted, setServerMode } from '@/lib/notificationScopes';
 import { toast } from 'sonner';
 
 /**
@@ -224,22 +223,11 @@ export function useGlobalMenuActions() {
           case 'mute-server': {
             const sid = data?.server_id || data?.id;
             if (!sid) return;
-            // Writes to UserProfile.notification_prefs.server_overrides, which
-            // is what the push broker actually reads. The old version only
-            // touched localStorage, so nothing was ever suppressed.
-            const next = isServerMuted(sid) ? 'default' : 'none';
-            await setServerMode(currentUser?.id, sid, next);
-            toast.success(next === 'none' ? 'Server muted' : 'Server unmuted');
-            break;
-          }
-          case 'server-notif-mentions': {
-            const sid = data?.server_id || data?.id;
-            if (!sid) return;
-            const next = getServerMode(sid) === 'mentions' ? 'default' : 'mentions';
-            await setServerMode(currentUser?.id, sid, next);
-            toast.success(next === 'mentions'
-              ? 'Only @mentions from this server'
-              : 'Following your global setting');
+            // Persist client-side; chat panels can read this list to suppress notifications.
+            const muted = JSON.parse(localStorage.getItem('spidr_muted_servers') || '[]');
+            const next = muted.includes(sid) ? muted.filter(x => x !== sid) : [...muted, sid];
+            localStorage.setItem('spidr_muted_servers', JSON.stringify(next));
+            toast.success(next.includes(sid) ? 'Server muted' : 'Server unmuted');
             break;
           }
           case 'leave-server':

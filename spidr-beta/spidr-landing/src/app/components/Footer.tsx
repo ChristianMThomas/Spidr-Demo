@@ -47,7 +47,7 @@ export default function Footer() {
               <ul className="space-y-2">
                 <li>
                   <a
-                    href="mailto:contact@spidrapp.com"
+                    href="mailto:hello@spidrapp.com"
                     className="text-zinc-400 hover:text-white text-xs transition-colors"
                   >
                     contact@spidrapp.com

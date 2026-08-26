@@ -11,6 +11,7 @@ const Server       = require('../models/Server');
 const GroupChat    = require('../models/GroupChat');
 const VoiceSession = require('../models/VoiceSession');
 const Friend       = require('../models/Friend');
+const User         = require('../models/User');
 const UserProfile  = require('../models/UserProfile');
 const { recordMessage, checkContent, isAutoModInstalled } = require('../utils/automod');
 const spotifyPresence = require('../utils/spotifyPresence');
@@ -532,7 +533,7 @@ module.exports = function registerHandlers(io) {
         const sender = await UserProfile.findOne({ user_id: userId })
           .select('display_name avatar_url').lean();
         const senderName = sender?.display_name || 'Someone';
-        const snippet = (content || '').slice(0, 140) || 'Sent an attachment';
+        const snippet = (content || '').slice(0, 140) || 'New message';
         notifications.dispatch('dm', recipientId, {
           title: senderName,
           body: snippet,
@@ -589,8 +590,24 @@ module.exports = function registerHandlers(io) {
     async function displayNameOf(uid, fallback) {
       if (!uid) return fallback || 'Someone';
       try {
-        const p = await UserProfile.findOne({ user_id: uid }).select('display_name username').lean();
-        return p?.display_name || p?.username || fallback || 'Someone';
+        // Look in BOTH places. The bug this fixes: this used to query only
+        // UserProfile for `display_name` and `username` — but `username`
+        // lives on the User model, not UserProfile. So any account without a
+        // custom display_name resolved to nothing and fell through to the
+        // "Someone" fallback, which is exactly what QA saw on missed-call
+        // rows. UserProfile.display_name wins when set (it's the name the
+        // user chose to show), then the real account name.
+        const [p, u] = await Promise.all([
+          UserProfile.findOne({ user_id: uid }).select('display_name').lean(),
+          User.findById(uid).select('full_name username').lean(),
+        ]);
+        return (
+          p?.display_name ||
+          u?.full_name ||
+          u?.username ||
+          fallback ||
+          'Someone'
+        );
       } catch {
         return fallback || 'Someone';
       }

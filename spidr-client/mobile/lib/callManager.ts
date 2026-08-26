@@ -646,10 +646,8 @@ class CallManager {
     } else if (data.type === 'dm') {
       // Tap on a DM banner → open the conversation.
       try { router.push(`/dm/${data.conversationId}`); } catch {}
-    } else if (data.type === 'server_mention' || data.type === 'server_message') {
+    } else if (data.type === 'server_mention') {
       try { router.push(`/server/${data.serverId}/channel/${data.channelId}`); } catch {}
-    } else if (data.type === 'group_message') {
-      try { router.push(`/group/${data.groupId}`); } catch {}
     } else if (data.type === 'friend_request') {
       try { router.push('/(tabs)/friends'); } catch {}
     }

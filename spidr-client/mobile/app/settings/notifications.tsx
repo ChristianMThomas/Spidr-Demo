@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, Alert, Linking } from 'react-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Bell, BellOff, MessageCircle, AtSign, Hash, Users, UserPlus, Phone, MoonStar, Sparkles } from 'lucide-react-native';
+import { ArrowLeft, Bell, BellOff, MessageCircle, AtSign, UserPlus, Phone, MoonStar, Sparkles } from 'lucide-react-native';
 import { entities } from '../../lib/apiClient';
 import { useAppShell } from '../../lib/appShellContext';
 import { useThemeColors } from '../../lib/theme';
@@ -20,19 +20,10 @@ import { callManager } from '../../lib/callManager';
 // first flip is what asks the OS for permission — the prompt then arrives
 // attached to an action the user just took instead of firing unexplained at
 // login (the OS only ever shows it once).
-//
-// Server and group traffic notify on EVERY message by default; the
-// *_mentions_only switches are the deliberate way to narrow that to @mentions
-// rather than a second master. `server_mentions` is the pre-rename key — the
-// broker falls back to it when `server_messages` was never written, so an
-// existing opt-out survives.
 const NOTIF_DEFAULTS = {
   enabled: false,
   dm: true,
-  server_messages: true,
-  server_mentions_only: false,
-  group_messages: true,
-  group_mentions_only: false,
+  server_mentions: false,
   friend_requests: true,
   voice_calls: true,
   dnd_suppress: true,
@@ -192,28 +183,10 @@ export default function Notifications() {
             accent={colors.accent} disabled={masterOff || !hydrated}
           />
           <ToggleRow
-            Icon={Hash} iconColor="#f97316"
-            label="Server Messages" hint="Notify for every message in your servers"
-            value={prefs.server_messages} onChange={(v) => setPref('server_messages', v)}
+            Icon={AtSign} iconColor="#f97316"
+            label="Server Mentions" hint="Notify for @mentions in servers"
+            value={prefs.server_mentions} onChange={(v) => setPref('server_mentions', v)}
             accent={colors.accent} disabled={masterOff || !hydrated}
-          />
-          <ToggleRow
-            Icon={AtSign} iconColor="#f97316" indent
-            label="Only @Mentions" hint="Narrow servers to messages that name you"
-            value={prefs.server_mentions_only} onChange={(v) => setPref('server_mentions_only', v)}
-            accent={colors.accent} disabled={masterOff || !hydrated || !prefs.server_messages}
-          />
-          <ToggleRow
-            Icon={Users} iconColor="#38bdf8"
-            label="Group Chats" hint="Notify for every message in your group chats"
-            value={prefs.group_messages} onChange={(v) => setPref('group_messages', v)}
-            accent={colors.accent} disabled={masterOff || !hydrated}
-          />
-          <ToggleRow
-            Icon={AtSign} iconColor="#38bdf8" indent
-            label="Only @Mentions" hint="Narrow group chats to messages that name you"
-            value={prefs.group_mentions_only} onChange={(v) => setPref('group_mentions_only', v)}
-            accent={colors.accent} disabled={masterOff || !hydrated || !prefs.group_messages}
           />
           <ToggleRow
             Icon={UserPlus} iconColor="#22c55e"
@@ -259,21 +232,18 @@ export default function Notifications() {
 // ── Pieces ───────────────────────────────────────────────────────────────────
 
 function ToggleRow({
-  Icon, iconColor, label, hint, value, onChange, accent, disabled, last, indent,
+  Icon, iconColor, label, hint, value, onChange, accent, disabled, last,
 }: {
   Icon: any; iconColor: string; label: string; hint: string;
   value: boolean; onChange: (v: boolean) => void; accent: string;
-  disabled?: boolean; last?: boolean; indent?: boolean;
+  disabled?: boolean; last?: boolean;
 }) {
   return (
     <View
       style={{
         flexDirection: 'row', alignItems: 'center', gap: 12,
-        // Indented rows read as a qualifier on the row above them rather than
-        // another signal type of their own.
-        paddingLeft: indent ? 32 : 14, paddingRight: 14, paddingVertical: 13,
+        paddingHorizontal: 14, paddingVertical: 13,
         borderBottomWidth: last ? 0 : 1, borderBottomColor: 'rgba(255,255,255,0.05)',
-        opacity: disabled ? 0.5 : 1,
       }}
     >
       <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: iconColor + '1F', alignItems: 'center', justifyContent: 'center' }}>

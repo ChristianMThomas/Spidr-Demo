@@ -1,6 +1,6 @@
 # SPIDR APEX — Pricing & Monetization Reference
 
-> Source of truth as implemented in code as of 2026-08-24 (branch `dev`; audited across the 1.9.57 → 1.9.66 patch chain, none of which touched APEX pricing, the Stripe data model, or the checkout/portal flow — 1.9.55 remains the last APEX-specific patch).
+> Source of truth as implemented in code as of 2026-07-28 (branch `dev`; Patch 1.9.55 tightened the ApexStore's "already subscribed" recognition, but the model, prices, and flow below are unchanged since 1.9.25).
 > Primary implementation: `spidr-client/src/components/spidr/ApexCommand.jsx` (checkout + manage UI),
 > `spidr-server/src/models/UserProfile.js:42-70` (tier + Stripe state),
 > `spidr-server/src/routes/webhooks/stripe.js` (signed webhook — only writer of `apex_tier`),
@@ -16,7 +16,7 @@ Two tiers exist in the data model (`UserProfile.apex_tier`, enum `['free','apex'
 | APEX — Monthly | **$7.99 / mo** | $7.99 | Monthly | |
 | APEX — Yearly | **$69.99 / yr** | $5.83 | Annual | ~27% discount vs monthly |
 
-Prices are hardcoded in `ApexCommand.jsx:11-14` (`MONTHLY_PRICE = 7.99`, `YEARLY_PRICE = 69.99`; `YEARLY_MO_EQUIV` and savings % computed). There is no server-side price table — changing prices means editing the client, redeploying, **and** updating the corresponding Stripe Price IDs on the server.
+Prices are hardcoded in `ApexCommand.jsx:11-14` (`MONTHLY_PRICE = 7.99`, `YEARLY_PRICE = 69.99`; savings % is computed). There is no server-side price table — changing prices means editing the client, redeploying, **and** updating the corresponding Stripe Price IDs on the server.
 
 ## What APEX Buys (as marketed in the upgrade modal)
 
@@ -30,16 +30,16 @@ Prices are hardcoded in `ApexCommand.jsx:11-14` (`MONTHLY_PRICE = 7.99`, `YEARLY
 ## What APEX Actually Gates in Code (broader than the marketing list)
 
 - **Symbiote suite** (Patches 2.0–2.4): Profile Takeover overlay, Stream HUD with live telemetry, Frame Vault (`apexFrameStyle`, default `symbiote-tear`), Nexus Grid sidebar, custom Nameplates (`apexNameplateStyle`, `nameplate_url`)
-- **Chat bubble gradients** — APEX-only gradients enforced in `spidr-client/src/lib/bubbleGradients.js` (falls back to default for free users)
-- **Feed Overclock** (Patch 2.11) — boosts a clip's algorithm weight for 1 hour (`Clip.overclock_until`; +35 tension score in `lib/tensionScore.js`); owner-only per `routes/clips.js`
+- **Chat bubble gradients** — APEX-only gradients enforced in `spidr-client/src/lib/bubbleGradients.js:133` (falls back to default for free users)
+- **Feed Overclock** (Patch 2.11) — boosts a clip's algorithm weight for 1 hour (`Clip.overclock_until`; +35 tension score in `lib/tensionScore.js:40`); owner-only per `routes/clips.js`
 - **APEX Web-Strike** — slam reaction on feed clips
-- Custom profile background formerly APEX-only (`custom_bg_url`) — now superseded by Theme Studio for everyone (`HomeDashboard.jsx`)
+- Custom profile background formerly APEX-only (`custom_bg_url`) — now superseded by Theme Studio for everyone (`HomeDashboard.jsx:63`)
 
-Feature flags are stored in `UserProfile.apex_features` (Mixed object: `thread_skin`, `squad_overclock`, `deep_storage`, `entry_protocol`, `bubble_gradient`, `entrance_style`, `frame_url`, `nameplate_url`, `plan_type`, `activated_at`, …). Visual fields are **duplicated** top-level on the profile (`apexFrameStyle`, `apexBadgeUrl`, `apexBadgeGlow`, `apexNameplateStyle` — see `UserProfile.js:46-49`) — consumers read top-level first, then fall back to `apex_features`. Writers must update both (see `ApexVisuals.jsx` badge saver).
+Feature flags are stored in `UserProfile.apex_features` (Mixed object: `thread_skin`, `squad_overclock`, `deep_storage`, `entry_protocol`, `bubble_gradient`, `entrance_style`, `frame_url`, `nameplate_url`, `plan_type`, `activated_at`, …). Visual fields are **duplicated** top-level on the profile (`apexFrameStyle`, `apexBadgeUrl`, `apexBadgeGlow`, `apexNameplateStyle`) — consumers read top-level first, then fall back to `apex_features`. Writers must update both (see `ApexVisuals.jsx` badge saver).
 
 ## Stripe Data Model (Patch 1.9.25)
 
-Real subscription state lives on `UserProfile` as server-only fields (`spidr-server/src/models/UserProfile.js:58-70`, comment: "ALL of these are server-only writes via routes/webhooks/stripe.js — they're in crudRouter's PROTECTED_FIELDS so no client PATCH can touch them"):
+Real subscription state lives on `UserProfile` as server-only fields (`spidr-server/src/models/UserProfile.js:58-70`, comment: "in crudRouter's PROTECTED_FIELDS … no client PATCH can touch them"):
 
 | Field | Type | Notes |
 |---|---|---|
@@ -55,20 +55,14 @@ Real subscription state lives on `UserProfile` as server-only fields (`spidr-ser
 - **Upgrade**: choose plan → `payments.createCheckoutSession(planType)` (`ApexCommand.jsx:79`) returns a Stripe Checkout URL → opened in a new tab / system browser (`window.open(url, '_blank')`) → Stripe webhook flips `apex_tier` server-side. Card data never touches Spidr servers.
 - **Return-from-Checkout refresh** (`ApexCommand.jsx:47-66`): on window `focus`, every profile-related React Query cache is invalidated so the APEX badge, tab, and features unlock without a manual reload. Electron-aware — `window.electronAPI.onWindowFocus` fires even when the OS focus target is still the external browser tab.
 - **Cancel / manage**: `payments.createPortalSession()` (`ApexCommand.jsx:94`) opens the Stripe Billing Portal in a new tab. Cancellation, plan changes, and payment-method updates all happen there; the webhook mirrors the resulting state back into `stripe_*` fields.
-- **Already-subscribed short-circuit** (Patch 1.9.55): `ApexCommand` opens straight on the `'manage'` step when `currentTier === 'apex'` (`ApexCommand.jsx:18`), and `ApexStore.jsx` no longer offers re-purchase flows to users whose `apex_tier === 'apex'` — driven by live Stripe fields on `UserProfile`.
-- **Manage screen** reads live Stripe fields — status pill from `stripe_subscription_status` (trialing → yellow "Free trial active"; else green "Active Subscription"), next-billing row from `stripe_current_period_end`, plan/amount from `apex_features.plan_type` + `MONTHLY_PRICE` / `YEARLY_PRICE` constants (`ApexCommand.jsx:112-114`).
+- **Manage screen** reads live Stripe fields — status pill from `stripe_subscription_status` (trialing → yellow "Free trial active"; else green "Active Subscription"), next-billing row from `stripe_current_period_end`, plan/amount from `apex_features.plan_type` + `MONTHLY_PRICE` / `YEARLY_PRICE` constants.
 
 ## Remaining Gaps
 
-Patch 1.9.25 closed the big four (real Stripe checkout, server-only tier writes, real cancel semantics, live billing metadata). What's left, unchanged since the last audit:
+Patch 1.9.25 closed the big four (real Stripe checkout, server-only tier writes, real cancel semantics, live billing metadata). What's left:
 
-1. **Feature-level enforcement is still client-side.** Tier writes are locked, but the API will still persist APEX-only fields (bubble gradients, entrance styles, frame URLs) if a free user PATCHes them directly. Belt-and-braces would be server-side rejection of APEX-gated field writes when `apex_tier === 'free'`.
+1. **Feature-level enforcement is still client-side.** Tier writes are locked, but the API will still persist APEX-only fields (`bubbleGradients.js:133`, entrance styles, frame URLs) if a free user PATCHes them directly. Belt-and-braces would be server-side rejection of APEX-gated field writes when `apex_tier === 'free'`.
 2. **No higher tier.** The UI hints at "APEX TIER 1" but the enum is binary. Adding TIER 2 means extending the enum, the price table, the Checkout Session catalog, and the webhook mapping.
 3. **No self-serve refund / dunning UX inside Spidr.** All of it goes through the Stripe portal — fine for now, but note it before any consumer-support-heavy launch.
 
-Historical / resolved gaps (kept for context): PCI scope from client-side card collection, client-writable `apex_tier`, hardcoded billing metadata, and instant-vs-end-of-cycle cancel semantics were the four fixed by Patch 1.9.25 (NEWS id `p1925` in `spidr-server/src/routes/system.js`). Patch 1.9.55 closed the "already-subscribed users get re-pitched the checkout" UX gap.
-
-## Related
-
-- [[goal]] — monetization goal + milestone sequence
-- [[spidr-team]] — business/legal ownership gap (matters for real payments)
+Historical / resolved gaps (kept for context): PCI scope from client-side card collection, client-writable `apex_tier`, hardcoded billing metadata, and instant-vs-end-of-cycle cancel semantics were the four fixed by Patch 1.9.25 (see `spidr-server/src/routes/system.js:13-20`, NEWS id `p1925`).

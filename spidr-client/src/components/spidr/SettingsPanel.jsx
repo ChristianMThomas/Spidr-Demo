@@ -29,7 +29,7 @@ import { USERNAME_FONTS, USERNAME_WEIGHTS, USERNAME_STYLES, USERNAME_EFFECTS, bu
 import { toast } from 'sonner';
 import { getMediaPrefs, setMediaPrefs } from '@/lib/mediaDevicePrefs';
 import spidrApexBadge from '@/assets/spidr-apex-badge.png';
-import { account } from '@/api/apiClient';
+import { account, tags } from '@/api/apiClient';
 import { AlertTriangle, Trash2 } from 'lucide-react';
 
 export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) {
@@ -84,14 +84,8 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
   // 3.4 — notification preferences. Controlled, persisted to localStorage
   // (instant local context) AND the user profile (notification_prefs) so the
   // toggles actually save and apply. Defaults match the previous defaultChecked.
-  // Server and group traffic notify on EVERY message by default; the
-  // *_mentions_only switches are the deliberate way to narrow that to
-  // @mentions. `server_mentions` is the pre-rename key, kept so an existing
-  // opt-out still reads correctly (the broker falls back to it too).
   const NOTIF_DEFAULTS = {
-    enabled: true, dm: true, friend_requests: true,
-    server_messages: true, server_mentions_only: false,
-    group_messages: true, group_mentions_only: false,
+    enabled: true, dm: true, server_mentions: false, friend_requests: true,
     voice_calls: true, dnd_suppress: true, urgent_dms: false,
   };
   const [notifPrefs, setNotifPrefs] = useState(() => {
@@ -374,6 +368,10 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                     <span className="text-zinc-500">#{profile?.discriminator || currentUser?.discriminator}</span>
                   )}
                 </p>
+                <TagClaimer
+                  current={profile?.discriminator || currentUser?.discriminator}
+                  displayName={formData.display_name || currentUser?.username}
+                />
                 {formData.bio && <p className="text-zinc-300 mt-2">{formData.bio}</p>}
               </div>
             </div>
@@ -832,41 +830,9 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-white text-sm">Server Messages</p>
-                        <p className="text-zinc-500 text-xs">Notify for every message in your servers</p>
+                        <p className="text-zinc-500 text-xs">Notify for @mentions only</p>
                       </div>
-                      <Switch checked={notifPrefs.server_messages} onCheckedChange={(v) => setNotif('server_messages', v)} />
-                    </div>
-
-                    <div className="flex items-center justify-between pl-4">
-                      <div>
-                        <p className="text-white text-sm">Servers — @mentions only</p>
-                        <p className="text-zinc-500 text-xs">Narrow servers down to messages that name you</p>
-                      </div>
-                      <Switch
-                        checked={notifPrefs.server_mentions_only}
-                        onCheckedChange={(v) => setNotif('server_mentions_only', v)}
-                        disabled={!notifPrefs.server_messages}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-white text-sm">Group Chats</p>
-                        <p className="text-zinc-500 text-xs">Notify for every message in your group chats</p>
-                      </div>
-                      <Switch checked={notifPrefs.group_messages} onCheckedChange={(v) => setNotif('group_messages', v)} />
-                    </div>
-
-                    <div className="flex items-center justify-between pl-4">
-                      <div>
-                        <p className="text-white text-sm">Groups — @mentions only</p>
-                        <p className="text-zinc-500 text-xs">Narrow group chats down to messages that name you</p>
-                      </div>
-                      <Switch
-                        checked={notifPrefs.group_mentions_only}
-                        onCheckedChange={(v) => setNotif('group_mentions_only', v)}
-                        disabled={!notifPrefs.group_messages}
-                      />
+                      <Switch checked={notifPrefs.server_mentions} onCheckedChange={(v) => setNotif('server_mentions', v)} />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -1594,6 +1560,114 @@ function DangerZone() {
           className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed text-white font-black uppercase tracking-widest text-xs transition-colors"
         >
           <Trash2 className="w-4 h-4" /> {busy ? 'Deleting…' : 'Delete My Account Permanently'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * TagClaimer — claim a custom word tag ("Auxtin#vibes") or re-roll a random one.
+ *
+ * Availability is checked against the server before the claim button enables,
+ * because uniqueness is scoped to display name + tag: many people can be
+ * #vibes, but only one can be Auxtin#vibes. Validation lives server-side too
+ * (the client check is a courtesy, not the gate).
+ */
+function TagClaimer({ current, displayName }) {
+  const [open, setOpen] = React.useState(false);
+  const [value, setValue] = React.useState('');
+  const [state, setState] = React.useState({ checking: false, available: null, reason: null });
+  const [busy, setBusy] = React.useState(false);
+
+  // Debounced availability check.
+  React.useEffect(() => {
+    if (!open || !value.trim()) { setState({ checking: false, available: null, reason: null }); return; }
+    setState(s => ({ ...s, checking: true }));
+    const t = setTimeout(async () => {
+      try {
+        const res = await tags.check(value.trim());
+        setState({ checking: false, available: !!res.available, reason: res.reason || null });
+      } catch (err) {
+        setState({ checking: false, available: false, reason: err?.message || 'Check failed' });
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [value, open]);
+
+  const claim = async (custom) => {
+    setBusy(true);
+    try {
+      const res = await tags.claim(custom ? value.trim() : null);
+      toast.success(`Your tag is now #${res.discriminator}`);
+      setOpen(false);
+      setValue('');
+      window.location.reload(); // simplest way to refresh every cached copy
+    } catch (err) {
+      toast.error(err?.message || 'Could not update tag');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mt-1 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-red-400 transition-colors"
+      >
+        Change tag
+      </button>
+    );
+  }
+
+  const canClaim = state.available === true && !busy;
+
+  return (
+    <div className="mt-2 p-3 rounded-xl bg-black/40 border border-white/10 max-w-sm">
+      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">
+        Custom tag
+      </p>
+      <div className="flex items-center gap-2">
+        <span className="text-zinc-400 font-mono text-sm shrink-0">{displayName}#</span>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
+          maxLength={12}
+          placeholder="vibes"
+          className="flex-1 min-w-0 bg-zinc-900 border border-white/10 rounded-lg px-2 py-1 text-sm text-white font-mono focus:outline-none focus:border-red-500/60"
+        />
+      </div>
+      <p className="text-[10px] mt-1.5 h-4">
+        {state.checking && <span className="text-zinc-500">Checking…</span>}
+        {!state.checking && state.available === true && (
+          <span className="text-green-400">{displayName}#{value.toLowerCase()} is available</span>
+        )}
+        {!state.checking && state.available === false && (
+          <span className="text-red-400">{state.reason || 'Not available'}</span>
+        )}
+      </p>
+      <div className="flex gap-2 mt-2">
+        <button
+          onClick={() => claim(true)}
+          disabled={!canClaim}
+          className="flex-1 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest transition-colors"
+        >
+          Claim
+        </button>
+        <button
+          onClick={() => claim(false)}
+          disabled={busy}
+          className="py-1.5 px-3 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 text-[10px] font-black uppercase tracking-widest transition-colors"
+          title="Get a new random tag"
+        >
+          Randomize
+        </button>
+        <button
+          onClick={() => { setOpen(false); setValue(''); }}
+          className="py-1.5 px-3 rounded-lg text-white/40 hover:text-white text-[10px] font-black uppercase tracking-widest transition-colors"
+        >
+          Cancel
         </button>
       </div>
     </div>

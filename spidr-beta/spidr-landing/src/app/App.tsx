@@ -4,6 +4,7 @@ import { useBetaStatus } from "./useBetaStatus";
 import Hero from "./components/Hero";
 import ProductShowcase from "./components/ProductShowcase";
 import WhySpidr from "./components/WhySpidr";
+import Features from "./components/Features";
 import Community from "./components/Community";
 import Platforms from "./components/Platforms";
 import FAQ from "./components/FAQ";
@@ -95,6 +96,7 @@ export default function App() {
         <Hero onOpenBeta={openBeta} betaStatus={betaStatus} />
         <ProductShowcase />
         <WhySpidr />
+        <Features />
         <Community betaStatus={betaStatus} />
         <Platforms onOpenBeta={openBeta} />
         <FAQ onOpenBeta={openBeta} />

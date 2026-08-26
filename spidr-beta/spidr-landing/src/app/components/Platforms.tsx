@@ -1,6 +1,6 @@
 import { motion, useInView } from "motion/react";
 import { useRef } from "react";
-import { Globe, Smartphone, Monitor } from "lucide-react";
+import { Globe, Smartphone, Monitor, Sparkles } from "lucide-react";
 
 const RELEASES_REPO = "ChristianMThomas/spidr-releases";
 
@@ -76,7 +76,7 @@ export default function Platforms({ onOpenBeta }: PlatformsProps) {
               </h2>
               <p className="text-zinc-400 text-lg mb-8 leading-relaxed">
                 Web, Windows desktop, and the iOS/Android beta are live today, beta invites
-                get you in immediately. macOS and Linux builds land at the October 2026 launch.
+                get you in immediately. macOS and Linux builds land at the August 2026 launch.
               </p>
               <motion.button
                 className="bg-[#8B0000] text-white px-8 py-4 rounded-full text-base font-bold inline-flex items-center gap-3 min-h-[52px]"
@@ -84,6 +84,7 @@ export default function Platforms({ onOpenBeta }: PlatformsProps) {
                 whileTap={{ scale: 0.96 }}
                 onClick={onOpenBeta}
               >
+                <Sparkles size={20} />
                 <span>Join the Beta</span>
               </motion.button>
             </div>
