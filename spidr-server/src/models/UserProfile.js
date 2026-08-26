@@ -1,15 +1,21 @@
 const { Schema, model } = require('mongoose');
 
-function genDiscriminator() {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * 36)]).join('');
-}
+// Tag generation moved into utils/tagService so every write path shares one
+// collision-checked implementation (see that file for the "#0000" history).
+const {
+  generateUniqueDiscriminator,
+  deterministicTag,
+} = require('../utils/tagService');
 
 const s = new Schema({
   user_id:        { type: String, required: true, index: true, unique: true },
 
   // display
   display_name:   String,
+  // { [conversation_id]: imageUrl } — per-user DM wallpapers. Mixed rather
+  // than Map so it serializes to plain JSON without flattenMaps (see the
+  // biomass wallet bug where Maps silently came back as {}).
+  dm_backgrounds: { type: Schema.Types.Mixed, default: {} },
   bio:            String,
   avatar_url:     String,
   banner_url:     String,
@@ -160,9 +166,18 @@ const s = new Schema({
   created_date:   { type: Date, default: Date.now },
 }, { timestamps: true });
 
-s.pre('save', function (next) {
-  if (!this.discriminator) this.discriminator = genDiscriminator();
-  next();
+s.pre('save', async function (next) {
+  try {
+    if (!this.discriminator) {
+      // Ask the DB for a free tag rather than trusting randomness. Falls back
+      // to a deterministic id-derived tag if the lookup fails, so a profile
+      // is never saved tagless (which is what produced identical #0000s).
+      this.discriminator = await generateUniqueDiscriminator(
+        this.constructor, this.display_name, this.user_id
+      ).catch(() => deterministicTag(this.user_id || this._id));
+    }
+    next();
+  } catch (err) { next(err); }
 });
 
 s.pre(['findOneAndUpdate', 'findByIdAndUpdate'], async function (next) {
@@ -170,10 +185,13 @@ s.pre(['findOneAndUpdate', 'findByIdAndUpdate'], async function (next) {
     const update = this.getUpdate();
     const $set = update.$set || {};
     if (!$set.discriminator) {
-      const doc = await this.model.findOne(this.getFilter()).select('discriminator').lean();
+      const doc = await this.model.findOne(this.getFilter()).select('discriminator user_id display_name').lean();
       if (!doc?.discriminator) {
         if (!update.$set) update.$set = {};
-        update.$set.discriminator = genDiscriminator();
+        const name = $set.display_name || doc?.display_name;
+        update.$set.discriminator = await generateUniqueDiscriminator(
+          this.model, name, doc?.user_id
+        ).catch(() => deterministicTag(doc?.user_id));
       }
     }
 

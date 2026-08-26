@@ -23,6 +23,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import HolographicProfile from './HolographicProfile';
 import MessageItem from './MessageItem';
+import ChatBackdrop from './ChatBackdrop';
+import SearchHub from './SearchHub';
+import ChatBackgroundPicker from './ChatBackgroundPicker';
 import CallAVControls from './CallAVControls';
 import CallOverlay from './CallOverlay';
 import { playSound } from './SoundEngine';
@@ -520,6 +523,29 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     staleTime: 60000,
   });
 
+  // Per-user DM wallpaper for THIS conversation. Stored on the user's own
+  // profile (DMs have no container document to hang it on), so each side of
+  // a conversation can pick their own without overwriting the other's.
+  const [showBgPicker, setShowBgPicker] = useState(false);
+
+  const dmBackground = activeConversationId
+    ? (currentProfile?.dm_backgrounds || {})[activeConversationId] || ''
+    : '';
+
+  const setDmBackground = async (url) => {
+    if (!currentProfile?.id || !activeConversationId) return;
+    const next = { ...(currentProfile.dm_backgrounds || {}) };
+    if (url) next[activeConversationId] = url;
+    else delete next[activeConversationId];
+    try {
+      await entities.UserProfile.update(currentProfile.id, { dm_backgrounds: next });
+      queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
+      toast.success(url ? 'Chat background set' : 'Chat background cleared');
+    } catch (err) {
+      toast.error(err?.message || 'Could not update background');
+    }
+  };
+
   useEffect(() => {
     if (messages.length > 0 && currentProfile?.status === 'online') {
       const latestMessage = messages[messages.length - 1];
@@ -697,6 +723,27 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
               <Phone size={17} className="rotate-[135deg]" />
             </button>
           )}
+          {/* Search & Media Hub — keyword search, image gallery, link list.
+              Desktop only; the lg:hidden button above is the mobile
+              local-filter affordance. */}
+          <div className="hidden lg:flex items-center">
+            <SearchHub
+              scope="dm"
+              id={activeConversationId}
+              members={[
+                { id: currentUser?.id, name: currentUser?.full_name || currentUser?.username },
+                { id: activeRecipientId, name: displayName },
+              ].filter(m => m.id)}
+              compact
+            />
+          </div>
+          <button
+            onClick={() => setShowBgPicker(true)}
+            className="p-2 rounded-lg text-zinc-500 hover:text-white hover:bg-white/5 transition-all"
+            title="Chat background"
+          >
+            <ImageIcon size={17} />
+          </button>
           <button onClick={() => setShowSpidrAI(!showSpidrAI)} className={`p-2 rounded-lg transition-all ${showSpidrAI ? 'text-[#FF3333] bg-[#FF3333]/10' : 'text-zinc-500 hover:text-white hover:bg-white/5'}`} title="Summon Spidr AI">
             <SpiderLogo size={17} />
           </button>
@@ -824,6 +871,21 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         className="flex-1 overflow-y-auto relative z-10 pb-4 px-2 sm:px-4" 
         ref={scrollRef}
       >
+        {/* DM wallpaper — per-user, keyed by conversation. Fixed so it stays
+            put while the message list scrolls over it. */}
+        {dmBackground && (
+          <div className="fixed inset-0 pointer-events-none z-0">
+            <ChatBackdrop url={dmBackground} />
+          </div>
+        )}
+        {showBgPicker && (
+          <ChatBackgroundPicker
+            current={dmBackground}
+            onSelect={setDmBackground}
+            onClose={() => setShowBgPicker(false)}
+            title="DM Background"
+          />
+        )}
         <style>{`
           .web-sense-container {
             position: relative;

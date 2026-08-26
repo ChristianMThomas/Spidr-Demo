@@ -6,6 +6,14 @@ const s = new Schema({
   user_avatar:  String,
   content:      String,
   attachments:  [Schema.Types.Mixed],
+  // ── Search & Media Hub flags ───────────────────────────────────────────
+  // Computed at write time (see utils/messageMeta) and indexed, so the
+  // Images/Links tabs are an index hit instead of a full scan over history.
+  has_images:   { type: Boolean, default: false, index: true },
+  has_links:    { type: Boolean, default: false, index: true },
+  media_urls:   { type: [String], default: [] },
+  link_urls:    { type: [String], default: [] },
+
   reactions:    { type: Schema.Types.Mixed, default: {} },
   is_webbed:    { type: Boolean, default: false },
   edited_at:    Date,
@@ -21,6 +29,22 @@ const s = new Schema({
   group_name:          { type: String, default: '' },
   created_date: { type: Date, default: Date.now },
 }, { timestamps: true });
+
+// Full-text index powering keyword search in this surface.
+s.index({ content: 'text' });
+
+// Derive search/gallery metadata before every save.
+s.pre('save', function (next) {
+  try {
+    const { extractMessageMeta } = require('../utils/messageMeta');
+    const meta = extractMessageMeta(this.content, this.attachments);
+    this.has_images = meta.has_images;
+    this.has_links  = meta.has_links;
+    this.media_urls = meta.media_urls;
+    this.link_urls  = meta.link_urls;
+  } catch { /* metadata is best-effort; never block a message send */ }
+  next();
+});
 
 s.pre('save', function (next) {
   this.wasNew = this.isNew;
@@ -57,11 +81,30 @@ s.post('save', async function (doc) {
     }));
 
     const mentioned = scanMentions(doc.content, candidates, doc.user_id);
-    if (mentioned.length === 0) return;
+
+    // @everyone / @here in a GROUP CHAT fans out to every member. The
+    // mention scanner deliberately treats these as reserved tokens and never
+    // expands them (correct for large server channels — you don't want one
+    // admin generating thousands of feed rows). Group chats are small and
+    // private, so the broadcast is both wanted and cheap here. No permission
+    // gate: everyone in a group DM is a peer. Server channels keep the old
+    // suppressed behavior.
+    const isEveryonePing = /@(everyone|here)\b/i.test(doc.content || '');
+    const everyoneTargets = isEveryonePing
+      ? memberIds.filter(uid => uid !== doc.user_id)
+      : [];
+
+    // Union so a message like "@everyone and @alice" doesn't notify alice twice.
+    const recipientIds = new Set([
+      ...mentioned.map(m => m.user_id),
+      ...everyoneTargets,
+    ]);
+    if (recipientIds.size === 0) return;
 
     const snippet = doc.content.length > 140 ? doc.content.slice(0, 137) + '…' : doc.content;
 
-    for (const m of mentioned) {
+    for (const uid of recipientIds) {
+      const m = { user_id: uid };
       feedEvents.mention({
         sender_id:     doc.user_id,
         sender_name:   doc.user_name || 'Someone',

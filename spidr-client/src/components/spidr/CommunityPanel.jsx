@@ -602,7 +602,7 @@ export default function CommunityPanel({ server, currentUser, onSelectUser, chat
                                               </button>
                                             )}
                                             <span className="text-zinc-500 ml-1 opacity-60 hidden">
-                                              #{profile?.discriminator || '0000'}
+                                              {profile?.discriminator ? `#${profile.discriminator}` : ''}
                                             </span>
                                             {/* Sonic Uplink — glowing eq pill, right-aligned opposite the name */}
                                             {isOnline && <SonicUplink userId={member.user_id} className="ml-auto shrink-0" />}

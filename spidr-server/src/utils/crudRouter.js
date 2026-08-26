@@ -104,6 +104,10 @@ module.exports = function crudRouter(Model, opts = {}) {
   const PROTECTED_FIELDS = new Set([
     'password', 'is_banned', 'role', 'is_verified', 'is_admin',
     'twoFactorSecret', 'twoFactorMethod',
+    // #tag: only POST /user-profiles/tag may set this. A blanket PATCH would
+    // skip validation, case-folding, reserved words and collision checks —
+    // i.e. a user could hand themselves "#admin" or duplicate someone else.
+    'discriminator',
     // streak fields are server-computed; only the /streak route may write them
     'streak_current', 'streak_best', 'streak_total_days', 'streak_last_active_date',
     // Apex tier + Stripe subscription state — only routes/webhooks/stripe.js

@@ -1,5 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import ServerAvatar from '../ServerAvatar';
 
 export default function MutualsTab({ mutualServers, mutualFriends }) {
   return (
@@ -12,7 +13,7 @@ export default function MutualsTab({ mutualServers, mutualFriends }) {
             {mutualServers.map(server => (
               <div key={server.id} className="flex items-center gap-2 p-1.5 pr-3 bg-white/[0.03] rounded-xl border border-white/[0.06] hover:bg-white/[0.06] transition-colors">
                 {server.icon_url ? (
-                  <img src={server.icon_url} className="w-7 h-7 rounded-[8px] object-cover bg-black" alt="" />
+                  <ServerAvatar src={server.icon_url} name={server.name} size={28} letters={1} rounded="rounded-[8px]" />
                 ) : (
                   <div className="w-7 h-7 rounded-[8px] bg-[#FF3333]/20 border border-[#FF3333]/40 flex items-center justify-center text-[#FF3333] text-[10px] font-black">
                     {server.name?.charAt(0)}

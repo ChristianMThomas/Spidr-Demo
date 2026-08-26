@@ -1,16 +1,15 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Server, Settings, MessageCircle, Plus, Network, Radio, Shield, Blocks, Activity, Home } from 'lucide-react';
+import { Users, Server, Settings, MessageCircle, Network, Radio, Shield, Blocks, Activity, Home } from 'lucide-react';
 import SpiderLogo from './SpiderLogo';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations, getSocket } from '@/api/apiClient';
+import { entities, auth, getSocket } from '@/api/apiClient';
 import { playSound } from './SoundEngine';
 import ApexStore from './ApexStore';
 import { useMenu } from '@/components/MenuContext';
-import { ServerPulse } from '@/components/ui/PulseBadge';
 
-export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGlass = false, orientation = 'vertical' }) {
+export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orientation = 'vertical' }) {
   const navigate = useNavigate();
   const location = useLocation();
   // Active server id from the URL (/servers/:id) for the Nexus Grid active state.
@@ -264,66 +263,13 @@ export default function Sidebar({ activeTab, setActiveTab, onCreateServer, isGla
         })}
       </div>
       
-      {/* Server list preview - only show when on servers tab (vertical only) */}
-      {activeTab === 'servers' && !horizontal && (
-        <div className="relative flex flex-col gap-2 w-full px-2 mb-4">
-          {/* Nexus Grid web strand — a subtle bezier curve woven behind the
-              nodes (z-0). Nodes sit on top at z-10. */}
-          <svg
-            className="absolute inset-0 w-full h-full pointer-events-none"
-            style={{ zIndex: 0 }}
-            preserveAspectRatio="none"
-            viewBox="0 0 80 400"
-            aria-hidden="true"
-          >
-            <path d="M 40 0 Q 60 200 40 400" stroke="#8b0000" strokeWidth="1.5" fill="none" opacity="0.4" />
-          </svg>
-
-          <div className="relative z-10 w-8 h-0.5 bg-red-900/50 rounded-full mx-auto mb-2" />
-
-          <div className="relative z-10 flex flex-col gap-2 max-h-[200px] overflow-y-auto scrollbar-thin">
-            {servers.slice(0, 5).map((server) => {
-              const isActive = activeServerId === server.id;
-              return (
-              <div key={server.id} className="relative mx-auto">
-                {/* Left-edge active indicator pill (replaces Discord-style dots) */}
-                {isActive && (
-                  <div className="absolute left-[-10px] top-1/2 -translate-y-1/2 w-[6px] h-10 bg-[#dc2626] rounded-r-md" />
-                )}
-                <motion.button
-                  onClick={() => navigate(`/servers/${server.id}`)}
-                  onContextMenu={(e) => triggerMenu(e, 'server_sidebar', { id: server.id, name: server.name })}
-                  onMouseEnter={() => playSound('hover')}
-                  className="w-12 h-12 rounded-2xl overflow-hidden transition-all duration-200"
-                  style={isActive ? { boxShadow: '0 0 25px rgba(220,38,38,0.5)' } : {}}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  {server.icon_url ? (
-                    <img src={server.icon_url} alt={server.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-[#8b0000] flex items-center justify-center text-white font-bold text-lg">
-                      {server.name?.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                </motion.button>
-              </div>
-              );
-            })}
-          </div>
-
-          {/* Add Server node — dashed squircle, transparent center so the web
-              strand shows through. */}
-          <motion.button
-            onClick={onCreateServer}
-            className="relative z-10 w-12 h-12 rounded-2xl bg-transparent border-2 border-dashed border-gray-600/80 text-gray-500 hover:border-[#dc2626] hover:text-[#dc2626] flex items-center justify-center transition-all duration-200 mx-auto"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Plus className="w-5 h-5" />
-          </motion.button>
-        </div>
-      )}
+      {/* NOTE: the vertical strip of server avatars that used to live here
+          was removed deliberately. Servers were rendering in BOTH this rail
+          and the Server Matrix panel beside it, so the eye had two competing
+          places to switch context. The rail is now strictly global routing
+          (Home, Friends, Servers toggle, Bot Lab, Settings) and servers live
+          exclusively in the Matrix panel, where there's room for full names,
+          member counts, and search. Create-server moved there too. */}
 
       {/* APEX POWER-UP BUTTON */}
       <div className={`${horizontal ? 'ml-4 w-12 flex-shrink-0' : 'mt-2 mb-2 px-2 w-full flex-shrink-0 flex justify-center'}`}>

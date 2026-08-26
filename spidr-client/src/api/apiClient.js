@@ -283,6 +283,24 @@ export const algorithm = {
 // One wallet per user (auto-created on first fetch). Earn from in-app actions
 // (server grants automatically) or daily claim. Spend at the shop or via
 // direct spend calls. All endpoints return the updated wallet.
+// Search & Media Hub — keyword search, image gallery, and link list across
+// DMs, group chats, and server channels. One endpoint, three views.
+export const searchHub = (params) => {
+  const qs = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+  ).toString();
+  return api.get(`/search-hub?${qs}`);
+};
+
+// Spidr #tag (discriminator) — claim a custom word tag or re-roll a random
+// one. Deliberately separate from the profile PATCH surface: tags need
+// validation, case-folding, reserved-word and collision checks, so the
+// server blocks `discriminator` on ordinary profile updates.
+export const tags = {
+  claim: (tag) => api.post('/user-profiles/tag', { tag: tag || null }),
+  check: (tag) => api.get(`/user-profiles/tag/check?tag=${encodeURIComponent(tag)}`),
+};
+
 // Account self-service + platform-admin moderation.
 // deleteMe cascades every user-owned collection server-side; admin methods
 // require User.role === 'admin' or is_admin === true.

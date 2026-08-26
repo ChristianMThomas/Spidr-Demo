@@ -29,6 +29,8 @@ import CatchMeUpBar from './CatchMeUpBar';
 import FlyHunt from './FlyHunt';
 import MentionParser from './MentionParser';
 import VoiceMessageCapsule from './VoiceMessageCapsule';
+import ServerAvatar from './ServerAvatar';
+import SearchHub from './SearchHub';
 import EventModal from './EventModal';
 import KineticText from './KineticText';
 import AgeGateModal from './AgeGateModal';
@@ -102,11 +104,15 @@ function ServerPreview({ server, currentUser, onJoined, onBack }) {
         </div>
       )}
       <div className="relative z-10 max-w-sm">
-        <div className="w-20 h-20 rounded-3xl mx-auto mb-4 bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center overflow-hidden shadow-lg shadow-red-900/30">
-          {server.icon_url
-            ? <img src={server.icon_url} alt="" className="w-full h-full object-cover" />
-            : <span className="text-3xl font-black text-white">{server.name?.charAt(0)}</span>}
-        </div>
+        <ServerAvatar
+          src={server.icon_url}
+          name={server.name}
+          size={80}
+          letters={1}
+          rounded="rounded-3xl"
+          className="mx-auto mb-4 shadow-lg shadow-red-900/30"
+          fallbackClassName="bg-gradient-to-br from-red-700 to-red-900 text-white"
+        />
         <h2 className="text-2xl font-black text-white">{server.name}</h2>
         {server.description && <p className="text-zinc-400 text-sm mt-2">{server.description}</p>}
         <p className="text-zinc-500 text-xs mt-3">
@@ -231,15 +237,7 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
                 }`}
                 whileHover={{ x: 4 }}
               >
-                <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0">
-                  {server.icon_url ? (
-                    <img src={server.icon_url} alt={server.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center text-white font-bold">
-                      {server.name?.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                </div>
+                <ServerAvatar src={server.icon_url} name={server.name} size={40} />
                 <div className="flex-1 min-w-0 text-left">
                   <p className="font-medium truncate">{server.name}</p>
                   <p className="text-xs text-zinc-500 truncate">
@@ -254,6 +252,19 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
                 <p>No servers found</p>
               </div>
             )}
+
+            {/* Create Server — moved here from the old left-rail strip so the
+                action stays reachable now that servers live only in this
+                panel. Matches the row geometry above. */}
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('spidr-create-server'))}
+              className="w-full flex items-center gap-3 p-2 rounded-lg text-zinc-500 hover:text-[#dc2626] hover:bg-zinc-800/60 transition-colors group/new"
+            >
+              <div className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center border-2 border-dashed border-zinc-700 group-hover/new:border-[#dc2626] transition-colors">
+                <Plus className="w-5 h-5" />
+              </div>
+              <span className="text-sm font-medium">Create Server</span>
+            </button>
           </div>
         </ScrollArea>
       </div>
@@ -1547,7 +1558,17 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           <Hash className="w-5 h-5 text-red-500 shrink-0" />
           <span className="font-bold text-white truncate">{currentChannelObj?.name || selectedChannel}</span>
           <span className="hidden sm:inline text-neutral-500 text-sm shrink-0">· connected to the web</span>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex items-center gap-1 relative">
+            {/* Images / Links tabs for this channel. Keyword search is already
+                handled by SignalTracker beside it, so this runs in mediaOnly
+                mode rather than adding a second search box. */}
+            <SearchHub
+              scope="server"
+              id={server?.id}
+              channelId={selectedChannel}
+              members={serverMembers}
+              mediaOnly
+            />
             <SignalTracker
               placeholder="Search server..."
               messages={messages}

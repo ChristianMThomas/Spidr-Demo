@@ -18,6 +18,8 @@ import { useTension } from '@/hooks/useTension';
 import { useStickyBoolean } from '@/hooks/useStickyBoolean';
 import { useAppShell } from '@/context/AppShellContext';
 import MessageItem from './MessageItem';
+import ChatBackdrop from './ChatBackdrop';
+import SearchHub from './SearchHub';
 import CatchMeUpBar from './CatchMeUpBar';
 import HolographicProfile from './HolographicProfile';
 import CommunityPanel from './CommunityPanel';
@@ -513,6 +515,9 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
 
   return (
     <div className="flex-1 flex bg-black relative overflow-hidden max-w-full">
+      {/* Group chat wallpaper (shared across members, member-settable in
+          Group Settings). Renders nothing when unset. */}
+      <ChatBackdrop url={group?.background_url} />
       {/* Fly Hunt */}
       <FlyHunt
         onCatch={async () => {
@@ -728,6 +733,16 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
           >
             <Search size={17} />
           </button>
+          <div className="hidden lg:flex items-center">
+            <SearchHub
+              scope="group"
+              id={groupId}
+              members={(group?.members || []).map(m => ({
+                id: m.user_id, name: m.user_name || m.display_name,
+              }))}
+              compact
+            />
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="p-2 text-zinc-500 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Quick actions" aria-label="Quick actions">

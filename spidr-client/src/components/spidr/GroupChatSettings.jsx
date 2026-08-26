@@ -9,6 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { entities, auth, integrations } from '@/api/apiClient';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import ChatBackgroundPicker from './ChatBackgroundPicker';
 import { Upload, X, UserPlus, Crown, Trash2, LogOut, Users, Image as ImageIcon } from 'lucide-react';
 import ImageCropper from './ImageCropper';
 
@@ -16,6 +17,9 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
   const [groupName, setGroupName] = useState(group?.name || '');
   const [groupAvatar, setGroupAvatar] = useState(group?.avatar_url || group?.icon_url || '');
   const [groupBanner, setGroupBanner] = useState(group?.banner_url || '');
+  // Chat wallpaper behind the message list (shared by all members).
+  const [groupBackground, setGroupBackground] = useState(group?.background_url || '');
+  const [showBgPicker, setShowBgPicker] = useState(false);
   const [bannerUploading, setBannerUploading] = useState(false);
   const [showImageCropper, setShowImageCropper] = useState(false);
   const [tempImage, setTempImage] = useState(null);
@@ -133,7 +137,7 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
   };
 
   const handleSaveSettings = async () => {
-    updateGroupMutation.mutate({ name: groupName, avatar_url: groupAvatar, banner_url: groupBanner });
+    updateGroupMutation.mutate({ name: groupName, avatar_url: groupAvatar, banner_url: groupBanner, background_url: groupBackground });
   };
 
   const handleAddMember = async () => {
@@ -261,6 +265,41 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
                   placeholder="Enter group name"
                 />
               </div>
+
+              {/* Chat wallpaper — shared by every member of the group. */}
+              <div className="space-y-2">
+                <Label>Chat Background</Label>
+                <button
+                  onClick={() => setShowBgPicker(true)}
+                  className="w-full h-20 rounded-xl border border-white/10 hover:border-red-500/50 overflow-hidden relative transition-colors group/bg"
+                  style={groupBackground ? {
+                    backgroundImage: `url(${groupBackground})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  } : { background: 'rgba(255,255,255,0.03)' }}
+                >
+                  <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-white/70 bg-black/40 opacity-0 group-hover/bg:opacity-100 transition-opacity">
+                    Change background
+                  </span>
+                  {!groupBackground && (
+                    <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-white/35">
+                      No background set
+                    </span>
+                  )}
+                </button>
+                <p className="text-[10px] text-zinc-500">
+                  Applies for everyone in this group. Save to apply.
+                </p>
+              </div>
+
+              {showBgPicker && (
+                <ChatBackgroundPicker
+                  current={groupBackground}
+                  onSelect={(url) => setGroupBackground(url)}
+                  onClose={() => setShowBgPicker(false)}
+                  title="Group Background"
+                />
+              )}
 
               {/* Save Button — any member can save name/avatar changes */}
               <Button

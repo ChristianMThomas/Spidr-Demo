@@ -139,7 +139,7 @@ export default function UserProfileWidget({ currentUser, onOpenSettings }) {
           <p className="text-white font-semibold truncate">
             {currentUser?.display_name || 'User'}
             <span className="text-zinc-500 ml-1 opacity-60">
-              #{userProfile?.discriminator || '0000'}
+              {userProfile?.discriminator ? `#${userProfile.discriminator}` : ''}
             </span>
           </p>
           <p className="text-xs text-zinc-500 truncate">

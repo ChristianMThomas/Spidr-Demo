@@ -11,6 +11,14 @@ const s = new Schema({
   author_avatar:String,
   content:      String,
   attachments:  [Schema.Types.Mixed],
+  // ── Search & Media Hub flags ───────────────────────────────────────────
+  // Computed at write time (see utils/messageMeta) and indexed, so the
+  // Images/Links tabs are an index hit instead of a full scan over history.
+  has_images:   { type: Boolean, default: false, index: true },
+  has_links:    { type: Boolean, default: false, index: true },
+  media_urls:   { type: [String], default: [] },
+  link_urls:    { type: [String], default: [] },
+
   reactions:    { type: Schema.Types.Mixed, default: {} },
   is_webbed:    { type: Boolean, default: false },
   edited_at:    Date,
@@ -29,6 +37,19 @@ s.virtual('effectiveUserId').get(function() { return this.user_id || this.author
 s.virtual('effectiveName').get(function() { return this.user_name || this.author_name; });
 
 // Mark new-vs-update for the mention scanner hook below
+// Derive search/gallery metadata before every save.
+s.pre('save', function (next) {
+  try {
+    const { extractMessageMeta } = require('../utils/messageMeta');
+    const meta = extractMessageMeta(this.content, this.attachments);
+    this.has_images = meta.has_images;
+    this.has_links  = meta.has_links;
+    this.media_urls = meta.media_urls;
+    this.link_urls  = meta.link_urls;
+  } catch { /* metadata is best-effort; never block a message send */ }
+  next();
+});
+
 s.pre('save', function (next) {
   this.wasNew = this.isNew;
   next();
