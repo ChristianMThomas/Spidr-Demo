@@ -757,6 +757,19 @@ module.exports = function registerHandlers(io) {
     });
 
     // ── Disconnect ───────────────────────────────────────────────────────────
+    // ── Game presence ──────────────────────────────────────────────────
+    // The desktop watcher pushes status changes here so other clients can
+    // react without polling the profile.
+    socket.on('presence:activity', async ({ status } = {}) => {
+      try {
+        await UserProfile.findOneAndUpdate(
+          { user_id: userId },
+          { $set: { gaming_status: status || null } }
+        );
+        io.emit('presence:activity-changed', { userId, status: status || null });
+      } catch { /* best-effort */ }
+    });
+
     socket.on('disconnect', async () => {
       socketEventCounts.delete(socket.id);
       // Release every Spotify subscription this socket held so the poller
@@ -766,10 +779,17 @@ module.exports = function registerHandlers(io) {
       const wentOffline = removeSocket(userId, socket.id);
       if (wentOffline) {
         io.emit('user:offline', { userId });
+        // ZOMBIE KILLER: wipe the game status along with presence. If someone
+        // force-quits Spidr or their wifi drops mid-game, the client-side
+        // "game closed" event never fires — this is the only thing that stops
+        // a stale title being pinned to their profile indefinitely. Their
+        // last connection going away means they're not playing anything we
+        // can still observe.
         UserProfile.findOneAndUpdate(
           { user_id: userId },
-          { $set: { status: 'offline', last_seen: new Date() } }
+          { $set: { status: 'offline', last_seen: new Date(), gaming_status: null } }
         ).catch(() => {});
+        io.emit('presence:activity-changed', { userId, status: null });
       }
       try {
         await VoiceSession.deleteMany({ user_id: userId, is_spidr_ai: { $ne: true } });

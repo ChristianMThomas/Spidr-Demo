@@ -21,17 +21,46 @@ const User = require('../models/User');
 
 const router = express.Router();
 
+// Resolve the two participants of a conversation from any message in it.
+async function partiesOf(conversationId) {
+  const sample = await DirectMessage.findOne({ conversation_id: conversationId })
+    .select('sender_id receiver_id recipient_id').lean();
+  if (!sample) return null;
+  return [...new Set(
+    [sample.sender_id, sample.receiver_id, sample.recipient_id].filter(Boolean).map(String)
+  )];
+}
+
+/**
+ * Canonical settings key.
+ *
+ * THE REASON THIS EXISTS: the same pair of users can end up with more than
+ * one conversation_id — a thread opened from each side, or ids generated
+ * before the sorted-pair convention was applied consistently. (The same
+ * split caused duplicate heads in the SPIDR WEB strip.) If each client
+ * passes its own variant, each reads a DIFFERENT settings row and a
+ * background set by one person is invisible to the other even though every
+ * other part of the pipeline is working.
+ *
+ * We therefore key settings on the participants, not on whichever id string
+ * the caller happened to send: derive both parties from the thread and
+ * rebuild the canonical sorted id. Falls back to the raw id when the
+ * conversation has no messages yet to resolve parties from.
+ */
+async function canonicalKey(conversationId) {
+  const parties = await partiesOf(conversationId);
+  if (!parties || parties.length < 2) return conversationId;
+  return parties.sort().join('-');
+}
+
 // Participation check — a conversation id is not a capability. Without this,
 // anyone could read or overwrite any conversation's wallpaper by guessing an
 // id, and could inject system messages into strangers' threads.
 async function assertParticipant(conversationId, userId) {
-  const sample = await DirectMessage.findOne({ conversation_id: conversationId })
-    .select('sender_id receiver_id recipient_id').lean();
+  const parties = await partiesOf(conversationId);
   // A brand-new conversation with no messages yet has nobody to verify
   // against; allow it rather than blocking the first background change.
-  if (!sample) return true;
-  const parties = [sample.sender_id, sample.receiver_id, sample.recipient_id]
-    .filter(Boolean).map(String);
+  if (!parties) return true;
   return parties.includes(String(userId));
 }
 
@@ -51,8 +80,9 @@ router.get('/:conversationId', authMW, async (req, res) => {
     if (!(await assertParticipant(conversationId, req.user?.id))) {
       return res.status(403).json({ error: 'Not your conversation' });
     }
-    const doc = await ConversationSettings.findOne({ conversation_id: conversationId }).lean();
-    res.json(doc || { conversation_id: conversationId, background_url: '' });
+    const key = await canonicalKey(conversationId);
+    const doc = await ConversationSettings.findOne({ conversation_id: key }).lean();
+    res.json(doc || { conversation_id: key, background_url: '' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -70,8 +100,9 @@ router.put('/:conversationId', authMW, async (req, res) => {
       ? req.body.background_url : '';
     const name = await displayNameOf(userId);
 
+    const key = await canonicalKey(conversationId);
     const doc = await ConversationSettings.findOneAndUpdate(
-      { conversation_id: conversationId },
+      { conversation_id: key },
       { $set: { background_url, updated_by: userId, updated_by_name: name } },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     ).lean();
@@ -105,13 +136,19 @@ router.put('/:conversationId', authMW, async (req, res) => {
     // Broadcast to the room so the other client repaints without a refresh.
     const io = req.app.get('io');
     if (io) {
-      io.to(`dm:${conversationId}`).emit('dm:background-changed', {
-        conversation_id: conversationId,
-        background_url,
-        updated_by: userId,
-        updated_by_name: name,
-      });
-      io.to(`dm:${conversationId}`).emit('dm:new', systemMessage);
+      // Emit to the id the caller used AND the canonical one — the other
+      // client may have joined the room under its own variant.
+      const rooms = [...new Set([conversationId, key])];
+      for (const room of rooms) {
+        io.to(`dm:${room}`).emit('dm:background-changed', {
+          conversation_id: conversationId,
+          canonical_id: key,
+          background_url,
+          updated_by: userId,
+          updated_by_name: name,
+        });
+        io.to(`dm:${room}`).emit('dm:new', systemMessage);
+      }
     }
 
     res.json({ ok: true, settings: doc, systemMessage });

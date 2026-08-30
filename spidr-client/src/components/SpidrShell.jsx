@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Volume2, VolumeX, PhoneOff, ChevronUp } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { useAppShell } from '@/context/AppShellContext';
+import { entities, getSocket } from '@/api/apiClient';
+import { useQueryClient } from '@tanstack/react-query';
 import { useGlobalMenuActions } from '@/hooks/useGlobalMenuActions';
 import Sidebar from '@/components/spidr/Sidebar';
 import { MenuProvider } from '@/components/MenuContext';
@@ -85,6 +87,52 @@ export default function SpidrShell() {
         : false;
     if (!onCallSurface) setIsCallMinimized(true);
   }, [location.pathname, activeCall, isCallMinimized, setIsCallMinimized]);
+
+  // ── Global game-presence watcher ────────────────────────────────────────
+  // THE GHOST PRESENCE FIX. This listener used to live only inside the
+  // GamingUplink profile widget, which mounts only when you are viewing your
+  // OWN profile. Electron correctly reports "no game running" the moment you
+  // close one — but if that happened while you were anywhere else in the app
+  // (a DM, a server, the homepage), nothing was listening, so the cleared
+  // status never got written and the old game stayed pinned forever. Hoisted
+  // here, it runs for the whole session regardless of route.
+  const shellQueryClient = useQueryClient();
+  useEffect(() => {
+    if (!currentUser?.id || !window.electronAPI?.onGamingStatus) return;
+    let profileId = null;
+    let lastKey = null;
+
+    const write = async (status) => {
+      try {
+        if (!profileId) {
+          const rows = await entities.UserProfile.filter({ user_id: currentUser.id });
+          profileId = rows?.[0]?.id;
+          if (!profileId) return;
+        }
+        // Stamp the reading time so viewers can age out a status whose owner
+        // vanished without ever sending a clear (force-quit, laptop asleep).
+        const stamped = status ? { ...status, at: Date.now() } : null;
+        const key = `${stamped?.game ?? ''}|${stamped?.inSession}|${stamped?.active}`;
+        if (key === lastKey) return;   // identical poll — skip the write
+        lastKey = key;
+        await entities.UserProfile.update(profileId, { gaming_status: stamped });
+        shellQueryClient.invalidateQueries({ queryKey: ['user-profile', currentUser.id] });
+        try { getSocket().emit('presence:activity', { status: stamped }); } catch {}
+      } catch { /* presence is best-effort — never surface an error for it */ }
+    };
+
+    window.electronAPI.requestGamingStatus?.().then((s) => { if (s) write(s); }).catch(() => {});
+    const cleanup = window.electronAPI.onGamingStatus((s) => write(s));
+
+    // Closing Spidr shouldn't leave a game pinned to your profile.
+    const clearOnExit = () => { try { getSocket().emit('presence:activity', { status: null }); } catch {} };
+    window.addEventListener('beforeunload', clearOnExit);
+
+    return () => {
+      cleanup?.();
+      window.removeEventListener('beforeunload', clearOnExit);
+    };
+  }, [currentUser?.id, shellQueryClient]);
 
   // 2.2 — Electron: when the window loses focus during an active call, optional
   // PiP via the pop-out window (opt-in, off by default). Reuses the existing

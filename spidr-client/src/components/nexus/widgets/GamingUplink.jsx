@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Gamepad2, Sparkles } from 'lucide-react';
-import { entities } from '@/api/apiClient';
+import { entities, getSocket } from '@/api/apiClient';
 import { curatedAccent, extractDominantColor, withAlpha, DEFAULT_ACCENT } from '@/lib/gameAccent';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,21 +92,33 @@ export default function GamingUplink({ userId, isOwnProfile }) {
 
   useEffect(() => { profileIdRef.current = profile?.id ?? null; }, [profile?.id]);
 
-  const applyStatus = async (status) => {
-    if (!profileIdRef.current) return;
-    await entities.UserProfile.update(profileIdRef.current, { gaming_status: status });
-    queryClient.invalidateQueries({ queryKey: ['user-profile', userId] });
-  };
 
-  // Electron game detection — own profile only
+  // NOTE: Electron game detection is NOT wired here any more. It used to be,
+  // and that was the ghost-presence bug: this widget only mounts on your own
+  // profile, so closing a game anywhere else in the app meant nobody heard
+  // the "no game running" event and the stale title stuck. Detection now
+  // lives in SpidrShell for the whole session; this widget just renders.
+
+  // React to presence broadcasts so OTHER people's cards clear live rather
+  // than after a refresh.
   useEffect(() => {
-    if (!isOwnProfile || !window.electronAPI?.onGamingStatus) return;
-    window.electronAPI.requestGamingStatus().then((status) => { if (status) applyStatus(status); });
-    const cleanup = window.electronAPI.onGamingStatus((status) => applyStatus(status));
-    return cleanup;
-  }, [isOwnProfile, userId]);
+    const socket = getSocket();
+    const onChanged = ({ userId: changedId }) => {
+      if (changedId === userId) queryClient.invalidateQueries({ queryKey: ['user-profile', userId] });
+    };
+    socket.on('presence:activity-changed', onChanged);
+    return () => socket.off('presence:activity-changed', onChanged);
+  }, [userId, queryClient]);
 
-  const gs = profile?.gaming_status;
+  const rawGs = profile?.gaming_status;
+
+  // Age-out guard. A status carries the timestamp of the reading that
+  // produced it. If the owner force-quit without a clear AND their socket
+  // teardown didn't land (server restart, missed event), the row can outlive
+  // reality — so anything older than 15 minutes is treated as gone rather
+  // than displayed as a live session forever.
+  const STALE_MS = 15 * 60 * 1000;
+  const gs = (rawGs && rawGs.at && Date.now() - rawGs.at > STALE_MS) ? null : rawGs;
 
   // Always fetch the exe icon as a fallback — even when GAME_ARTWORK has a URL,
   // the hosted image may fail to load (broken link, CORS, hotlink block).

@@ -536,7 +536,13 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     queryKey: ['conversation-settings', activeConversationId],
     queryFn: () => conversationSettings.get(activeConversationId),
     enabled: !!activeConversationId,
-    staleTime: 30_000,
+    // Short stale window + refetch on focus: the recipient only sits in the
+    // socket room while this DM is open, so someone who changes the
+    // background while you're elsewhere is picked up when you come back
+    // rather than being missed entirely.
+    staleTime: 5_000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
   });
   const dmBackground = convSettings?.background_url || '';
 
@@ -560,7 +566,14 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     if (!activeConversationId) return;
     const socket = getSocket();
     const onBg = (payload) => {
-      if (payload?.conversation_id !== activeConversationId) return;
+      // Accept a match on EITHER id. The two participants can be using
+      // different conversation_id strings for the same thread (see the
+      // canonical-key note in routes/conversationSettings.js), so filtering
+      // strictly on our own id would drop the other person's broadcast —
+      // which is exactly what made a background look like it only changed
+      // for the person who set it.
+      const ids = [payload?.conversation_id, payload?.canonical_id].filter(Boolean);
+      if (!ids.includes(activeConversationId)) return;
       queryClient.setQueryData(['conversation-settings', activeConversationId], (prev) => ({
         ...(prev || {}),
         background_url: payload.background_url || '',
