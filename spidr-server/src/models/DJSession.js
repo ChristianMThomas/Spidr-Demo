@@ -18,7 +18,14 @@ const s = new Schema({
   track_artist:    { type: String, default: '' },
   album_art_url:   { type: String, default: '' },
   preview_url:     { type: String, default: '' },
+  // Marks audio sourced from the iTunes fallback rather than the original
+  // service, so the UI can label it honestly.
+  preview_source:  { type: String, default: '' },
   external_url:    { type: String, default: '' },
+  // Collaborative queue — anyone in the call can append. Each entry keeps
+  // who added it so the booth can show attribution and enforce removal
+  // rights (you can pull your own track; the host can pull any).
+  queue:           { type: [Schema.Types.Mixed], default: [] },
   duration_ms:     { type: Number, default: 0 },
   started_at:      { type: Date, default: Date.now },
 }, { timestamps: true });

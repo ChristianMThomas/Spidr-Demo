@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Disc3, Volume2, Music, ChevronLeft, ChevronRight, Pause, Play, X, Loader2 } from 'lucide-react';
+import { Disc3, Volume2, Music, ChevronLeft, ChevronRight, Pause, Play, X, Loader2, ListPlus, Trash2, SkipForward } from 'lucide-react';
 import { spotify } from '@/api/apiClient';
+import { useQueryClient } from '@tanstack/react-query';
 import useNowPlaying from '@/hooks/useNowPlaying';
 import useMusicKit from './useMusicKit';
 import SpotifySearchModal from './SpotifySearchModal';
@@ -39,6 +40,7 @@ export default function DJMatrix({
   participants,   // [{ user_id, user_name, user_avatar }] — for audience roster
   onStop,         // (host) ends the session
 }) {
+  const queryClient = useQueryClient();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   // Local-only volume slider for listeners (DJ has no local volume —
@@ -139,9 +141,61 @@ export default function DJMatrix({
   const pct = np?.duration_ms ? Math.min(100, (np.progress_ms / np.duration_ms) * 100) : 0;
 
   // ── Host transport actions ──────────────────────────────────────────
-  const handlePickTrack = () => setPickerOpen(true);
+  // Picker mode: 'now' replaces the current track (host only), 'queue'
+  // appends. Reusing one modal keeps search behaviour identical in both.
+  const [pickerMode, setPickerMode] = useState('now');
+  const handlePickTrack = () => { setPickerMode('now'); setPickerOpen(true); };
+  const handleQueueTrack = () => { setPickerMode('queue'); setPickerOpen(true); };
+
+  const queue = djSession?.queue || [];
+
+  const handleDequeue = async (qid) => {
+    if (!channel?.id) return;
+    try {
+      await spotify.djSession.dequeue(channel.id, qid);
+      queryClient.invalidateQueries({ queryKey: ['dj-session', channel.id] });
+    } catch (err) {
+      toast.error(err?.message || 'Could not remove track');
+    }
+  };
+
+  const handleAdvance = async () => {
+    if (!channel?.id) return;
+    setBusy(true);
+    try {
+      await spotify.djSession.advance(channel.id);
+      queryClient.invalidateQueries({ queryKey: ['dj-session', channel.id] });
+    } catch (err) {
+      toast.error(err?.message || 'Could not advance');
+    } finally {
+      setBusy(false);
+    }
+  };
   const handleSelectTrack = async (track) => {
     if (!channel?.id || !track?.id) return;
+    // Queue mode: append rather than hijacking what's currently playing.
+    if (pickerMode === 'queue') {
+      setBusy(true);
+      try {
+        await spotify.djSession.enqueue(channel.id, track.id, {
+          track_name:    track.name || '',
+          track_artist:  track.artist || '',
+          album_art_url: track.album_art_url || '',
+          preview_url:   track.preview_url || '',
+          external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
+          duration_ms:   track.duration_ms || 0,
+          source:        track.source === 'apple' ? 'apple' : 'spotify',
+        });
+        queryClient.invalidateQueries({ queryKey: ['dj-session', channel.id] });
+        setPickerOpen(false);
+        toast.success(`Queued: ${track.name}`);
+      } catch (err) {
+        toast.error(err?.message || 'Could not queue track');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     setBusy(true);
     try {
       // If a session is already running, this PATCHes it to the new
@@ -230,6 +284,17 @@ export default function DJMatrix({
       )}
       {/* No-preview notice — Spotify stopped shipping previews for many
           tracks in late 2024; be honest instead of playing silence. */}
+      {/* Substitute-source notice — when Spotify shipped no preview we fall
+          back to a verified iTunes match, which is a different recording of
+          the same track. Saying so beats letting it sound "off" unexplained. */}
+      {djSession && previewUrl && !fullTrackActive && djSession?.preview_source === 'itunes' && (
+        <div className="relative z-20 mx-auto mb-2 w-fit px-3 py-1 rounded-full bg-white/[0.03] border border-white/10">
+          <span className="font-mono text-[9px] tracking-widest uppercase text-white/40">
+            Preview via iTunes · 30s
+          </span>
+        </div>
+      )}
+
       {djSession && !previewUrl && !fullTrackActive && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-full bg-black/70 border border-white/10 text-[10px] font-mono uppercase tracking-widest text-zinc-400">
           No audio preview for this track — DJ, try another song
@@ -346,6 +411,74 @@ export default function DJMatrix({
           enabled={!!djSession && !!np?.is_playing}
         />
       </main>
+
+      {/* ── Up Next ─────────────────────────────────────────────────────────
+          The collaborative queue. Anyone in the call can append; the DJ
+          advances. Each row shows who added it, and you can pull your own
+          entry (the DJ can pull anyone's). */}
+      {djSession && (
+        <div className="relative z-20 w-full max-w-xl mx-auto px-4 mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-mono text-[10px] tracking-[0.25em] uppercase text-white/40">
+              Up Next{queue.length > 0 ? ` · ${queue.length}` : ''}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleQueueTrack}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase text-white/60 hover:text-[#1DB954] border border-white/10 hover:border-[#1DB954]/40 bg-white/[0.02] transition-all"
+              >
+                <ListPlus className="w-3.5 h-3.5" /> Add to queue
+              </button>
+              {isHost && queue.length > 0 && (
+                <button
+                  onClick={handleAdvance}
+                  disabled={busy}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase text-black bg-[#1DB954] hover:bg-[#1ed760] transition-all disabled:opacity-50"
+                >
+                  <SkipForward className="w-3.5 h-3.5" /> Play next
+                </button>
+              )}
+            </div>
+          </div>
+
+          {queue.length === 0 ? (
+            <p className="text-[11px] text-white/25 text-center py-2">
+              Queue is empty — anyone in the call can add a track.
+            </p>
+          ) : (
+            <div className="space-y-1 max-h-40 overflow-y-auto spidr-scroll">
+              {queue.map((q) => {
+                const mine = q.added_by === currentUser?.id;
+                return (
+                  <div
+                    key={q.qid}
+                    className="flex items-center gap-2.5 p-2 rounded-lg bg-white/[0.02] border border-white/5"
+                  >
+                    {q.album_art_url
+                      ? <img src={q.album_art_url} alt="" className="w-8 h-8 rounded object-cover shrink-0" />
+                      : <div className="w-8 h-8 rounded bg-white/5 flex items-center justify-center shrink-0"><Music className="w-3.5 h-3.5 text-white/30" /></div>}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-bold text-white truncate">{q.track_name}</p>
+                      <p className="text-[10px] text-white/40 truncate">
+                        {q.track_artist} · added by {mine ? 'you' : q.added_by_name}
+                      </p>
+                    </div>
+                    {(mine || isHost) && (
+                      <button
+                        onClick={() => handleDequeue(q.qid)}
+                        className="text-white/25 hover:text-red-400 transition-colors shrink-0"
+                        title="Remove from queue"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tactical Dock */}
       <footer className="relative z-20 w-full pb-6 flex justify-center px-4">
@@ -541,6 +674,26 @@ function HostDock({ onPick, onEnd, isPlaying, busy, hasSession , volume, setVolu
         {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Music className="w-3.5 h-3.5" />}
         {hasSession ? 'Change track' : 'Pick track'}
       </button>
+
+      <div className="w-px h-6 bg-white/10 mx-2" />
+
+      {/* Host volume — local monitoring level for the DJ. Drives the same
+          <audio> element and MusicKit player the listeners' slider does. */}
+      <div className="flex items-center gap-2 px-1">
+        <Volume2 className="w-3.5 h-3.5 text-[#1DB954] shrink-0" />
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={volume ?? 80}
+          onChange={(e) => setVolume?.(Number(e.target.value))}
+          className="w-24 accent-[#1DB954] cursor-pointer"
+          title={`Volume ${volume ?? 80}%`}
+        />
+        <span className="text-[9px] font-mono tabular-nums text-white/40 w-6 text-right">
+          {volume ?? 80}
+        </span>
+      </div>
 
       <div className="w-px h-6 bg-white/10 mx-2" />
 

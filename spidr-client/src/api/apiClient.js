@@ -504,5 +504,12 @@ export const spotify = {
     end:   (channelId) =>
       api.delete(`/voice-channels/${channelId}/dj-session`)
          .catch((err) => { throw err; }),
+    // Collaborative queue — anyone in the call may append; the DJ advances.
+    enqueue: (channelId, track_id, meta = {}) =>
+      api.post(`/voice-channels/${channelId}/dj-session/queue`, { track_id, ...meta }),
+    dequeue: (channelId, qid) =>
+      api.delete(`/voice-channels/${channelId}/dj-session/queue/${qid}`),
+    advance: (channelId) =>
+      api.post(`/voice-channels/${channelId}/dj-session/advance`, {}),
   },
 };
