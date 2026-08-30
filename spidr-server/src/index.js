@@ -278,8 +278,7 @@ mongoose
     // Auto-expire past server events (3.3) — runs on boot + every 6h.
     const { scheduleEventExpiry } = require('./utils/expireEvents');
     scheduleEventExpiry();
-    // Give any legacy tagless profile a real #tag (idempotent). Without this
-    // every such user renders with the same placeholder tag.
+    // Give any legacy tagless profile a real #tag (idempotent).
     const { backfillDiscriminators } = require('./utils/backfillDiscriminators');
     backfillDiscriminators();
     const PORT = process.env.PORT || 4000;

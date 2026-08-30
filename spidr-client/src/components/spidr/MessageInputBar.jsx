@@ -371,7 +371,7 @@ export default function MessageInputBar({
         })(), document.body)}
 
         {/* Mention popup */}
-        <MentionPopup isOpen={mentionSearch !== null} filter={mentionSearch || ''} onSelect={handleSelectMention} users={mentionUsers} position="bottom" />
+        <MentionPopup isOpen={mentionSearch !== null} filter={mentionSearch || ''} onSelect={handleSelectMention} users={mentionUsers} position="bottom" anchorRef={inputRef} />
 
         <input type="file" multiple ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip" />
 
@@ -437,7 +437,7 @@ export default function MessageInputBar({
             }
           }}
           disabled={disabled}
-          className={`flex-1 bg-transparent border-0 outline-none text-[14px] text-white placeholder:text-zinc-600 font-medium px-2 min-w-0
+          className={`relative z-10 flex-1 bg-transparent border-0 outline-none text-[14px] text-white placeholder:text-zinc-600 font-medium px-2 min-w-0
             ${ghostMode ? 'font-mono text-purple-300' : ''}`}
         />
 

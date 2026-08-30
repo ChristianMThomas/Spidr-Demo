@@ -12,6 +12,7 @@ import { AuthProvider, useAuth } from '../lib/authContext';
 import { AppShellProvider } from '../lib/appShellContext';
 import { UnreadProvider } from '../lib/unreadContext';
 import IncomingCallModal from '../components/call/IncomingCallModal';
+import PermissionPrimer from '../components/PermissionPrimer';
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoadingAuth } = useAuth();
@@ -48,6 +49,7 @@ export default function RootLayout() {
                 <StatusBar style="light" />
                 <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#111111' } }} />
                 <IncomingCallModal />
+                <PermissionPrimer />
               </AuthGate>
               </UnreadProvider>
             </AppShellProvider>

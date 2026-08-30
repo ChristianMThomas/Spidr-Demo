@@ -270,8 +270,35 @@ export default function QuickHeads({ currentUser, profiles = [], onOpenDM, onOpe
       }
     });
 
+    // ── Collapse by PERSON, not by conversation ────────────────────────
+    // THE DUPLICATE-AVATAR BUG: the map above is keyed by conversation_id,
+    // but the same person can legitimately end up with two conversation ids
+    // (a thread started from each side, or an id generated before the
+    // canonical pair-ordering landed). Keyed that way, one friend rendered
+    // as two identical heads in the SPIDR WEB strip.
+    //
+    // We therefore fold the map down by otherUserId: keep the most recent
+    // conversation as the one to open, SUM the unread counts across the
+    // merged threads (so opening the head still clears everything the badge
+    // was counting), and prefer whichever record carries a real name/avatar.
+    const byUser = new Map();
+    for (const chat of conversationMap.values()) {
+      const key = String(chat.otherUserId || chat.conversationId);
+      const prev = byUser.get(key);
+      if (!prev) { byUser.set(key, chat); continue; }
+      const newer = chat.lastActivity > prev.lastActivity ? chat : prev;
+      const older = newer === chat ? prev : chat;
+      newer.unreadCount = (prev.unreadCount || 0) + (chat.unreadCount || 0);
+      // Keep whichever side actually resolved a display name.
+      if ((!newer.friend?.friend_name || newer.friend.friend_name === 'Unknown')
+          && older.friend?.friend_name && older.friend.friend_name !== 'Unknown') {
+        newer.friend = older.friend;
+      }
+      byUser.set(key, newer);
+    }
+
     // Sort by activity and return top 10
-    return Array.from(conversationMap.values())
+    return Array.from(byUser.values())
       .sort((a, b) => b.lastActivity - a.lastActivity)
       .slice(0, 10);
   }, [allDMs, currentUser?.id]);

@@ -1,15 +1,15 @@
 # Spidr — Team
 
-> Written 2026-07-06, re-verified 2026-07-28 on branch `dev` (no team, workflow, or ownership changes since). Update when roles, members, or workflow change.
+> Written 2026-07-06, re-verified 2026-08-24 on branch `dev` (no team, workflow, or ownership changes since; committer log confirms exactly two humans: Chris Thomas across variants "Chris Laptop" / "Chris Thomas" / "Christian Thomas", and Safina Khan / safinakh2000). Update when roles, members, or workflow change.
 
 ## Members (2)
 
 ### Chris Thomas — Co-Founder / Product Lead / Full-Stack
 - GitHub: [ChristianMThomas](https://github.com/ChristianMThomas) · git user: "Chris Laptop" · christhomas0634@gmail.com
 - Wears every engineering hat: product vision and roadmap, full-stack development across all services, **mobile lead** (the Patch 1.9+ Expo app is his), and **backend/infra owner** (spidr-server, spidr-auth, Railway, MongoDB Atlas, deployments).
-- Works on Windows 11, primarily through Claude Code with the project slash-command workflow (`/dev`, `/ship`, `/patch`, `/cross-check`).
+- Works on Windows 11, primarily through Claude Code with the project slash-command workflow (`/dev`, `/ship`, `/patch`, `/cross-check`, `/rimmer-update`).
 
-### Safina Khan ("FiFi") — Co-Founder Design Lead / Frontend / Electron
+### Safina Khan ("FiFi") — Co-Founder / Design Lead / Frontend / Electron
 - GitHub: [safinakh2000](https://github.com/safinakh2000)
 - Gravitates toward **Figma design, frontend (spidr-client web UI), and the Electron desktop app**. The `spidr-beta/spidr-landing` Figma export ("Build Spidr Chat App") is her design lineage.
 - The audience for `/cross-check` platform-impact summaries — when Chris's changes touch web/Electron surfaces, she's the partner who needs to know.
@@ -25,7 +25,7 @@
 
 ## Non-Code Responsibilities (⚠️ known gap)
 
-Beta recruitment, marketing, legal/ToS, and finances are **handled together ad hoc, and both founders self-describe as clueless here — they actively want help**. Nobody formally owns any of it. This matters *now*, not "soon": real APEX billing shipped in Patch 1.9.25 (see [pricing.md](pricing.md)), so payments / sales tax / PCI-scope questions are live concerns rather than hypothetical, and the closed beta (50-tester funnel, see [goal.md](goal.md)) still needs recruitment + the Beta Testing Agreement to hold up under actual signups. Flag business/legal implications proactively when advising — don't assume someone else is watching that side.
+Beta recruitment, marketing, legal/ToS, and finances are **handled together ad hoc, and both founders self-describe as clueless here — they actively want help**. Nobody formally owns any of it. This matters *now*, not "soon": real APEX billing shipped in Patch 1.9.25 (see [[pricing]]), so payments / sales tax / PCI-scope questions are live concerns rather than hypothetical, and the closed beta (50-tester funnel, see [[goal]]) still needs recruitment + the Beta Testing Agreement to hold up under actual signups. `fixes/BETA-COST-ANALYSIS.md` now exists as an artifact for the beta cost side but does not replace ownership. Flag business/legal implications proactively when advising — don't assume someone else is watching that side.
 
 ## Practical Implications for Mr. Rimmer
 
@@ -33,3 +33,9 @@ Beta recruitment, marketing, legal/ToS, and finances are **handled together ad h
 2. Chris is the primary Claude Code operator; anything written for "the team" should be readable by FiFi without backend context.
 3. Cross-platform changes need the FiFi handoff (`/cross-check`) — especially anything touching web UI or Electron, her home turf.
 4. Business/legal questions have no expert in the room — explain from first principles and recommend when to pull in outside help.
+
+## Related
+
+- [[goal]] — current phase, beta program, monetization goal
+- [[pricing]] — APEX billing (why business/legal ownership matters)
+- Memory [[spidr-team]] — the same split, condensed to one line for cross-session recall

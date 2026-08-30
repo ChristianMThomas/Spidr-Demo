@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 
@@ -7,8 +8,32 @@ export default function MentionPopup({
   filter = '', 
   onSelect, 
   users = [], 
-  position = 'bottom' 
+  position = 'bottom',
+  anchorRef = null,
 }) {
+  // Anchor rect, measured from the input bar. The popup renders through a
+  // PORTAL to <body> rather than inline: as a normal child it sat inside the
+  // composer, so any ancestor with overflow-hidden clipped it and any
+  // sibling that created a stacking context could paint over it — the
+  // "popup trapped under the chat box" bug. z-index alone can't fix that,
+  // because z-index only competes inside its own stacking context. The
+  // command palette in MessageInputBar already uses this exact approach.
+  const [rect, setRect] = React.useState(null);
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const measure = () => {
+      const el = anchorRef?.current;
+      if (el) setRect(el.getBoundingClientRect());
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [isOpen, anchorRef]);
+
   if (!isOpen) return null;
 
   const specialMentions = [
@@ -26,13 +51,24 @@ export default function MentionPopup({
 
   if (filtered.length === 0) return null;
 
-  return (
+  // Without a measured anchor fall back to the old inline behaviour rather
+  // than rendering the popup somewhere arbitrary.
+  const usePortal = !!rect;
+  const body = (
     <AnimatePresence>
       <motion.div
         initial={{ opacity: 0, y: position === 'bottom' ? 10 : -10 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: position === 'bottom' ? 10 : -10 }}
-        className={`absolute ${position === 'bottom' ? 'bottom-full mb-2' : 'top-full mt-2'} left-0 bg-[#111] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 w-72`}
+        style={usePortal ? {
+          position: 'fixed',
+          left: rect.left,
+          // Sit the popup's BOTTOM edge on the input's TOP edge, with an 8px
+          // gap — the fixed-position equivalent of bottom-full mb-2.
+          bottom: window.innerHeight - rect.top + 8,
+          zIndex: 2000,
+        } : undefined}
+        className={`${usePortal ? '' : `absolute ${position === 'bottom' ? 'bottom-full mb-2' : 'top-full mt-2'} left-0 z-50`} bg-[#111] border border-white/10 rounded-xl shadow-2xl overflow-hidden w-72`}
       >
         <div className="px-3 py-2 bg-[#FF3333]/10 text-[10px] font-bold text-[#FF3333] uppercase flex items-center gap-2">
           <span className="w-2 h-2 bg-[#FF3333] rounded-full animate-pulse" />
@@ -74,4 +110,6 @@ export default function MentionPopup({
       </motion.div>
     </AnimatePresence>
   );
+
+  return usePortal ? createPortal(body, document.body) : body;
 }

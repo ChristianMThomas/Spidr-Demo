@@ -1,6 +1,6 @@
 const { Schema, model } = require('mongoose');
 
-// Tag generation moved into utils/tagService so every write path shares one
+// Tag generation lives in utils/tagService so every write path shares one
 // collision-checked implementation (see that file for the "#0000" history).
 const {
   generateUniqueDiscriminator,
@@ -13,8 +13,7 @@ const s = new Schema({
   // display
   display_name:   String,
   // { [conversation_id]: imageUrl } — per-user DM wallpapers. Mixed rather
-  // than Map so it serializes to plain JSON without flattenMaps (see the
-  // biomass wallet bug where Maps silently came back as {}).
+  // than Map so it serializes to plain JSON without flattenMaps.
   dm_backgrounds: { type: Schema.Types.Mixed, default: {} },
   bio:            String,
   avatar_url:     String,
@@ -169,9 +168,6 @@ const s = new Schema({
 s.pre('save', async function (next) {
   try {
     if (!this.discriminator) {
-      // Ask the DB for a free tag rather than trusting randomness. Falls back
-      // to a deterministic id-derived tag if the lookup fails, so a profile
-      // is never saved tagless (which is what produced identical #0000s).
       this.discriminator = await generateUniqueDiscriminator(
         this.constructor, this.display_name, this.user_id
       ).catch(() => deterministicTag(this.user_id || this._id));

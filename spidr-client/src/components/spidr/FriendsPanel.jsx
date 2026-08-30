@@ -243,10 +243,26 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
     ].some(v => v && v.toString().toLowerCase().includes(q));
   };
 
-  const acceptedFriends = friends.filter(f => f.status === 'accepted' && matchesSearch(f));
-  const pendingIncoming = friends.filter(f => f.status === 'pending_incoming' && matchesSearch(f));
-  const pendingOutgoing = friends.filter(f => f.status === 'pending_outgoing' && matchesSearch(f));
-  const blockedUsers = friends.filter(f => f.status === 'blocked' && matchesSearch(f));
+  // Dedupe by friend_id before rendering. Friend rows are stored as mirrored
+  // pairs and a re-add (or an accept racing an invite) can leave two rows for
+  // the same person — which would render them twice in the list, the same way
+  // the SPIDR WEB strip was duplicating heads. Keep the newest row per friend.
+  const dedupeByFriend = (rows) => {
+    const byId = new Map();
+    for (const f of rows) {
+      const key = String(f.friend_id || f.id);
+      const prev = byId.get(key);
+      if (!prev) { byId.set(key, f); continue; }
+      const t = (x) => new Date(x.updated_at || x.updatedAt || x.created_date || 0).getTime();
+      byId.set(key, t(f) >= t(prev) ? f : prev);
+    }
+    return Array.from(byId.values());
+  };
+
+  const acceptedFriends = dedupeByFriend(friends.filter(f => f.status === 'accepted' && matchesSearch(f)));
+  const pendingIncoming = dedupeByFriend(friends.filter(f => f.status === 'pending_incoming' && matchesSearch(f)));
+  const pendingOutgoing = dedupeByFriend(friends.filter(f => f.status === 'pending_outgoing' && matchesSearch(f)));
+  const blockedUsers = dedupeByFriend(friends.filter(f => f.status === 'blocked' && matchesSearch(f)));
 
   const handleAddFriend = async () => {
     const input = addFriendInput.trim();

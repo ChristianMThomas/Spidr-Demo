@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "motion/react";
 import { useState } from "react";
-import { Menu, X, Sparkles } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import logo from "../../assets/Spidr.png";
 
 const navLinks = ["Product", "Features", "Community", "FAQ"];
@@ -112,7 +112,6 @@ export default function Navbar({ onOpenBeta }: NavbarProps) {
                       setMobileMenuOpen(false);
                     }}
                   >
-                    <Sparkles size={17} />
                     Join the Beta
                   </button>
                 </div>

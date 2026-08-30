@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { entities } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Users, Radio, Wifi } from 'lucide-react';
+import { X, Users, Radio, Wifi, Info } from 'lucide-react';
 import { toast } from 'sonner';
 
 /**
@@ -102,12 +102,15 @@ export default function SignalRadar({ open, onClose, currentUser }) {
               'radial-gradient(ellipse 60% 40% at 50% 100%, rgba(220,38,38,0.06), transparent 60%)',
           }}
         />
-        {/* Faint scanline grain across the whole viewport */}
+        {/* Radar bloom — replaces the retro scanline grain. A single huge,
+            heavily-blurred red orb reads as a sweep through deep space and
+            lets the glass cards above it catch real colour, which flat
+            scanlines never did. */}
         <div
-          className="absolute inset-0 pointer-events-none opacity-[0.06]"
+          className="absolute -top-40 left-1/2 -translate-x-1/2 w-[900px] h-[900px] rounded-full pointer-events-none"
           style={{
-            backgroundImage:
-              'repeating-linear-gradient(0deg, transparent 0px, transparent 2px, rgba(255,255,255,0.5) 2px, rgba(255,255,255,0.5) 3px)',
+            background: 'rgba(220,38,38,0.05)',
+            filter: 'blur(140px)',
           }}
         />
 
@@ -294,13 +297,14 @@ function SearchBar({ value, onChange, focused, onFocus, onBlur }) {
   return (
     <div className="mb-4">
       <div
-        className="relative bg-black rounded-md transition-all duration-200"
+        className="relative rounded-xl transition-all duration-300"
         style={{
+          background: focused ? 'rgba(10,10,10,0.85)' : 'rgba(255,255,255,0.02)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
           border: '1px solid',
-          borderColor: focused ? 'rgba(220, 38, 38, 0.8)' : 'rgba(220, 38, 38, 0.2)',
-          boxShadow: focused
-            ? '0 0 20px rgba(220, 38, 38, 0.25), inset 0 0 12px rgba(220, 38, 38, 0.05)'
-            : 'inset 0 0 8px rgba(220, 38, 38, 0.04)',
+          borderColor: focused ? 'rgba(220, 38, 38, 0.5)' : 'rgba(255,255,255,0.06)',
+          boxShadow: focused ? '0 0 24px rgba(220, 38, 38, 0.15)' : 'none',
         }}
       >
         <input
@@ -310,13 +314,8 @@ function SearchBar({ value, onChange, focused, onFocus, onBlur }) {
           onFocus={onFocus}
           onBlur={onBlur}
           placeholder="Locate signals..."
-          className="w-full bg-transparent px-4 py-3 text-red-100 placeholder:text-red-900 placeholder:tracking-wider placeholder:font-mono placeholder:text-sm font-mono text-sm outline-none caret-red-500"
+          className="w-full bg-transparent px-4 py-3 text-white placeholder:text-white/25 placeholder:tracking-wide text-sm font-medium outline-none caret-red-500"
         />
-        {/* Tiny corner ticks — pure ornament so the field reads as a HUD field */}
-        <span className="absolute -top-px left-2 w-2 h-px bg-red-500/60" />
-        <span className="absolute -top-px right-2 w-2 h-px bg-red-500/60" />
-        <span className="absolute -bottom-px left-2 w-2 h-px bg-red-500/60" />
-        <span className="absolute -bottom-px right-2 w-2 h-px bg-red-500/60" />
       </div>
     </div>
   );
@@ -571,8 +570,32 @@ function ServerHologram({ server, currentUser, friendsInServer, index = 0 }) {
     }
   };
 
-  // 8-sided clip-path so all four corners are angled
-  const clipPath = 'polygon(8% 0%, 92% 0%, 100% 8%, 100% 92%, 92% 100%, 8% 100%, 0% 92%, 0% 8%)';
+  // Info overlay state — slides a stats panel up inside the card so the user
+  // never leaves the radar grid to read details.
+  const [showInfo, setShowInfo] = React.useState(false);
+
+  // Total roster vs. currently-active. memberCount above counts live
+  // presence; this is everyone who has ever joined.
+  const totalMembers = (server.members || []).length;
+  const lastActive = server.last_activity || server.updated_at || server.updatedAt || server.created_date;
+  const fmtDate = (d) => {
+    if (!d) return 'Unknown';
+    const t = new Date(d);
+    if (Number.isNaN(t.getTime())) return 'Unknown';
+    return t.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+  const relative = (d) => {
+    if (!d) return 'No pulse recorded';
+    const t = new Date(d).getTime();
+    if (Number.isNaN(t)) return 'No pulse recorded';
+    const mins = Math.floor((Date.now() - t) / 60000);
+    if (mins < 1) return 'Moments ago';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return days < 30 ? `${days}d ago` : fmtDate(d);
+  };
 
   return (
     <motion.div
@@ -582,62 +605,22 @@ function ServerHologram({ server, currentUser, friendsInServer, index = 0 }) {
       whileHover={{ y: -2 }}
       className="group relative"
     >
-      {/* Outer projection plate — the translucent angled canvas */}
+      {/* Glass panel — rounded and highly translucent so the radar bloom
+          behind it shows through, replacing the opaque angular plate. */}
       <div
-        className="relative p-4 overflow-hidden"
+        className="relative p-5 overflow-hidden rounded-2xl border border-white/5 group-hover:border-red-500/30 transition-all duration-500"
         style={{
-          clipPath,
-          background: 'rgba(5, 5, 5, 0.8)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+          background: 'rgba(255,255,255,0.02)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
         }}
       >
-        {/* Inner border drawn as an overlay so it follows the clip-path. The
-            border lives ON the clipped edge instead of getting cut off. */}
+        {/* Hover bloom — a soft red wash that lifts the card off the page
+            without the hard neon border the retro version used. */}
         <div
-          className="absolute inset-0 pointer-events-none transition-all duration-300 group-hover:opacity-100"
+          className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"
           style={{
-            clipPath,
-            background: `
-              linear-gradient(rgba(220,38,38,0.4), rgba(220,38,38,0.4)) top/100% 1px no-repeat,
-              linear-gradient(rgba(220,38,38,0.4), rgba(220,38,38,0.4)) bottom/100% 1px no-repeat,
-              linear-gradient(rgba(220,38,38,0.4), rgba(220,38,38,0.4)) left/1px 100% no-repeat,
-              linear-gradient(rgba(220,38,38,0.4), rgba(220,38,38,0.4)) right/1px 100% no-repeat
-            `,
-            // The trick: we draw the border with an inset box-shadow that
-            // respects the clip-path, since regular borders square the corners.
-            boxShadow: 'inset 0 0 0 1px rgba(220,38,38,0.2)',
-          }}
-        />
-        {/* Subtle inner glow on hover */}
-        <div
-          className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-          style={{
-            clipPath,
-            boxShadow: 'inset 0 0 30px rgba(220, 38, 38, 0.15)',
-          }}
-        />
-
-        {/* Roaming scanline — visible always but faint */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none" style={{ clipPath }}>
-          <div
-            className="absolute left-0 right-0 h-px"
-            style={{
-              background: 'linear-gradient(90deg, transparent, rgba(220,38,38,0.6), transparent)',
-              boxShadow: '0 0 8px rgba(220,38,38,0.6)',
-              animation: 'spidr-scanline 4s linear infinite',
-              animationDelay: `${(index % 3) * 0.6}s`,
-            }}
-          />
-        </div>
-
-        {/* Faint horizontal scanline grid baked into the whole card */}
-        <div
-          className="absolute inset-0 pointer-events-none opacity-30"
-          style={{
-            clipPath,
-            backgroundImage:
-              'repeating-linear-gradient(0deg, transparent 0px, transparent 3px, rgba(220,38,38,0.04) 3px, rgba(220,38,38,0.04) 4px)',
+            background: 'linear-gradient(135deg, rgba(220,38,38,0.06), transparent 60%)',
           }}
         />
 
@@ -745,11 +728,12 @@ function ServerHologram({ server, currentUser, friendsInServer, index = 0 }) {
           {/* Action button — public servers get "Establish Uplink"; private
               ones get a "Request Invite" affordance with a pending-state
               fallback so a user can't double-fire requests. */}
+          <div className="flex gap-2 items-stretch">
           {isPrivate ? (
             <button
               onClick={handleRequestInvite}
               disabled={hasPendingRequest || isAlreadyMember}
-              className={`w-full py-2 border transition-all duration-300 font-mono text-[10px] tracking-[0.3em] uppercase ${
+              className={`flex-1 py-2 rounded-lg border transition-all duration-300 font-mono text-[10px] tracking-[0.3em] uppercase ${
                 hasPendingRequest
                   ? 'border-yellow-500/50 text-yellow-400 cursor-not-allowed'
                   : isAlreadyMember
@@ -763,11 +747,74 @@ function ServerHologram({ server, currentUser, friendsInServer, index = 0 }) {
           ) : (
             <button
               onClick={handleJoin}
-              className="w-full py-2 border border-red-500 text-red-500 hover:bg-red-500 hover:text-white hover:shadow-[0_0_18px_rgba(220,38,38,0.5)] transition-all duration-300 font-mono text-[10px] tracking-[0.3em] uppercase"
+              className="flex-1 py-2 rounded-lg bg-white/[0.03] hover:bg-red-500/20 border border-white/5 hover:border-red-500/50 text-white/50 group-hover:text-red-400 transition-all duration-300 font-mono text-[10px] tracking-[0.3em] uppercase"
             >
               Establish Uplink
             </button>
           )}
+
+            {/* View Info — opens the stats overlay inside the card rather
+                than routing away, so the user keeps their place in the grid. */}
+            <button
+              onClick={() => setShowInfo(true)}
+              title="View signal details"
+              className="px-3 rounded-lg bg-white/[0.02] hover:bg-white/[0.08] border border-white/5 hover:border-white/20 text-white/40 hover:text-white transition-all duration-300 flex items-center justify-center shrink-0"
+            >
+              <Info className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Signal details overlay ───────────────────────────────────────
+            Slides up over the card face. Uses the app's tactical wording:
+            total roster, last pulse, first contact. */}
+        <div
+          className={`absolute inset-0 z-20 p-5 flex flex-col rounded-2xl transition-all duration-500 ${
+            showInfo ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6 pointer-events-none'
+          }`}
+          style={{
+            background: 'rgba(5,5,5,0.92)',
+            backdropFilter: 'blur(28px)',
+            WebkitBackdropFilter: 'blur(28px)',
+          }}
+        >
+          <div className="flex justify-between items-center mb-3 border-b border-white/10 pb-2.5">
+            <h4 className="font-mono text-[10px] font-black tracking-[0.25em] uppercase text-red-500">
+              Signal Dossier
+            </h4>
+            <button
+              onClick={() => setShowInfo(false)}
+              className="text-white/30 hover:text-white transition-colors"
+              title="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <p className="text-[11px] text-zinc-400 leading-snug line-clamp-3 mb-3">
+            {server.description || 'No telemetry available for this signal.'}
+          </p>
+
+          <div className="flex flex-col gap-2 mt-auto">
+            <div className="flex justify-between items-center bg-white/[0.02] px-2.5 py-2 rounded-lg border border-white/5">
+              <span className="font-mono text-[9px] tracking-[0.2em] text-white/40 uppercase">Total Roster</span>
+              <span className="text-xs font-bold text-white">
+                {totalMembers.toLocaleString()} {totalMembers === 1 ? 'user' : 'users'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center bg-white/[0.02] px-2.5 py-2 rounded-lg border border-white/5">
+              <span className="font-mono text-[9px] tracking-[0.2em] text-white/40 uppercase">On Air Now</span>
+              <span className="text-xs font-bold text-emerald-400">{memberCount} active</span>
+            </div>
+            <div className="flex justify-between items-center bg-white/[0.02] px-2.5 py-2 rounded-lg border border-white/5">
+              <span className="font-mono text-[9px] tracking-[0.2em] text-white/40 uppercase">Last Pulse</span>
+              <span className="text-xs font-bold text-white/80">{relative(lastActive)}</span>
+            </div>
+            <div className="flex justify-between items-center bg-white/[0.02] px-2.5 py-2 rounded-lg border border-white/5">
+              <span className="font-mono text-[9px] tracking-[0.2em] text-white/40 uppercase">First Contact</span>
+              <span className="text-xs font-bold text-white/60">{fmtDate(server.created_date)}</span>
+            </div>
+          </div>
         </div>
       </div>
     </motion.div>

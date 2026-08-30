@@ -105,12 +105,8 @@ function ServerPreview({ server, currentUser, onJoined, onBack }) {
       )}
       <div className="relative z-10 max-w-sm">
         <ServerAvatar
-          src={server.icon_url}
-          name={server.name}
-          size={80}
-          letters={1}
-          rounded="rounded-3xl"
-          className="mx-auto mb-4 shadow-lg shadow-red-900/30"
+          src={server.icon_url} name={server.name} size={80} letters={1}
+          rounded="rounded-3xl" className="mx-auto mb-4 shadow-lg shadow-red-900/30"
           fallbackClassName="bg-gradient-to-br from-red-700 to-red-900 text-white"
         />
         <h2 className="text-2xl font-black text-white">{server.name}</h2>
@@ -253,9 +249,8 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
               </div>
             )}
 
-            {/* Create Server — moved here from the old left-rail strip so the
-                action stays reachable now that servers live only in this
-                panel. Matches the row geometry above. */}
+            {/* Create Server lives here now that servers no longer render in
+                the left rail — otherwise the action would be stranded. */}
             <button
               onClick={() => window.dispatchEvent(new CustomEvent('spidr-create-server'))}
               className="w-full flex items-center gap-3 p-2 rounded-lg text-zinc-500 hover:text-[#dc2626] hover:bg-zinc-800/60 transition-colors group/new"
@@ -1218,13 +1213,35 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   const seenMemberIds = new Set();
   const serverMembers = (server.members || [])
     .filter(m => {
-      // Drop dupes and members missing identifiers — they'd crash MentionPopup
-      if (!m?.user_id || !m?.user_name) return false;
+      // Only a user_id is required. Previously a member missing the
+      // denormalized `user_name` was dropped entirely — and that field goes
+      // unstamped for plenty of rows, so those people simply could not be
+      // @mentioned at all. (It reads as "can't mention offline users"
+      // because dormant accounts are the ones most likely to predate the
+      // denormalization.) We now resolve the name below instead of
+      // discarding the member.
+      if (!m?.user_id) return false;
       if (seenMemberIds.has(m.user_id)) return false;
       seenMemberIds.add(m.user_id);
       return true;
     })
-    .map(m => ({ id: m.user_id, name: m.nickname?.trim() || m.user_name, avatar: m.user_avatar, role: m.role }));
+    .map(m => {
+      // Name resolution: nickname → denormalized name → live profile →
+      // short id. MentionPopup drops entries without a usable string name,
+      // so guaranteeing one here is what keeps them mentionable.
+      const profile = profilesByUserId[m.user_id];
+      const name =
+        m.nickname?.trim() ||
+        m.user_name ||
+        profile?.display_name ||
+        `user-${String(m.user_id).slice(-4)}`;
+      return {
+        id: m.user_id,
+        name,
+        avatar: m.user_avatar || profile?.avatar_url,
+        role: m.role,
+      };
+    });
 
   const isMatureServer = server.sanctuary?.is_mature;
   const needsAgeGate = isMatureServer && !ageVerified;
@@ -1559,9 +1576,8 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           <span className="font-bold text-white truncate">{currentChannelObj?.name || selectedChannel}</span>
           <span className="hidden sm:inline text-neutral-500 text-sm shrink-0">· connected to the web</span>
           <div className="ml-auto flex items-center gap-1 relative">
-            {/* Images / Links tabs for this channel. Keyword search is already
-                handled by SignalTracker beside it, so this runs in mediaOnly
-                mode rather than adding a second search box. */}
+            {/* Images / Links tabs. Keyword search is SignalTracker beside
+                it, so this runs mediaOnly rather than adding a second box. */}
             <SearchHub
               scope="server"
               id={server?.id}

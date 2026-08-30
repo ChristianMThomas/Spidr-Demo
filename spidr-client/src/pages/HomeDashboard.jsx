@@ -502,10 +502,12 @@ export default function HomeDashboard() {
             )}
           </div>
 
-          {/* Jump Back In — in-column on screens below xl, where the right
-              rail is hidden. Same component, same data: one source of truth,
-              visible on EVERY device size. */}
-          <div className="xl:hidden">
+          {/* Jump Back In — in-column only BELOW lg, where the right rail is
+              hidden. The breakpoint must match the rail's (lg:block) exactly:
+              when the rail was xl and this was xl:hidden it lined up, but
+              consolidating the rails moved it to lg, and leaving this at xl
+              would have rendered the panel TWICE between lg and xl. */}
+          <div className="lg:hidden">
             <SpidrWebMatrix
               className="h-[26rem]"
               recentConversations={recentConversations}
@@ -588,10 +590,18 @@ export default function HomeDashboard() {
           )}
         </div>
 
-        {/* ── Right rail — Activity / engagement still sticky-contained so
-            it doesn't push the homepage taller when populated. */}
-        <div className="w-72 shrink-0 hidden lg:block">
-          <div className="sticky top-0 max-h-[calc(100vh-1rem)] overflow-y-auto pr-1 py-1 spidr-feed-scroll">
+        {/* ── Right rail — ONE unified command column ────────────────────
+            Trending Servers, Top Creators (both inside EngagementHub) and
+            Jump Back In now stack vertically in a single fixed-width rail
+            instead of floating as two separate columns. That gives the main
+            dashboard the full remaining width and stops the third column
+            from unbalancing the page.
+
+            shrink-0 keeps the rail from being squeezed when the window
+            narrows; the inner sticky wrapper keeps the whole stack scroll-
+            contained so a long activity list can't push the page taller. */}
+        <div className="w-80 shrink-0 hidden lg:block">
+          <div className="sticky top-0 max-h-[calc(100vh-1rem)] overflow-y-auto pr-1 py-1 spidr-feed-scroll flex flex-col gap-5">
             <EngagementHub
               currentUser={currentUser}
               onNavigate={(tab) => {
@@ -612,24 +622,23 @@ export default function HomeDashboard() {
               }}
               onNavigateToDM={navigateToDM}
             />
+            {/* Jump Back In — tucked directly beneath Top Creators so all
+                discovery + navigation widgets share one column. Not sticky
+                on its own any more: the parent wrapper owns the sticky
+                behaviour for the whole stack, and nesting a second sticky
+                inside a scroll container would have pinned it against the
+                rail's own scrollbar instead of the viewport. */}
+            <SpidrWebMatrix
+              className="h-[26rem] shrink-0"
+              recentConversations={recentConversations}
+              myGroups={myGroups}
+              statusByUser={statusByUser}
+              avatarByUser={avatarByUser}
+              navigateToDM={navigateToDM}
+              navigate={navigate}
+            />
           </div>
         </div>
-
-        {/* ── Right rail: recent DMs + group chats (jump back in) ───────────
-            Persistent on xl+ screens as a 320px column so hopping into an
-            active conversation is one click from the homepage. Hidden on
-            narrower widths to protect the main column. */}
-        <aside className="hidden xl:block w-[320px] shrink-0 sticky top-4 self-start">
-          <SpidrWebMatrix
-            className="h-[28rem]"
-            recentConversations={recentConversations}
-            myGroups={myGroups}
-            statusByUser={statusByUser}
-            avatarByUser={avatarByUser}
-            navigateToDM={navigateToDM}
-            navigate={navigate}
-          />
-        </aside>
       </div>
       <SpidrSystem />
     </div>

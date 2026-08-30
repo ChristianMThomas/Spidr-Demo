@@ -24,8 +24,8 @@ import { toast } from 'sonner';
 import HolographicProfile from './HolographicProfile';
 import MessageItem from './MessageItem';
 import ChatBackdrop from './ChatBackdrop';
-import SearchHub from './SearchHub';
 import ChatBackgroundPicker from './ChatBackgroundPicker';
+import SearchHub from './SearchHub';
 import CallAVControls from './CallAVControls';
 import CallOverlay from './CallOverlay';
 import { playSound } from './SoundEngine';
@@ -464,6 +464,9 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       socket.emit('dm:notify', {
         conversationId: vars.conversation_id,
         recipientId: vars.receiver_id,
+        // Fills the push banner's body — without it the server falls back
+        // to a bare "New message" placeholder.
+        content: vars.content,
       });
       // Award activity XP (server-capped; fires level-up toast if crossed).
       reportXp('message', 'Message sent');
@@ -523,11 +526,10 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     staleTime: 60000,
   });
 
-  // Per-user DM wallpaper for THIS conversation. Stored on the user's own
-  // profile (DMs have no container document to hang it on), so each side of
-  // a conversation can pick their own without overwriting the other's.
   const [showBgPicker, setShowBgPicker] = useState(false);
 
+  // Per-user DM wallpaper for THIS conversation. Stored on the user's own
+  // profile (DMs have no container document), so each side can pick their own.
   const dmBackground = activeConversationId
     ? (currentProfile?.dm_backgrounds || {})[activeConversationId] || ''
     : '';
@@ -578,6 +580,11 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       // conversation was marked read. Prefix match covers the userId suffix.
       queryClient.invalidateQueries({ queryKey: ['unread-dms-friends'] });
       queryClient.invalidateQueries({ queryKey: ['unread-dms'] });
+      // The SPIDR WEB strip (QuickHeads) reads its own ['quickheads-dms']
+      // query and was never invalidated here — so its red badges survived
+      // until a full page reload even though the conversation was read.
+      queryClient.invalidateQueries({ queryKey: ['quickheads-dms'] });
+      queryClient.invalidateQueries({ queryKey: ['quickheads-groups'] });
     },
   });
 
@@ -723,9 +730,6 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
               <Phone size={17} className="rotate-[135deg]" />
             </button>
           )}
-          {/* Search & Media Hub — keyword search, image gallery, link list.
-              Desktop only; the lg:hidden button above is the mobile
-              local-filter affordance. */}
           <div className="hidden lg:flex items-center">
             <SearchHub
               scope="dm"
@@ -871,8 +875,6 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
         className="flex-1 overflow-y-auto relative z-10 pb-4 px-2 sm:px-4" 
         ref={scrollRef}
       >
-        {/* DM wallpaper — per-user, keyed by conversation. Fixed so it stays
-            put while the message list scrolls over it. */}
         {dmBackground && (
           <div className="fixed inset-0 pointer-events-none z-0">
             <ChatBackdrop url={dmBackground} />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import ChatBackgroundPicker from './ChatBackgroundPicker';
 import { Upload, X, UserPlus, Crown, Trash2, LogOut, Users, Image as ImageIcon } from 'lucide-react';
 import ImageCropper from './ImageCropper';
+import { getGroupMode, setGroupMode, SCOPE_MODES, SCOPE_MODE_LABELS } from '@/lib/notificationScopes';
 
 export default function GroupChatSettings({ open, onClose, group, currentUser }) {
   const [groupName, setGroupName] = useState(group?.name || '');
@@ -25,8 +26,25 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
   const [tempImage, setTempImage] = useState(null);
   const [showAddMember, setShowAddMember] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState('');
-  
+  const [notifMode, setNotifMode] = useState('default');
+
   const queryClient = useQueryClient();
+
+  // Re-read on open so a change made on mobile shows up here.
+  useEffect(() => {
+    if (open && group?.id) setNotifMode(getGroupMode(group.id));
+  }, [open, group?.id]);
+
+  const handleNotifMode = async (mode) => {
+    if (!group?.id) return;
+    setNotifMode(mode); // optimistic — the write is a profile PATCH
+    try {
+      await setGroupMode(currentUser?.id, group.id, mode);
+    } catch (err) {
+      setNotifMode(getGroupMode(group.id));
+      toast.error(err?.message || 'Could not save — try again');
+    }
+  };
 
   const updateGroupMutation = useMutation({
     mutationFn: async (data) => {
@@ -273,9 +291,7 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
                   onClick={() => setShowBgPicker(true)}
                   className="w-full h-20 rounded-xl border border-white/10 hover:border-red-500/50 overflow-hidden relative transition-colors group/bg"
                   style={groupBackground ? {
-                    backgroundImage: `url(${groupBackground})`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
+                    backgroundImage: `url(${groupBackground})`, backgroundSize: 'cover', backgroundPosition: 'center',
                   } : { background: 'rgba(255,255,255,0.03)' }}
                 >
                   <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black uppercase tracking-widest text-white/70 bg-black/40 opacity-0 group-hover/bg:opacity-100 transition-opacity">
@@ -287,9 +303,7 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
                     </span>
                   )}
                 </button>
-                <p className="text-[10px] text-zinc-500">
-                  Applies for everyone in this group. Save to apply.
-                </p>
+                <p className="text-[10px] text-zinc-500">Applies for everyone in this group. Save to apply.</p>
               </div>
 
               {showBgPicker && (
@@ -309,6 +323,34 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
               >
                 {updateGroupMutation.isPending ? 'Saving...' : 'Save Changes'}
               </Button>
+
+              {/* Per-group notification override — the escape hatch from the
+                  global "every group message" default. Saves straight to the
+                  profile (not with the name/avatar Save button) because the
+                  push broker is what reads it. */}
+              <div className="pt-4 border-t border-red-900/30 space-y-2">
+                <Label>Notifications</Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {SCOPE_MODES.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => handleNotifMode(m)}
+                      className={`py-2 rounded-lg text-xs font-bold border transition-colors ${
+                        notifMode === m
+                          ? 'bg-red-600/20 border-red-600/50 text-red-300'
+                          : 'bg-zinc-800 border-white/5 text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      {{ default: 'Global', all: 'All', mentions: '@Only', none: 'Muted' }[m]}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-zinc-500">
+                  {SCOPE_MODE_LABELS[notifMode]}
+                  {notifMode === 'default' ? ' — follows your global settings' : ' — just this group'}
+                </p>
+              </div>
 
               {/* Danger Zone */}
               <div className="pt-4 border-t border-red-900/30 space-y-3">
