@@ -304,3 +304,22 @@ button, a, input, textarea, select, label,
   .symbiote-edit { animation: none; box-shadow: 0 0 16px rgba(220, 38, 38, 0.35); }
   .symbiote-edit::before { animation: none; opacity: 0.5; }
 }
+
+/* ─── Welcome banner logo ───────────────────────────────────────────────────
+ * A slower, wider-amplitude cousin of .animate-symbiote (which the sidebar
+ * Core button uses at 3s). The banner mascot is larger and always on screen,
+ * so it breathes more slowly — a fast pulse on a big element reads as
+ * flickering rather than living.
+ */
+@keyframes symbiote-breathe-slow {
+  0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.40)); }
+  50%      { transform: scale(1.08); filter: drop-shadow(0 0 25px rgba(239, 68, 68, 0.85)); }
+}
+.animate-symbiote-slow { animation: symbiote-breathe-slow 4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-symbiote-slow {
+    animation: none;
+    filter: drop-shadow(0 0 16px rgba(239, 68, 68, 0.6));
+  }
+}

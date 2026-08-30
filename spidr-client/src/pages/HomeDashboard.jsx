@@ -298,11 +298,11 @@ export default function HomeDashboard() {
             transition={{ duration: 0.4, ease: 'easeOut' }}
             className="relative overflow-hidden rounded-2xl"
             style={{
-              background: 'rgba(10, 10, 10, 0.65)',
+              background: 'linear-gradient(100deg, rgba(239,68,68,0.10) 0%, rgba(10,10,10,0.72) 42%, rgba(5,5,5,0.72) 100%)',
               backdropFilter: 'blur(20px)',
               WebkitBackdropFilter: 'blur(20px)',
               border: '1px solid rgba(255, 255, 255, 0.05)',
-              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4)',
+              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4), inset 0 0 40px rgba(0,0,0,0.5)',
             }}
           >
             {/* Right-edge red glow */}
@@ -323,45 +323,49 @@ export default function HomeDashboard() {
             />
 
             <div className="relative flex items-center gap-5 p-6">
-              {/* Mascot housing — circular tinted container with subtle
-                  purple→red gradient halo behind the logo. */}
-              <div className="relative shrink-0">
+              {/* ── Logo module ──────────────────────────────────────────────
+                  The mascot floats free. It used to sit inside a dark purple
+                  circle with a border — and since the art is a genuine
+                  transparent PNG (verified alpha 0 at the corners), that
+                  circle was pure CSS, not part of the image. It made the logo
+                  read as a pasted sticker rather than a native element, and
+                  its overflow-hidden was clipping the spider's legs (a 64px
+                  image inside a 56px circle). Container gone; the mascot now
+                  breathes against the banner itself. */}
+              <div className="relative flex items-center justify-center w-20 h-20 shrink-0">
+                {/* Ambient bloom behind the art — no hard edge, so it reads as
+                    emitted light rather than a container. */}
                 <div
-                  className="absolute inset-0 rounded-full blur-md opacity-60"
-                  style={{
-                    background:
-                      'radial-gradient(circle, rgba(168, 85, 247, 0.5), rgba(239, 68, 68, 0.3) 60%, transparent 80%)',
-                  }}
+                  className="absolute inset-0 rounded-full blur-[26px] animate-pulse pointer-events-none"
+                  style={{ background: 'rgba(239, 68, 68, 0.22)' }}
                 />
-                <div
-                  className="relative w-14 h-14 rounded-full flex items-center justify-center overflow-hidden"
-                  style={{
-                    background:
-                      'radial-gradient(circle at 30% 30%, rgba(168, 85, 247, 0.18), rgba(20, 10, 22, 0.95) 70%)',
-                    border: '1px solid rgba(239, 68, 68, 0.35)',
-                    boxShadow:
-                      '0 0 18px rgba(239, 68, 68, 0.35), inset 0 0 14px rgba(168, 85, 247, 0.15)',
-                  }}
-                >
-                  {/* Real Spidr mascot (uploaded art) instead of the flat
-                      geometric SpiderLogo — same slot, same size, richer
-                      brand presence on the welcome slab. */}
-                  <img
-                    src={spidrMascot}
-                    alt="Spidr"
-                    className="w-16 h-16 object-contain drop-shadow-[0_0_18px_rgba(239,68,68,0.35)]"
-                    draggable={false}
-                  />
-                </div>
+                <img
+                  src={spidrMascot}
+                  alt="Spidr"
+                  draggable={false}
+                  className="relative z-10 w-20 h-20 object-contain animate-symbiote-slow"
+                />
               </div>
 
               {/* Copy block */}
               <div className="min-w-0 flex-1">
-                <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-red-400/90 mb-1">
-                  Welcome Back
-                </p>
-                <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">
-                  Hey, <span className="text-red-500">{greetingName}</span>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                  <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-red-400/90">
+                    System Uplink Established
+                  </p>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight tracking-wide">
+                  Hey,{' '}
+                  <span
+                    className="text-transparent bg-clip-text"
+                    style={{
+                      backgroundImage: 'linear-gradient(90deg, #ef4444, #b91c1c)',
+                      filter: 'drop-shadow(0 0 14px rgba(239,68,68,0.35))',
+                    }}
+                  >
+                    {greetingName}
+                  </span>
                 </h1>
               </div>
             </div>
