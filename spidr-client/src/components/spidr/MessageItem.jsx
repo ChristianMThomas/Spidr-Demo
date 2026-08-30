@@ -7,7 +7,7 @@ import GhostMessage from './GhostMessage';
 import KineticText from './KineticText';
 import ReactionBar from './ReactionBar';
 import VoiceMessageCapsule from './VoiceMessageCapsule';
-import { Crown, CornerUpLeft , PhoneMissed } from 'lucide-react';
+import { Crown, CornerUpLeft, PhoneMissed, Image as ImageIcon } from 'lucide-react';
 import { buildUsernameStyle } from '@/lib/usernameStyle';
 import { getBubbleGradientForProfile, buildBubbleStyle, buildBubbleCornerStyle } from '@/lib/bubbleGradients';
 import ContextableImage from '@/components/ui/ContextableImage';
@@ -87,6 +87,41 @@ export default function MessageItem({ msg, prevMsg, isOwnMessage, onProfileClick
   const liveAvatar = isOwnMessage
     ? (currentUser?.avatar_url || senderProfile?.avatar_url || msg.sender_avatar)
     : (senderProfile?.avatar_url || msg.sender_avatar);
+
+  // System event row (background changed, etc): a centered frosted pill
+  // rather than a chat bubble. Without this the message would render as an
+  // ordinary text message "from" the user, which reads as them literally
+  // saying it.
+  if (msg.is_system_event && msg.event_type === 'BACKGROUND_UPDATE') {
+    const iDidIt = msg.sender_id === currentUser?.id;
+    const who = iDidIt ? 'You' : (msg.sender_name || 'Someone');
+    const thumb = (msg.media_urls || [])[0];
+    return (
+      <div className="flex justify-center w-full my-3">
+        <div
+          className="flex items-center gap-2.5 px-4 py-2 rounded-full border border-white/5"
+          style={{
+            background: 'rgba(255,255,255,0.02)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+          }}
+        >
+          <ImageIcon className="w-3.5 h-3.5 text-white/30 shrink-0" />
+          <span className="text-[11px] font-medium text-white/50">
+            <strong className="text-white/80">{who}</strong>{' '}
+            {thumb ? 'set the background image as' : 'removed the background image'}
+          </span>
+          {thumb && (
+            <img
+              src={thumb}
+              alt=""
+              className="w-6 h-6 rounded-md object-cover border border-white/10 hover:border-white/30 transition-all shrink-0"
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // Missed-call system row: rendered CENTERED, not as a chat bubble, with
   // the tactical red-tinted alert styling from the blueprint. Reason drives

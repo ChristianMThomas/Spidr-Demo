@@ -101,6 +101,7 @@ export const api = {
   get:    (path, opts)  => request('GET',    path, opts),
   post:   (path, body)  => request('POST',   path, { body }),
   patch:  (path, body)  => request('PATCH',  path, { body }),
+  put:    (path, body)  => request('PUT',    path, { body }),
   delete: (path)        => request('DELETE', path),
   upload: (path, formData) => request('POST', path, { body: formData, isFormData: true }),
 };
@@ -283,6 +284,16 @@ export const algorithm = {
 // One wallet per user (auto-created on first fetch). Earn from in-app actions
 // (server grants automatically) or daily claim. Spend at the shop or via
 // direct spend calls. All endpoints return the updated wallet.
+// Shared per-conversation DM settings (wallpaper today, more later).
+// Deliberately NOT on the user profile: settings stored per-user are private
+// by construction, which is why a background set by one side was invisible
+// to the other.
+export const conversationSettings = {
+  get: (conversationId) => api.get(`/conversation-settings/${conversationId}`),
+  setBackground: (conversationId, background_url) =>
+    api.put(`/conversation-settings/${conversationId}`, { background_url }),
+};
+
 // Search & Media Hub — keyword search, image gallery, and link list across
 // DMs, group chats, and server channels. One endpoint, three views.
 export const searchHub = (params) => {

@@ -16,7 +16,17 @@ function authFetch(path, options = {}) {
   });
 }
 
-export default function NeuralConfig({ currentUser }) {
+/**
+ * NeuralConfig — the Connections panel (Spotify, Apple Music, Twitch, etc).
+ *
+ * Portable by design: rendered permanently inside the Settings > Connections
+ * tab, AND inside a floating modal launched from the profile card. Passing
+ * `onClose` is what distinguishes the two — with it the panel draws its own
+ * dismiss button and sizes itself for a modal; without it, it fills the
+ * settings pane as before. One component, two entry points, so adding a new
+ * integration appears in both places automatically.
+ */
+export default function NeuralConfig({ currentUser, onClose }) {
   const queryClient = useQueryClient();
 
   const { data: profile } = useQuery({
@@ -87,9 +97,32 @@ export default function NeuralConfig({ currentUser }) {
     }
   };
 
+  const inModal = typeof onClose === 'function';
+
   return (
-    <div className="flex-1 bg-[#050505] p-8 overflow-y-auto">
-      <h1 className="text-2xl font-black text-white mb-2 uppercase tracking-widest flex items-center gap-3">
+    <div
+      className={inModal
+        ? 'relative w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl p-6 spidr-scroll'
+        : 'flex-1 bg-[#050505] p-8 overflow-y-auto'}
+      style={inModal ? {
+        background: 'rgba(10,10,10,0.92)',
+        backdropFilter: 'blur(24px)',
+        WebkitBackdropFilter: 'blur(24px)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 24px 70px rgba(0,0,0,0.7)',
+      } : undefined}
+      onClick={inModal ? (e) => e.stopPropagation() : undefined}
+    >
+      {inModal && (
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-white/30 hover:text-white transition-colors z-10"
+          title="Close"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      )}
+      <h1 className={`text-2xl font-black text-white mb-2 uppercase tracking-widest flex items-center gap-3 ${inModal ? 'pr-8' : ''}`}>
         <span className="text-[#FF3333]">///</span> Neural Links
       </h1>
       <p className="text-gray-500 mb-8 text-sm">Jack external data streams into your Spidr profile.</p>

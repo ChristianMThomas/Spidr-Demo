@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
+import { api, entities, auth, integrations, getSocket, biomass as biomassApi, conversationSettings } from '@/api/apiClient';
 import { useTension } from '@/hooks/useTension';
 import { useStickyBoolean } from '@/hooks/useStickyBoolean';
 import { useAppShell } from '@/context/AppShellContext';
@@ -528,25 +528,48 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
 
   const [showBgPicker, setShowBgPicker] = useState(false);
 
-  // Per-user DM wallpaper for THIS conversation. Stored on the user's own
-  // profile (DMs have no container document), so each side can pick their own.
-  const dmBackground = activeConversationId
-    ? (currentProfile?.dm_backgrounds || {})[activeConversationId] || ''
-    : '';
+  // SHARED DM wallpaper. Previously this lived on the current user's profile,
+  // which made it private by construction — the other participant never saw
+  // it. It now lives on a ConversationSettings document keyed by
+  // conversation_id, so both sides get the same background.
+  const { data: convSettings } = useQuery({
+    queryKey: ['conversation-settings', activeConversationId],
+    queryFn: () => conversationSettings.get(activeConversationId),
+    enabled: !!activeConversationId,
+    staleTime: 30_000,
+  });
+  const dmBackground = convSettings?.background_url || '';
 
   const setDmBackground = async (url) => {
-    if (!currentProfile?.id || !activeConversationId) return;
-    const next = { ...(currentProfile.dm_backgrounds || {}) };
-    if (url) next[activeConversationId] = url;
-    else delete next[activeConversationId];
+    if (!activeConversationId) return;
     try {
-      await entities.UserProfile.update(currentProfile.id, { dm_backgrounds: next });
-      queryClient.invalidateQueries({ queryKey: ['current-user-profile'] });
+      await conversationSettings.setBackground(activeConversationId, url);
+      // The server also broadcasts to the room; invalidating here just makes
+      // OUR side instant rather than waiting on our own echo.
+      queryClient.invalidateQueries({ queryKey: ['conversation-settings', activeConversationId] });
+      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
       toast.success(url ? 'Chat background set' : 'Chat background cleared');
     } catch (err) {
       toast.error(err?.message || 'Could not update background');
     }
   };
+
+  // Live sync — repaint the moment the OTHER participant changes it, instead
+  // of only after a reload.
+  useEffect(() => {
+    if (!activeConversationId) return;
+    const socket = getSocket();
+    const onBg = (payload) => {
+      if (payload?.conversation_id !== activeConversationId) return;
+      queryClient.setQueryData(['conversation-settings', activeConversationId], (prev) => ({
+        ...(prev || {}),
+        background_url: payload.background_url || '',
+      }));
+      queryClient.invalidateQueries({ queryKey: ['dm-messages'] });
+    };
+    socket.on('dm:background-changed', onBg);
+    return () => socket.off('dm:background-changed', onBg);
+  }, [activeConversationId, queryClient]);
 
   useEffect(() => {
     if (messages.length > 0 && currentProfile?.status === 'online') {

@@ -143,6 +143,7 @@ app.use('/user-profiles',      require('./routes/userProfiles'));
 app.use('/servers',            require('./routes/servers'));
 app.use('/search-hub',        require('./routes/searchHub'));
 app.use('/messages',           require('./routes/messages'));
+app.use('/conversation-settings', require('./routes/conversationSettings'));
 app.use('/direct-messages',    require('./routes/directMessages'));
 app.use('/group-chats',        require('./routes/groupChats'));
 app.use('/group-chat-messages',require('./routes/groupChatMessages'));

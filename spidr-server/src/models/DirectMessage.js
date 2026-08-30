@@ -46,6 +46,10 @@ const s = new Schema({
   members_snapshot:    { type: [require('mongoose').Schema.Types.Mixed], default: [] },
   // Missed-call system messages — rendered as a centered alert bubble
   // instead of a chat bubble. reason: 'declined' | 'unanswered' | 'cancelled'
+  // Generic system rows (background changed, etc). Rendered as a centered
+  // pill rather than a chat bubble — see MessageItem.
+  is_system_event:     { type: Boolean, default: false },
+  event_type:          { type: String, default: '' },
   is_missed_call:      { type: Boolean, default: false },
   missed_call_reason:  { type: String, default: '' },
   caller_id:           { type: String, default: '' },

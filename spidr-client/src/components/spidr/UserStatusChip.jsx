@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQueryClient } from '@tanstack/react-query';
 import { entities } from '@/api/apiClient';
 import { toast } from 'sonner';
+import NeuralConfig from './NeuralConfig';
 import { useAppShell } from '@/context/AppShellContext';
-import { Mic, MicOff, Headphones, Settings as SettingsIcon, LogOut, User as UserIcon } from 'lucide-react';
+import { Mic, MicOff, Headphones, Settings as SettingsIcon, LogOut, User as UserIcon, Link2 } from 'lucide-react';
 
 /**
  * UserStatusChip — the top-right profile control, designed to look like the
@@ -30,6 +32,9 @@ const STATUS_OPTIONS = [
 export default function UserStatusChip() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  // Quick-access Connections modal. Same NeuralConfig component the Settings
+  // page renders — passing onClose is what puts it in modal form.
+  const [showConnections, setShowConnections] = useState(false);
   const { currentUser, activeCall, setActiveCall, setIsCallMinimized } = useAppShell();
   const [open, setOpen] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -184,6 +189,7 @@ export default function UserStatusChip() {
   );
 
   return (
+    <>
     <div
       className="relative flex flex-col items-center"
       onMouseEnter={handleEnter}
@@ -228,6 +234,13 @@ export default function UserStatusChip() {
                 <p className="text-white font-bold text-sm truncate">{displayName}</p>
                 <p className="text-zinc-500 text-xs truncate font-mono">{subtitle}</p>
               </div>
+              <button
+                onClick={() => { setOpen(false); setShowConnections(true); }}
+                className="text-zinc-500 hover:text-[#FF3333] transition-colors"
+                title="Connections"
+              >
+                <Link2 className="w-4 h-4" />
+              </button>
               <button
                 onClick={() => { setOpen(false); navigate('/settings'); }}
                 className="text-zinc-500 hover:text-white transition-colors"
@@ -329,5 +342,21 @@ export default function UserStatusChip() {
         )}
       </AnimatePresence>
     </div>
+
+    {/* Quick-access Connections modal. Rendered through a portal to <body>
+        and OUTSIDE the chip's own wrapper on purpose: the chip is a small
+        hover-driven popover in the sidebar corner, so a modal nested inside
+        it would be clipped by the rail and would unmount the moment the
+        popover closed on mouse-leave. */}
+    {showConnections && createPortal(
+      <div
+        className="fixed inset-0 z-[999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+        onClick={() => setShowConnections(false)}
+      >
+        <NeuralConfig currentUser={currentUser} onClose={() => setShowConnections(false)} />
+      </div>,
+      document.body
+    )}
+    </>
   );
 }
