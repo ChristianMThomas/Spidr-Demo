@@ -3,14 +3,15 @@ import { motion } from 'framer-motion';
 import { detectPlatform, audioSupportFor, bestAudioRoute } from '@/lib/shareAudioSupport';
 import { Monitor, Gamepad2, X, Zap, AppWindow, Loader2, Volume2, VolumeX } from 'lucide-react';
 
-// Mock entries used only on the web build (browsers show their own native
-// picker, so these are just affordances — getDisplayMedia opens the real one).
-const DETECTED_APPS = [
-  { id: 'game_1', name: 'League of Legends', icon: '⚔️', type: 'game', status: 'Active' },
-  { id: 'game_2', name: 'Valorant', icon: '🎮', type: 'game', status: 'Active' },
-  { id: 'app_1', name: 'Visual Studio Code', icon: '📝', type: 'app', status: 'Running' },
-  { id: 'app_2', name: 'Discord', icon: '💬', type: 'app', status: 'Running' },
-];
+// NOTE: this file used to carry a hardcoded DETECTED_APPS list — League of
+// Legends, Valorant, VS Code, Discord — rendered on the web build with
+// "SPIDR SENSE DETECTED" badges. None of it was real. Those entries showed
+// whether or not the games were installed, let alone running, and clicking
+// any of them just opened the browser's own picker regardless. It has been
+// deleted rather than rewritten: a browser CANNOT enumerate your running
+// applications (that would be a serious privacy hole), so the honest web
+// flow is to hand straight off to the native picker and explain what to
+// choose there.
 
 export default function StreamSelector({ isOpen, onClose, onStartStream }) {
   const [activeTab, setActiveTab] = useState('screens');
@@ -108,40 +109,39 @@ export default function StreamSelector({ isOpen, onClose, onStartStream }) {
             </div>
           )}
 
-          {/* ── Web: mock affordances (real native picker opens on click) ───── */}
-          {!isElectron && activeTab === 'games' && DETECTED_APPS.filter(app => app.type === 'game').map((app, idx) => (
-            <div
-              key={app.id}
-              onClick={() => onStartStream(app.id)}
-              className={`${idx === 0 ? 'col-span-2' : ''} bg-gradient-to-r from-[#FF3333]/20 to-transparent border border-[#FF3333] rounded-xl p-4 flex items-center gap-4 cursor-pointer hover:bg-[#FF3333]/10 transition-all group`}
-            >
-              <div className="w-12 h-12 bg-black rounded-lg border border-[#FF3333]/50 flex items-center justify-center text-2xl animate-pulse shrink-0">
-                {app.icon}
+          {/* ── Web: hand off to the browser's own picker ──────────────────
+              A browser cannot list your running apps or screens — only the
+              native picker can, and it appears the moment we call
+              getDisplayMedia. So instead of a fake grid, we explain what to
+              pick and open the real thing. */}
+          {!isElectron && (
+            <div className="col-span-2 flex flex-col items-center justify-center py-10 px-4 text-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-center">
+                <Monitor className="w-6 h-6 text-white/40" />
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-[#FF3333] text-[10px] font-bold uppercase tracking-widest">Spidr Sense Detected</span>
-                  <span className="w-2 h-2 bg-[#FF3333] rounded-full animate-ping shrink-0" />
-                </div>
-                <h3 className="text-white font-bold text-lg truncate">{app.name}</h3>
-                <p className="text-gray-400 text-xs truncate">{app.status} • Ready to Stream</p>
+              <div>
+                <p className="text-white font-bold text-sm mb-1">Your browser handles the picking</p>
+                <p className="text-white/45 text-xs leading-relaxed max-w-sm">
+                  {route.label}
+                </p>
               </div>
-              <button className="bg-[#FF3333] text-white px-4 py-2 rounded-lg font-bold text-xs group-hover:scale-105 transition-transform shrink-0">
-                GO LIVE
+
+              <button
+                onClick={() => onStartStream('browser')}
+                className="px-5 py-2.5 rounded-xl bg-[#FF3333] hover:bg-red-500 text-white text-xs font-black tracking-widest uppercase transition-colors"
+              >
+                Choose what to share
               </button>
+
+              <div className="w-full max-w-sm text-left mt-2 space-y-1.5">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-white/30">In the picker</p>
+                <ul className="text-[11px] text-white/45 space-y-1 list-disc list-inside">
+                  <li>Pick <strong className="text-white/70">Chrome Tab</strong> for music — window shares never carry audio.</li>
+                  <li>Tick the <strong className="text-white/70">Share tab audio</strong> box, bottom-left of the dialog.</li>
+                  <li>Desktop app users can share the Spotify app directly with system audio.</li>
+                </ul>
+              </div>
             </div>
-          ))}
-
-          {!isElectron && activeTab === 'games' && DETECTED_APPS.filter(app => app.type === 'app').map(app => (
-            <WindowCard key={app.id} name={app.name} icon={app.icon} status={app.status} onClick={() => onStartStream(app.id)} />
-          ))}
-
-          {!isElectron && activeTab === 'screens' && (
-            <>
-              <WindowCard name="Screen 1 (Primary)" icon="🖥️" status="Main Display" onClick={() => onStartStream('screen_1')} />
-              <WindowCard name="Screen 2" icon="🖥️" status="Secondary" onClick={() => onStartStream('screen_2')} />
-              <WindowCard name="Entire Desktop" icon="💻" status="All Screens" onClick={() => onStartStream('desktop')} />
-            </>
           )}
 
         </div>
@@ -178,14 +178,4 @@ const SourceCard = ({ src, onClick }) => (
   </div>
 );
 
-const WindowCard = ({ name, icon, status, onClick }) => (
-  <div onClick={onClick} className="bg-[#111] border border-white/5 rounded-xl p-4 flex flex-col gap-3 hover:border-white/20 hover:bg-[#1a1a1a] cursor-pointer transition-all">
-    <div className="w-full h-24 bg-black rounded-lg flex items-center justify-center text-4xl grayscale opacity-50">
-      {icon}
-    </div>
-    <div className="min-w-0">
-      <span className="text-sm font-bold text-gray-300 truncate block">{name}</span>
-      <span className="text-xs text-gray-500">{status}</span>
-    </div>
-  </div>
-);
+

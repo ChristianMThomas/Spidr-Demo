@@ -790,6 +790,28 @@ module.exports = function registerHandlers(io) {
           { $set: { status: 'offline', last_seen: new Date(), gaming_status: null } }
         ).catch(() => {});
         io.emit('presence:activity-changed', { userId, status: null });
+
+        // DJ FAILSAFE: if this user was hosting a DJ session whose audio was
+        // riding their screen share, that share died with their connection.
+        // Their client can't tell us — it's gone. Without this the session
+        // stays flagged 'stream' forever and everyone sits in silence
+        // looking at a "Live audio" badge, with their 30s preview suppressed
+        // by a share that no longer exists.
+        (async () => {
+          try {
+            const DJSession = require('../models/DJSession');
+            const hosted = await DJSession.findOne({ host_id: userId, audio_route: 'stream' });
+            if (hosted) {
+              hosted.audio_route = 'preview';
+              await hosted.save();
+              const { _id, __v, ...rest } = hosted.toObject();
+              // Broadcast globally to match how routes/djSessions.js emits —
+              // targeting a room name that file never joins would silently
+              // reach nobody.
+              io.emit('voice:dj-session-changed', { id: _id.toString(), ...rest });
+            }
+          } catch { /* best-effort */ }
+        })();
       }
       try {
         await VoiceSession.deleteMany({ user_id: userId, is_spidr_ai: { $ne: true } });

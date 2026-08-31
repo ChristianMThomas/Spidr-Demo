@@ -39,6 +39,8 @@ export default function DJMatrix({
   isHost,         // true if currentUser.id === djSession.host_id
   currentUser,
   participants,   // [{ user_id, user_name, user_avatar }] — for audience roster
+  screenStreams = {},   // socketId -> MediaStream (incoming shares)
+  ownScreenStream = null, // this client's own outgoing share, if any
   onStop,         // (host) ends the session
 }) {
   const queryClient = useQueryClient();
@@ -78,6 +80,9 @@ export default function DJMatrix({
   // Local-only volume slider for listeners (DJ has no local volume —
   // their Spotify client controls the source).
   const [localVolume, setLocalVolume] = useState(80);
+  // Local pause. Deliberately per-listener: Spidr has no system-level control
+  // over the DJ's Spotify app, so "pause" can only ever mean "stop MY audio".
+  const [userPaused, setUserPaused] = useState(false);
 
   // Listen along — pull now-playing from the host. The host's own
   // useNowPlaying call elsewhere (their profile widget, for example)
@@ -101,6 +106,28 @@ export default function DJMatrix({
   // song at different offsets. The session carries the authoritative route.
   const audioRoute = djSession?.audio_route || 'preview';
   const streamingLive = audioRoute === 'stream';
+
+  // LISTENER-SIDE FAILSAFE. If the DJ's app crashes, their laptop sleeps, or
+  // their connection dies, their client can't tell us anything — it's gone.
+  // So listeners don't trust the session flag alone: if the route says
+  // 'stream' but no screen stream is actually arriving from the host, we
+  // treat the live audio as dead locally and fall back to the preview
+  // ourselves. Without this the room sits in silence looking at a "Live
+  // audio" badge, which is the worst of both states.
+  const hostStreamAlive = React.useMemo(() => {
+    if (!streamingLive) return true;
+    const streams = [
+      ...Object.values(screenStreams || {}),
+      ...(ownScreenStream ? [ownScreenStream] : []),
+    ];
+    return streams.some(s => {
+      try { return s.getAudioTracks().some(t => t.readyState === 'live'); }
+      catch { return false; }
+    });
+  }, [streamingLive, screenStreams, ownScreenStream]);
+
+  // Effective route — what this client should ACTUALLY do right now.
+  const liveAudioActive = streamingLive && hostStreamAlive;
 
   // ── Apple Music full-track upgrade ──────────────────────────────────
   // For 'apple' sessions, listeners who connected Apple Music (and have a
@@ -142,27 +169,54 @@ export default function DJMatrix({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localVolume, fullTrackActive]);
 
+  // THE ZOMBIE-PREVIEW KILLER.
+  //
+  // Calling el.pause() was not enough and this is why the 30s clip kept
+  // playing over a live share:
+  //   1. The cleanup never removed the pending 'canplay' listener, so when
+  //      the route flipped to 'stream' that listener fired afterwards and
+  //      called play() again on an element we thought we'd stopped.
+  //   2. An in-flight play() promise resolves AFTER pause() runs, resuming
+  //      playback a beat later.
+  //   3. Leaving el.src set means the browser can keep buffering and
+  //      re-entering a playable state on its own.
+  // So suppression now tears the element down completely, and every run
+  // tracks whether it has been superseded before it is allowed to play.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    if (!djSession || !previewUrl || fullTrackActive || streamingLive) { el.pause(); return; }
 
+    const suppressed = !djSession || !previewUrl || fullTrackActive || liveAudioActive || userPaused;
+    if (suppressed) {
+      try {
+        el.pause();
+        el.removeAttribute('src');   // stop buffering entirely
+        el.load();                   // abort any in-flight fetch + reset
+      } catch {}
+      return;
+    }
+
+    let cancelled = false;           // guards against a late canplay/promise
     el.src = previewUrl;
     el.loop = true; // 30s clip loops for the length of the session
-    // Rough sync: seek to where the session clock is inside the 30s loop.
     const startedMs = djSession.started_at ? new Date(djSession.started_at).getTime() : Date.now();
     const offsetSec = Math.max(0, ((Date.now() - startedMs) / 1000) % 30);
     const play = () => {
+      if (cancelled) return;         // route changed while we were loading
       try { el.currentTime = offsetSec; } catch {}
       el.play()
-        .then(() => setAudioBlocked(false))
-        .catch(() => setAudioBlocked(true)); // browser autoplay policy — needs one tap
+        .then(() => { if (cancelled) el.pause(); else setAudioBlocked(false); })
+        .catch(() => { if (!cancelled) setAudioBlocked(true); });
     };
     if (el.readyState >= 2) play();
-    else { el.addEventListener('canplay', play, { once: true }); el.load(); }
+    else { el.addEventListener('canplay', play); el.load(); }
 
-    return () => { el.pause(); };
-  }, [djSession?.track_id, previewUrl, djSession?.started_at, fullTrackActive, streamingLive]);
+    return () => {
+      cancelled = true;
+      el.removeEventListener('canplay', play);   // <- the missing piece
+      try { el.pause(); } catch {}
+    };
+  }, [djSession?.track_id, previewUrl, djSession?.started_at, fullTrackActive, liveAudioActive, userPaused]);
 
   // Volume slider actually controls the booth audio now.
   useEffect(() => {
@@ -181,6 +235,33 @@ export default function DJMatrix({
   // Picker mode: 'now' replaces the current track (host only), 'queue'
   // appends. Reusing one modal keeps search behaviour identical in both.
   const [pickerMode, setPickerMode] = useState('now');
+  // Pause behaves differently per route, because the three sources are
+  // physically different things:
+  //   preview   — pause the local <audio> element
+  //   fulltrack — pause the local MusicKit player
+  //   stream    — Spidr cannot pause the DJ's app, so we mute the incoming
+  //               WebRTC audio for THIS listener only, and say so plainly
+  //               rather than pretending the button reached the source.
+  const togglePause = () => {
+    const next = !userPaused;
+    setUserPaused(next);
+    if (liveAudioActive) {
+      Object.values(screenStreams || {}).forEach((s) => {
+        try { s.getAudioTracks().forEach((t) => { t.enabled = !next; }); } catch {}
+      });
+      if (next) {
+        toast('Muted for you', {
+          description: 'Audio is live via the DJ\'s share — pause it in their app to stop it for everyone.',
+        });
+      }
+      return;
+    }
+    if (fullTrackActive) {
+      try { next ? musicKit.pause?.() : musicKit.play?.(); } catch {}
+    }
+    // preview route is handled by the effect above via `userPaused`
+  };
+
   const handlePickTrack = () => { setPickerMode('now'); setPickerOpen(true); };
   const handleQueueTrack = () => { setPickerMode('queue'); setPickerOpen(true); };
 
@@ -335,7 +416,7 @@ export default function DJMatrix({
       {/* Substitute-source notice — when Spotify shipped no preview we fall
           back to a verified iTunes match, which is a different recording of
           the same track. Saying so beats letting it sound "off" unexplained. */}
-      {djSession && previewUrl && !fullTrackActive && !streamingLive && djSession?.preview_source === 'itunes' && (
+      {djSession && previewUrl && !fullTrackActive && !liveAudioActive && djSession?.preview_source === 'itunes' && (
         <div className="relative z-20 mx-auto mb-2 w-fit px-3 py-1 rounded-full bg-white/[0.03] border border-white/10">
           <span className="font-mono text-[9px] tracking-widest uppercase text-white/40">
             Preview via iTunes · 30s
@@ -343,7 +424,7 @@ export default function DJMatrix({
         </div>
       )}
 
-      {djSession && streamingLive && (
+      {djSession && liveAudioActive && (
         <div className="relative z-20 mx-auto mb-2 w-fit px-3 py-1 rounded-full bg-[#1DB954]/10 border border-[#1DB954]/30">
           <span className="font-mono text-[9px] tracking-widest uppercase text-[#1DB954]">
             Live audio · full track via {djSession?.host_user_name || 'the DJ'}
@@ -351,7 +432,7 @@ export default function DJMatrix({
         </div>
       )}
 
-      {djSession && !previewUrl && !fullTrackActive && !streamingLive && (
+      {djSession && !previewUrl && !fullTrackActive && !liveAudioActive && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-full bg-black/70 border border-white/10 text-[10px] font-mono uppercase tracking-widest text-zinc-400">
           No audio preview for this track — DJ, try another song
         </div>
@@ -554,6 +635,10 @@ export default function DJMatrix({
             hasSession={!!djSession}
             volume={localVolume}
             setVolume={setLocalVolume}
+            paused={userPaused}
+            onTogglePause={togglePause}
+            canSkip={queue.length > 0}
+            onSkip={handleAdvance}
           />
         ) : djSession ? (
           <ListenerDock volume={localVolume} setVolume={setLocalVolume} />
@@ -696,7 +781,7 @@ function AudienceRoster({ participants = [], hostId, enabled }) {
 }
 
 // HostDock — DJ controls: pick track, play/pause hint, end session.
-function HostDock({ onPick, onEnd, isPlaying, busy, hasSession , volume, setVolume }) {
+function HostDock({ onPick, onEnd, isPlaying, busy, hasSession, volume, setVolume, paused, onTogglePause, canSkip, onSkip }) {
   return (
     <div
       className="flex items-center gap-2 p-2 rounded-2xl"
@@ -707,13 +792,24 @@ function HostDock({ onPick, onEnd, isPlaying, busy, hasSession , volume, setVolu
         boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8)',
       }}
     >
-      <DockBtn title="Previous" disabled>
+      {/* Transport. These were previously hardcoded `disabled` with no
+          handlers at all — decoration that looked functional, which is why
+          pause appeared broken. Prev stays disabled honestly: there is no
+          history stack to step back through yet. */}
+      <DockBtn title="No previous track" disabled>
         <ChevronLeft className="w-4 h-4" />
       </DockBtn>
-      <DockBtn title={isPlaying ? 'Pause' : 'Play'} disabled>
-        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+      <DockBtn
+        title={paused ? 'Resume (for you)' : 'Pause (for you)'}
+        onClick={onTogglePause}
+      >
+        {paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
       </DockBtn>
-      <DockBtn title="Next" disabled>
+      <DockBtn
+        title={canSkip ? 'Play next queued track' : 'Queue is empty'}
+        onClick={canSkip ? onSkip : undefined}
+        disabled={!canSkip}
+      >
         <ChevronRight className="w-4 h-4" />
       </DockBtn>
 
@@ -831,12 +927,16 @@ function ListenerDock({ volume, setVolume }) {
   );
 }
 
-function DockBtn({ children, title, disabled }) {
+// NOTE: this swallowed onClick entirely — every transport button was inert
+// even once handlers were passed, which is the other half of why pause
+// looked broken.
+function DockBtn({ children, title, disabled, onClick }) {
   return (
     <button
       type="button"
       title={title}
       disabled={disabled}
+      onClick={onClick}
       className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
         disabled
           ? 'text-white/30 cursor-not-allowed'

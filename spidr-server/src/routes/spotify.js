@@ -268,14 +268,38 @@ async function itunesPreview(name, artist) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 2500);
     const term = encodeURIComponent(`${artist || ''} ${name || ''}`.trim().slice(0, 120));
+    // Ask for several and VERIFY the match. Taking results[0] blindly is the
+    // reason the booth could show one song's art while playing another:
+    // iTunes routinely ranks a cover, a live cut, or a same-titled song by a
+    // different artist first, and that clip then rode along with Spotify's
+    // (correct) title and album art. Same fix as ensurePreview in
+    // routes/djSessions.js — both enrichment paths needed it.
     const r = await fetch(
-      `https://itunes.apple.com/search?term=${term}&media=music&entity=song&limit=1`,
+      `https://itunes.apple.com/search?term=${term}&media=music&entity=song&limit=8`,
       { signal: ctrl.signal }
     );
     clearTimeout(t);
     if (r.ok) {
       const d = await r.json().catch(() => null);
-      url = d?.results?.[0]?.previewUrl || null;
+      const norm = (s) => String(s || '')
+        .toLowerCase()
+        .replace(/\(.*?\)|\[.*?\]/g, ' ')
+        .replace(/\b(remaster(ed)?|live|radio edit|deluxe|explicit|version|feat\.?|ft\.?)\b/g, ' ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+      const wantTitle = norm(name);
+      const wantArtist = norm(artist);
+      const match = (d?.results || []).find((c) => {
+        if (!c?.previewUrl) return false;
+        const ct = norm(c.trackName);
+        const ca = norm(c.artistName);
+        const titleOk = ct === wantTitle || ct.includes(wantTitle) || wantTitle.includes(ct);
+        const artistOk = !wantArtist || ca === wantArtist || ca.includes(wantArtist) || wantArtist.includes(ca);
+        return titleOk && artistOk;
+      });
+      // No corroborating match → no preview. A track with correct art and no
+      // audio is honest; correct art with the WRONG audio is not.
+      url = match?.previewUrl || null;
     }
   } catch { /* timeout / network — leave null */ }
   if (itunesCache.size > ITUNES_CACHE_MAX) itunesCache.clear();

@@ -89,10 +89,40 @@ export default function VoiceChannel({
   // the room's audio route and stop everyone's 30s preview. Broadcast as an
   // event because the booth is a sibling component, not a child.
   useEffect(() => {
-    const carrying = isSharing && streamHasAudio(screenStream);
-    window.dispatchEvent(new CustomEvent('spidr-share-audio', {
-      detail: { active: !!carrying },
-    }));
+    const announce = () => {
+      const carrying = isSharing && streamHasAudio(screenStream);
+      window.dispatchEvent(new CustomEvent('spidr-share-audio', {
+        detail: { active: !!carrying },
+      }));
+    };
+    announce();
+    if (!screenStream) return;
+
+    // Watch the AUDIO track's own lifecycle, not just the effect deps.
+    // Re-running on [isSharing, screenStream] alone missed the case that
+    // matters most here: the audio source dying while the video keeps
+    // going — the DJ quits Spotify, or the OS drops the loopback capture.
+    // The stream object doesn't change identity when that happens, so
+    // nothing re-evaluated and the room stayed pinned to 'stream' with
+    // nothing actually playing.
+    const audioTracks = screenStream.getAudioTracks();
+    audioTracks.forEach((t) => {
+      t.addEventListener('ended', announce);
+      t.addEventListener('mute', announce);
+      t.addEventListener('unmute', announce);
+    });
+    // Belt-and-braces poll: some platforms flip readyState without firing
+    // any event at all (notably Windows loopback when the source app exits).
+    const iv = setInterval(announce, 3000);
+
+    return () => {
+      clearInterval(iv);
+      audioTracks.forEach((t) => {
+        t.removeEventListener('ended', announce);
+        t.removeEventListener('mute', announce);
+        t.removeEventListener('unmute', announce);
+      });
+    };
   }, [isSharing, screenStream]);
 
   // ── Real WebRTC voice/video ───────────────────────────────────────────────
@@ -1007,6 +1037,12 @@ export default function VoiceChannel({
                     user_name: s.user_name,
                     user_avatar: s.user_avatar,
                   }))}
+                  // Incoming screen streams let the booth verify for itself
+                  // that the DJ's live audio is still arriving, instead of
+                  // trusting a session flag the DJ can no longer update if
+                  // their client died.
+                  screenStreams={rtc.screenStreams || {}}
+                  ownScreenStream={isSharing ? screenStream : null}
                   onStop={() => queryClient.invalidateQueries({ queryKey: ['djSession', channel.id] })}
                 />
               ) : screenActive ? (
