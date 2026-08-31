@@ -15,6 +15,7 @@ import CinemaStage from './CinemaStage';
 import { useScreenShare } from './useScreenShare';
 import { useSpidrVoice } from './SpidrVoice';
 import { applySink, getMediaPrefs } from '@/lib/mediaDevicePrefs';
+import { streamHasAudio, audioSupportFor } from '@/lib/shareAudioSupport';
 import { getSharedAudioContext, getSharedSource, releaseSharedSource } from '@/lib/sharedAudioContext';
 const ClipFeed = React.lazy(() => import('@/components/feed/ClipFeed'));
 import SpidrVoiceVisualizer from './SpidrVoice';
@@ -46,6 +47,14 @@ export default function VoiceChannel({
   const [isAILoading, setIsAILoading]         = useState(false);
   const [showAVControls, setShowAVControls]   = useState(false);
   const [showStreamSelector, setShowStreamSelector] = useState(false);
+
+  // The DJ booth's "Share audio" button lives in a child component, so it
+  // asks for the picker via an event rather than threading a callback down.
+  useEffect(() => {
+    const open = () => setShowStreamSelector(true);
+    window.addEventListener('spidr-open-share', open);
+    return () => window.removeEventListener('spidr-open-share', open);
+  }, []);
   const [audioSettingsOpen, setAudioSettingsOpen] = useState(false);
   const [showSoundboard, setShowSoundboard] = useState(false);
   // Voice deck layout mode: 'focus' (center stage) or 'spider' (compact docked
@@ -75,6 +84,16 @@ export default function VoiceChannel({
   const queryClient     = useQueryClient();
   const spidrVoice      = useSpidrVoice();
   const { stream: screenStream, isSharing, startShare, stopShare } = useScreenShare();
+
+  // Announce whether the DJ's share is carrying audio, so the booth can flip
+  // the room's audio route and stop everyone's 30s preview. Broadcast as an
+  // event because the booth is a sibling component, not a child.
+  useEffect(() => {
+    const carrying = isSharing && streamHasAudio(screenStream);
+    window.dispatchEvent(new CustomEvent('spidr-share-audio', {
+      detail: { active: !!carrying },
+    }));
+  }, [isSharing, screenStream]);
 
   // ── Real WebRTC voice/video ───────────────────────────────────────────────
   const rtc = useWebRTC({
@@ -593,6 +612,24 @@ export default function VoiceChannel({
       tracks.forEach((t) => rtc.addOutgoingTrack(t, mediaStream, 'screen'));
       const videoTrack = mediaStream.getVideoTracks()[0];
       if (videoTrack) videoTrack.addEventListener('ended', handleStopStream, { once: true });
+
+      // Silent-share warning. The single most common screen-share complaint
+      // is "nobody can hear my music" — almost always because the audio
+      // checkbox wasn't ticked, or because the chosen source kind can't
+      // carry audio in this environment at all (browser window shares
+      // never can). Tell the DJ immediately rather than letting them
+      // broadcast silence until someone speaks up.
+      if (!streamHasAudio(mediaStream)) {
+        const hint = audioSupportFor(
+          videoTrack?.getSettings?.()?.displaySurface === 'browser' ? 'tab'
+            : videoTrack?.getSettings?.()?.displaySurface === 'window' ? 'window'
+            : 'screen'
+        );
+        toast.warning('Sharing without audio', {
+          description: hint.why,
+          duration: 8000,
+        });
+      }
     }
   };
 

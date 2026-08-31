@@ -21,6 +21,13 @@ const s = new Schema({
   // Marks audio sourced from the iTunes fallback rather than the original
   // service, so the UI can label it honestly.
   preview_source:  { type: String, default: '' },
+  // How the room is HEARING this session:
+  //   'preview'  — the 30s clip (default)
+  //   'stream'   — the DJ is piping real audio through their screen share
+  //   'fulltrack'— Apple Music subscribers playing the master locally
+  // When set to 'stream', clients MUST NOT also play the preview or the
+  // room hears two overlapping copies of the song.
+  audio_route:     { type: String, default: 'preview' },
   external_url:    { type: String, default: '' },
   // Collaborative queue — anyone in the call can append. Each entry keeps
   // who added it so the booth can show attribution and enforce removal

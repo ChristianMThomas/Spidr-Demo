@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Disc3, Volume2, Music, ChevronLeft, ChevronRight, Pause, Play, X, Loader2, ListPlus, Trash2, SkipForward } from 'lucide-react';
+import { Disc3, Volume2, Music, ChevronLeft, ChevronRight, Pause, Play, X, Loader2, ListPlus, Trash2, SkipForward, MonitorSpeaker } from 'lucide-react';
 import { spotify } from '@/api/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
+import { bestAudioRoute } from '@/lib/shareAudioSupport';
 import useNowPlaying from '@/hooks/useNowPlaying';
 import useMusicKit from './useMusicKit';
 import SpotifySearchModal from './SpotifySearchModal';
@@ -41,6 +42,37 @@ export default function DJMatrix({
   onStop,         // (host) ends the session
 }) {
   const queryClient = useQueryClient();
+  // Full-length audio for EVERYONE in the call — including free-tier users —
+  // rides the existing screen-share pipe rather than a music API. This tells
+  // the DJ the one route that actually carries sound on their platform.
+  const shareRoute = bestAudioRoute();
+
+  // Flip the session's audio route the moment the DJ's share starts or stops
+  // carrying sound. Doing it automatically matters: a manual toggle would
+  // routinely be left in the wrong position, and the failure mode is the
+  // whole room hearing the preview and the live audio at once.
+  useEffect(() => {
+    if (!isHost || !channel?.id || !djSession) return;
+    const onShareAudio = async (e) => {
+      const wantRoute = e.detail?.active ? 'stream' : 'preview';
+      if ((djSession.audio_route || 'preview') === wantRoute) return;
+      try {
+        await spotify.djSession.next(channel.id, djSession.track_id, {
+          track_name:    djSession.track_name,
+          track_artist:  djSession.track_artist,
+          album_art_url: djSession.album_art_url,
+          preview_url:   djSession.preview_url,
+          external_url:  djSession.external_url,
+          duration_ms:   djSession.duration_ms,
+          source:        djSession.source,
+          audio_route:   wantRoute,
+        });
+        queryClient.invalidateQueries({ queryKey: ['dj-session', channel.id] });
+      } catch { /* non-fatal — the preview simply keeps playing */ }
+    };
+    window.addEventListener('spidr-share-audio', onShareAudio);
+    return () => window.removeEventListener('spidr-share-audio', onShareAudio);
+  }, [isHost, channel?.id, djSession?.track_id, djSession?.audio_route, queryClient]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   // Local-only volume slider for listeners (DJ has no local volume —
@@ -64,6 +96,11 @@ export default function DJMatrix({
   const audioRef = useRef(null);
   const [audioBlocked, setAudioBlocked] = useState(false); // autoplay gate hit
   const previewUrl = djSession?.preview_url || '';
+  // When the DJ pipes real audio through their screen share, the 30s preview
+  // must NOT also play — otherwise every listener hears two copies of the
+  // song at different offsets. The session carries the authoritative route.
+  const audioRoute = djSession?.audio_route || 'preview';
+  const streamingLive = audioRoute === 'stream';
 
   // ── Apple Music full-track upgrade ──────────────────────────────────
   // For 'apple' sessions, listeners who connected Apple Music (and have a
@@ -108,7 +145,7 @@ export default function DJMatrix({
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    if (!djSession || !previewUrl || fullTrackActive) { el.pause(); return; }
+    if (!djSession || !previewUrl || fullTrackActive || streamingLive) { el.pause(); return; }
 
     el.src = previewUrl;
     el.loop = true; // 30s clip loops for the length of the session
@@ -125,7 +162,7 @@ export default function DJMatrix({
     else { el.addEventListener('canplay', play, { once: true }); el.load(); }
 
     return () => { el.pause(); };
-  }, [djSession?.track_id, previewUrl, djSession?.started_at, fullTrackActive]);
+  }, [djSession?.track_id, previewUrl, djSession?.started_at, fullTrackActive, streamingLive]);
 
   // Volume slider actually controls the booth audio now.
   useEffect(() => {
@@ -208,6 +245,10 @@ export default function DJMatrix({
         external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
         duration_ms:   track.duration_ms || 0,
         source:        track.source === 'apple' ? 'apple' : 'spotify',
+        // Keep the room on the live share while one is running — otherwise
+        // announcing a new track would silently drop everyone back to the
+        // 30s preview on top of the audio they're already hearing.
+        audio_route:   streamingLive ? 'stream' : 'preview',
       };
       if (djSession?.host_id) {
         await spotify.djSession.next(channel.id, track.id, meta);
@@ -215,7 +256,14 @@ export default function DJMatrix({
         await spotify.djSession.start(channel.id, track.id, meta);
       }
       setPickerOpen(false);
-      toast.success(`Now spinning: ${track.name}`);
+      toast.success(
+        streamingLive
+          ? `Now showing: ${track.name}`
+          : `Now spinning: ${track.name}`,
+        streamingLive
+          ? { description: 'Room art updated — audio keeps riding your share.' }
+          : undefined
+      );
     } catch (err) {
       console.error('[DJMatrix] start/next failed:', err);
       toast.error(err?.message || 'Could not change track');
@@ -287,7 +335,7 @@ export default function DJMatrix({
       {/* Substitute-source notice — when Spotify shipped no preview we fall
           back to a verified iTunes match, which is a different recording of
           the same track. Saying so beats letting it sound "off" unexplained. */}
-      {djSession && previewUrl && !fullTrackActive && djSession?.preview_source === 'itunes' && (
+      {djSession && previewUrl && !fullTrackActive && !streamingLive && djSession?.preview_source === 'itunes' && (
         <div className="relative z-20 mx-auto mb-2 w-fit px-3 py-1 rounded-full bg-white/[0.03] border border-white/10">
           <span className="font-mono text-[9px] tracking-widest uppercase text-white/40">
             Preview via iTunes · 30s
@@ -295,7 +343,15 @@ export default function DJMatrix({
         </div>
       )}
 
-      {djSession && !previewUrl && !fullTrackActive && (
+      {djSession && streamingLive && (
+        <div className="relative z-20 mx-auto mb-2 w-fit px-3 py-1 rounded-full bg-[#1DB954]/10 border border-[#1DB954]/30">
+          <span className="font-mono text-[9px] tracking-widest uppercase text-[#1DB954]">
+            Live audio · full track via {djSession?.host_user_name || 'the DJ'}
+          </span>
+        </div>
+      )}
+
+      {djSession && !previewUrl && !fullTrackActive && !streamingLive && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-full bg-black/70 border border-white/10 text-[10px] font-mono uppercase tracking-widest text-zinc-400">
           No audio preview for this track — DJ, try another song
         </div>
@@ -423,6 +479,13 @@ export default function DJMatrix({
               Up Next{queue.length > 0 ? ` · ${queue.length}` : ''}
             </span>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('spidr-open-share'))}
+                title={shareRoute.label}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase text-white/60 hover:text-white border border-white/10 hover:border-white/30 bg-white/[0.02] transition-all"
+              >
+                <MonitorSpeaker className="w-3.5 h-3.5" /> Share audio
+              </button>
               <button
                 onClick={handleQueueTrack}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase text-white/60 hover:text-[#1DB954] border border-white/10 hover:border-[#1DB954]/40 bg-white/[0.02] transition-all"

@@ -115,6 +115,7 @@ function trackMeta(body = {}) {
     album_art_url: String(body.album_art_url || '').slice(0, 500),
     preview_url:   String(body.preview_url   || '').slice(0, 500),
     preview_source: String(body.preview_source || '').slice(0, 20),
+    ...(body.audio_route ? { audio_route: String(body.audio_route).slice(0, 20) } : {}),
     external_url:  String(body.external_url  || '').slice(0, 500),
     duration_ms:   Number(body.duration_ms)  || 0,
     source:        body.source === 'apple' ? 'apple' : 'spotify',

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Monitor, Gamepad2, X, Zap, AppWindow, Loader2 } from 'lucide-react';
+import { detectPlatform, audioSupportFor, bestAudioRoute } from '@/lib/shareAudioSupport';
+import { Monitor, Gamepad2, X, Zap, AppWindow, Loader2, Volume2, VolumeX } from 'lucide-react';
 
 // Mock entries used only on the web build (browsers show their own native
 // picker, so these are just affordances — getDisplayMedia opens the real one).
@@ -13,6 +14,14 @@ const DETECTED_APPS = [
 
 export default function StreamSelector({ isOpen, onClose, onStartStream }) {
   const [activeTab, setActiveTab] = useState('screens');
+  // Which sources can actually carry sound here — see lib/shareAudioSupport
+  // for the full platform matrix. Surfaced up front because the most common
+  // failure is picking a source that is silently mute and only finding out
+  // when someone says they can't hear the music.
+  const platform = detectPlatform();
+  const route = bestAudioRoute(platform);
+  const screenAudio = audioSupportFor('screen', platform);
+  const windowAudio = audioSupportFor('window', platform);
   const isElectron = typeof window !== 'undefined' && window.electronAPI?.isElectron;
 
   // Electron: pull the real screen/window capture sources from the main process.
@@ -47,9 +56,33 @@ export default function StreamSelector({ isOpen, onClose, onStartStream }) {
           <button onClick={onClose}><X className="text-gray-500 hover:text-white" /></button>
         </div>
 
+        {/* Audio routing guidance — tells you the one thing that actually
+            works in THIS environment before you pick something silent. */}
+        <div className="px-6 py-3 border-b border-white/5 flex items-start gap-2.5 bg-white/[0.02]">
+          <Volume2 className="w-4 h-4 text-[#1DB954] shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold text-white/80">Sharing music?</p>
+            <p className="text-[11px] text-white/45 leading-snug">{route.label}</p>
+          </div>
+        </div>
+
         <div className="flex border-b border-white/5">
-          <Tab label="SCREENS" active={activeTab === 'screens'} onClick={() => setActiveTab('screens')} icon={Monitor} />
-          <Tab label={isElectron ? 'WINDOWS' : 'APPLICATIONS'} active={activeTab === 'games'} onClick={() => setActiveTab('games')} icon={isElectron ? AppWindow : Gamepad2} />
+          <Tab
+            label="SCREENS"
+            active={activeTab === 'screens'}
+            onClick={() => setActiveTab('screens')}
+            icon={Monitor}
+            muted={!screenAudio.audio}
+            mutedHint={screenAudio.why}
+          />
+          <Tab
+            label={isElectron ? 'WINDOWS' : 'APPLICATIONS'}
+            active={activeTab === 'games'}
+            onClick={() => setActiveTab('games')}
+            icon={isElectron ? AppWindow : Gamepad2}
+            muted={!windowAudio.audio}
+            mutedHint={windowAudio.why}
+          />
         </div>
 
         <div className="p-6 grid grid-cols-2 gap-4 min-h-[300px] max-h-[500px] overflow-y-auto content-start">
@@ -117,12 +150,16 @@ export default function StreamSelector({ isOpen, onClose, onStartStream }) {
   );
 }
 
-const Tab = ({ label, active, onClick, icon: Icon }) => (
+const Tab = ({ label, active, onClick, icon: Icon, muted = false, mutedHint = '' }) => (
   <button
     onClick={onClick}
+    title={muted ? mutedHint : undefined}
     className={`flex-1 py-4 flex items-center justify-center gap-2 text-xs font-bold transition-colors ${active ? 'bg-white/5 text-white border-b-2 border-[#FF3333]' : 'text-gray-500 hover:text-white'}`}
   >
     <Icon size={14} /> {label}
+    {/* A crossed-speaker marks source kinds that CANNOT carry audio in this
+        environment — so the DJ learns before broadcasting silence, not after. */}
+    {muted && <VolumeX size={12} className="text-amber-500/80" />}
   </button>
 );
 
