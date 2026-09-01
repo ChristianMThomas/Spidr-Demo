@@ -50,33 +50,6 @@ export default function DJMatrix({
   // the DJ the one route that actually carries sound on their platform.
   const shareRoute = bestAudioRoute();
 
-  // ── Biometric visualiser ────────────────────────────────────────────────
-  // Analyse whatever the room is ACTUALLY hearing, not a fixed animation.
-  // On a live share that's the DJ's incoming screen-share audio; otherwise
-  // it's the local preview element. Each listener analyses their own
-  // received audio rather than the DJ broadcasting numbers — the pulse then
-  // matches what THAT person hears, instead of drifting against their jitter
-  // buffer by tens of milliseconds.
-  const spectrumStream = React.useMemo(() => {
-    if (!liveAudioActive) return null;
-    const all = [
-      ...Object.values(screenStreams || {}),
-      ...(ownScreenStream ? [ownScreenStream] : []),
-    ];
-    return all.find(s => {
-      try { return s.getAudioTracks().some(t => t.readyState === 'live'); }
-      catch { return false; }
-    }) || null;
-  }, [liveAudioActive, screenStreams, ownScreenStream]);
-
-  const spectrum = useAudioSpectrum({
-    stream: spectrumStream,
-    element: !liveAudioActive && previewUrl ? audioRef.current : null,
-    // Nothing to visualise when the booth is silent — an idle booth costs
-    // zero rather than animating against an empty buffer.
-    enabled: !!djSession && (liveAudioActive || (!!previewUrl && !userPaused)),
-  });
-
   // Flip the session's audio route the moment the DJ's share starts or stops
   // carrying sound. Doing it automatically matters: a manual toggle would
   // routinely be left in the wrong position, and the failure mode is the
@@ -156,6 +129,40 @@ export default function DJMatrix({
 
   // Effective route — what this client should ACTUALLY do right now.
   const liveAudioActive = streamingLive && hostStreamAlive;
+
+  // NOTE ON PLACEMENT: this block must sit BELOW liveAudioActive, previewUrl
+  // and userPaused. It originally sat near the top of the component and
+  // referenced all three before they were declared — const bindings are
+  // hoisted but unreachable until their line runs, so every render threw
+  // "Cannot access ... before initialization" and the whole booth white-
+  // screened. Same trap that took out the friends page in 1.9.47.
+  // ── Biometric visualiser ────────────────────────────────────────────────
+  // Analyse whatever the room is ACTUALLY hearing, not a fixed animation.
+  // On a live share that's the DJ's incoming screen-share audio; otherwise
+  // it's the local preview element. Each listener analyses their own
+  // received audio rather than the DJ broadcasting numbers — the pulse then
+  // matches what THAT person hears, instead of drifting against their jitter
+  // buffer by tens of milliseconds.
+  const spectrumStream = React.useMemo(() => {
+    if (!liveAudioActive) return null;
+    const all = [
+      ...Object.values(screenStreams || {}),
+      ...(ownScreenStream ? [ownScreenStream] : []),
+    ];
+    return all.find(s => {
+      try { return s.getAudioTracks().some(t => t.readyState === 'live'); }
+      catch { return false; }
+    }) || null;
+  }, [liveAudioActive, screenStreams, ownScreenStream]);
+
+  const spectrum = useAudioSpectrum({
+    stream: spectrumStream,
+    element: !liveAudioActive && previewUrl ? audioRef.current : null,
+    // Nothing to visualise when the booth is silent — an idle booth costs
+    // zero rather than animating against an empty buffer.
+    enabled: !!djSession && (liveAudioActive || (!!previewUrl && !userPaused)),
+  });
+
 
   // ── Apple Music full-track upgrade ──────────────────────────────────
   // For 'apple' sessions, listeners who connected Apple Music (and have a
