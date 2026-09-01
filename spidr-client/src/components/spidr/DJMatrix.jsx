@@ -339,6 +339,27 @@ export default function DJMatrix({
     } catch { /* non-fatal */ }
   };
 
+  // Start a session with no track at all and go straight to sharing. This is
+  // now the PRIMARY path: it plays full-length audio for everyone including
+  // free-tier users, whereas the 30s preview path depends on Spotify still
+  // serving a preview_url, which it no longer does for most of its
+  // catalogue.
+  const handleStartShareSession = async () => {
+    if (!channel?.id) return;
+    setBusy(true);
+    try {
+      if (!djSession) {
+        await spotify.djSession.startShare(channel.id);
+        queryClient.invalidateQueries({ queryKey: ['dj-session', channel.id] });
+      }
+      window.dispatchEvent(new CustomEvent('spidr-open-share'));
+    } catch (err) {
+      toast.error(err?.message || 'Could not start session');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handlePickTrack = () => { setPickerMode('now'); setPickerOpen(true); };
   const handleQueueTrack = () => { setPickerMode('queue'); setPickerOpen(true); };
 
@@ -518,9 +539,23 @@ export default function DJMatrix({
         </div>
       )}
 
+      {/* No audio available. Spotify stopped serving 30s previews for most
+          of its catalogue, so this is common now — and telling the DJ to
+          "try another song" was a dead end that often had no working answer.
+          Point at the path that always works instead. */}
       {djSession && !previewUrl && !fullTrackActive && !liveAudioActive && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-full bg-black/70 border border-white/10 text-[10px] font-mono uppercase tracking-widest text-zinc-400">
-          No audio preview for this track — DJ, try another song
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 px-4 py-2 rounded-full bg-black/80 border border-white/10">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400">
+            No preview available for this track
+          </span>
+          {isHost && (
+            <button
+              onClick={handleStartShareSession}
+              className="text-[10px] font-black uppercase tracking-widest text-[#1DB954] hover:text-[#1ed760] transition-colors"
+            >
+              Share audio instead →
+            </button>
+          )}
         </div>
       )}
 
@@ -841,6 +876,7 @@ export default function DJMatrix({
             onTogglePause={togglePause}
             canSkip={queue.length > 0}
             onSkip={handleAdvance}
+            onStartShare={handleStartShareSession}
           />
         ) : djSession ? (
           <ListenerDock volume={localVolume} setVolume={setLocalVolume} />
@@ -983,7 +1019,7 @@ function AudienceRoster({ participants = [], hostId, enabled }) {
 }
 
 // HostDock — DJ controls: pick track, play/pause hint, end session.
-function HostDock({ onPick, onEnd, isPlaying, busy, hasSession, volume, setVolume, paused, onTogglePause, canSkip, onSkip }) {
+function HostDock({ onPick, onEnd, isPlaying, busy, hasSession, volume, setVolume, paused, onTogglePause, canSkip, onSkip, onStartShare }) {
   return (
     <div
       className="flex items-center gap-2 p-2 rounded-2xl"
@@ -1033,8 +1069,24 @@ function HostDock({ onPick, onEnd, isPlaying, busy, hasSession, volume, setVolum
         }}
       >
         {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Music className="w-3.5 h-3.5" />}
-        {hasSession ? 'Change track' : 'Pick track'}
+        {hasSession ? 'Change track' : 'Pick track (30s preview)'}
       </button>
+
+      {/* PRIMARY audio path. Placed first and styled as the main action
+          because it plays full-length music for everyone in the call,
+          including free-tier listeners — the preview path depends on a
+          Spotify preview_url that mostly no longer exists. */}
+      {!hasSession && (
+        <button
+          type="button"
+          onClick={onStartShare}
+          disabled={busy}
+          className="px-4 py-2.5 rounded-xl font-bold text-[10px] tracking-widest uppercase text-black bg-[#1DB954] hover:bg-[#1ed760] transition-all flex items-center gap-2 disabled:opacity-50"
+        >
+          <MonitorSpeaker className="w-3.5 h-3.5" />
+          Share audio
+        </button>
+      )}
 
       <div className="w-px h-6 bg-white/10 mx-2" />
 

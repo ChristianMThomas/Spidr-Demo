@@ -160,6 +160,9 @@ router.post('/:channelId/dj-session', authMW, async (req, res) => {
       host_user_avatar: profile?.avatar_url,
       track_id,
       ...(await ensurePreview(trackMeta(req.body))),
+      ...(req.body?.mode === 'share'
+        ? { audio_route: 'stream', track_name: req.body.track_name || 'Live audio', track_artist: req.body.track_artist || '' }
+        : {}),
       started_at:       new Date(),
     });
 
@@ -237,7 +240,14 @@ router.post('/:channelId/dj-session/queue', authMW, async (req, res) => {
     const { channelId } = req.params;
     const userId = req.user?.id;
     const { track_id } = req.body || {};
-    if (!track_id) return res.status(400).json({ error: 'track_id required' });
+    // A track is OPTIONAL now. The booth was built preview-first, but
+    // Spotify no longer returns a 30s preview for most of its catalogue, so
+    // requiring a track meant most sessions had nothing to play. A DJ can
+    // now open a session purely to share their own audio, with the track
+    // card as optional annotation rather than the thing being played.
+    if (!track_id && req.body?.mode !== 'share') {
+      return res.status(400).json({ error: 'track_id required' });
+    }
 
     const session = await DJSession.findOne({ channel_id: channelId });
     if (!session) return res.status(404).json({ error: 'No active DJ session' });

@@ -498,6 +498,10 @@ export const spotify = {
     start: (channelId, track_id, meta = {}) =>
       api.post(`/voice-channels/${channelId}/dj-session`, { track_id, ...meta })
          .catch((err) => { throw err; }),
+    // Start a session with NO track — the DJ's own shared audio is the
+    // source. Metadata can be attached later as annotation.
+    startShare: (channelId) =>
+      api.post(`/voice-channels/${channelId}/dj-session`, { mode: 'share', track_id: '' }),
     next:  (channelId, track_id, meta = {}) =>
       api.patch(`/voice-channels/${channelId}/dj-session`, { track_id, ...meta })
          .catch((err) => { throw err; }),
