@@ -338,4 +338,123 @@ router.post('/:channelId/dj-session/advance', authMW, async (req, res) => {
   }
 });
 
+
+// ── Pass the Aux — host migration ───────────────────────────────────────────
+// In a P2P mesh the music lives on the DJ's machine, so when they leave it
+// dies with them. This is the handoff that makes a session outlive its
+// founder — the one thing a server-side music bot does better today, because
+// a bot never leaves the channel.
+//
+// Deliberately a two-step offer/accept rather than a unilateral push: the
+// incoming host has to start their OWN screen share for audio to keep
+// flowing, and we can't do that for them (browsers require a user gesture on
+// the target's machine). Handing the role over without their consent would
+// produce a session with a host who isn't playing anything.
+
+const HANDOFF_TTL_MS = 60 * 1000;
+
+// POST /:channelId/dj-session/handoff  { to_user_id, to_user_name }
+router.post('/:channelId/dj-session/handoff', authMW, async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const userId = req.user?.id;
+    const { to_user_id, to_user_name } = req.body || {};
+    if (!to_user_id) return res.status(400).json({ error: 'to_user_id required' });
+    if (String(to_user_id) === String(userId)) {
+      return res.status(400).json({ error: "You're already the DJ" });
+    }
+
+    const session = await DJSession.findOne({ channel_id: channelId });
+    if (!session) return res.status(404).json({ error: 'No active DJ session' });
+    if (String(session.host_id) !== String(userId)) {
+      return res.status(403).json({ error: 'Only the DJ can pass the aux' });
+    }
+
+    // The target must actually be in the call — otherwise the aux could be
+    // handed to someone who left, stranding the session with an absent host.
+    const present = await VoiceSession.findOne({ channel_id: channelId, user_id: to_user_id }).lean();
+    if (!present) return res.status(409).json({ error: 'That person is no longer in the call' });
+
+    session.handoff = {
+      to_user_id:     String(to_user_id),
+      to_user_name:   String(to_user_name || 'Spider').slice(0, 80),
+      from_user_id:   String(userId),
+      from_user_name: session.host_user_name || 'the DJ',
+      at:             Date.now(),
+    };
+    session.markModified('handoff');
+    await session.save();
+
+    const out = normalise(session.toObject());
+    emitChanged(req, channelId, out);
+    res.json(out);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /:channelId/dj-session/handoff/accept — target takes the aux.
+router.post('/:channelId/dj-session/handoff/accept', authMW, async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const userId = req.user?.id;
+    const session = await DJSession.findOne({ channel_id: channelId });
+    if (!session) return res.status(404).json({ error: 'No active DJ session' });
+
+    const offer = session.handoff;
+    if (!offer || String(offer.to_user_id) !== String(userId)) {
+      return res.status(403).json({ error: 'No aux offer for you' });
+    }
+    if (Date.now() - (offer.at || 0) > HANDOFF_TTL_MS) {
+      session.handoff = null;
+      session.markModified('handoff');
+      await session.save();
+      return res.status(410).json({ error: 'That offer expired' });
+    }
+
+    const profile = await UserProfile.findOne({ user_id: userId }).lean();
+    session.host_id        = String(userId);
+    session.host_user_name = profile?.display_name || offer.to_user_name || 'Spider';
+    session.handoff        = null;
+    // The new host isn't sharing yet, so the room falls back to the preview
+    // until they start one. Leaving it on 'stream' would point everyone at
+    // an audio pipe that no longer exists.
+    session.audio_route    = 'preview';
+    session.markModified('handoff');
+    await session.save();
+
+    const out = normalise(session.toObject());
+    emitChanged(req, channelId, out);
+    res.json(out);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /:channelId/dj-session/handoff/decline — target declines, or the host
+// cancels their own pending offer.
+router.post('/:channelId/dj-session/handoff/decline', authMW, async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    const userId = req.user?.id;
+    const session = await DJSession.findOne({ channel_id: channelId });
+    if (!session) return res.status(404).json({ error: 'No active DJ session' });
+
+    const offer = session.handoff;
+    const isTarget = offer && String(offer.to_user_id) === String(userId);
+    const isHost   = String(session.host_id) === String(userId);
+    if (!isTarget && !isHost) return res.status(403).json({ error: 'Not your offer' });
+
+    session.handoff = null;
+    session.markModified('handoff');
+    await session.save();
+
+    const out = normalise(session.toObject());
+    emitChanged(req, channelId, out);
+    res.json(out);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 module.exports = router;

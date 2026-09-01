@@ -33,6 +33,11 @@ const s = new Schema({
   // who added it so the booth can show attribution and enforce removal
   // rights (you can pull your own track; the host can pull any).
   queue:           { type: [Schema.Types.Mixed], default: [] },
+  // Pending "Pass the Aux" offer. Held on the session rather than in memory
+  // so it survives a server restart and both clients can always agree on
+  // whether an offer is outstanding.
+  //   { to_user_id, to_user_name, from_user_id, from_user_name, at }
+  handoff:         { type: Schema.Types.Mixed, default: null },
   duration_ms:     { type: Number, default: 0 },
   started_at:      { type: Date, default: Date.now },
 }, { timestamps: true });

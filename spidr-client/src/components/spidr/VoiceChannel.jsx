@@ -111,12 +111,13 @@ export default function VoiceChannel({
       t.addEventListener('mute', announce);
       t.addEventListener('unmute', announce);
     });
-    // Belt-and-braces poll: some platforms flip readyState without firing
-    // any event at all (notably Windows loopback when the source app exits).
-    const iv = setInterval(announce, 3000);
+    // Belt-and-braces poll for platforms that flip readyState without firing
+    // an event (Windows loopback when the source app exits). Only runs while
+    // a share is actually live, so it costs nothing the rest of the time.
+    const iv = isSharing ? setInterval(announce, 3000) : null;
 
     return () => {
-      clearInterval(iv);
+      if (iv) clearInterval(iv);
       audioTracks.forEach((t) => {
         t.removeEventListener('ended', announce);
         t.removeEventListener('mute', announce);
@@ -1612,7 +1613,17 @@ function VoiceStatusPill({ session, isSelf, isMutedLocally, apexColor = '#FF3333
   const deafened = session.is_deafened;
   // Audio-reactive: same detector the full tile uses, so the pill glows crimson
   // when this user is actually speaking (suppressed while muted).
-  const detected = useSpeakingDetector(stream, { enabled: !muted && !!stream });
+  // Same reasoning as VoiceTile: listen, don't re-analyse. This pill renders
+  // during screen shares, exactly when the machine is busiest.
+  const [detected, setDetected] = useState(false);
+  useEffect(() => {
+    const onSpeaking = (e) => {
+      if (e.detail?.userId !== session.user_id) return;
+      setDetected(!!e.detail.isSpeaking);
+    };
+    window.addEventListener('spidr-tile-speaking', onSpeaking);
+    return () => window.removeEventListener('spidr-tile-speaking', onSpeaking);
+  }, [session.user_id]);
   const speaking = session.is_spidr_ai ? spidrAISpeaking : detected;
   return (
     <motion.button
@@ -1696,31 +1707,24 @@ function VoiceTile({
   const [soundboardMuted, setSoundboardMuted] = useState(false);
   const [localMutedState, setLocalMutedState] = useState(false);
   const [localDeafenedState, setLocalDeafenedState] = useState(false);
-  // Detector runs whenever the tile has a live stream — the sidebar
-  // speaking rings and minimized-PiP active-speaker swap both need the
-  // spidr-tile-speaking event to fire even when the deck is minimized,
-  // and now that sharedAudioContext ref-counts sources (see the last
-  // patch), running detectors continuously is cheap and safe.
-  const isSpeaking = useSpeakingDetector(stream, {
-    enabled: !!stream && !session.is_muted && !session.is_deafened,
-  });
-
-  // Broadcast this tile's speaking state (userId + socketId tagged) so the
-  // sidebar green ring and the minimized-PiP active-speaker swap can react.
-  // This REUSES the existing per-tile detector's tap — the previous approach
-  // opened a SECOND createMediaStreamSource on every remote MediaStream,
-  // which is a WebRTC hard-rule violation and silently killed audio for
-  // everyone (only one MediaStreamAudioSourceNode per MediaStream).
+  // CONSUME the speaking state rather than computing it again.
+  //
+  // This tile used to run its OWN useSpeakingDetector on the same stream the
+  // always-on PeerSpeakingBroadcaster is already analysing — two 60Hz FFT
+  // loops per peer, plus a third for the status pill during screen shares.
+  // With a few people in a call that is hundreds of full-buffer RMS passes a
+  // second and the whole app goes sluggish. One detector per stream now
+  // publishes, and every consumer listens.
+  const [isSpeaking, setIsSpeaking] = useState(false);
   useEffect(() => {
-    if (session.is_spidr_ai) return; // AI has its own visualizer
-    window.dispatchEvent(new CustomEvent('spidr-tile-speaking', {
-      detail: {
-        userId: session.user_id,
-        socketId: peerSocketId,
-        isSpeaking,
-      },
-    }));
-  }, [isSpeaking, session.user_id, session.is_spidr_ai, peerSocketId]);
+    if (session.is_spidr_ai) return;
+    const onSpeaking = (e) => {
+      if (e.detail?.userId !== session.user_id) return;
+      setIsSpeaking(!!e.detail.isSpeaking);
+    };
+    window.addEventListener('spidr-tile-speaking', onSpeaking);
+    return () => window.removeEventListener('spidr-tile-speaking', onSpeaking);
+  }, [session.user_id, session.is_spidr_ai]);
 
   // Spidr AI uses its own visualizer; everyone else uses RMS detection.
   const showSpeakingRing = session.is_spidr_ai ? spidrAISpeaking : isSpeaking;
@@ -1870,7 +1874,9 @@ function VoiceTile({
 
         {/* Live wavelength equalizer (unchanged component — same animation as
             Spidr AI's voice viz). Only shown while the speaker is talking. */}
-        {showSpeakingRing && !session.is_spidr_ai && (
+        {/* Equalizer runs its own animation loop, so don't mount it when the
+            deck is hidden — it would be animating something nobody can see. */}
+        {showSpeakingRing && !session.is_spidr_ai && !deckHidden && (
           <div className="pointer-events-none">
             <VoiceEqualizer stream={stream} active />
           </div>
@@ -2384,7 +2390,14 @@ function LocalVoiceGate({ stream, isMuted }) {
     const rmsThreshold = 0.005 + (threshold / 100) * 0.20;
     let lastSpokeAt = 0;
     let raf = null;
-    const tick = () => {
+    // ~30Hz. The gate needs a fast attack so speech isn't clipped, but 60Hz
+    // buys nothing and this loop runs for the whole call.
+    const GATE_MS = 33;
+    let lastGate = 0;
+    const tick = (ts) => {
+      raf = requestAnimationFrame(tick);
+      if (ts - lastGate < GATE_MS) return;
+      lastGate = ts;
       analyser.getFloatTimeDomainData(buf);
       let sum = 0;
       for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
@@ -2399,7 +2412,6 @@ function LocalVoiceGate({ stream, isMuted }) {
         // 250ms release — keeps trailing consonants from getting clipped.
         if (track.enabled) track.enabled = false;
       }
-      raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {
@@ -2456,12 +2468,18 @@ function InCallAudioPanel({ onClose, localStream }) {
     source.connect(analyser);
     const buf = new Uint8Array(analyser.frequencyBinCount);
     let raf = null;
-    const tick = () => {
+    // ~20Hz — a level meter reads as smooth well below 60fps, and this
+    // triggers a React state update on every sample.
+    const METER_MS = 50;
+    let lastMeter = 0;
+    const tick = (ts) => {
+      raf = requestAnimationFrame(tick);
+      if (ts - lastMeter < METER_MS) return;
+      lastMeter = ts;
       analyser.getByteFrequencyData(buf);
       let sum = 0;
       for (let i = 0; i < buf.length; i++) sum += buf[i];
       setLevel(Math.min(100, (sum / buf.length / 255) * 200));
-      raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {

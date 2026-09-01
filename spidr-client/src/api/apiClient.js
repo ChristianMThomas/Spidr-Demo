@@ -511,5 +511,14 @@ export const spotify = {
       api.delete(`/voice-channels/${channelId}/dj-session/queue/${qid}`),
     advance: (channelId) =>
       api.post(`/voice-channels/${channelId}/dj-session/advance`, {}),
+    // Pass the Aux — host migration. Offer/accept/decline rather than a
+    // unilateral push, because the incoming DJ has to start their own screen
+    // share for audio to keep flowing and only they can trigger that.
+    passAux:       (channelId, to_user_id, to_user_name) =>
+      api.post(`/voice-channels/${channelId}/dj-session/handoff`, { to_user_id, to_user_name }),
+    acceptAux:     (channelId) =>
+      api.post(`/voice-channels/${channelId}/dj-session/handoff/accept`, {}),
+    declineAux:    (channelId) =>
+      api.post(`/voice-channels/${channelId}/dj-session/handoff/decline`, {}),
   },
 };

@@ -800,9 +800,36 @@ module.exports = function registerHandlers(io) {
         (async () => {
           try {
             const DJSession = require('../models/DJSession');
-            const hosted = await DJSession.findOne({ host_id: userId, audio_route: 'stream' });
+            // Any session this user was hosting — not just streaming ones,
+            // because an abandoned session is broken either way.
+            const hosted = await DJSession.findOne({ host_id: userId });
             if (hosted) {
               hosted.audio_route = 'preview';
+              // ORPHAN RESCUE. The DJ vanished without passing the aux, so
+              // the session has a host who will never play anything again.
+              // Promote whoever is still in the call rather than leaving a
+              // dead booth nobody can control — only the host may change
+              // tracks or end the session, so with an absent host the room
+              // is stuck until everyone leaves. Longest-present member wins,
+              // which is a stable, non-arbitrary choice every client agrees
+              // on. If nobody is left, the session ends.
+              const VoiceSessionModel = require('../models/VoiceSession');
+              const remaining = await VoiceSessionModel
+                .find({ channel_id: hosted.channel_id, user_id: { $ne: userId } })
+                .sort({ created_date: 1 })
+                .limit(1)
+                .lean();
+              const heir = remaining[0];
+              if (heir) {
+                hosted.host_id = String(heir.user_id);
+                hosted.host_user_name = heir.user_name || 'Spider';
+                hosted.handoff = null;
+                hosted.markModified('handoff');
+              } else {
+                await DJSession.deleteOne({ _id: hosted._id });
+                io.emit('voice:dj-session-changed', { channel_id: hosted.channel_id, ended: true });
+                return;
+              }
               await hosted.save();
               const { _id, __v, ...rest } = hosted.toObject();
               // Broadcast globally to match how routes/djSessions.js emits —

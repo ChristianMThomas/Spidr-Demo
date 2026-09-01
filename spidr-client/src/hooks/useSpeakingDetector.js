@@ -55,7 +55,20 @@ export function useSpeakingDetector(stream, { enabled = true, threshold = 0.04 }
 
     const buf = new Float32Array(analyser.fftSize);
 
-    const tick = () => {
+    // THROTTLED to ~15Hz rather than running the FFT on every animation
+    // frame. A speaking ring cannot visibly benefit from 60Hz — the state is
+    // a boolean with a 300ms hold — but the cost is real: this loop runs once
+    // per peer, and at 60fps a handful of people in a call turns into
+    // hundreds of full-buffer RMS passes a second. Sampling every ~66ms is
+    // indistinguishable on screen and roughly a quarter of the work.
+    const SAMPLE_MS = 66;
+    let lastSample = 0;
+
+    const tick = (ts) => {
+      rafRef.current = requestAnimationFrame(tick);
+      if (ts - lastSample < SAMPLE_MS) return;   // skip this frame
+      lastSample = ts;
+
       analyser.getFloatTimeDomainData(buf);
       // RMS of the time-domain samples
       let sum = 0;
@@ -70,8 +83,6 @@ export function useSpeakingDetector(stream, { enabled = true, threshold = 0.04 }
         // Hold the speaking state for 300ms after RMS drops to avoid flicker
         setIsSpeaking((cur) => cur ? false : cur);
       }
-
-      rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
 

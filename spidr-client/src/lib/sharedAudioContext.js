@@ -68,6 +68,57 @@ export function getSharedSource(stream) {
   return entry.source;
 }
 
+/**
+ * getSharedElementSource(el) — same idea as getSharedSource but for an
+ * <audio>/<video> ELEMENT, used to visualise the DJ's 30s preview.
+ *
+ * Two traps this exists to avoid, both of which silence audio outright:
+ *
+ *   1. createMediaElementSource may be called ONCE per element, exactly like
+ *      the MediaStream rule. A second call throws and the element is left in
+ *      a broken state.
+ *   2. Creating the source REROUTES the element's output into the graph. If
+ *      you never connect onward to ctx.destination, the audio simply stops
+ *      coming out of the speakers — the element looks like it's playing and
+ *      nothing is audible. So we wire source -> destination immediately here
+ *      and hand callers a node they can tap without owning that
+ *      responsibility.
+ *
+ * Ref-counted; the connection to destination persists for the element's life
+ * because disconnecting it would mute playback.
+ */
+const elementRegistry = new Map();
+
+export function getSharedElementSource(el) {
+  if (!el) return null;
+  const context = getSharedAudioContext();
+  if (!context) return null;
+  let entry = elementRegistry.get(el);
+  if (!entry) {
+    try {
+      const source = context.createMediaElementSource(el);
+      // CRITICAL: keep the audio audible.
+      source.connect(context.destination);
+      entry = { source, refCount: 0 };
+      elementRegistry.set(el, entry);
+    } catch {
+      return null;
+    }
+  }
+  entry.refCount += 1;
+  return entry.source;
+}
+
+export function releaseSharedElementSource(el) {
+  if (!el) return;
+  const entry = elementRegistry.get(el);
+  if (!entry) return;
+  entry.refCount -= 1;
+  // Deliberately NOT disconnecting the source from destination even at zero:
+  // an element can only ever have one source node, so tearing it down would
+  // permanently mute an element we may visualise again later.
+}
+
 export function releaseSharedSource(stream) {
   if (!stream) return;
   const key = stream.id;

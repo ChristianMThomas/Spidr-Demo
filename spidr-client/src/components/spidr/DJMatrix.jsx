@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Disc3, Volume2, Music, ChevronLeft, ChevronRight, Pause, Play, X, Loader2, ListPlus, Trash2, SkipForward, MonitorSpeaker } from 'lucide-react';
+import { Disc3, Volume2, Music, ChevronLeft, ChevronRight, Pause, Play, X, Loader2, ListPlus, Trash2, SkipForward, MonitorSpeaker, Share2 } from 'lucide-react';
 import { spotify } from '@/api/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { bestAudioRoute } from '@/lib/shareAudioSupport';
+import useAudioSpectrum from '@/hooks/useAudioSpectrum';
 import useNowPlaying from '@/hooks/useNowPlaying';
 import useMusicKit from './useMusicKit';
 import SpotifySearchModal from './SpotifySearchModal';
@@ -48,6 +49,33 @@ export default function DJMatrix({
   // rides the existing screen-share pipe rather than a music API. This tells
   // the DJ the one route that actually carries sound on their platform.
   const shareRoute = bestAudioRoute();
+
+  // ── Biometric visualiser ────────────────────────────────────────────────
+  // Analyse whatever the room is ACTUALLY hearing, not a fixed animation.
+  // On a live share that's the DJ's incoming screen-share audio; otherwise
+  // it's the local preview element. Each listener analyses their own
+  // received audio rather than the DJ broadcasting numbers — the pulse then
+  // matches what THAT person hears, instead of drifting against their jitter
+  // buffer by tens of milliseconds.
+  const spectrumStream = React.useMemo(() => {
+    if (!liveAudioActive) return null;
+    const all = [
+      ...Object.values(screenStreams || {}),
+      ...(ownScreenStream ? [ownScreenStream] : []),
+    ];
+    return all.find(s => {
+      try { return s.getAudioTracks().some(t => t.readyState === 'live'); }
+      catch { return false; }
+    }) || null;
+  }, [liveAudioActive, screenStreams, ownScreenStream]);
+
+  const spectrum = useAudioSpectrum({
+    stream: spectrumStream,
+    element: !liveAudioActive && previewUrl ? audioRef.current : null,
+    // Nothing to visualise when the booth is silent — an idle booth costs
+    // zero rather than animating against an empty buffer.
+    enabled: !!djSession && (liveAudioActive || (!!previewUrl && !userPaused)),
+  });
 
   // Flip the session's audio route the moment the DJ's share starts or stops
   // carrying sound. Doing it automatically matters: a manual toggle would
@@ -262,6 +290,48 @@ export default function DJMatrix({
     // preview route is handled by the effect above via `userPaused`
   };
 
+  // ── Pass the Aux ────────────────────────────────────────────────────────
+  const [auxPickerOpen, setAuxPickerOpen] = useState(false);
+  const pendingAux = djSession?.handoff || null;
+  const auxOfferedToMe = !!pendingAux && pendingAux.to_user_id === currentUser?.id;
+  const auxOfferedByMe = !!pendingAux && pendingAux.from_user_id === currentUser?.id;
+
+  const handlePassAux = async (targetId, targetName) => {
+    if (!channel?.id) return;
+    setAuxPickerOpen(false);
+    try {
+      await spotify.djSession.passAux(channel.id, targetId, targetName);
+      queryClient.invalidateQueries({ queryKey: ['dj-session', channel.id] });
+      toast.success(`Aux offered to ${targetName}`);
+    } catch (err) {
+      toast.error(err?.message || 'Could not pass the aux');
+    }
+  };
+
+  const handleAcceptAux = async () => {
+    if (!channel?.id) return;
+    try {
+      await spotify.djSession.acceptAux(channel.id);
+      queryClient.invalidateQueries({ queryKey: ['dj-session', channel.id] });
+      toast.success('You have the aux', {
+        description: 'Hit Share Audio to start playing for the room.',
+      });
+      // Nudge straight into the share flow — taking the aux without sharing
+      // leaves the room on the 30s preview, which is the confusing state.
+      window.dispatchEvent(new CustomEvent('spidr-open-share'));
+    } catch (err) {
+      toast.error(err?.message || 'Could not take the aux');
+    }
+  };
+
+  const handleDeclineAux = async () => {
+    if (!channel?.id) return;
+    try {
+      await spotify.djSession.declineAux(channel.id);
+      queryClient.invalidateQueries({ queryKey: ['dj-session', channel.id] });
+    } catch { /* non-fatal */ }
+  };
+
   const handlePickTrack = () => { setPickerMode('now'); setPickerOpen(true); };
   const handleQueueTrack = () => { setPickerMode('queue'); setPickerOpen(true); };
 
@@ -380,13 +450,22 @@ export default function DJMatrix({
           'linear-gradient(180deg, #050505 0%, #0a0508 50%, #050505 100%)',
       }}
     >
-      {/* Ambient bass glow — soft Spotify-green radial behind the reactor */}
+      {/* Ambient bass glow — now driven by the actual low end rather than a
+          fixed value, so the whole room breathes with the track. Radius and
+          opacity both track bass; treble adds a faint high shimmer on top so
+          hi-hats register without muddying the main pulse. */}
       <div
         aria-hidden
         className="absolute inset-0 pointer-events-none z-0"
         style={{
-          background:
-            'radial-gradient(circle at 50% 50%, rgba(29, 185, 84, 0.15) 0%, transparent 60%)',
+          background: `radial-gradient(circle at 50% 50%, rgba(29, 185, 84, ${0.10 + spectrum.bass * 0.22}) 0%, transparent ${52 + spectrum.bass * 22}%)`,
+        }}
+      />
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none z-0"
+        style={{
+          background: `radial-gradient(circle at 50% 45%, rgba(180, 255, 210, ${spectrum.treble * 0.07}) 0%, transparent 40%)`,
         }}
       />
 
@@ -456,6 +535,12 @@ export default function DJMatrix({
               style={{
                 borderColor: '#1DB954',
                 animation: `spidr-dj-ring 2.5s cubic-bezier(0.215, 0.61, 0.355, 1) ${i * 0.8}s infinite`,
+                // Bass drives ring weight and glow. The expansion keyframe
+                // still provides the base motion; the audio modulates how
+                // HARD each pulse hits, so 808s visibly punch.
+                borderWidth: `${2 + spectrum.bass * 4}px`,
+                opacity: 0.35 + spectrum.bass * 0.65,
+                filter: `drop-shadow(0 0 ${6 + spectrum.bass * 26}px rgba(29,185,84,${0.25 + spectrum.bass * 0.5}))`,
               }}
             />
           ))}
@@ -465,8 +550,11 @@ export default function DJMatrix({
             className="relative z-10 w-44 h-44 sm:w-48 sm:h-48 rounded-full overflow-hidden flex items-center justify-center"
             style={{
               border: '4px solid #050505',
-              boxShadow: '0 0 50px rgba(29, 185, 84, 0.30)',
+              boxShadow: `0 0 ${40 + spectrum.level * 70}px rgba(29, 185, 84, ${0.22 + spectrum.level * 0.55})`,
               background: '#000',
+              // Mids swell the disc itself — subtle, since the art is the
+              // focal point and shouldn't wobble.
+              transform: `scale(${1 + spectrum.mid * 0.045})`,
             }}
           >
             {np?.album_art_url ? (
@@ -549,6 +637,104 @@ export default function DJMatrix({
         />
       </main>
 
+      {/* ── Pass the Aux prompts ───────────────────────────────────────── */}
+      {auxOfferedToMe && (
+        <div className="relative z-30 w-full max-w-md mx-auto px-4 mb-3">
+          <div
+            className="rounded-2xl p-4 border"
+            style={{
+              background: 'rgba(29,185,84,0.08)',
+              borderColor: 'rgba(29,185,84,0.4)',
+              backdropFilter: 'blur(20px)',
+            }}
+          >
+            <p className="text-[10px] font-mono tracking-[0.25em] uppercase text-[#1DB954] mb-1">
+              Aux offered
+            </p>
+            <p className="text-sm text-white mb-3">
+              <strong>{pendingAux.from_user_name}</strong> wants to pass you the aux.
+              You'll share your audio to keep the music going.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleAcceptAux}
+                className="flex-1 py-2 rounded-lg bg-[#1DB954] hover:bg-[#1ed760] text-black text-[10px] font-black tracking-widest uppercase transition-colors"
+              >
+                Take the aux
+              </button>
+              <button
+                onClick={handleDeclineAux}
+                className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-[10px] font-black tracking-widest uppercase transition-colors"
+              >
+                Decline
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {auxOfferedByMe && (
+        <div className="relative z-30 w-full max-w-md mx-auto px-4 mb-3">
+          <div className="rounded-xl px-4 py-2.5 bg-white/[0.03] border border-white/10 flex items-center justify-between gap-3">
+            <p className="text-[11px] text-white/60 min-w-0 truncate">
+              Waiting for <strong className="text-white/85">{pendingAux.to_user_name}</strong> to take the aux…
+            </p>
+            <button
+              onClick={handleDeclineAux}
+              className="text-[10px] font-black tracking-widest uppercase text-white/40 hover:text-white shrink-0"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Host's target picker */}
+      {auxPickerOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setAuxPickerOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-2xl overflow-hidden"
+            style={{
+              background: 'rgba(10,10,10,0.95)',
+              border: '1px solid rgba(255,255,255,0.08)',
+            }}
+          >
+            <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
+              <h3 className="font-mono text-[11px] uppercase tracking-[0.22em] text-white/80">Pass the aux to</h3>
+              <button onClick={() => setAuxPickerOpen(false)} className="text-white/40 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-2 max-h-64 overflow-y-auto spidr-scroll">
+              {(participants || []).filter(p => p.user_id !== currentUser?.id).length === 0 ? (
+                <p className="text-[11px] text-white/40 text-center py-6">
+                  Nobody else is in the call yet.
+                </p>
+              ) : (participants || [])
+                .filter(p => p.user_id !== currentUser?.id)
+                .map((p) => (
+                  <button
+                    key={p.user_id}
+                    onClick={() => handlePassAux(p.user_id, p.user_name)}
+                    className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-white/[0.05] transition-colors text-left"
+                  >
+                    <img
+                      src={p.user_avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.user_id}`}
+                      alt=""
+                      className="w-8 h-8 rounded-full object-cover border border-white/10"
+                    />
+                    <span className="text-sm text-white truncate">{p.user_name || 'Spider'}</span>
+                  </button>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Up Next ─────────────────────────────────────────────────────────
           The collaborative queue. Anyone in the call can append; the DJ
           advances. Each row shows who added it, and you can pull your own
@@ -560,6 +746,15 @@ export default function DJMatrix({
               Up Next{queue.length > 0 ? ` · ${queue.length}` : ''}
             </span>
             <div className="flex items-center gap-2">
+              {isHost && (
+                <button
+                  onClick={() => setAuxPickerOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase text-white/60 hover:text-[#1DB954] border border-white/10 hover:border-[#1DB954]/40 bg-white/[0.02] transition-all"
+                  title="Hand the session to someone else"
+                >
+                  <Share2 className="w-3.5 h-3.5" /> Pass the aux
+                </button>
+              )}
               <button
                 onClick={() => window.dispatchEvent(new CustomEvent('spidr-open-share'))}
                 title={shareRoute.label}
