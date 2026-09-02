@@ -1,6 +1,6 @@
 # Spidr — Project Goals
 
-> Compiled 2026-07-20, refreshed 2026-08-24 on branch `dev` from code, README.md, handoff.md, `spidr-server/src/routes/system.js` NEWS (patches 1.9.57 → 1.9.66), `spidr-client/mobile/`, and the spidr-beta stack. Update when a phase completes or the roadmap shifts.
+> Compiled 2026-07-20, refreshed 2026-09-02 on branch `dev` from code, README.md, handoff.md, `spidr-server/src/routes/system.js` NEWS (patches 1.9.57 → 1.9.69) and `spidr-client/src/components/spidr/SpidrSystem.jsx` MOCK_NEWS (extends through p1992 — see drift note below), `spidr-client/mobile/`, and the spidr-beta stack. Update when a phase completes or the roadmap shifts.
 
 ## Vision
 
@@ -20,8 +20,11 @@ Per `handoff.md` + recent commits, active work is **finishing mobile parity and 
 
 ## Recent Patch Notes (canonical: `spidr-server/src/routes/system.js` NEWS)
 
-The most recent releases in NEWS as of 2026-08-24 (top 10):
+The most recent releases in server NEWS as of 2026-09-02 (top 10):
 
+- **Patch 1.9.69** (2026-08-26, `p1969`, UPDATE) — **Notification overhaul**: per-person notifications now show the sender's avatar and the real message body instead of the Spidr logo + generic "New message"; server/group mentions render with the group's picture, poster, location, and text. Server + group ping-on-every-message is now the default with new per-server / per-group All | @mentions only | Muted controls. First-sign-in prompts for mic + camera + notification perms in one setup step. Includes a background realtime security update.
+- **Patch 1.9.68** (2026-08-22, `p1968`, UPDATE) — Symbiote edit bar: replaces the flat gray edit-message chassis with a crimson symbiote clamp (breathing 2.8s aura, top-edge highlight crawl, vector pencil). Also fixed a real bug the redesign surfaced: Escape used to dismiss the slash-command palette and then fall through with nothing wired, so the advertised "esc to cancel" was a lie — Escape now genuinely cancels an in-progress edit. Respects `prefers-reduced-motion`.
+- **Patch 1.9.67** (2026-08-22, `p1967`, UPDATE) — Sidebar pop-outs + Bot Lab chassis: sidebar icons expand rightward into named pills on hover; Bot Lab gets a distinct mech-border grade with angled corners and its real badge art. Badge PNG converted to true transparency via border flood-fill instead of `mix-blend-screen` (which would have killed the badge's own black lines); pop-outs rendered as a viewport-anchored overlay because the 72px rail clips horizontal overflow.
 - **Patch 1.9.66** (2026-08-22, `p1966`, FIX) — Friends flow self-heals: accept-request backfills the missing mirror row, dedicated `DELETE /friends/:id` wipes both sides atomically (skipping either side the other has set to `blocked`). Web pinned conversations + pinned group chats scoped to per-user `localStorage` keys so account switching on a shared browser can't leak pins.
 - **Patch 1.9.65** (2026-08-21, `p1965`, UPDATE) — **Auth safety hardening**: generalized error messages on `/auth/verify`, `/auth/resend`, `loadUser` to prevent account enumeration; per-email rate-limit buckets alongside per-IP on every auth endpoint; **JJWT 0.11.5 → 0.12.6** with parser/builder API migration; strict API-only CSP on spidr-server (`default-src 'none'`, `img-src 'self' data:`, `frame-ancestors + base-uri + form-action 'none'`). Mobile branded icon + splash swap; iOS rich-notification target scaffold.
 - **Patch 1.9.64** (2026-08-20, `p1964`, FIX) — **iOS push notifications live end-to-end**. `@react-native-firebase/messaging` v22+ modular exports wrapped in `nativeCalls.ts`; `mobile/index.js` background handler rewritten. Server `push.js` + `scripts/send-test-push.js` migrated to `firebase-admin` v12. Mobile home tab picks up the web Jump Back In / Pinned panel as `SpidrWebMatrix`.
@@ -35,7 +38,9 @@ The most recent releases in NEWS as of 2026-08-24 (top 10):
 
 Older highlights worth carrying: **Patch 1.9.56** wired `electron-updater` (auto-update pipeline live end-to-end — desktop app now updates itself), **1.9.55** APEX store recognizes existing subscribers, **1.9.54** landing redesign + Electron URL-scheme hardening, **1.9.25** Spidr APEX real (Stripe + platform-wide CRUD ownership lockdown — full detail in [[pricing]]).
 
-**Note on patch-note voice** (commit `cbf8ad8`, 2026-08-22): every NEWS entry was rewritten into plain-English user-facing prose — no file paths, no function names, no library versions in the terminal. A `WRITING PATCH NOTES` header comment now lives at the top of `spidr-server/src/routes/system.js` so `/patch` and future edits stay in the new voice. Server NEWS ≡ client MOCK_NEWS across all 41 ids.
+**Note on patch-note voice** (commit `cbf8ad8`, 2026-08-22): every NEWS entry was rewritten into plain-English user-facing prose — no file paths, no function names, no library versions in the terminal. A `WRITING PATCH NOTES` header comment now lives at the top of `spidr-server/src/routes/system.js` so `/patch` and future edits stay in the new voice.
+
+**⚠️ NEWS ↔ MOCK_NEWS drift (as of 2026-09-02)**: `spidr-server/src/routes/system.js` NEWS holds 42 entries (top id `p1969`). `spidr-client/src/components/spidr/SpidrSystem.jsx` MOCK_NEWS holds 61 entries (top id `p1992`) — 19 client-only DJ-booth patches (p1970–p1992) never made it into the server file. Root cause is that recent DJ-booth commits (`ae6d17e`, `8efd27a`, `4bb3c16`, `d76264e`, `63fcfb7`, `2ffcff8`, etc.) were pushed via `/git-workflow` instead of `/ship`, bypassing the `/patch` sync step. This violates the SPIDR_SYS invariant in root `CLAUDE.md` — users who hit the server route see a stale top-id and the unread badge fires on entries they've already seen in the client mock. Fix: run `/patch` for each missing entry (or replay the DJ-booth patch block into `system.js`) and land through `/ship` on the next release.
 
 ## Non-Patch Developments Since Last Compile (2026-07-28)
 

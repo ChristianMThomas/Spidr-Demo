@@ -1,6 +1,6 @@
 # Spidr — Team
 
-> Written 2026-07-06, re-verified 2026-08-24 on branch `dev` (no team, workflow, or ownership changes since; committer log confirms exactly two humans: Chris Thomas across variants "Chris Laptop" / "Chris Thomas" / "Christian Thomas", and Safina Khan / safinakh2000). Update when roles, members, or workflow change.
+> Written 2026-07-06, re-verified 2026-09-02 on branch `dev` (no team, workflow, or ownership changes since; committer log confirms exactly two humans: Chris Thomas across variants "Chris Laptop" / "Chris Thomas" / "Christian Thomas" / "Christian  Thomas", and Safina Khan / safinakh2000). Update when roles, members, or workflow change.
 
 ## Members (2)
 

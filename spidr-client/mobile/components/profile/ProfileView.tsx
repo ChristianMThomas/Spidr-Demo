@@ -38,6 +38,7 @@ import { useAppShell } from '../../lib/appShellContext';
 import api, { entities } from '../../lib/apiClient';
 import { emitter } from '../../lib/eventEmitter';
 import { dmConversationId } from '../../lib/utils';
+import { buildUsernameStyleRN } from '../../lib/usernameStyle';
 import { useTension } from '../../hooks/useTension';
 import { Avatar } from '../ui/Avatar';
 import { Spinner } from '../ui/Spinner';
@@ -353,7 +354,12 @@ export function ProfileView({ userId }: { userId?: string }) {
       {/* Identity */}
       <View style={{ paddingHorizontal: 20, marginTop: 12 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Text style={{ color: isApex ? accentColor : '#fff', fontSize: 24, fontWeight: '900', letterSpacing: -0.5 }}>
+          <Text
+            style={[
+              { color: isApex ? accentColor : '#fff', fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
+              buildUsernameStyleRN(subject, { fallbackColor: isApex ? accentColor : '#fff' }).style,
+            ]}
+          >
             {subjectName}
           </Text>
           {isApex && (

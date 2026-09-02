@@ -1,11 +1,19 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, TextInput, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, TextInput, Alert, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Palette, Check, Sparkles } from 'lucide-react-native';
 import { entities } from '../../lib/apiClient';
 import { useAppShell } from '../../lib/appShellContext';
 import { useThemeColors } from '../../lib/theme';
+import {
+  USERNAME_FONTS,
+  USERNAME_WEIGHTS,
+  USERNAME_STYLES,
+  USERNAME_EFFECTS,
+  USERNAME_COLOR_SWATCHES,
+  buildUsernameStyleRN,
+} from '../../lib/usernameStyle';
 
 // ── Appearance (mobile) ──────────────────────────────────────────────────────
 // Small-screen port of the web Theme Studio (spidr-client/src/components/spidr/
@@ -202,8 +210,269 @@ export default function Appearance() {
         <Text style={{ color: '#3f3f46', fontSize: 10, textAlign: 'center' }}>
           Image backgrounds (wallpaper, blur, overlay) can be set from the web Theme Studio and will sync here.
         </Text>
+
+        <UsernameStyleCard currentUser={currentUser} />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+// ── Username Style ───────────────────────────────────────────────────────────
+// Mobile port of the web Settings → Appearance "Username Style" card
+// (spidr-client/src/components/spidr/SettingsPanel.jsx:488-646). Saves to the
+// SAME UserProfile fields the web reads via lib/usernameStyle.js's
+// buildUsernameStyle, so a style set here renders correctly everywhere on
+// web immediately. On-device preview is a best-effort approximation: RN has
+// no masked gradient-text without adding a native dependency, so Gradient /
+// Rainbow / Shimmer preview as a flat color here (still saved + selectable —
+// they render fully wherever the web client draws the name).
+type UsernameStyleState = {
+  username_font: string;
+  username_weight: string;
+  username_style: string;
+  username_color: string;
+  username_effect: string;
+};
+
+const USERNAME_STYLE_DEFAULTS: UsernameStyleState = {
+  username_font: 'default',
+  username_weight: 'bold',
+  username_style: 'normal',
+  username_color: '',
+  username_effect: 'none',
+};
+
+function UsernameStyleCard({ currentUser }: { currentUser: any }) {
+  const [style, setStyleState] = useState<UsernameStyleState>(USERNAME_STYLE_DEFAULTS);
+  const [displayName, setDisplayName] = useState('');
+  const [hasChanges, setHasChanges] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const profileIdRef = useRef<string | null>(null);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!currentUser?.id) return;
+      try {
+        const profiles: any = await entities.UserProfile.filter({ user_id: currentUser.id });
+        const p = profiles?.[0];
+        profileIdRef.current = p?.id ?? null;
+        if (p && !cancelled) {
+          setStyleState({
+            username_font: p.username_font || 'default',
+            username_weight: p.username_weight || 'bold',
+            username_style: p.username_style || 'normal',
+            username_color: p.username_color || '',
+            username_effect: p.username_effect || 'none',
+          });
+          setDisplayName(p.display_name || currentUser?.full_name || '');
+        }
+      } catch { /* falls back to defaults */ }
+    })();
+    return () => { cancelled = true; };
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (style.username_effect !== 'pulse') {
+      pulseAnim.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.45, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [style.username_effect, pulseAnim]);
+
+  const set = (updates: Partial<UsernameStyleState>) => {
+    setStyleState((p) => ({ ...p, ...updates }));
+    setHasChanges(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (profileIdRef.current) {
+        await entities.UserProfile.update(profileIdRef.current, style);
+      } else if (currentUser?.id) {
+        const created: any = await entities.UserProfile.create({ user_id: currentUser.id, ...style });
+        profileIdRef.current = created?.id ?? null;
+      }
+      setHasChanges(false);
+      Alert.alert('Saved', 'Username style updated — it applies everywhere on Spidr.');
+    } catch (err: any) {
+      Alert.alert('Could not save', err?.message || 'Try again.');
+    }
+    setSaving(false);
+  };
+
+  const { style: builtStyle, pulse: isPulse } = buildUsernameStyleRN(style, { fallbackColor: '#FF3333' });
+  const previewTextStyle: any = { fontSize: 26, letterSpacing: -0.5, ...builtStyle };
+  const showsApproximationNote = ['gradient', 'rainbow', 'shimmer'].includes(style.username_effect);
+
+  const pillGrid = (
+    items: { value: string; label: string }[],
+    active: string,
+    onPick: (v: string) => void,
+    extraStyle?: (v: string) => any,
+  ) => (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      {items.map((it) => {
+        const isActive = active === it.value;
+        return (
+          <TouchableOpacity
+            key={it.value}
+            onPress={() => onPick(it.value)}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 9,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: isActive ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.06)',
+              backgroundColor: isActive ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.03)',
+            }}
+          >
+            <Text
+              style={[
+                { color: isActive ? '#fff' : '#a1a1aa', fontSize: 12, fontWeight: '700' },
+                extraStyle ? extraStyle(it.value) : null,
+              ]}
+            >
+              {it.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  return (
+    <View
+      style={{
+        backgroundColor: '#0d0d0d',
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
+        padding: 16,
+        gap: 16,
+      }}
+    >
+      <View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <Sparkles size={16} color="#ef4444" />
+          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }}>Username Style</Text>
+        </View>
+        <Text style={{ color: '#71717a', fontSize: 11 }}>
+          Customize how your name appears across Spidr — no APEX needed.
+        </Text>
+      </View>
+
+      {/* Live preview */}
+      <View
+        style={{
+          backgroundColor: 'rgba(0,0,0,0.4)',
+          borderWidth: 1,
+          borderColor: 'rgba(255,255,255,0.08)',
+          borderRadius: 12,
+          paddingVertical: 22,
+          alignItems: 'center',
+        }}
+      >
+        <Animated.Text
+          style={[previewTextStyle, isPulse ? { opacity: pulseAnim } : null]}
+          numberOfLines={1}
+        >
+          {displayName || 'Your Name'}
+        </Animated.Text>
+      </View>
+
+      {/* Font family */}
+      <View>
+        <Text style={sectionLabel}>FONT FAMILY</Text>
+        {pillGrid(USERNAME_FONTS, style.username_font, (v) => set({ username_font: v }))}
+      </View>
+
+      {/* Weight */}
+      <View>
+        <Text style={sectionLabel}>WEIGHT</Text>
+        {pillGrid(USERNAME_WEIGHTS, style.username_weight, (v) => set({ username_weight: v }))}
+      </View>
+
+      {/* Style */}
+      <View>
+        <Text style={sectionLabel}>STYLE</Text>
+        {pillGrid(USERNAME_STYLES, style.username_style, (v) => set({ username_style: v }), (v) =>
+          v === 'italic' ? { fontStyle: 'italic' } : null
+        )}
+      </View>
+
+      {/* Name color */}
+      <View>
+        <Text style={sectionLabel}>
+          NAME COLOR <Text style={{ color: '#52525b', fontWeight: '400' }}>(empty = accent color)</Text>
+        </Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          {USERNAME_COLOR_SWATCHES.map((color) => {
+            const active = style.username_color === color;
+            return (
+              <TouchableOpacity
+                key={color || 'unset'}
+                onPress={() => set({ username_color: color })}
+                style={{
+                  width: 34, height: 34, borderRadius: 10,
+                  backgroundColor: color || 'transparent',
+                  borderWidth: active ? 2 : 1,
+                  borderColor: active ? '#fff' : color ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.25)',
+                  borderStyle: color ? 'solid' : 'dashed',
+                  alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                {!color && <Text style={{ color: '#71717a', fontSize: 7, fontWeight: '800' }}>AUTO</Text>}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <View style={{ marginTop: 8 }}>
+          <HexInput
+            label="CUSTOM"
+            value={style.username_color || '#ffffff'}
+            onChange={(v) => set({ username_color: v })}
+          />
+        </View>
+      </View>
+
+      {/* Effect */}
+      <View>
+        <Text style={sectionLabel}>
+          EFFECT <Text style={{ color: '#52525b', fontWeight: '400' }}>(saved + applies on web)</Text>
+        </Text>
+        {pillGrid(USERNAME_EFFECTS, style.username_effect, (v) => set({ username_effect: v }))}
+        {showsApproximationNote && (
+          <Text style={{ color: '#52525b', fontSize: 10, marginTop: 8, lineHeight: 14 }}>
+            Animated gradient effects render fully in the web app — mobile shows the base color here.
+          </Text>
+        )}
+      </View>
+
+      <TouchableOpacity
+        onPress={save}
+        disabled={saving || !hasChanges}
+        style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+          paddingVertical: 13, borderRadius: 12,
+          backgroundColor: hasChanges ? '#dc2626' : '#1a1a1a',
+          opacity: saving ? 0.6 : 1,
+        }}
+      >
+        <Text style={{ color: hasChanges ? '#fff' : '#555', fontSize: 12, fontWeight: '900', letterSpacing: 1.5 }}>
+          {saving ? 'SAVING…' : 'SAVE USERNAME STYLE'}
+        </Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 

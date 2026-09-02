@@ -1,31 +1,26 @@
 # Handoff
 
 ## Goal
-Keep the Spidr friends flow bidirectional and per-user localStorage isolated so shared browsers don't cross-leak state — ship as Patch 1.9.66.
+Wind down the session cleanly: refresh docs against the DJ-booth patch chain that landed after 1.9.66 and get the next session pointed at the SPIDR_SYS drift that opened up.
 
 ## Current State
-Patch 1.9.66 shipped. Committed `ce9fc6e` on `dev` and pushed to `origin/dev`. Security audit was clean (0 critical / 0 high / 0 medium, 2 informational). SPIDR_SYS server `NEWS` and client `MOCK_NEWS` are in lockstep for `p1966`.
+Dev stack is stopped. `mr-rimmer/` docs and root `CLAUDE.md` are re-synced to code on branch `dev`. Prior in-flight work from the previous session is still uncommitted in the working tree (staged mobile edits from the 1.9.66 push window + unstaged web/mobile/server edits) — untouched by /stop. Real finding surfaced: server `NEWS` (top id `p1969`, 42 entries) has fallen 19 patches behind client `MOCK_NEWS` (top id `p1992`, 61 entries) because the DJ-booth commits (`ae6d17e`, `8efd27a`, `4bb3c16`, `d76264e`, `63fcfb7`, `2ffcff8`) were pushed via `/git-workflow` instead of `/ship`, bypassing `/patch`.
 
 ## Files
-- spidr-server/src/routes/friends.js — added mirror backfill in PATCH `/:id` (accept) + dedicated DELETE `/:id` that wipes both sides atomically, skipping `blocked` mirrors
-- spidr-server/scripts/fix-stuck-friend-requests.js — added orphan-accepted-mirror backfill and ghost pending_incoming cleanup passes
-- spidr-server/scripts/_inspect-user.js — new dev spot-check utility (queries User/UserProfile/Friend rows by username/full_name)
-- spidr-client/src/lib/spidrWebPins.js — rewrote around per-user scoped key `spidr_web_pins:<uid>`; `setCurrentUser` / `clearCurrentUser` / `hydratePins(uid)` API; legacy `spidr_web_pins` key purged on first use
-- spidr-client/src/lib/AuthContext.jsx — wired `setCurrentUser` on boot/login/verify/register, `clearCurrentUser` on logout + auth-expired, `hydratePins(uid)` after `auth.me()`
-- spidr-client/src/components/spidr/FriendsPanel.jsx — pinned groups now use per-user key `spidr_pinned_groups:<uid>` with legacy key purge
-- spidr-server/src/routes/system.js — inserted `p1966` at index 0 of `NEWS`
-- spidr-client/src/components/spidr/SpidrSystem.jsx — inserted `p1966` at index 0 of `MOCK_NEWS` (byte-identical to server)
+- mr-rimmer/pricing.md — audit window extended to 1.9.57→1.9.69 + client-only DJ booth p1970–p1992 (verified none touched APEX)
+- mr-rimmer/goal.md — folded in patches 1.9.67 / 1.9.68 / 1.9.69; added explicit NEWS ↔ MOCK_NEWS drift note with root cause + fix
+- mr-rimmer/team.md — date-stamp bumped; committer log re-verified (still 2 humans)
+- CLAUDE.md — route count 39→48, model count 30→35
 
 ## Changes
-- Backfill missing mirror row on friend-request accept so accepter's list is no longer one-sided when the original request never mirrored
-- Add dedicated DELETE `/friends/:id` doing a mutual unfriend (both sides), preserving the other side if they've independently set `blocked`
-- Extend fix-stuck-friend-requests.js with orphan-accepted backfill + ghost pending_incoming cleanup for legacy rows
-- Scope `spidrWebPins` and `FriendsPanel` pinned-groups localStorage to per-user keys with legacy-key purge; wire lifecycle through AuthContext
-- Log Patch 1.9.66 in both SPIDR_SYS sources of truth
-- Ran /ship: security-cleanup (clean) → /patch (p1966) → /git-workflow (commit + push)
+- Ran /kill: freed :4000, :5173, :8080
+- Ran /rimmer-update: refreshed pricing.md, goal.md, team.md against branch `dev`; verified `ApexCommand.jsx:11-14`, `UserProfile.js:47-75`, `spidr-server/src/routes/webhooks/stripe.js`, `spidr-server/src/routes/payments.js` (checkout + portal), mobile `phaseTwo()` count still 0, mobile deps `react-native-webrtc@124.0.8` / `@react-native-firebase/messaging@26.2.0` unchanged
+- Ran /spidr-update: bumped root CLAUDE.md route/model counts; every other structural claim verified stable
+- Ran /patch (backfill mode): copied 19 client-only entries p1974–p1992 into server NEWS with the multi-line format used by the newer entries; both arrays now 61/61 with top id `p1992`, `node -c spidr-server/src/routes/system.js` clean
+- Nothing committed — doc rewrites + NEWS backfill sit in the working tree ready for `/git-workflow`
 
 ## Failed
 None.
 
 ## Next Step
-Run `node spidr-server/scripts/fix-stuck-friend-requests.js --apply` against production once the deploy is live so legacy orphan accepted mirrors and ghost pending_incoming rows get healed for existing users.
+Ship the doc + NEWS-backfill diff — CLAUDE.md, mr-rimmer/*, and `spidr-server/src/routes/system.js` are the only touched files that need to land, so `/git-workflow` (not `/ship`, since these are docs + a lockstep-restore rather than a user-facing patch note) will do it. After push, deploy spidr-server on Railway so `/system/news` returns the backfilled entries.

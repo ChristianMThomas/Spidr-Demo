@@ -11,20 +11,90 @@ import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../lib/theme';
-import { Sparkles, RefreshCw, Users as UsersIcon, Infinity as InfinityIcon, ChevronDown, ChevronRight } from 'lucide-react-native';
+import { RefreshCw, Users as UsersIcon, Infinity as InfinityIcon, ChevronDown, ChevronRight } from 'lucide-react-native';
 import { entities, tension } from '../../lib/apiClient';
 import { useAuth } from '../../lib/authContext';
 import { useUnread } from '../../lib/unreadContext';
 import SpidrSysChip from '../../components/spidr/SpidrSysChip';
 import SpidrWebMatrix from '../../components/spidr/SpidrWebMatrix';
 
+// ─── Typewriter hook ──────────────────────────────────────────────────────────
+// Three-phase state machine per message: type in (~55ms/char) → hold (holdMs)
+// → backspace out (~35ms/char) → advance. Backspacing keeps transitions
+// feeling like a live cursor rather than a hard swap. Caret blinks
+// independently (500ms). Resets cleanly if `messages` changes (e.g. the beta
+// countdown ticks or the user's name resolves).
+function useTypewriter(messages: string[], holdMs = 40000) {
+  const [idx, setIdx] = React.useState(0);
+  const [typed, setTyped] = React.useState('');
+  const [phase, setPhase] = React.useState<'type' | 'hold' | 'delete'>('type');
+  const [caret, setCaret] = React.useState(true);
+  const msg = messages[idx] || '';
+
+  // Reset when the message set changes so we don't strand stale text.
+  React.useEffect(() => {
+    setIdx(0);
+    setTyped('');
+    setPhase('type');
+  }, [messages]);
+
+  React.useEffect(() => {
+    if (phase === 'type') {
+      if (typed.length < msg.length) {
+        const t = setTimeout(() => setTyped(msg.slice(0, typed.length + 1)), 55);
+        return () => clearTimeout(t);
+      }
+      setPhase('hold');
+      return;
+    }
+    if (phase === 'hold') {
+      const t = setTimeout(() => setPhase('delete'), holdMs);
+      return () => clearTimeout(t);
+    }
+    // delete
+    if (typed.length > 0) {
+      const t = setTimeout(() => setTyped(typed.slice(0, -1)), 35);
+      return () => clearTimeout(t);
+    }
+    setIdx((i) => (i + 1) % messages.length);
+    setPhase('type');
+  }, [phase, typed, msg, messages.length, holdMs]);
+
+  React.useEffect(() => {
+    const int = setInterval(() => setCaret((c) => !c), 500);
+    return () => clearInterval(int);
+  }, []);
+
+  return { typed, caret };
+}
+
 // ─── Welcome banner ────────────────────────────────────────────────────────────
+// Mascot + rotating typewriter greeting. The greeting cycles every 45s between
+// "Welcome back, {name}" and a live "{N} days until beta release" countdown to
+// Oct 1 2026. No more "SYSTEM UPLINK ESTABLISHED" — read as too techy.
 function WelcomeBanner({ name }: { name: string }) {
+  const daysUntilBeta = React.useMemo(() => {
+    // Month index 9 = October.
+    const beta = new Date(2026, 9, 1, 0, 0, 0).getTime();
+    const diff = beta - Date.now();
+    return Math.max(0, Math.ceil(diff / 86400000));
+  }, []);
+
+  const messages = React.useMemo(() => {
+    const betaLine =
+      daysUntilBeta > 0
+        ? `${daysUntilBeta} day${daysUntilBeta === 1 ? '' : 's'} until beta release`
+        : 'Beta is live';
+    return [`Welcome back, ${name}`, betaLine];
+  }, [name, daysUntilBeta]);
+
+  const { typed, caret } = useTypewriter(messages, 40000);
+
   return (
     <View
       style={{
         position: 'relative',
-        backgroundColor: 'rgba(10,10,10,0.65)',
+        backgroundColor: 'rgba(10,10,10,0.72)',
         borderRadius: 18,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.05)',
@@ -34,6 +104,10 @@ function WelcomeBanner({ name }: { name: string }) {
         overflow: 'hidden',
       }}
     >
+      {/* Web has a soft diagonal red-tint gradient here. RN has no CSS
+          gradient and expo-linear-gradient's native module isn't reliably
+          registered in this runtime, so we lean on the red hairline + the
+          mascot bloom + the red name to carry the warm cast instead. */}
       {/* Hairline top accent */}
       <View
         style={{
@@ -45,47 +119,49 @@ function WelcomeBanner({ name }: { name: string }) {
           backgroundColor: 'rgba(239,68,68,0.35)',
         }}
       />
-      {/* Mascot housing */}
+      {/* Mascot — no container, floats over an ambient red bloom */}
       <View
         style={{
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          backgroundColor: 'rgba(20,10,22,0.95)',
-          borderWidth: 1,
-          borderColor: 'rgba(239,68,68,0.35)',
+          width: 76,
+          height: 76,
           alignItems: 'center',
           justifyContent: 'center',
-          marginRight: 16,
-          shadowColor: '#ef4444',
-          shadowOffset: { width: 0, height: 0 },
-          shadowOpacity: 0.35,
-          shadowRadius: 18,
-          elevation: 6,
+          marginRight: 14,
         }}
       >
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            right: 8,
+            bottom: 8,
+            borderRadius: 999,
+            backgroundColor: 'rgba(239,68,68,0.22)',
+            opacity: 0.9,
+          }}
+        />
         <Image
-          source={require('../../assets/logo.png')}
-          style={{ width: 40, height: 40 }}
+          source={require('../../assets/spidr-mascot.png')}
+          style={{ width: 76, height: 76 }}
           resizeMode="contain"
         />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text
           style={{
-            color: 'rgba(239,68,68,0.9)',
-            fontSize: 10,
-            letterSpacing: 3,
-            fontFamily: 'monospace',
-            marginBottom: 4,
+            color: '#fff',
+            fontSize: 19,
+            fontWeight: '800',
+            lineHeight: 24,
+            letterSpacing: 0.2,
           }}
+          numberOfLines={2}
         >
-          WELCOME BACK
+          {typed}
+          <Text style={{ color: '#ef4444', opacity: caret ? 1 : 0 }}>▎</Text>
         </Text>
-        <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', lineHeight: 26 }} numberOfLines={1}>
-          Hey, <Text style={{ color: '#ef4444' }}>{name}</Text>
-        </Text>
-        <Text style={{ color: '#71717a', fontSize: 13, marginTop: 2 }}>Your web is waiting</Text>
       </View>
     </View>
   );
@@ -319,8 +395,7 @@ function DiscoverPeople({ currentUserId }: { currentUserId?: string }) {
         }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Sparkles size={18} color="#facc15" />
-          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '800', marginLeft: 8 }}>
+          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }}>
             Discover People
           </Text>
         </View>

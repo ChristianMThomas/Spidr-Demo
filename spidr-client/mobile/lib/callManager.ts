@@ -644,8 +644,15 @@ class CallManager {
         getCallKeep()?.reportEndCallWithUUID?.(callUUID(data.conversationId), 2 /* remote ended */);
       }
     } else if (data.type === 'dm') {
-      // Tap on a DM banner → open the conversation.
-      try { router.push(`/dm/${data.conversationId}`); } catch {}
+      // Tap on a DM banner → open the conversation. senderId/senderName come
+      // straight from the push payload (handlers.js) so the header shows the
+      // peer's real name instead of falling back to "Direct Message".
+      try {
+        router.push({
+          pathname: '/dm/[id]',
+          params: { id: data.conversationId, friendId: data.senderId, friendName: data.senderName || '' },
+        } as any);
+      } catch {}
     } else if (data.type === 'server_mention' || data.type === 'server_message') {
       try { router.push(`/server/${data.serverId}/channel/${data.channelId}`); } catch {}
     } else if (data.type === 'group_message') {

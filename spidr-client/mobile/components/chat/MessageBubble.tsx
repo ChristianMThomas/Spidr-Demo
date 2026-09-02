@@ -1,10 +1,11 @@
-import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, Animated } from 'react-native';
 import { Image } from 'expo-image';
 import { PhoneMissed } from 'lucide-react-native';
 import { Avatar } from '../ui/Avatar';
 import { EmojiText } from './EmojiText';
 import { AudioPlayer } from './AudioPlayer';
+import { buildUsernameStyleRN, UsernameStyleProfile } from '../../lib/usernameStyle';
 
 interface Message {
   id?: string;
@@ -42,6 +43,21 @@ function attachmentUrls(msg: Message): string[] {
 const isAudioUrl = (url: string) =>
   /voice-message-/i.test(url) || /\.(mp3|wav|ogg|m4a|aac|webm|weba|opus)(\?|$)/i.test(url);
 const isVideoUrl = (url: string) => /\.(mp4|mov|m4v)(\?|$)/i.test(url);
+
+// Mirrors the web timestamp format (MessageItem.jsx) — touch has no hover, so
+// mobile shows it plainly next to the name instead of on a hover reveal.
+function formatMsgTime(stamp?: string): string | null {
+  if (!stamp) return null;
+  const d = new Date(stamp);
+  if (isNaN(d.getTime())) return null;
+  const now = new Date();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (d.toDateString() === now.toDateString()) return time;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`;
+  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+}
 
 function AttachmentView({ url }: { url: string }) {
   if (isAudioUrl(url)) {
@@ -93,8 +109,10 @@ export function MessageBubble({
   // message at send time. Change pfp once → every bubble updates.
   peerName,
   peerAvatar,
+  peerProfile,
   myName,
   myAvatar,
+  myProfile,
   // Needed by missed-call rows: the label flips depending on whether the
   // viewer placed the call or missed it.
   currentUserId,
@@ -109,8 +127,10 @@ export function MessageBubble({
   tier?: 'APEX' | string | null;
   peerName?: string;
   peerAvatar?: string;
+  peerProfile?: UsernameStyleProfile | null;
   myName?: string;
   myAvatar?: string;
+  myProfile?: UsernameStyleProfile | null;
   currentUserId?: string;
   groupName?: string;
   onAvatarPress?: (userId: string) => void;
@@ -124,6 +144,31 @@ export function MessageBubble({
   const authorId = msg.user_id || msg.sender_id;
   const handleAvatarPress =
     onAvatarPress && authorId ? () => onAvatarPress(authorId) : undefined;
+
+  // Username Style (Settings → Appearance) — same field names + color
+  // priority as the web client, so a style set on either platform renders
+  // consistently here.
+  const { style: nameStyle, pulse: namePulse } = buildUsernameStyleRN(
+    mine ? myProfile : peerProfile,
+    { fallbackColor: mine ? '#ef4444' : '#f97316' },
+  );
+  // Hooks must run unconditionally — this sits above the missed-call early
+  // return below.
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!namePulse) {
+      pulseAnim.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 0.45, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [namePulse, pulseAnim]);
 
   const attachments = attachmentUrls(msg);
   const hasText = !!(msg.content && msg.content.trim());
@@ -182,23 +227,44 @@ export function MessageBubble({
     );
   }
 
+  const msgTime = formatMsgTime(msg.created_date || msg.created_at);
+
   return (
     <View
       style={{
         flexDirection: 'row',
+        position: 'relative',
         paddingHorizontal: 10,
-        paddingVertical: 3,
+        // Tighter gap between chained messages from the same sender, more
+        // breathing room when a new sender/group starts — matches web's
+        // mt-1 (chained) vs mt-3 (new group) in MessageItem.jsx.
+        paddingTop: showHeader ? 10 : 2,
+        paddingBottom: 2,
         justifyContent: mine ? 'flex-end' : 'flex-start',
         gap: 8,
       }}
     >
+      {/* Thread-line accent — mirrors web's colored edge strip
+          (MessageItem.jsx:139-160). Purely decorative, no data dependency. */}
+      <View
+        style={{
+          position: 'absolute',
+          [mine ? 'right' : 'left']: 2,
+          top: 0,
+          bottom: 0,
+          width: 2,
+          borderRadius: 1,
+          backgroundColor: tier === 'APEX'
+            ? '#a855f7'
+            : mine ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.06)',
+        } as any}
+      />
+
       {!mine && (
         <View style={{ width: 32 }}>
-          {showHeader ? (
-            <TouchableOpacity disabled={!handleAvatarPress} onPress={handleAvatarPress} hitSlop={6}>
-              <Avatar uri={avatar} name={name} size={32} />
-            </TouchableOpacity>
-          ) : null}
+          <TouchableOpacity disabled={!handleAvatarPress} onPress={handleAvatarPress} hitSlop={6}>
+            <Avatar uri={avatar} name={name} size={32} />
+          </TouchableOpacity>
         </View>
       )}
 
@@ -208,7 +274,13 @@ export function MessageBubble({
           backgroundColor: 'rgba(20,0,0,0.65)',
           borderWidth: 1,
           borderColor: 'rgba(239,68,68,0.45)',
-          borderRadius: 14,
+          // Chat-bubble "tail" corner (matches web MessageItem.jsx's
+          // rounded-r-xl/rounded-tl-xl/rounded-bl-sm split) instead of a
+          // flat rounded rect on every side.
+          borderTopLeftRadius: 14,
+          borderTopRightRadius: 14,
+          borderBottomLeftRadius: mine ? 14 : 4,
+          borderBottomRightRadius: mine ? 4 : 14,
           paddingHorizontal: 12,
           paddingVertical: 8,
           shadowColor: '#ef4444',
@@ -220,16 +292,16 @@ export function MessageBubble({
       >
         {showHeader && (
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 6 }}>
-            <Text
-              style={{
-                color: mine ? '#ef4444' : '#f97316',
-                fontSize: 12,
-                fontWeight: '900',
-              }}
+            <Animated.Text
+              style={[
+                { fontSize: 12, fontWeight: '900' },
+                nameStyle,
+                namePulse ? { opacity: pulseAnim } : null,
+              ]}
               numberOfLines={1}
             >
               {name}
-            </Text>
+            </Animated.Text>
             {tier === 'APEX' && (
               <View
                 style={{
@@ -244,6 +316,11 @@ export function MessageBubble({
                 </Text>
               </View>
             )}
+            {msgTime && (
+              <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }} numberOfLines={1}>
+                {msgTime}
+              </Text>
+            )}
           </View>
         )}
         {hasText && (
@@ -256,11 +333,9 @@ export function MessageBubble({
 
       {mine && (
         <View style={{ width: 32 }}>
-          {showHeader ? (
-            <TouchableOpacity disabled={!handleAvatarPress} onPress={handleAvatarPress} hitSlop={6}>
-              <Avatar uri={avatar} name={name} size={32} />
-            </TouchableOpacity>
-          ) : null}
+          <TouchableOpacity disabled={!handleAvatarPress} onPress={handleAvatarPress} hitSlop={6}>
+            <Avatar uri={avatar} name={name} size={32} />
+          </TouchableOpacity>
         </View>
       )}
     </View>

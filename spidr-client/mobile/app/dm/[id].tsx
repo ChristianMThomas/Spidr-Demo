@@ -39,6 +39,7 @@ import { Spinner } from '../../components/ui/Spinner';
 import { NotFound } from '../../components/ui/NotFound';
 import OutgoingCallModal from '../../components/call/OutgoingCallModal';
 import { callManager } from '../../lib/callManager';
+import { buildUsernameStyleRN } from '../../lib/usernameStyle';
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   online: { label: 'ONLINE', color: '#22c55e' },
@@ -391,6 +392,7 @@ export default function DM() {
     friendName ||
     'Direct Message';
   const headerAvatar = peerProfile?.avatar_url;
+  const { style: headerNameStyle } = buildUsernameStyleRN(peerProfile, { fallbackColor: '#fff' });
 
   const togglePin = (msgId: string) => {
     setPinned((prev) => {
@@ -461,7 +463,7 @@ export default function DM() {
         </TouchableOpacity>
 
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }} numberOfLines={1}>
+          <Text style={[{ fontSize: 15, fontWeight: '800' }, headerNameStyle]} numberOfLines={1}>
             {displayName}
           </Text>
           <Text
@@ -586,8 +588,10 @@ export default function DM() {
                       showHeader={item.showHeader}
                       peerName={displayName}
                       peerAvatar={headerAvatar}
+                      peerProfile={peerProfile}
                       myName={myProfile?.display_name || user?.full_name || user?.username}
                       myAvatar={myProfile?.avatar_url}
+                      myProfile={myProfile}
                       currentUserId={user?.id}
                       onAvatarPress={(uid) => router.push(`/user/${uid}`)}
                     />

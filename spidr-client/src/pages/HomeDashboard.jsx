@@ -6,13 +6,13 @@ import { useQuery } from '@tanstack/react-query';
 import { entities } from '@/api/apiClient';
 import { useAppShell } from '@/context/AppShellContext';
 import SpiderLogo from '@/components/spidr/SpiderLogo';
-import spidrMascot from '@/assets/spidr-mascot.png';
 import DiscoverUsers from '@/components/spidr/DiscoverUsers';
 import EnhancedFeed from '@/components/spidr/EnhancedFeed';
 import EngagementHub from '@/components/spidr/EngagementHub';
 import TensionBar from '@/components/spidr/TensionBar';
 import SpidrSystem from '@/components/spidr/SpidrSystem';
 import SpidrWebMatrix from '@/components/spidr/SpidrWebMatrix';
+import WelcomeBanner from '@/components/spidr/WelcomeBanner';
 
 /**
  * /home — the landing dashboard.
@@ -287,89 +287,10 @@ export default function HomeDashboard() {
         {/* ── Main column ──────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0 space-y-5">
 
-          {/* ── Welcome Banner ──────────────────────────────────────────────
-              Wide glass slab with the spider mascot on the left, a
-              WELCOME_BACK eyebrow, a bold first-name greeting, and a tagline.
-              A faint right-edge red glow gives it presence without
-              overpowering the rest of the dashboard. */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: 'easeOut' }}
-            className="relative overflow-hidden rounded-2xl"
-            style={{
-              background: 'linear-gradient(100deg, rgba(239,68,68,0.10) 0%, rgba(10,10,10,0.72) 42%, rgba(5,5,5,0.72) 100%)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              border: '1px solid rgba(255, 255, 255, 0.05)',
-              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4), inset 0 0 40px rgba(0,0,0,0.5)',
-            }}
-          >
-            {/* Right-edge red glow */}
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background:
-                  'radial-gradient(ellipse 50% 90% at 100% 50%, rgba(239, 68, 68, 0.16), transparent 70%)',
-              }}
-            />
-            {/* Hairline accent at top */}
-            <div
-              className="absolute top-0 inset-x-0 h-px pointer-events-none"
-              style={{
-                background:
-                  'linear-gradient(to right, transparent, rgba(239, 68, 68, 0.35), transparent)',
-              }}
-            />
-
-            <div className="relative flex items-center gap-5 p-6">
-              {/* ── Logo module ──────────────────────────────────────────────
-                  The mascot floats free. It used to sit inside a dark purple
-                  circle with a border — and since the art is a genuine
-                  transparent PNG (verified alpha 0 at the corners), that
-                  circle was pure CSS, not part of the image. It made the logo
-                  read as a pasted sticker rather than a native element, and
-                  its overflow-hidden was clipping the spider's legs (a 64px
-                  image inside a 56px circle). Container gone; the mascot now
-                  breathes against the banner itself. */}
-              <div className="relative flex items-center justify-center w-20 h-20 shrink-0">
-                {/* Ambient bloom behind the art — no hard edge, so it reads as
-                    emitted light rather than a container. */}
-                <div
-                  className="absolute inset-0 rounded-full blur-[26px] animate-pulse pointer-events-none"
-                  style={{ background: 'rgba(239, 68, 68, 0.22)' }}
-                />
-                <img
-                  src={spidrMascot}
-                  alt="Spidr"
-                  draggable={false}
-                  className="relative z-10 w-20 h-20 object-contain animate-symbiote-slow"
-                />
-              </div>
-
-              {/* Copy block */}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />
-                  <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-red-400/90">
-                    System Uplink Established
-                  </p>
-                </div>
-                <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight tracking-wide">
-                  Hey,{' '}
-                  <span
-                    className="text-transparent bg-clip-text"
-                    style={{
-                      backgroundImage: 'linear-gradient(90deg, #ef4444, #b91c1c)',
-                      filter: 'drop-shadow(0 0 14px rgba(239,68,68,0.35))',
-                    }}
-                  >
-                    {greetingName}
-                  </span>
-                </h1>
-              </div>
-            </div>
-          </motion.div>
+          {/* Welcome banner — ported from mobile (spidr-client/mobile/app/(tabs)/index.tsx)
+              so web + desktop match. Typewriter cycles "Welcome back, {name}"
+              with a live "N days until beta release" countdown to 2026-10-01. */}
+          <WelcomeBanner name={greetingName} />
 
           {/* ── Stat Strip ──────────────────────────────────────────────────
               Three glass tiles in a single row. Each is its own tappable

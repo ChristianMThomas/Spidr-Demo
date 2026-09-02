@@ -73,6 +73,7 @@ function useRenderRows(
         showHeader,
         peerName,
         peerAvatar,
+        peerProfile: authorProfile,
         myName: meName,
         myAvatar: meAvatar,
       });
@@ -373,8 +374,10 @@ export default function GroupChat() {
                   showHeader={item.showHeader}
                   peerName={item.peerName}
                   peerAvatar={item.peerAvatar}
+                  peerProfile={item.peerProfile}
                   myName={item.myName}
                   myAvatar={item.myAvatar}
+                  myProfile={myProfile}
                   currentUserId={user?.id}
                   groupName={groupName}
                   onAvatarPress={(uid) => router.push(`/user/${uid}`)}
@@ -461,11 +464,9 @@ function GroupSettingsSheet({
         onPress: async () => {
           setBusy(true);
           try {
-            const nextMembers = members.filter(
-              (m) => (typeof m === 'string' ? m : m?.user_id) !== currentUserId,
-            );
-            const nextIds = (group?.member_ids || []).filter((id: string) => id !== currentUserId);
-            await entities.GroupChat.update(group.id, { members: nextMembers, member_ids: nextIds });
+            // Server-side self-removal: atomically pulls the caller from
+            // members/member_ids and deletes the group if it becomes empty.
+            await entities.GroupChat.leave(group.id);
             onClose();
             onLeft();
           } catch (err: any) {

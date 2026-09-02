@@ -18,6 +18,166 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1993',
+    title: 'Patch 1.9.93 — The web welcome banner matches mobile',
+    date: '2026-09-02',
+    type: 'UPDATE',
+    description:
+      'The homepage welcome slab on web and desktop now behaves the same way as the one on mobile. The mascot floats over a soft red bloom instead of sitting inside a hard container, and the greeting cycles between welcoming you back by name and counting down the days until the beta release, typed out one character at a time with a blinking cursor. On mobile the mascot artwork was swapped over to the same spider used everywhere else in the app, so the icon on the homepage now matches the one you see when you download, on the loading screen, and in your browser tab, rather than being a slightly different variant. Also folds in a background sync fix: the home-page system terminal had fallen roughly nineteen patches behind on the server across the recent DJ booth work, so the unread badge could not fire for anything newer than late August. Server and client are back in lockstep on every entry, so new patches show up as unread again the moment they land.',
+  },
+  {
+    id: 'p1992',
+    title: 'Patch 1.9.92 — The booth stops depending on previews',
+    date: '2026-09-01',
+    type: 'FIX',
+    description:
+      'You were right that the buttons felt empty, and the cause was structural rather than a bug. The booth was built preview-first: a session could not even START without picking a track, and the audio everyone heard was Spotify\'s 30-second preview clip. But Spotify stopped serving preview_url for most of its catalogue, and the stricter matching added last patch correctly refuses to substitute a different recording rather than playing the wrong song — so the honest result was a session with nothing to play. Every feature layered on top, Share Audio and Pass the Aux included, was bolted to a foundation that mostly produced silence. Sharing is now the primary path rather than a side option. A DJ session can be opened with NO track at all — you hit Share Audio, pick the tab or window playing your music, and the whole call hears full-length audio, free-tier accounts included. Track metadata becomes optional annotation for the room display instead of the thing being played, which is also the honest answer to how Pass the Aux works: the aux IS the share, so handing it over moves who is sourcing the audio. The 30-second preview path still exists as a fallback and is now labelled as such in the picker. When a track genuinely has no preview, the banner no longer dead-ends with try another song — a suggestion that frequently has no working answer — it offers a one-click switch to sharing instead.',
+  },
+  {
+    id: 'p1991',
+    title: 'Patch 1.9.91 — DJ booth crash fixed',
+    date: '2026-09-01',
+    type: 'FIX',
+    description:
+      'The booth was white-screening with a Cannot access before initialization error, which is why the last few patches looked like nothing had changed — the component was crashing before it could render any of them. My fault, and the same trap that took out the friends page in 1.9.47: the visualiser block I added sat near the top of the component but referenced liveAudioActive, previewUrl and userPaused, all of which are declared further down. Const bindings are hoisted but stay unreachable until their own line executes, so every single render threw. The block now sits below its dependencies with a comment explaining why it must stay there. I also swept every component and hook in the app for the same pattern rather than just fixing this one instance — two other files flag but both are false positives, where a nested component takes a prop with the same name as outer state. Also verified this build: fifteen DJ booth features confirmed present in the source, every client file parses, the whole bundle builds, and every server file passes syntax check. On the logo 422 in your console: that file is a valid 640 by 640 PNG sitting in public and the app references it correctly, so a 422 is coming from the host or proxy rejecting the request rather than anything in the code — worth checking the deploy config, not the source.',
+  },
+  {
+    id: 'p1990',
+    title: 'Patch 1.9.90 — The booth reacts to the music',
+    date: '2026-08-31',
+    type: 'UPDATE',
+    description:
+      'The DJ booth no longer animates on a fixed timer pretending to feel the music — it reads the actual audio. Frequency data is split into lows, mids and highs, and each drives something different: bass thickens the neon rings and slams their glow so 808s visibly punch, mids swell the album disc slightly, highs add a faint shimmer across the background so hi-hats register without muddying the main pulse, and the ambient bloom behind everything breathes with the low end. The easing is asymmetric on purpose — values snap up fast so a kick lands on the beat and fall slowly so the HUD glows down instead of strobing. A symmetric ease makes percussion look mushy and no easing at all just flickers. On the architecture: each listener analyses the audio THEY are receiving rather than the DJ broadcasting numbers to everyone. Broadcasting would drift against each person\'s jitter buffer by tens of milliseconds and look visibly wrong, and the audio is already local so analysing it is cheaper anyway. It reads whichever source is actually audible — the DJ\'s incoming share on a live session, the local clip otherwise — and shuts off entirely when the booth is silent. Cost is one analyser for the whole booth at thirty samples a second, taking a five-person call from a hundred and twenty five audio passes per second to a hundred and fifty five. For reference the same call was running seven hundred and twenty before last patch\'s cleanup. Both audio sources come from the shared ref-counted registries rather than fresh nodes, including a new one for media elements — creating a second source on an element reroutes its output and silently mutes it unless you reconnect to the destination, which is exactly the trap that killed call audio twice before.',
+  },
+  {
+    id: 'p1989',
+    title: 'Patch 1.9.89 — Pass the Aux',
+    date: '2026-08-31',
+    type: 'UPDATE',
+    description:
+      'A DJ session can now outlive the person who started it. Until now the music lived on the DJ\'s machine, so when they left it died with them and the booth was stranded — only the host can change tracks or end a session, so an absent host meant a room nobody could control. That was the last thing a server-side music bot genuinely did better, because a bot never leaves the channel. The DJ now gets a Pass the Aux button listing everyone in the call. It is an offer, not a shove: the target sees a prompt and can take it or decline, and taking it drops them straight into the share flow, because accepting the role without starting a share leaves the room on the 30-second preview which is the confusing half-state. Offers expire after a minute, can be cancelled by the host, and are refused if the target has already left the call. The session also rescues itself when a DJ vanishes without handing off at all. Rather than leaving a dead booth, the server promotes whoever is still in the call — longest-present member first, a stable choice every client agrees on — resets the audio route to preview since the departed DJ\'s share is gone, and ends the session outright only if nobody is left. Handoff state lives on the session document rather than in server memory, so it survives a restart and both clients always agree on whether an offer is outstanding.',
+  },
+  {
+    id: 'p1988',
+    title: 'Patch 1.9.88 — Performance: I caused the lag',
+    date: '2026-08-31',
+    type: 'FIX',
+    description:
+      'The app got sluggish and it was my doing. Adding the always-on speaking broadcaster left every peer being analysed TWICE — once by their tile and once by the broadcaster — with a third loop for the status pill during screen shares, and each of those ran a full-buffer audio analysis on every single animation frame at 60Hz. I had also removed the gate that paused those loops while the call deck was hidden, so they kept running when nothing was on screen, and stacked a mic-level meter and a voice gate loop on top at the same rate. In a five-person call that adds up to roughly seven hundred audio analysis passes a second, which is exactly what sluggish feels like. Now one detector analyses each stream and publishes its result; the tiles and pills listen instead of recomputing. Sampling dropped from every frame to about fifteen times a second for speaking rings, thirty for the mic gate and twenty for the level meter — all indistinguishable on screen, because a speaking ring is a boolean with a three hundred millisecond hold and cannot benefit from sixty updates a second. The equalizer no longer animates while the deck is hidden, and the share-audio watchdog poll only runs while a share is actually live. Net effect in a five-person call: from about seven hundred and twenty analysis passes per second down to a hundred and twenty five, an eighty three percent reduction.',
+  },
+  {
+    id: 'p1987',
+    title: 'Patch 1.9.87 — Ghost apps deleted, zombie audio killed, pause works',
+    date: '2026-08-31',
+    type: 'FIX',
+    description:
+      'Four real bugs, and the first one is embarrassing: the share picker was showing League of Legends and Valorant with SPIDR SENSE DETECTED badges because they were HARDCODED FAKE ENTRIES in the source, alongside VS Code and Discord. They appeared whether or not those programs were installed, let alone running, and clicking any of them just opened the browser\'s own picker anyway. The whole fake grid is deleted. A browser fundamentally cannot enumerate your running applications — that would be a privacy hole — so the web build now hands straight off to the native picker and explains what to choose in it. The desktop app was always fine here: it lists real windows and screens with live thumbnails from the OS. The 30-second clip playing over a live share had two causes beyond the obvious. The cleanup never removed the pending canplay listener, so when the route flipped to live that listener fired afterwards and started playback on an element we thought was stopped; and an in-flight play promise resolves AFTER pause runs, resuming a beat later. Suppression now tears the element down completely — pause, drop the source, abort the fetch — and every run knows if it has been superseded before it is allowed to play. Pause did nothing because the transport buttons were hardcoded disabled with no handlers, AND the button component silently discarded any onClick it was given. Both fixed, and pause is now route-aware: it pauses the clip on preview, pauses MusicKit on full tracks, and on a live share it mutes the incoming audio for YOU while saying plainly that Spidr cannot pause the DJ\'s app. Wrong album art traced to a SECOND iTunes lookup — in the search route, not just the session route — still taking the first result blindly, so Spotify\'s correct title and art shipped with some other recording\'s audio. Both paths now verify title and artist before accepting a match.',
+  },
+  {
+    id: 'p1986',
+    title: 'Patch 1.9.86 — Dead-share detection for the DJ booth',
+    date: '2026-08-31',
+    type: 'FIX',
+    description:
+      'Answering a question that found three holes. Previously only ONE failure was handled: the DJ clicking stop, or closing the shared window, which ends the video track and tears the share down cleanly. Everything else left the room stranded on a live-audio route with nothing playing — silence behind a Live audio badge, with everyone\'s preview suppressed by a share that no longer existed. All three paths are covered now. If the AUDIO track dies on its own while video keeps running — the DJ quits Spotify, or the OS drops the loopback capture — the booth now watches that track\'s own ended, mute and unmute events rather than only re-checking when the stream object changes identity, which it does not in that case. A three-second poll backs it up, because some platforms flip the track to ended without firing any event at all, Windows loopback being the notable one. Listeners no longer take the session\'s word for it either: if the route says live but no screen stream is actually arriving from the host, each client independently decides the audio is dead and falls back to its own preview. And if the DJ\'s app crashes or their connection drops entirely, their client cannot report anything ever again — so the server now resets the session\'s audio route to preview when the host\'s last socket disconnects, the same failsafe pattern that stops a closed game staying pinned to a profile.',
+  },
+  {
+    id: 'p1985',
+    title: 'Patch 1.9.85 — Metadata and audio stop fighting',
+    date: '2026-08-30',
+    type: 'FIX',
+    description:
+      'Answering a question that turned out to be a bug. Yes, the DJ still drives the room display with the Spidr search bar — picking a track writes the name, artist and album art onto the session and every client in the call renders from that, so the neon centre-stage art is correct for everyone regardless of where the sound is coming from. But nothing stopped the 30-second preview from ALSO playing while audio was riding a screen share, which meant the room would have heard two copies of the same song at different offsets. The session now carries an explicit audio route — preview, live stream, or full track — and clients refuse to play the clip whenever the room is hearing the live share. The route flips automatically the instant a share starts or stops carrying sound, rather than being a toggle somebody has to remember, because the failure mode of forgetting is the doubled-audio mess. While a live share is running the booth relabels itself honestly: a green Live audio badge naming the DJ, and picking a track says Now showing rather than Now spinning, since at that point the search bar is updating the room art and not driving playback. Changing the announced track mid-share also preserves the live route, which otherwise would have quietly dropped everyone back onto the preview on top of the audio they were already hearing.',
+  },
+  {
+    id: 'p1984',
+    title: 'Patch 1.9.84 — Share Audio DJ mode',
+    date: '2026-08-30',
+    type: 'UPDATE',
+    description:
+      'Full-length music for everyone in a call, including free-tier users, without a music API in the loop. It rides the screen-share pipe that already forwards system audio with the voice filters switched off, so tracks arrive intact rather than squashed like a microphone. The hard part was never capture — it was that screen-share audio behaves completely differently depending on where you are running Spidr, and picking the wrong source gives you a share that is silently mute until somebody in the call says they cannot hear anything. The booth now works that out for you. In the Spidr desktop app on Windows the main process grabs the system mix, so you can pick the Spotify DESKTOP APP window and audio still comes through. In a browser, window shares can never carry audio on any operating system — that is a Chromium limitation, not a setting — so those tabs are now marked with a crossed-speaker icon and the picker steers you to the tab route instead. On macOS browsers, system audio cannot be captured at all, so the guidance points at the Spotify Web tab. A banner at the top of the picker states the one route that actually works in your environment before you choose. And if a share does start without audio, a warning fires immediately explaining why, rather than leaving you broadcasting silence. The DJ booth gained a Share Audio button next to the queue controls so the whole thing is discoverable from where you would look for it.',
+  },
+  {
+    id: 'p1983',
+    title: 'Patch 1.9.83 — DJ booth overhaul + collaborative queue',
+    date: '2026-08-30',
+    type: 'UPDATE',
+    description:
+      'Three DJ bugs fixed and the booth is now a shared session. The wrong-song bug had a specific cause: when a track ships no preview audio, the server searches iTunes for the title and artist and was blindly taking the FIRST result — which is routinely a cover, a live cut, or a same-titled song by someone else. The card showed one thing, the speakers played another. Candidates are now verified before use: both title AND artist must corroborate the track the DJ actually picked, with remaster and live and radio-edit noise stripped before comparing, and if nothing corroborates we ship no audio at all, because silence with correct metadata beats confidently playing the wrong song. When a substitute source IS used the booth now says so with a small Preview via iTunes label rather than passing it off as the original. The missing volume control is back — the host dock accepted volume props but never rendered a slider, lost in a branch merge; listeners always had one. And the booth is collaborative now. Anyone in the call can add tracks to an Up Next queue, each row showing who queued it; you can pull your own entry and the DJ can pull anyone\'s, and the DJ gets a Play Next button that advances the queue server-side so the list and the now-playing can never disagree. Queue is capped at fifty with duplicate rejection so nobody can flood the booth. On the thirty-second limit: that is Spotify policy, not a bug. Their API only exposes 30s previews, and full playback requires each listener to have their own Premium account driving the Web Playback SDK locally. Apple Music subscribers already get full tracks through the existing MusicKit path.',
+  },
+  {
+    id: 'p1982',
+    title: 'Patch 1.9.82 — The welcome banner breathes',
+    date: '2026-08-30',
+    type: 'UPDATE',
+    description:
+      'The mascot on the homepage banner was sitting inside a dark purple circle with a red border, which made it read as a pasted sticker rather than part of the interface. Worth being precise about why: the artwork itself was never the problem — it is a genuine transparent PNG, verified alpha zero at the corners — so swapping the image would have changed nothing. The circle was pure CSS wrapped around it, and its overflow-hidden was quietly clipping the spider\'s legs, because a 64px image was being rendered inside a 56px container. The container is gone. The mascot now floats free at a larger size against an ambient red bloom with no hard edge, so it reads as emitting light rather than sitting in a well, and it BREATHES on a four-second loop where the scale and the intensity of the red glow swell together. That is a slower, wider cousin of the animation the sidebar Core button uses — a big element always on screen needs a slower pulse, since the faster timing reads as flicker at that size. The copy went tactical too: WELCOME BACK became SYSTEM UPLINK ESTABLISHED behind a small pulsing red dot, the greeting got heavier and larger, and your name now carries a crimson gradient with a soft glow instead of flat red. The slab itself warms toward red on the left so the logo sits in light rather than on plain glass. The animation respects prefers-reduced-motion: the glow stays, the pulsing stops.',
+  },
+  {
+    id: 'p1981',
+    title: 'Patch 1.9.81 — Shared DM backgrounds, actually shared',
+    date: '2026-08-30',
+    type: 'FIX',
+    description:
+      'Moving DM wallpapers onto a shared conversation document last patch was the right change but not the whole fix. The remaining problem: two people in the same DM can be using DIFFERENT conversation_id strings for it — a thread opened from each side, or ids created before the sorted-pair convention was applied everywhere. That same split is what produced duplicate heads in the SPIDR WEB strip. With divergent ids each client read and wrote a DIFFERENT settings row, so a background set by one person was invisible to the other even though the storage, the route, the socket room and the broadcast were all working correctly. Settings are now keyed on the PARTICIPANTS rather than on whichever id string a client happens to send: the server resolves both parties from the thread and rebuilds the canonical sorted id for every read and write, so both sides always land on one row. The change also broadcasts to both id variants, and the client accepts a broadcast matching either, since the other person may have joined the room under their own variant. Finally, the settings query now refetches when you open or refocus a conversation — you only sit in a DM socket room while that chat is open, so a background changed while you were elsewhere used to be missed entirely rather than picked up on return.',
+  },
+  {
+    id: 'p1980',
+    title: 'Patch 1.9.80 — Ghost presence exorcised',
+    date: '2026-08-30',
+    type: 'FIX',
+    description:
+      'A game you closed hours ago could stay pinned to your profile as CURRENTLY IN LOBBY forever. The desktop watcher was never the problem — it reports "no game running" the instant you close one. The problem was that nobody was listening: the code that saved status changes lived inside the gaming widget on your profile page, so it only ran while you were actually looking at your own profile. Close a game while reading a DM or sitting in a server and the clear event fired into an empty room, leaving the stale title in the database. Detection now lives at the app shell and runs for your entire session no matter what screen you are on. Three more layers of defence, because presence rots in more ways than one. Quitting Spidr fires a clear on the way out. If you force-quit or your wifi drops mid-game, no client event can possibly fire — so the server now wipes your game status when your last socket disconnects, on the reasoning that a connection that no longer exists cannot be observing a running game. And any status carries the timestamp of the reading that produced it, so a row that somehow outlives all of that gets aged out after fifteen minutes rather than displayed as a live session indefinitely. Status changes also broadcast now, so a friend closing their game clears the card on your screen immediately instead of after a refresh.',
+  },
+  {
+    id: 'p1979',
+    title: 'Patch 1.9.79 — DM backgrounds are shared now',
+    date: '2026-08-30',
+    type: 'FIX',
+    description:
+      'Setting a DM background only changed it for you — the other person never saw it. That was not a sync bug so much as a storage decision that turned out wrong: wallpapers were saved on YOUR profile, keyed by conversation, because direct messages had no shared document to attach anything to. Stored per-user, they were private by construction. DMs now have a real container: a ConversationSettings document keyed by conversation id, so a background set by either side belongs to the conversation itself. Changing it writes the value, drops a system row into the thread, and broadcasts to the conversation room, so the other person\'s chat repaints instantly rather than after a refresh. The change also leaves a mark in the history — a centered frosted pill reading X set the background image as, with a thumbnail of the new wallpaper, or X removed the background image when cleared. It is a real message row rather than a toast, so it survives reloads and both sides see it in the timeline. Groups already worked this way, since a group chat always had a document of its own. Two supporting details: the route verifies you are actually a participant before reading or writing, because a conversation id is not a capability and without that check anyone could repaper a stranger\'s thread by guessing an id; and the client API gained a PUT verb it never had, which the new endpoint needed.',
+  },
+  {
+    id: 'p1978',
+    title: 'Patch 1.9.78 — Connections, two ways in',
+    date: '2026-08-30',
+    type: 'UPDATE',
+    description:
+      'Neural Links — the panel where you connect Spotify, Apple Music and the rest — is now reachable straight from your profile card in the bottom-left corner, not just buried in Settings. A new link icon sits beside the gear on the profile popover and opens the panel as a floating glass modal over whatever you were doing. It is the SAME component the Settings tab renders, not a copy: passing an onClose handler is the only difference, and that flag is what makes the panel draw its own dismiss button and size itself for a modal instead of filling the settings pane. So when a new integration gets added later it appears in both places automatically, with no chance of the two drifting apart. One structural detail: the modal renders through a portal to the document body rather than inside the profile chip. The chip is a small hover-driven popover pinned in the sidebar corner — a modal nested inside it would have been clipped by the rail, and worse, it would have unmounted the instant the popover closed on mouse-leave, so the panel would vanish the moment you moved the cursor toward it.',
+  },
+  {
+    id: 'p1977',
+    title: 'Patch 1.9.77 — Signal Radar goes glass',
+    date: '2026-08-30',
+    type: 'UPDATE',
+    description:
+      'Signal Radar was the last screen still wearing the old retro-terminal look — repeating scanlines, opaque black panels, hard neon borders and angular clipped corners — and it read as a different application next to the rest of Spidr. It is now built the same way as the Bot Lab and the sidebar. The scanline grain is gone, replaced by a single enormous heavily-blurred red bloom sitting deep behind the interface like a radar sweep, which the cards above it can actually catch. Server cards became frosted glass: rounded, highly translucent, a faint white border that warms to red on hover with a soft diagonal wash instead of a hard neon outline. The search field lost its solid black fill and HUD corner ticks for the same frosted treatment, and the Establish Uplink button now reads as a glass action rather than a flat outlined box. New on every card: a View Info button beside the uplink action. Clicking it slides a Signal Dossier panel up over the card face — the full description, the total roster (everyone who has ever joined, which the card front never showed since the front counts only who is live right now), how many are on air, when the server last had a pulse rendered as a human relative time, and its first-contact date. It opens in place rather than routing away, so you never lose your spot in the grid.',
+  },
+  {
+    id: 'p1976',
+    title: 'Patch 1.9.76 — The @ popup surfaces',
+    date: '2026-08-30',
+    type: 'FIX',
+    description:
+      'The mention popup was rendering UNDER the chat box. It already had z-50 and bottom-full, which is why it looked correct in the code — but z-index only competes inside its own stacking context, so no value would ever have lifted it above an ancestor that clips or paints over it. The popup now renders through a portal to the document body, positioned from the input\'s measured rect and re-measured on scroll and resize. That is the same technique the slash-command palette in the same component was already using — the mention popup had simply never been converted. You can also @ people the popup used to hide. Server members were dropped from the mention list entirely if their denormalized user_name field was missing, and that field goes unstamped on plenty of rows — dormant accounts most of all, which is why it read as not being able to mention offline users. Members are now kept on user_id alone and their name resolves through nickname, then the stored name, then their live profile, then a short id fallback, so there is always a usable label and nobody silently disappears from the list. The composer input also gained its own paint layer so nothing decorative in the bar can sit on top of typed text.',
+  },
+  {
+    id: 'p1975',
+    title: 'Patch 1.9.75 — One command column',
+    date: '2026-08-30',
+    type: 'UPDATE',
+    description:
+      'Jump Back In now sits directly beneath Top Creators instead of floating as its own third column. Trending Servers, Top Creators and Jump Back In share a single fixed-width right rail that stacks vertically with even spacing, which gives the main dashboard — Web Tension, Find Friends, Discover People, the Activity Feed — the full remaining width instead of competing with a second rail for it. The rail widened slightly to fit the conversation rows comfortably and stays shrink-proof when the window narrows. Two structural details worth noting: Jump Back In no longer carries its own sticky positioning, because the rail wrapper already owns that for the whole stack and a nested sticky inside a scrolling container pins to the container rather than the viewport — it would have stuck to the rail\'s own scrollbar. And the mobile copy of the panel had its breakpoint corrected from xl to lg to match the rail exactly: the rail used to appear at xl and the in-column copy hid at xl, which lined up, but consolidating moved the rail to lg and leaving the copy at xl would have rendered Jump Back In TWICE on every laptop-width screen between those two breakpoints.',
+  },
+  {
+    id: 'p1974',
+    title: 'Patch 1.9.74 — Merge + duplicate heads and sticky badges',
+    date: '2026-08-30',
+    type: 'FIX',
+    description:
+      'This build merges two branches that had diverged: the notification overhaul (scoped mobile push, permission primers, per-group notify modes) and the search/tags/wallpaper line (Search and Media Hub, word tags, chat backgrounds, bulletproof server avatars, the tactical server matrix). Both are now in one tree with nothing dropped from either. Two bugs from QA squashed. The duplicate head in SPIDR WEB was not a missing dedupe — the code already collapsed conversations into a map, but keyed it by conversation_id, and the same person can hold two conversation ids when a thread was started from each side. Keyed that way, one friend rendered as two identical heads. Conversations now fold by PERSON: the newest thread wins for opening, unread counts are SUMMED across the merged threads so opening the head clears everything the badge was counting, and whichever record actually resolved a name and avatar is kept. The sticky red badges had a separate cause: opening a conversation marks it read and invalidates several caches, but the SPIDR WEB strip reads its own quickheads query key which was never in that list — so its badges survived until a full page reload even though the messages were genuinely read. That key is now invalidated too. The friends list below also gained defensive dedupe by friend id, since mirrored friend rows or an accept racing an invite could duplicate a person there in exactly the same way.',
+  },
+  {
     id: 'p1969',
     title: 'Patch 1.9.69 — Notification overhaul',
     date: '2026-08-26',

@@ -85,13 +85,11 @@ export default function GroupChatSettings({ open, onClose, group, currentUser })
   });
 
   const leaveGroupMutation = useMutation({
+    // Server pulls the caller off atomically and deletes the group if empty.
+    // The old "PATCH members minus me" flow 403'd for non-owner members
+    // (collaborative-field allowlist).
     mutationFn: async () => {
-      const updatedMembers = group.members.filter(m => m.user_id !== currentUser.id);
-      if (updatedMembers.length === 0) {
-        await entities.GroupChat.delete(group.id);
-      } else {
-        await entities.GroupChat.update(group.id, { members: updatedMembers });
-      }
+      await entities.GroupChat.leave(group.id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-groups'] });

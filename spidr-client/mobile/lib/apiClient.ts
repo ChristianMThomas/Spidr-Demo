@@ -139,7 +139,13 @@ export const entities = {
   },
   Message:          entity('messages'),
   DirectMessage:    entity('direct-messages'),
-  GroupChat:        entity('group-chats'),
+  GroupChat: {
+    ...entity('group-chats'),
+    // Self-removal (see server groupChats.js POST /:id/leave). Non-owner
+    // members can't use update() to drop themselves — the collaborative-field
+    // allowlist rejects `members`/`member_ids` writes with 403.
+    leave: (id: string) => api.post(`/group-chats/${id}/leave`, {}),
+  },
   GroupChatMessage: entity('group-chat-messages'),
   VoiceSession:     entity('voice-sessions'),
   Feed:             entity('feeds'),

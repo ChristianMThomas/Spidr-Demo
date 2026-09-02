@@ -147,7 +147,13 @@ export const entities = {
   },
   Message:          entity('messages'),
   DirectMessage:    entity('direct-messages'),
-  GroupChat:        entity('group-chats'),
+  GroupChat: {
+    ...entity('group-chats'),
+    // Self-removal — server pulls the caller off members/member_ids atomically
+    // and deletes the group if empty. Non-owner members can't leave via
+    // update() because the collaborative-field allowlist blocks it.
+    leave: (id) => api.post(`/group-chats/${id}/leave`, {}),
+  },
   GroupChatMessage: entity('group-chat-messages'),
   VoiceSession:     entity('voice-sessions'),
   Feed:             entity('feeds'),

@@ -32,6 +32,7 @@ import { useAuth } from '../../lib/authContext';
 import { Avatar } from '../../components/ui/Avatar';
 import { dmConversationId, isSystemFriend } from '../../lib/utils';
 import { useUnread } from '../../lib/unreadContext';
+import { buildUsernameStyleRN } from '../../lib/usernameStyle';
 
 type TabKey = 'all' | 'online' | 'groups' | 'pending' | 'blocked' | 'signals' | 'add';
 
@@ -197,6 +198,7 @@ function FriendCard({
   bio,
   avatar,
   banner,
+  profile,
   unread,
   onMessage,
   onAvatarPress,
@@ -207,11 +209,13 @@ function FriendCard({
   bio?: string;
   avatar?: string;
   banner?: string;
+  profile?: any;
   unread?: number;
   onMessage: () => void;
   onAvatarPress?: () => void;
 }) {
   const statusColor = STATUS_COLORS[status || 'offline'] || STATUS_COLORS.offline;
+  const { style: nameStyle } = buildUsernameStyleRN(profile, { fallbackColor: '#fff' });
   return (
     <TouchableOpacity
       onPress={onMessage}
@@ -235,17 +239,6 @@ function FriendCard({
           resizeMode="cover"
         />
       ) : null}
-      {/* Left-side dark gradient overlay so the text stays readable */}
-      <View
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          bottom: 0,
-          width: '70%',
-          backgroundColor: banner ? 'rgba(0,0,0,0.65)' : 'transparent',
-        }}
-      />
 
       <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 12 }}>
         <TouchableOpacity
@@ -270,7 +263,7 @@ function FriendCard({
           />
         </TouchableOpacity>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '800' }} numberOfLines={1}>
+          <Text style={[{ fontSize: 16, fontWeight: '800' }, nameStyle]} numberOfLines={1}>
             {name}
           </Text>
           {discriminator ? (
@@ -691,6 +684,7 @@ export default function Friends() {
                     bio={p?.bio}
                     avatar={p?.avatar_url || f.friend_avatar}
                     banner={p?.banner_url}
+                    profile={p}
                     unread={unreadCounts[dmConversationId(user?.id, f.friend_id)]}
                     onMessage={() =>
                       openDM(f.friend_id, p?.display_name || f.friend_name || 'Friend')

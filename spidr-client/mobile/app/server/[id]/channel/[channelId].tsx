@@ -72,6 +72,7 @@ function useRenderRows(
         showHeader,
         peerName,
         peerAvatar,
+        peerProfile: authorProfile,
         myName: meName,
         myAvatar: meAvatar,
       });
@@ -318,8 +319,10 @@ export default function Channel() {
                   showHeader={item.showHeader}
                   peerName={item.peerName}
                   peerAvatar={item.peerAvatar}
+                  peerProfile={item.peerProfile}
                   myName={item.myName}
                   myAvatar={item.myAvatar}
+                  myProfile={myProfile}
                   onAvatarPress={(uid) => router.push(`/user/${uid}`)}
                 />
               );
