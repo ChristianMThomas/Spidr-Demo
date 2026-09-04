@@ -140,17 +140,20 @@ s.post('save', async function (doc) {
 
     // ── Push to every member but the sender ──────────────────────────────
     // Shaped like an iMessage group banner: sender on top, group name in the
-    // middle, message at the bottom. The icon is the group's own pfp when it
-    // has one and the sender's when it doesn't, so the banner never falls
-    // back to the Spidr logo. `avatar_url` is the current pfp field;
-    // `icon_url` is the legacy one still set on older groups.
+    // middle, message at the bottom. The icon is the group's own pfp or
+    // NOTHING — never the sender's. iOS paints it into the leading icon slot,
+    // where a person's face is the strongest "this is a DM" cue on the
+    // banner, so an iconless group used to impersonate a DM. Leaving it
+    // undefined lets push.js substitute the Spidr logo instead.
+    // `avatar_url` is the current pfp field; `icon_url` is the legacy one
+    // still set on older groups.
     const groupIcon = group.avatar_url || group.icon_url || '';
     const groupName = group.name || 'Group chat';
     const payload = {
       title: senderName,
       subtitle: groupName,
       body: snippet,
-      image: groupIcon || senderAvatar || undefined,
+      image: groupIcon || undefined,
       data: {
         type: 'group_message',
         groupId: String(doc.group_id),

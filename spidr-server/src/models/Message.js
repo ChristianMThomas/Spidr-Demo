@@ -74,6 +74,7 @@ s.post('save', async function (doc) {
     const { scanMentions } = require('../utils/mentionScanner');
     const feedEvents = require('../utils/feedEvents');
     const notifications = require('../utils/notifications');
+    const realtime = require('../utils/realtime');
     const Server = require('./Server');
     const UserProfile = require('./UserProfile');
 
@@ -137,14 +138,19 @@ s.post('save', async function (doc) {
     // the server's, the title is who posted, the subtitle is where. iOS builds
     // that three-line layout from the INSendMessageIntent the
     // notification-service extension assembles out of these data keys —
-    // `image` is the group icon, `senderAvatar` the person inside it. Icon is
-    // the server's own when it has one, the poster's pfp when it doesn't, so
-    // a banner never falls back to the Spidr logo.
+    // `image` is the group icon, `senderAvatar` the person inside it.
+    //
+    // `image` is the server's icon or NOTHING. It deliberately does not fall
+    // back to the poster's pfp: iOS paints this into the leading icon slot,
+    // and a person's face there is the single strongest "this is a DM" cue on
+    // the banner — an iconless server ended up impersonating a DM. Leaving it
+    // undefined lets push.js substitute the Spidr logo, which is wrong-looking
+    // but never misleading.
     const payload = {
       title: senderName,
       subtitle: channelName ? `${server.name} · #${channelName}` : server.name,
       body: snippet,
-      image: server.icon_url || senderAvatar || undefined,
+      image: server.icon_url || undefined,
       data: {
         type: 'server_message',
         serverId: doc.server_id,
@@ -161,6 +167,20 @@ s.post('save', async function (doc) {
     for (const uid of memberIds) {
       if (String(uid) === String(senderId)) continue;
       const isMention = mentionedIds.has(String(uid));
+
+      // In-app twin of the push, for clients that are open and foregrounded.
+      // It goes to the member's own `user:<id>` room rather than the channel
+      // room `message:new` uses — a client is only in a channel room while
+      // that channel is on screen, so `message:new` can't drive a banner for
+      // the server you AREN'T looking at. Carries the resolved server name,
+      // icon and channel so the banner needs no lookup of its own.
+      realtime.emitToUser(uid, 'server:signal', {
+        ...payload.data,
+        type: isMention ? 'server_mention' : 'server_message',
+        serverIcon: server.icon_url || '',
+        body: snippet,
+      });
+
       notifications.dispatch(
         isMention ? 'server_mention' : 'server_message',
         uid,

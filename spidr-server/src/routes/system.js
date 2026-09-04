@@ -18,6 +18,14 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1994',
+    title: 'Patch 1.9.94 — Server notifications stop wearing the wrong face',
+    date: '2026-09-04',
+    type: 'FIX',
+    description:
+      'A server or group chat with no icon of its own used to borrow whoever happened to be posting as its notification picture. Your phone paints that picture into the leading icon slot on the banner, so a message in a server looked exactly like a direct message from that person — same face, same shape, nothing to tell them apart at a glance on a locked screen. Those banners now fall back to the Spidr logo when there is no icon to use, so a server always looks like a server and only a real direct message shows you a face. Servers and group chats that have set their own icon are unaffected and keep showing it exactly as before.',
+  },
+  {
     id: 'p1993',
     title: 'Patch 1.9.93 — The web welcome banner matches mobile',
     date: '2026-09-02',
