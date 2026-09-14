@@ -33,6 +33,9 @@ import { useSpeakingDetector } from '@/hooks/useSpeakingDetector';
 
 export default function VoiceChannel({
   server, channel, currentUser, onLeave, onMinimize, deckHidden = false,
+  // Set by the shell when the session was started as a video call, so the
+  // camera comes up with the join instead of waiting for a manual toggle.
+  startWithVideo = false,
   // ── Theater Mode props ───────────────────────────────────────────────
   // Controlled by the parent shell so the TheaterStage can be mounted at
   // a higher layer than the voice tile grid (it needs the channel scope
@@ -132,6 +135,7 @@ export default function VoiceChannel({
     serverId:  server.id,
     currentUser,
     enabled:   true,
+    startWithVideo,
   });
 
   // Attach local video stream to <video> element
@@ -346,7 +350,7 @@ export default function VoiceChannel({
         user_avatar: currentUser.avatar_url || '',
         is_muted: false,
         is_deafened: false,
-        is_video_on: false,
+        is_video_on: startWithVideo,
         is_screen_sharing: false,
       }))
       .catch(() => {});

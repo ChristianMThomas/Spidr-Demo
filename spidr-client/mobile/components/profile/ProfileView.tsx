@@ -635,6 +635,7 @@ function ProfileActions({
             bordered
             onPress={() => setShowServerPicker(true)}
           />
+          <NicknameButton friendship={friendship} invalidate={invalidate} />
           <CloseFriendStar friendship={friendship} invalidate={invalidate} />
         </View>
       ) : (
@@ -740,6 +741,116 @@ function ProfileActions({
         currentUser={currentUser}
       />
     </View>
+  );
+}
+
+// Private nickname for this friend — mirrors the web FriendsPanel's rename
+// action. Writes Friend.nickname, which the friends list reads in preference
+// to their display_name. Only you ever see it.
+function NicknameButton({ friendship, invalidate }: { friendship: any; invalidate: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState<string>(friendship?.nickname || '');
+  const [busy, setBusy] = useState(false);
+  const has = !!friendship?.nickname;
+
+  useEffect(() => { setValue(friendship?.nickname || ''); }, [friendship?.nickname]);
+
+  const save = async (next: string) => {
+    if (!friendship?.id) return;
+    setBusy(true);
+    try {
+      await entities.Friend.update(friendship.id, { nickname: next.trim() });
+      invalidate();
+      setOpen(false);
+    } catch {
+      Alert.alert('Could not save nickname', 'Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <TouchableOpacity
+        onPress={() => setOpen(true)}
+        activeOpacity={0.85}
+        style={{
+          width: 44,
+          paddingVertical: 12,
+          borderRadius: 12,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: has ? 'rgba(255,51,51,0.15)' : 'rgba(0,0,0,0.8)',
+          borderWidth: 1,
+          borderColor: has ? 'rgba(255,51,51,0.5)' : 'rgba(255,255,255,0.1)',
+        }}
+      >
+        <Pencil size={14} color={has ? '#FF3333' : '#a1a1aa'} />
+      </TouchableOpacity>
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable
+          onPress={() => setOpen(false)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: 400, gap: 16, padding: 22, borderRadius: 20,
+              backgroundColor: '#0a0a0a', borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)',
+            }}
+          >
+            <View style={{ gap: 4 }}>
+              <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>Set a nickname</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, lineHeight: 18 }}>
+                Only you can see this. Leave it blank to go back to their own name.
+              </Text>
+            </View>
+
+            <TextInput
+              value={value}
+              onChangeText={setValue}
+              placeholder="Enter nickname…"
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              maxLength={32}
+              autoFocus
+              style={{
+                height: 46, paddingHorizontal: 14, borderRadius: 12,
+                backgroundColor: 'rgba(0,0,0,0.6)', borderWidth: 1,
+                borderColor: 'rgba(255,255,255,0.10)', color: '#fff', fontSize: 14,
+              }}
+            />
+
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              {has && (
+                <TouchableOpacity
+                  onPress={() => save('')}
+                  disabled={busy}
+                  style={{
+                    flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(0,0,0,0.8)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)',
+                  }}
+                >
+                  <Text style={{ color: '#a1a1aa', fontSize: 14, fontWeight: '600' }}>Clear</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={() => save(value)}
+                disabled={busy}
+                style={{
+                  flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                  backgroundColor: '#dc2626', opacity: busy ? 0.5 : 1,
+                }}
+              >
+                {busy
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 

@@ -1,11 +1,16 @@
 import React from 'react';
 import {
+  Dimensions,
   View,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
+  useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Line, Ellipse } from 'react-native-svg';
+
+// Rough allowance for an on-screen keyboard so the card stays scrollable
+// past it — not exact, just enough slack that nothing is stuck underneath.
+const KEYBOARD_CLEARANCE = 260;
 
 // Subtle spider-web backdrop matching the web LoginPage.
 function WebLines() {
@@ -52,66 +57,112 @@ function WebLines() {
   );
 }
 
-export default function AuthShell({ children }: { children: React.ReactNode }) {
+// `motif` gates the spider-web backdrop to the Login screen only — the other
+// three auth screens get the ambient glow alone, so the web reads as a
+// welcome rather than as decoration on every step.
+//
+// Keyboard handling, take 3 — both earlier attempts routed through some
+// flavor of RN's built-in keyboard-avoidance (KeyboardAvoidingView, then
+// ScrollView's automaticallyAdjustKeyboardInsets) and both still dropped
+// focus immediately after granting it. The "Sending onAnimatedValueUpdate
+// with no listeners registered" warning nails the reason for at least
+// KeyboardAvoidingView: it drives its padding with an internal Animated.Value
+// whose listener gets orphaned under React Native's New Architecture (the
+// default since Expo SDK 52+, so SDK 54 here), and the same instability
+// shows up as the container padding out from under the just-focused input.
+//
+// Fix: don't use ANY built-in keyboard-avoidance component at all. Plain
+// ScrollView, fixed `minHeight` (not `flexGrow`, so the card's layout never
+// depends on live keyboard state), generous bottom padding so the card isn't
+// flush with the screen edge. The keyboard can cover the lower part of a
+// tall card — that's a scroll-to-see tradeoff, not a focus bug — and
+// `keyboardShouldPersistTaps="handled"` still lets the user scroll manually
+// with the keyboard up. Revisit real keyboard-follow UX once typing itself
+// is confirmed solid.
+export default function AuthShell({
+  children,
+  motif = false,
+}: { children: React.ReactNode; motif?: boolean }) {
+  const insets = useSafeAreaInsets();
+  // A real snapshot, not `useWindowDimensions()` — that hook re-subscribes to
+  // live dimension-change events, which on some RN/Fabric builds can fire
+  // while a keyboard is up, defeating the whole point of a fixed minHeight.
+  const [height] = React.useState(() => Dimensions.get('window').height);
+
+  const decorations = (
+    <>
+      {motif && <WebLines />}
+      {[
+        { size: 620, opacity: 0.05 },
+        { size: 440, opacity: 0.05 },
+        { size: 280, opacity: 0.05 },
+      ].map(({ size, opacity }) => (
+        <View
+          key={size}
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: '38%',
+            left: '50%',
+            width: size,
+            height: size,
+            marginLeft: -size / 2,
+            marginTop: -size / 2,
+            borderRadius: 9999,
+            backgroundColor: '#dc2626',
+            opacity,
+          }}
+        />
+      ))}
+    </>
+  );
+
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={{ flex: 1, backgroundColor: '#080808' }}
-    >
-      <WebLines />
-
-      {/* Ambient red blobs */}
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          top: '15%',
-          left: '-20%',
-          width: 360,
-          height: 360,
-          borderRadius: 9999,
-          backgroundColor: '#dc2626',
-          opacity: 0.07,
-        }}
-      />
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          bottom: '10%',
-          right: '-15%',
-          width: 300,
-          height: 300,
-          borderRadius: 9999,
-          backgroundColor: '#7f1d1d',
-          opacity: 0.06,
-        }}
-      />
-
+    <View style={{ flex: 1, backgroundColor: '#000000' }}>
+      {decorations}
       <ScrollView
-        contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 20 }}
+        contentContainerStyle={{
+          minHeight: height - insets.top - insets.bottom,
+          justifyContent: 'center',
+          padding: 20,
+          paddingTop: 20 + insets.top,
+          // Extra room below the card so it's still scrollable up past a
+          // keyboard covering the lower fields — no auto-follow, but nothing
+          // is unreachable either.
+          paddingBottom: 40 + insets.bottom + KEYBOARD_CLEARANCE,
+        }}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+        showsVerticalScrollIndicator={false}
       >
         {children}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
 export function GlassCard({ children }: { children: React.ReactNode }) {
+  const { width } = useWindowDimensions();
+  // Responsive: phone (default) fills its container; tablet caps at 560 and
+  // pads more so it doesn't stretch edge-to-edge on iPads.
+  const isTablet = width >= 700;
+  const isLarge = width >= 900;
+  const maxWidth = isLarge ? 640 : isTablet ? 560 : undefined;
+  const padding = isLarge ? 40 : isTablet ? 34 : 30;
   return (
     <View
       style={{
+        alignSelf: 'center',
+        width: '100%',
+        maxWidth,
         backgroundColor: 'rgba(255,255,255,0.03)',
-        borderRadius: 28,
+        borderRadius: 24,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.10)',
-        padding: 26,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.9,
-        shadowRadius: 60,
-        elevation: 12,
+        padding,
+        // Section rhythm — matches the web card's gap-6. No drop shadow:
+        // depth comes from the hairlines + inputs sitting darker than the glass.
+        gap: isTablet ? 24 : 22,
       }}
     >
       {/* Top accent line */}

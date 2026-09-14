@@ -19,6 +19,10 @@ const server = http.createServer(app);
 // permissive-trust-proxy guard.
 app.set('trust proxy', 1);
 
+// Single source of truth for "are we live". Several allowances below exist only
+// for local development and MUST NOT apply in production.
+const IS_PROD = process.env.NODE_ENV === 'production';
+
 // ── Security middleware ──────────────────────────────────────────────────────
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -27,7 +31,9 @@ app.use(helmet({
   // API-only CSP: this service returns JSON and serves images from /uploads
   // and /public. Nothing renders HTML, so lock everything else down as
   // defense-in-depth (clickjacking, injected-form actions, base-tag hijack).
-  // The web client sets its own CSP via meta tags for its own document.
+  // The web client's own document CSP is served as an HTTP header by
+  // spidr-client/public/.htaccess (not a meta tag - Electron loads the same
+  // index.html over file://, where 'self' is unreliable).
   contentSecurityPolicy: {
     useDefaults: false,
     directives: {
@@ -44,14 +50,41 @@ app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   next();
 });
-app.use(morgan('dev'));
+// The socket layer accepts a ?token= query fallback, and an unmatched
+// /socket.io/ polling request still reaches Express - so an unredacted access
+// log would write JWTs to stdout and Railway's log store.
+morgan.token('safeurl', (req) => String(req.originalUrl || req.url || '')
+  .replace(/([?&](?:token|access_token|code|state)=)[^&]*/gi, '$1[redacted]'));
+app.use(morgan(':method :safeurl :status :response-time ms - :res[content-length]'));
+
+// ── Production error-message hygiene ────────────────────────────────────────
+// ~100 handlers do `res.status(500).json({ error: err.message })`, which leaks
+// raw Mongoose/driver text (cast errors, validation paths, field names) to any
+// caller. Rather than rewrite every call site, sanitise 5xx bodies here. 4xx
+// messages are deliberate and clients branch on some of them
+// ('already_exists', 'invalid_status'), so those pass through untouched.
+if (IS_PROD) {
+  app.use((req, res, next) => {
+    const json = res.json.bind(res);
+    res.json = (body) => {
+      if (res.statusCode >= 500 && body && typeof body === 'object' && 'error' in body) {
+        console.error(`[500] ${req.method} ${req.path} - ${body.error}`);
+        return json({ error: 'Internal server error' });
+      }
+      return json(body);
+    };
+    next();
+  });
+}
 app.use(cors({
   origin: (origin, cb) => {
     // Allow requests with no origin (Electron .exe, mobile apps, curl)
     if (!origin) return cb(null, true);
 
-    // In development: allow any localhost port
-    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+    // Development only. Ungated, this let any page served from a victim's own
+    // localhost make credentialed (credentials: true) requests against the
+    // live production API.
+    if (!IS_PROD && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))) {
       return cb(null, true);
     }
 
@@ -191,11 +224,26 @@ app.use('/uploads',            require('express').static(path.join(__dirname, '.
 // reach anything behind auth or bundled into the app).
 app.use('/public',             require('express').static(path.join(__dirname, '../public')));
 
-// WebRTC ICE config (STUN+TURN) for voice channels
-const { getTurnConfig } = require('./socket/voiceSignaling');
-app.get('/voice/ice', getTurnConfig);
+// NOTE: GET /voice/ice is served by the '/voice' router mounted above.
+// A second app.get('/voice/ice', getTurnConfig) used to sit here and was
+// unreachable - app.use('/voice') already matched the path - so its TURN
+// fallback never ran and every client got a STUN-only list. Folded into
+// routes/voice.js; do not re-register it here.
 
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+
+// ── Global error handler ────────────────────────────────────────────────────
+// Catches anything thrown outside a route's own try/catch (and the CORS
+// rejection above). Without this, Express's default handler renders a stack
+// trace into the response body whenever NODE_ENV isn't 'production'.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status = err.status || err.statusCode || (/Not allowed by CORS/.test(err.message || '') ? 403 : 500);
+  if (status >= 500) console.error(`[error] ${req.method} ${req.path} -`, err.message);
+  res.status(status).json({
+    error: status >= 500 && IS_PROD ? 'Internal server error' : (err.message || 'Error'),
+  });
+});
 
 // ── Socket.io — with optional Redis adapter ───────────────────────────────────
 function startSocketIO(withRedis) {
@@ -204,7 +252,10 @@ function startSocketIO(withRedis) {
       // Mirror Express CORS: allow no-origin (packaged Electron .exe), localhost, file://, configured origin
       origin: (origin, cb) => {
         if (!origin) return cb(null, true);
-        if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) return cb(null, true);
+        // Dev only - see the Express CORS note above.
+        if (!IS_PROD && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))) {
+          return cb(null, true);
+        }
         if (origin.startsWith('file://') || origin.startsWith('app://')) return cb(null, true);
         const allowed = process.env.CLIENT_ORIGIN || '';
         if (allowed && origin === allowed) return cb(null, true);

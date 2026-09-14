@@ -1,29 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-} from 'react-native';
+import { View, Text, TextInput, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, RefreshCw, ShieldCheck } from 'lucide-react-native';
+import { ArrowLeft, RefreshCw, Mail, CircleCheck } from 'lucide-react-native';
 import { useAuth } from '../../lib/authContext';
 import AuthShell, { GlassCard } from '../../components/auth/AuthShell';
+import { Head, Btn, Notice, C, T, maskEmail } from '../../components/auth/authKit';
 
 export default function Verify() {
   const { verifyOTP, resendOTP, cancelOTP, pendingEmail, otpMode } = useAuth();
   const router = useRouter();
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
+  const [focusIdx, setFocusIdx] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resent, setResent] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const refs = useRef<Array<TextInput | null>>([]);
 
-  useEffect(() => {
-    refs.current[0]?.focus();
-  }, []);
+  useEffect(() => { refs.current[0]?.focus(); }, []);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -70,9 +64,7 @@ export default function Verify() {
   };
 
   const handleKey = (i: number, key: string) => {
-    if (key === 'Backspace' && !digits[i] && i > 0) {
-      refs.current[i - 1]?.focus();
-    }
+    if (key === 'Backspace' && !digits[i] && i > 0) refs.current[i - 1]?.focus();
   };
 
   const handleResend = async () => {
@@ -88,168 +80,101 @@ export default function Verify() {
     }
   };
 
-  const masked = pendingEmail
-    ? pendingEmail.replace(/(.{2})(.*)(@.*)/, (_, a, b, c) => a + '*'.repeat(Math.min(b.length, 16)) + c)
-    : 'your email';
+  const complete = digits.join('').length === 6;
 
   return (
     <AuthShell>
       <GlassCard>
-        {/* Header */}
-        <View style={{ alignItems: 'center', marginBottom: 22 }}>
+        <Head
+          eyebrow="Almost in"
+          title={otpMode === 'verify' ? 'Check your email' : 'Two-factor required'}
+        />
+
+        <View style={{ alignItems: 'center', gap: 10, marginTop: -6 }}>
+          <Text style={[T.body, { textAlign: 'center' }]}>We sent a 6-digit code to</Text>
           <View
             style={{
-              width: 64,
-              height: 64,
-              borderRadius: 18,
-              backgroundColor: 'rgba(239,68,68,0.1)',
-              borderWidth: 1,
-              borderColor: 'rgba(239,68,68,0.2)',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: 14,
+              flexDirection: 'row', alignItems: 'center', gap: 6,
+              paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999,
+              backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.border,
             }}
           >
-            <ShieldCheck size={28} color="#f87171" />
+            <Mail size={13} strokeWidth={1.75} color="rgba(255,255,255,0.40)" />
+            <Text style={{ fontSize: 12, color: C.white, fontWeight: '500' }}>{maskEmail(pendingEmail)}</Text>
           </View>
-          <Text
-            style={{
-              color: '#fff',
-              fontSize: 22,
-              fontWeight: '900',
-              letterSpacing: -0.5,
-            }}
-          >
-            {otpMode === 'verify' ? 'Verify Account' : '2FA Required'}
-          </Text>
-          <Text
-            style={{
-              color: 'rgba(255,255,255,0.3)',
-              fontSize: 13,
-              marginTop: 6,
-              textAlign: 'center',
-            }}
-          >
-            Signal sent to{' '}
-            <Text style={{ color: '#f87171', fontFamily: 'monospace' }}>{masked}</Text>
-          </Text>
         </View>
 
-        {/* 6 digit boxes */}
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            marginBottom: 18,
-          }}
-        >
-          {digits.map((d, i) => (
-            <TextInput
-              key={i}
-              ref={(el) => {
-                refs.current[i] = el;
-              }}
-              value={d}
-              onChangeText={(v) => handleChange(i, v)}
-              onKeyPress={({ nativeEvent }) => handleKey(i, nativeEvent.key)}
-              keyboardType="number-pad"
-              maxLength={i === 0 ? 6 : 1} // allow paste into first box
-              style={{
-                width: 44,
-                height: 56,
-                backgroundColor: 'rgba(0,0,0,0.6)',
-                borderWidth: 1,
-                borderColor: d ? '#ef4444' : 'rgba(255,255,255,0.10)',
-                borderRadius: 14,
-                color: '#fff',
-                fontSize: 22,
-                fontWeight: '900',
-                textAlign: 'center',
-              }}
-            />
-          ))}
-        </View>
-
-        {error && (
-          <View
-            style={{
-              backgroundColor: 'rgba(239,68,68,0.1)',
-              borderWidth: 1,
-              borderColor: 'rgba(239,68,68,0.3)',
-              borderRadius: 10,
-              padding: 10,
-              marginBottom: 14,
-            }}
-          >
-            <Text style={{ color: '#f87171', fontSize: 12, textAlign: 'center' }}>{error}</Text>
+        <View style={{ gap: 16 }}>
+          <View style={{ gap: 6 }}>
+            <Text style={T.label}>Verification code</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+              {digits.map((d, i) => (
+                <TextInput
+                  key={i}
+                  ref={(el) => { refs.current[i] = el; }}
+                  // @ts-ignore — nativewind's cssInterop escape hatch; see AuthShell.tsx
+                  cssInterop={false}
+                  value={d}
+                  onChangeText={(v) => handleChange(i, v)}
+                  onKeyPress={({ nativeEvent }) => handleKey(i, nativeEvent.key)}
+                  onFocus={() => setFocusIdx(i)}
+                  keyboardType="number-pad"
+                  maxLength={i === 0 ? 6 : 1} // allow paste into first box
+                  style={{
+                    flex: 1, height: 58, borderRadius: 12,
+                    backgroundColor: C.inputBg, borderWidth: 1,
+                    borderColor: focusIdx === i ? 'rgba(239,68,68,0.70)'
+                      : d ? 'rgba(239,68,68,0.60)' : C.border,
+                    color: C.white, fontSize: 24, fontWeight: '700', textAlign: 'center',
+                  }}
+                />
+              ))}
+            </View>
           </View>
-        )}
 
-        {/* Submit */}
-        <TouchableOpacity
-          onPress={() => {
-            const c = digits.join('');
-            if (c.length < 6) {
-              setError('Enter all 6 digits');
-              return;
-            }
-            submitCode(c);
-          }}
-          disabled={busy || digits.join('').length < 6}
-          style={{
-            backgroundColor: '#dc2626',
-            borderRadius: 14,
-            paddingVertical: 14,
-            alignItems: 'center',
-            shadowColor: '#ef4444',
-            shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: 0.3,
-            shadowRadius: 20,
-            elevation: 6,
-            opacity: busy || digits.join('').length < 6 ? 0.4 : 1,
-          }}
-        >
-          {busy ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13, letterSpacing: 2.5 }}>
-              ESTABLISH CONNECTION
-            </Text>
-          )}
-        </TouchableOpacity>
+          {error && <Notice title={error} />}
 
-        {/* Footer row */}
-        <View
-          style={{
-            marginTop: 18,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <TouchableOpacity
+          <Btn
+            label="Verify"
+            busy={busy}
+            disabled={!complete}
             onPress={() => {
-              cancelOTP();
-              router.replace('/(auth)/login');
+              if (!complete) { setError('Enter all 6 digits'); return; }
+              submitCode(digits.join(''));
             }}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+          />
+        </View>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <TouchableOpacity
+            onPress={() => { cancelOTP(); router.replace('/(auth)/login'); }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <ArrowLeft size={12} color="rgba(255,255,255,0.4)" />
-            <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginLeft: 4 }}>Back</Text>
+            <ArrowLeft size={14} strokeWidth={1.75} color={C.ink55} />
+            <Text style={T.link}>Wrong email?</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={handleResend}
-            disabled={countdown > 0}
-            style={{ flexDirection: 'row', alignItems: 'center', opacity: countdown > 0 ? 0.3 : 1 }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <RefreshCw size={11} color="rgba(255,255,255,0.5)" />
-            <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginLeft: 4 }}>
-              {resent ? '✓ Sent!' : countdown > 0 ? `Resend in ${countdown}s` : 'Resend signal'}
-            </Text>
-          </TouchableOpacity>
+          {resent ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <CircleCheck size={13} strokeWidth={1.75} color={C.red} />
+              <Text style={{ fontSize: 13, color: C.red }}>Sent</Text>
+            </View>
+          ) : countdown > 0 ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <RefreshCw size={13} strokeWidth={1.75} color={C.ink35} />
+              <Text style={{ fontSize: 13, color: C.ink35 }}>Resend in {countdown}s</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              onPress={handleResend}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <RefreshCw size={13} strokeWidth={1.75} color={C.ink55} />
+              <Text style={T.link}>Resend code</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </GlassCard>
     </AuthShell>

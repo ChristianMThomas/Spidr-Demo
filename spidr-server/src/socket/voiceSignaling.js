@@ -1,6 +1,14 @@
 /**
  * voiceSignaling.js — WebRTC signaling over Socket.io.
  *
+ * !! DEAD CODE — NOTHING IN THIS FILE RUNS. Kept only as architecture notes.
+ * attachVoiceHandlers() is never called (live voice:join / voice:signal /
+ * voice:peer-joined / voice:peer-left handlers are in socket/handlers.js
+ * around :445-497), and getTurnConfig() was registered in index.js behind
+ * the '/voice' router mount, so Express never reached it — its openrelay
+ * TURN fallback now lives in routes/voice.js. Do not wire either back up
+ * without deleting the live copy first.
+ *
  * ═══════════════════════════════════════════════════════════════════════════
  *  VOICE ARCHITECTURE OVERVIEW
  * ═══════════════════════════════════════════════════════════════════════════

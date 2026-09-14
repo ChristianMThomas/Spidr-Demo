@@ -18,6 +18,14 @@ const router = express.Router();
  */
 const NEWS = [
   {
+    id: 'p1995',
+    title: 'Patch 1.9.95 — Stronger passwords everywhere',
+    date: '2026-09-13',
+    type: 'UPDATE',
+    description:
+      'Every new password on Spidr now has to pass five checks: at least 8 characters, an uppercase and a lowercase letter, a number and a letter, a special character, and no spaces. The rules apply when you create an account, reset a forgotten password, or change your password in settings — on web, desktop, iOS, and Android alike. Sign-up and reset forms show a live checklist that ticks each rule off as you type, so you know exactly what is missing before you hit the button. The auth service enforces the same rules on its end, so a weak password is refused no matter where the request comes from. Existing passwords keep working — you only need to meet the new rules the next time you set one. Also in this release: repo hardening so stray environment files cannot be committed by accident.',
+  },
+  {
     id: 'p1994',
     title: 'Patch 1.9.94 — Server notifications stop wearing the wrong face',
     date: '2026-09-04',

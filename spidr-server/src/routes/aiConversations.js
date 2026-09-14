@@ -1,3 +1,4 @@
 const crudRouter = require('../utils/crudRouter');
 const AIConversation = require('../models/AIConversation');
-module.exports = crudRouter(AIConversation, { ownerField: 'user_id' });
+// privateRead: AI conversations are readable only by their own user.
+module.exports = crudRouter(AIConversation, { ownerField: 'user_id', privateRead: true });

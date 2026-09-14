@@ -81,9 +81,20 @@ export default function NeuralConfig({ currentUser, onClose }) {
     }
   };
 
-  const handleSpotifyConnect = () => {
-    window.open(`${BASE_URL}/spotify/auth/start?userId=${currentUser?.id}`, '_blank');
-    // TanStack Query refetches on window focus, which picks up spotify_connected=true automatically
+  // The browser hop carries no Authorization header, so identity used to ride
+  // along as a bare ?userId= — which meant a link minted for someone else's id
+  // would attach THEIR Spotify tokens to whoever's account was in the URL.
+  // We now exchange the session for a short-lived signed link token first.
+  const handleSpotifyConnect = async () => {
+    try {
+      const res = await authFetch('/spotify/auth/link-token');
+      const { token } = await res.json();
+      if (!token) throw new Error('no link token');
+      window.open(`${BASE_URL}/spotify/auth/start?token=${encodeURIComponent(token)}`, '_blank');
+      // TanStack Query refetches on window focus, which picks up spotify_connected=true automatically
+    } catch {
+      toast.error('Could not start Spotify connect');
+    }
   };
 
   const handleSpotifyDisconnect = async () => {

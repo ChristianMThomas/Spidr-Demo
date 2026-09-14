@@ -144,6 +144,9 @@ Dynamic routes use `[param].tsx`. Layouts use `_layout.tsx`.
 | Symptom | Fix |
 |---|---|
 | `Could not connect to the server` on phone scan | Use `--tunnel`, or fix Windows Firewall to allow `node.exe` on Private networks |
+| `CommandError: ngrok tunnel took too long to connect` | `npx expo install @expo/ngrok` — Expo needs it as a **local** dep. `npm install -g ngrok` does nothing; Expo never uses the global binary |
+| Dev client: `Failed to connect to http://<id>.exp.direct/` | Use **`https://`**, not `http://`. iOS App Transport Security blocks cleartext to non-local hosts, and the manifest advertises the `http` URL. Same host over HTTPS connects fine |
+| Tunnel connects on the PC but the phone can't reach it | Guest/public WiFi often runs filtered DNS that won't resolve `*.exp.direct`. Turn WiFi off on the phone and retry over cellular — a tunnel works from any network, so cellular confirms whether the WiFi is the blocker |
 | `Unable to resolve module react-native-worklets` | `npx expo install react-native-worklets` then restart Metro with `--clear` |
 | `Plugin "react-native-reanimated/plugin" not found` | `babel.config.js` should use `react-native-worklets/plugin` (reanimated 4 split the plugin out) |
 | `Missing peer dependency: react-dom` | `npx expo install react-dom` |

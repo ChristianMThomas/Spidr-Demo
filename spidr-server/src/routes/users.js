@@ -11,18 +11,26 @@ router.get('/search', authMW, async (req, res) => {
     const { q } = req.query;
     if (!q || q.length < 2) return res.json([]);
 
+    // Username/full_name stay partial-match so friend search still feels right.
+    // Email is EXACT-match only: a partial email regex let anyone trawl the
+    // user table for real addresses two characters at a time.
     const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     const users = await User.find({
-      $or: [{ username: regex }, { email: regex }, { full_name: regex }],
+      $or: [
+        { username: regex },
+        { full_name: regex },
+        { email: String(q).toLowerCase().trim() },
+      ],
       _id: { $ne: req.user._id } // Exclude self
     })
     .select('-password -twoFactorSecret')
     .limit(20)
     .lean();
 
+    // No email in the response. You may FIND someone by their exact address,
+    // but the result never hands their address back to the searcher.
     res.json(users.map(u => ({
       id: u._id.toString(),
-      email: u.email,
       username: u.username,
       full_name: u.full_name,
       avatar_url: u.avatar_url,

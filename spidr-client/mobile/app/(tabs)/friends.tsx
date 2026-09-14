@@ -193,7 +193,6 @@ function SpidrWebHead({
 // ── Friend banner card ───────────────────────────────────────────────────────
 function FriendCard({
   name,
-  discriminator,
   status,
   bio,
   avatar,
@@ -204,7 +203,6 @@ function FriendCard({
   onAvatarPress,
 }: {
   name: string;
-  discriminator?: string;
   status?: string;
   bio?: string;
   avatar?: string;
@@ -263,14 +261,11 @@ function FriendCard({
           />
         </TouchableOpacity>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[{ fontSize: 16, fontWeight: '800' }, nameStyle]} numberOfLines={1}>
+          {/* One name only — the nickname if you set one, else their current
+              display name. The #tag lives on their profile. */}
+          <Text style={[{ fontSize: 17, fontWeight: '800' }, nameStyle]} numberOfLines={1}>
             {name}
           </Text>
-          {discriminator ? (
-            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }} numberOfLines={1}>
-              {name}#{discriminator}
-            </Text>
-          ) : null}
           {bio ? (
             <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }} numberOfLines={1}>
               {bio}
@@ -678,8 +673,7 @@ export default function Friends() {
                 return (
                   <FriendCard
                     key={f.id}
-                    name={p?.display_name || f.friend_name || 'Friend'}
-                    discriminator={p?.discriminator || f.friend_discriminator}
+                    name={f.nickname || p?.display_name || f.friend_name || 'Friend'}
                     status={p?.status}
                     bio={p?.bio}
                     avatar={p?.avatar_url || f.friend_avatar}

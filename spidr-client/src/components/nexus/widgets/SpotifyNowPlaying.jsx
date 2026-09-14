@@ -113,10 +113,23 @@ export default function SpotifyNowPlaying({ userId, isOwnProfile }) {
   // tokens to the profile, then redirects back to the app. The NowPlaying
   // poll picks up the connection on its next 10s tick.
   const isElectron = !!window.electronAPI?.isElectron;
-  const handleConnect = useCallback(() => {
+  // The browser hop carries no Authorization header, so identity used to ride
+  // along as a bare ?userId= — which meant a link minted for someone else's id
+  // would attach THEIR Spotify tokens to whoever's account was in the URL.
+  // We now exchange the session for a short-lived signed link token first.
+  const handleConnect = useCallback(async () => {
     if (!userId) return;
-    const url = `${BASE_URL}/spotify/auth/start?userId=${encodeURIComponent(userId)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    try {
+      const res = await authFetch('/spotify/auth/link-token');
+      const { token } = await res.json();
+      if (!token) throw new Error('no link token');
+      window.open(
+        `${BASE_URL}/spotify/auth/start?token=${encodeURIComponent(token)}`,
+        '_blank', 'noopener,noreferrer',
+      );
+    } catch {
+      toast.error('Could not start Spotify connect — try again');
+    }
   }, [userId]);
 
   // Handle the OAuth roundtrip return. The server-side callback redirects

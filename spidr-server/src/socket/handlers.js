@@ -21,6 +21,114 @@ const notifications = require('../utils/notifications');
 // Shared secret resolver — keeps HTTP, socket, and rate-limit verification in sync.
 const { getSecret } = require('../utils/jwtSecret');
 
+// ── Voice room addressing + authorization ─────────────────────────
+// All three call kinds share ONE mesh and one signaling contract, addressed by
+// an overloaded {serverId, channelId} pair:
+//   real voice channel -> { server.id, channel.id }
+//   group call         -> { 'group', groupId }
+//   DM call            -> { 'dm', conversationId }
+// Room naming below must stay byte-identical to what the clients build, or a
+// client joins a correctly-named room nobody else is in - it fails silently.
+const MOD_ROLES = ['admin', 'mod', 'moderator', 'owner'];
+
+function voiceRoomFor(data = {}) {
+  return data.serverId
+    ? `voice:server:${data.serverId}:${data.channelId}`
+    : `voice:group:${data.groupId}`;
+}
+
+// Membership gate for a voice room. Mirrors the checks join:server /
+// join:group / join:dm already perform - voice:join had none, so any
+// authenticated socket could join (and thus snoop on) any call.
+async function canJoinVoice(userId, data = {}) {
+  const { serverId, channelId, groupId } = data;
+  try {
+    // DM call - conversationId is [uid1, uid2].sort().join('-'), the same
+    // shape join:dm validates against.
+    if (serverId === 'dm') {
+      return typeof channelId === 'string' && channelId.split('-').includes(userId);
+    }
+    // Group call (overloaded literal) or the legacy groupId-only shape.
+    const gid = serverId === 'group' ? channelId : (!serverId ? groupId : null);
+    if (gid) {
+      const group = await GroupChat.findOne({
+        _id: gid,
+        $or: [
+          { owner_id: userId },
+          { member_ids: userId },
+          { members: userId },
+          { 'members.user_id': userId },
+        ],
+      }).lean();
+      return !!group;
+    }
+    if (!serverId) return false;
+    const server = await Server.findOne({
+      _id: serverId,
+      $or: [
+        { owner_id: userId },
+        { members: userId },
+        { 'members.user_id': userId },
+        { 'members.id': userId },
+      ],
+    }).lean();
+    return !!server;
+  } catch {
+    return false; // invalid ObjectId - treat as not a member
+  }
+}
+
+// A DM conversation id is [uid1, uid2].sort().join('-') - the same convention
+// join:dm validates. Mongo ObjectIds are hex, so splitting on '-' is safe.
+// Both parties must appear, which is what stops a caller from pushing a
+// notification (or a ring) at a stranger they share no conversation with.
+function isDmPair(conversationId, a, b) {
+  if (typeof conversationId !== 'string') return false;
+  const parts = conversationId.split('-');
+  return parts.includes(String(a)) && parts.includes(String(b));
+}
+
+// Message ownership. The model carries both user_id (standard) and author_id
+// (what the frontend sends); either matching makes the caller the author, the
+// same OR the REST route expresses as ownerField: ['user_id', 'author_id'].
+function isMessageAuthor(msg, userId) {
+  const uid = userId?.toString();
+  return msg.user_id?.toString() === uid || msg.author_id?.toString() === uid;
+}
+
+// Server owner, or a member holding a moderator-ish role.
+async function isServerMod(userId, serverId) {
+  const uid = userId?.toString();
+  if (!serverId) return false;
+  try {
+    const server = await Server.findById(serverId, 'owner_id members').lean();
+    if (!server) return false;
+    if (server.owner_id?.toString() === uid) return true;
+    return (server.members || []).some(m =>
+      m.user_id?.toString() === uid && MOD_ROLES.includes(String(m.role || '').toLowerCase()));
+  } catch {
+    return false;
+  }
+}
+
+// Can this user force-disconnect someone from this room? Server owner/mod for
+// a real voice channel, group owner for a group call. The handler's comment
+// used to claim a preceding REST kick enforced this; nothing did.
+async function canAdminDisconnect(userId, { serverId, channelId, groupId }) {
+  const uid = userId?.toString();
+  try {
+    if (serverId === 'dm') return false;
+    const gid = serverId === 'group' ? channelId : (!serverId ? groupId : null);
+    if (gid) {
+      const group = await GroupChat.findById(gid, 'owner_id').lean();
+      return !!group && group.owner_id?.toString() === uid;
+    }
+    return isServerMod(userId, serverId);
+  } catch {
+    return false;
+  }
+}
+
 module.exports = function registerHandlers(io) {
 
   // ── Spotify presence worker — single poller per Spotify-connected user,
@@ -163,6 +271,12 @@ module.exports = function registerHandlers(io) {
     const userId = socket.userId;
     const wasOffline = !onlineUsers.has(userId);
     addSocket(userId, socket.id);
+    // Per-user room. utils/realtime.js emitToUser() has always targeted
+    // `user:<id>` — and documented that this file joins it — but the join was
+    // never here, so every emitToUser call landed in an empty room (that is
+    // why spidrSystem's dm:notification never arrived). Joining on connect is
+    // what makes model hooks able to reach a user on all their devices.
+    socket.join(`user:${userId}`);
     if (wasOffline) {
       io.emit('user:online', { userId });
     }
@@ -329,6 +443,14 @@ module.exports = function registerHandlers(io) {
 
     socket.on('message:update', async ({ id, content, reactions }) => {
       try {
+        // Was a bare findByIdAndUpdate, so any authenticated socket could
+        // rewrite any message on the platform, bypassing the REST route's
+        // ownership check entirely.
+        const existing = await Message.findById(id).lean();
+        if (!existing) return;
+        if (!isMessageAuthor(existing, userId)) {
+          return socket.emit('error', { message: 'Not allowed to edit this message' });
+        }
         const update = {};
         if (content   !== undefined) update.content   = content;
         if (reactions !== undefined) update.reactions = reactions;
@@ -344,6 +466,15 @@ module.exports = function registerHandlers(io) {
 
     socket.on('message:delete', async ({ id }) => {
       try {
+        // Author, or a server owner/mod - the same rule DELETE /messages/:id
+        // enforces. Was a bare findByIdAndDelete with no check at all.
+        const existing = await Message.findById(id).lean();
+        if (!existing) return;
+        const allowed = isMessageAuthor(existing, userId)
+          || await isServerMod(userId, existing.server_id);
+        if (!allowed) {
+          return socket.emit('error', { message: 'Not allowed to delete this message' });
+        }
         const msg = await Message.findByIdAndDelete(id);
         if (msg) {
           io.to(`channel:${msg.server_id}:${msg.channel_id}`)
@@ -436,25 +567,34 @@ module.exports = function registerHandlers(io) {
     });
 
     // ── Voice signaling (plain P2P WebRTC mesh; server is a signal relay) ────
-    socket.on('voice:join', (data) => {
-      const room = data.serverId
-        ? `voice:server:${data.serverId}:${data.channelId}`
-        : `voice:group:${data.groupId}`;
+    socket.on('voice:join', async (data) => {
+      if (!(await canJoinVoice(userId, data))) {
+        return socket.emit('error', { message: 'Not allowed to join this voice room' });
+      }
+      const room = voiceRoomFor(data);
       socket.join(room);
       socket._voiceRoom = room;
       socket.to(room).emit('voice:peer-joined', { userId, socketId: socket.id });
     });
 
     socket.on('voice:leave', (data) => {
-      const room = data.serverId
-        ? `voice:server:${data.serverId}:${data.channelId}`
-        : `voice:group:${data.groupId}`;
+      const room = voiceRoomFor(data);
+      // Only announce a departure from a room this socket was actually in, so
+      // a leave for an arbitrary room can't spoof peer-left at its members.
+      if (!socket.rooms.has(room)) return;
       socket.leave(room);
+      if (socket._voiceRoom === room) socket._voiceRoom = null;
       socket.to(room).emit('voice:peer-left', { userId, socketId: socket.id });
     });
 
     socket.on('voice:signal', ({ to, signal }) => {
       if (!socketRateLimit(socket)) return;
+      // Relay only to a peer sharing this socket's own voice room. Previously
+      // `to` was an unchecked socket id, so any socket could push SDP/ICE at
+      // any other socket on the platform.
+      const room = socket._voiceRoom;
+      if (!room || !socket.rooms.has(room)) return;
+      if (!io.sockets.adapter.rooms.get(room)?.has(to)) return;
       io.to(to).emit('voice:signal', { from: socket.id, signal });
     });
 
@@ -463,9 +603,8 @@ module.exports = function registerHandlers(io) {
     // than overwriting the webcam (screen-share consumer fix).
     socket.on('voice:screen-meta', (data) => {
       if (!socketRateLimit(socket)) return;
-      const room = data.serverId
-        ? `voice:server:${data.serverId}:${data.channelId}`
-        : `voice:group:${data.groupId}`;
+      const room = voiceRoomFor(data);
+      if (!socket.rooms.has(room)) return; // can't narrate a room you're not in
       socket.to(room).emit('voice:screen-meta', {
         socketId: socket.id,
         streamId: data.streamId,
@@ -478,12 +617,15 @@ module.exports = function registerHandlers(io) {
     // so their client tears down its RTCPeerConnections and leaves. (Membership/
     // admin auth is enforced by the REST kick that precedes this; this is the
     // realtime nudge that actually removes them from the live call.)
-    socket.on('voice:admin-disconnect', ({ targetUserId, serverId, channelId, groupId }) => {
+    socket.on('voice:admin-disconnect', async ({ targetUserId, serverId, channelId, groupId }) => {
       if (!socketRateLimit(socket)) return;
       if (!targetUserId) return;
+      if (!(await canAdminDisconnect(userId, { serverId, channelId, groupId }))) {
+        return socket.emit('error', { message: 'Not allowed to disconnect users from this room' });
+      }
       const sockets = onlineUsers.get(targetUserId);
       if (!sockets) return;
-      const room = serverId ? `voice:server:${serverId}:${channelId}` : `voice:group:${groupId}`;
+      const room = voiceRoomFor({ serverId, channelId, groupId });
       sockets.forEach((sid) => {
         io.to(sid).emit('voice:force-disconnect', { serverId, channelId, groupId });
       });
@@ -509,6 +651,12 @@ module.exports = function registerHandlers(io) {
 
     // ── DM real-time relay (no DB write — just broadcasts to room) ───────────
     socket.on('dm:notify', async ({ conversationId, recipientId, content }) => {
+      // Was unlimited and unchecked: the push title/body below is
+      // attacker-controlled, so any user could spam arbitrary native
+      // notifications at any other user. Now capped like dm:send and
+      // restricted to a conversation both parties actually belong to.
+      if (!socketRateLimit(socket, 5)) return;
+      if (!recipientId || !isDmPair(conversationId, userId, recipientId)) return;
       // NOTIFICATION FIX: broadcasting dm:new to the whole conversation
       // room (which includes the sender) with an empty payload caused the
       // sender's OWN bell to fire on every message they sent (the
@@ -548,6 +696,11 @@ module.exports = function registerHandlers(io) {
     // the incoming-call banner can show. Pure signaling; the actual media is
     // handled by the existing voice session join once the callee accepts.
     socket.on('call:invite', ({ recipientId, conversationId, caller, kind }) => {
+      // call:invite is the DM lane only - group calls use presence as the ring
+      // and never emit this - so a conversation containing both parties is the
+      // right gate. Previously anyone could ring any user, repeatedly.
+      if (!socketRateLimit(socket, 5)) return;
+      if (!recipientId || !isDmPair(conversationId, userId, recipientId)) return;
       if (conversationId) answeredCalls.delete(conversationId);
       const recvSockets = onlineUsers.get(recipientId);
       if (recvSockets) {

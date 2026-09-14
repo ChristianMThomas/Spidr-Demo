@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose');
@@ -10,7 +11,29 @@ const PORT = process.env.PORT || 3001;
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 
-app.use(express.json());
+// This service had no security headers at all. It's a JSON API that renders
+// no HTML, so lock the document directives all the way down.
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      'default-src':     ["'none'"],
+      'frame-ancestors': ["'none'"],
+      'base-uri':        ["'none'"],
+      'form-action':      ["'none'"],
+    },
+  },
+}));
+app.use((req, res, next) => {
+  // helmet 8 still doesn't ship this one.
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  next();
+});
+
+// Explicit, not implicit. 100kb happens to be Express's current default, so
+// this changes nothing today - but it stops a future dependency bump from
+// silently removing the cap.
+app.use(express.json({ limit: '100kb' }));
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
     ? [

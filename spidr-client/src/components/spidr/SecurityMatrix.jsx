@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { entities, auth } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
+import { isPasswordStrong, PASSWORD_REQUIREMENTS_MESSAGE } from '@/lib/passwordPolicy';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ShieldCheck, Key, LogOut, AlertTriangle, Lock,
@@ -185,7 +186,7 @@ function PasswordDialog({ open, onClose, currentUser }) {
 
   const submit = async () => {
     if (next !== confirm) { toast.error('Passwords do not match'); return; }
-    if (next.length < 8)  { toast.error('Password must be at least 8 characters'); return; }
+    if (!isPasswordStrong(next)) { toast.error(PASSWORD_REQUIREMENTS_MESSAGE); return; }
     setLoading(true);
     try {
       await auth.changePassword?.({ currentPassword: curr, newPassword: next });
@@ -212,6 +213,7 @@ function PasswordDialog({ open, onClose, currentUser }) {
               </div>
             </div>
           ))}
+          <p className="text-zinc-500 text-xs">8+ characters, no spaces, with upper and lowercase letters, a number, and a special character.</p>
           <button onClick={submit} disabled={loading || !curr || !next || !confirm}
             className="w-full py-2.5 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white font-bold rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
@@ -408,7 +410,7 @@ function ResetDialog({ open, onClose }) {
   };
 
   const reset = async () => {
-    if (newPw.length < 8) { toast.error('Password must be at least 8 characters'); return; }
+    if (!isPasswordStrong(newPw)) { toast.error(PASSWORD_REQUIREMENTS_MESSAGE); return; }
     setLoading(true);
     try {
       await auth.overrideConfirm(token, newPw);
@@ -464,9 +466,10 @@ function ResetDialog({ open, onClose }) {
           {step === 'reset' && !success && (
             <div className="space-y-4">
               <p className="text-zinc-400 text-sm text-center">Identity confirmed. Set a new passphrase.</p>
-              <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="New passphrase (8+ characters)"
+              <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} placeholder="New passphrase"
                 className="w-full bg-zinc-900 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-red-500" />
-              <button onClick={reset} disabled={loading || newPw.length < 8}
+              <p className="text-zinc-500 text-xs">8+ characters, no spaces, with upper and lowercase letters, a number, and a special character.</p>
+              <button onClick={reset} disabled={loading || !isPasswordStrong(newPw)}
                 className="w-full py-3 bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white font-bold rounded-xl text-sm transition-colors shadow-[0_0_15px_rgba(239,68,68,0.3)] flex items-center justify-center gap-2">
                 {loading ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
                 {loading ? 'ENCRYPTING…' : 'LOCK NEW PASSCODE'}

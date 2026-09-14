@@ -15,6 +15,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -34,11 +36,20 @@ public class AuthService {
 
     private final SecureRandom secureRandom = new SecureRandom();
 
+    /**
+     * One message for every failure in the password-reset flow, so an attacker
+     * cannot tell "no such account" from "wrong code" from "expired code".
+     */
+    private static final String INVALID_RESET_CODE =
+            "That reset code is invalid or has expired. Please request a new one.";
+
     // ── Register ──────────────────────────────────────────────────────────────
 
     public users register(RegisterUserDTO dto) {
         String email    = dto.getEmail().toLowerCase().trim();
         String username = dto.getUsername().trim();
+
+        PasswordPolicy.requireStrong(dto.getPassword());
 
         if (userRepo.existsByEmail(email)) {
             throw new RuntimeException("Email already in use");
@@ -92,9 +103,10 @@ public class AuthService {
             }
 
             userRepo.save(user);
-            int remaining = MAX_FAILED_ATTEMPTS - attempts;
-            throw new RuntimeException(
-                    "Invalid email or password. " + remaining + " attempt(s) remaining before lockout.");
+            // Deliberately identical to the unknown-email message above. The
+            // old "N attempt(s) remaining" text only ever appeared for a real
+            // account, which turned this response into an existence oracle.
+            throw new RuntimeException("Invalid email or password");
         }
 
         if (!user.isEnabled()) {
@@ -192,19 +204,27 @@ public class AuthService {
     // ── Verify Reset Code ─────────────────────────────────────────────────────
 
     public void verifyResetCode(VerifyResetCodeDTO dto) {
+        // forgotPassword() deliberately no-ops for unknown emails to avoid
+        // enumeration, but this step used to answer "No account found for that
+        // email." - leaking the very thing the previous step protected. Every
+        // failure in this flow now returns one indistinguishable message.
         users user = userRepo.findByEmail(dto.getEmail().toLowerCase().trim())
-                .orElseThrow(() -> new RuntimeException("No account found for that email."));
+                .orElseThrow(() -> new RuntimeException(INVALID_RESET_CODE));
 
         if (user.getResetCode() == null || user.getResetCodeExpiration() == null) {
-            throw new RuntimeException("No password reset was requested for this account.");
+            throw new RuntimeException(INVALID_RESET_CODE);
         }
 
         if (LocalDateTime.now().isAfter(user.getResetCodeExpiration())) {
-            throw new RuntimeException("Reset code has expired. Please request a new one.");
+            throw new RuntimeException(INVALID_RESET_CODE);
         }
 
-        if (!user.getResetCode().equals(dto.getResetCode())) {
-            throw new RuntimeException("Invalid reset code.");
+        // Constant-time compare - a 6-digit code is short enough that a
+        // timing side channel is worth closing, and it costs nothing.
+        if (!MessageDigest.isEqual(
+                user.getResetCode().getBytes(StandardCharsets.UTF_8),
+                String.valueOf(dto.getResetCode()).getBytes(StandardCharsets.UTF_8))) {
+            throw new RuntimeException(INVALID_RESET_CODE);
         }
 
         user.setResetVerified(true);
@@ -214,8 +234,9 @@ public class AuthService {
     // ── Reset Password ────────────────────────────────────────────────────────
 
     public void resetPassword(ResetPasswordDTO dto) {
+        // Same anti-enumeration reasoning as verifyResetCode above.
         users user = userRepo.findByEmail(dto.getEmail().toLowerCase().trim())
-                .orElseThrow(() -> new RuntimeException("No account found for that email."));
+                .orElseThrow(() -> new RuntimeException(INVALID_RESET_CODE));
 
         if (!user.isResetVerified()) {
             throw new RuntimeException("Reset code not verified. Please verify your code first.");
@@ -225,6 +246,8 @@ public class AuthService {
                 || LocalDateTime.now().isAfter(user.getResetCodeExpiration())) {
             throw new RuntimeException("Reset session has expired. Please start over.");
         }
+
+        PasswordPolicy.requireStrong(dto.getNewPassword());
 
         user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
         user.setResetCode(null);

@@ -8,7 +8,9 @@
  */
 
 const express     = require('express');
+const jwt         = require('jsonwebtoken');
 const authMW      = require('../middleware/auth');
+const { getSecret } = require('../utils/jwtSecret');
 const UserProfile = require('../models/UserProfile');
 const spotifyPresence = require('../utils/spotifyPresence');
 
@@ -20,26 +22,59 @@ const SCOPES = [
   'user-read-recently-played',
 ].join(' ');
 
+// The OAuth hop happens in the system browser, which carries no Authorization
+// header - so identity has to travel in the `state` parameter. It used to
+// travel as a bare ?userId=, which meant anyone could mint a start-URL for
+// somebody else's account, send it to a victim, and have the victim's Spotify
+// access+refresh tokens written onto the attacker's profile. Identity now
+// travels as a short-lived token this server only issues to an authenticated
+// caller, and the callback verifies that signature before writing anything.
+const LINK_PURPOSE = 'spotify_link';
+
+function issueLinkToken(userId) {
+  return jwt.sign({ sub: String(userId), purpose: LINK_PURPOSE }, getSecret(), { expiresIn: '5m' });
+}
+
+function readLinkToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  try {
+    const d = jwt.verify(token, getSecret());
+    return d && d.purpose === LINK_PURPOSE && d.sub ? String(d.sub) : null;
+  } catch {
+    return null; // bad signature, wrong purpose, or expired
+  }
+}
+
 function redirectUri() {
   const base = process.env.SERVER_URL || 'http://127.0.0.1:4000';
   return `${base}/spotify/auth/callback`;
 }
 
-// ── GET /spotify/auth/start?userId=xxx ────────────────────────────────────────
-// Opens in the user's browser — no JWT, userId carried via state param.
+// ── GET /spotify/auth/link-token ──────────────────────────────────────────────
+// Authenticated. Returns the short-lived token the browser hop must carry.
+router.get('/auth/link-token', authMW, (req, res) => {
+  res.json({ token: issueLinkToken(req.user.id) });
+});
+
+// ── GET /spotify/auth/start?token=xxx ─────────────────────────────────────────
+// Opens in the user's browser — no JWT header, so identity comes from the
+// signed link token issued above (see LINK_PURPOSE note).
 router.get('/auth/start', (req, res) => {
   const { SPOTIFY_CLIENT_ID } = process.env;
   if (!SPOTIFY_CLIENT_ID) return res.status(503).json({ error: 'Spotify not configured on this server' });
 
-  const { userId } = req.query;
-  if (!userId) return res.status(400).json({ error: 'userId required' });
+  const token  = req.query.token || req.query.state;
+  const userId = readLinkToken(token);
+  if (!userId) {
+    return res.status(401).json({ error: 'Missing or expired link token — reopen Spotify connect from the app' });
+  }
 
   const params = new URLSearchParams({
     response_type: 'code',
     client_id:     SPOTIFY_CLIENT_ID,
     scope:         SCOPES,
     redirect_uri:  redirectUri(),
-    state:         userId,
+    state:         token,
     show_dialog:   'true',
   });
   res.redirect(`https://accounts.spotify.com/authorize?${params}`);
@@ -47,9 +82,11 @@ router.get('/auth/start', (req, res) => {
 
 // ── GET /spotify/auth/callback ────────────────────────────────────────────────
 router.get('/auth/callback', async (req, res) => {
-  const { code, state: userId, error } = req.query;
+  const { code, state, error } = req.query;
   const origin = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 
+  // Verify the signature rather than trusting whatever came back as state.
+  const userId = readLinkToken(state);
   if (error || !code || !userId) {
     return res.redirect(`${origin}/?spotify_error=cancelled`);
   }

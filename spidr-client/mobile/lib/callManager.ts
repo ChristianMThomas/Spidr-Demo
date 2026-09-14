@@ -67,6 +67,10 @@ class CallManager {
   private callKeepReady = false;
   private initialized = false;
   private pushListenersAttached = false;
+  // Kept by reference so end() detaches exactly these — the bare
+  // socket.off('voice:signal') form also tore lib/voiceRoom's handlers off
+  // the shared socket, deafening a voice web when a DM call hung up.
+  private mediaHandlers: Record<string, (payload: any) => void> = {};
 
   // ── Bootstrap (call once, after login) ────────────────────────────────────
   async init(currentUser: any) {
@@ -274,28 +278,46 @@ class CallManager {
       return pc;
     };
 
-    socket.on('voice:peer-joined', ({ socketId }: any) => {
+    const onPeerJoined = ({ socketId }: any) => {
       if (socketId === socket.id) return;
       createPeer(socketId, true);
-    });
+    };
 
-    socket.on('voice:signal', async ({ from, signal }: any) => {
-      let pc = this.peers[from] || createPeer(from, false);
-      try {
-        if (signal.type === 'offer') {
-          await pc.setRemoteDescription(signal.sdp);
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socket.emit('voice:signal', { to: from, signal: { type: 'answer', sdp: pc.localDescription } });
-        } else if (signal.type === 'answer') {
-          await pc.setRemoteDescription(signal.sdp);
-        } else if (signal.type === 'ice') {
-          await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
-        }
-      } catch { /* signaling race — peer will retry via ICE */ }
-    });
+    // One in-flight negotiation per peer. onSignal awaits mid-flight, so two
+    // offers arriving back-to-back both cleared the peer lookup and then
+    // interleaved their setRemoteDescription / createAnswer /
+    // setLocalDescription on the SAME connection — which is what "every SDP
+    // step logged twice" was. Chaining per peer keeps each negotiation atomic.
+    const signalQueues: Record<string, Promise<void>> = {};
 
-    socket.on('voice:peer-left', ({ socketId }: any) => {
+    const applySignal = async (from: string, signal: any) => {
+      const pc = this.peers[from] || createPeer(from, false);
+      if (signal.type === 'offer') {
+        await pc.setRemoteDescription(signal.sdp);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('voice:signal', { to: from, signal: { type: 'answer', sdp: pc.localDescription } });
+      } else if (signal.type === 'answer') {
+        // Only apply an answer we actually asked for — a duplicate or late
+        // one against a stable connection throws InvalidStateError.
+        if (pc.signalingState === 'have-local-offer') await pc.setRemoteDescription(signal.sdp);
+      } else if (signal.type === 'ice') {
+        await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+      }
+    };
+
+    const onSignal = ({ from, signal }: any) => {
+      signalQueues[from] = (signalQueues[from] || Promise.resolve())
+        .then(() => applySignal(from, signal))
+        .catch((err: any) => {
+          // Previously swallowed with a comment claiming ICE would retry. It
+          // does not: a dropped offer means the track it carried (video, a
+          // screen share) never arrives and nothing says why.
+          console.warn('[callManager] signal failed:', signal?.type, err?.message || err);
+        });
+    };
+
+    const onPeerLeft = ({ socketId }: any) => {
       const pc = this.peers[socketId];
       if (pc) { try { pc.close(); } catch {} delete this.peers[socketId]; }
       const next = { ...this.remoteStreams };
@@ -303,7 +325,14 @@ class CallManager {
       this.remoteStreams = next;
       emitter.emit('call:streams', this.remoteStreams);
       if (Object.keys(this.peers).length === 0 && this.state === 'active') this.end();
-    });
+    };
+
+    this.mediaHandlers = {
+      'voice:peer-joined': onPeerJoined,
+      'voice:signal': onSignal,
+      'voice:peer-left': onPeerLeft,
+    };
+    for (const [event, handler] of Object.entries(this.mediaHandlers)) socket.on(event, handler);
 
     // Same room the web voice deck joins for DM calls.
     socket.emit('voice:join', {
@@ -372,9 +401,8 @@ class CallManager {
 
     if (this.socket && call) {
       this.socket.emit('voice:leave', { serverId: 'dm', channelId: call.conversationId });
-      this.socket.off('voice:peer-joined');
-      this.socket.off('voice:peer-left');
-      this.socket.off('voice:signal');
+      for (const [event, handler] of Object.entries(this.mediaHandlers)) this.socket.off(event, handler);
+      this.mediaHandlers = {};
     }
     if (call) getCallKeep()?.endCall?.(callUUID(call.conversationId));
 
@@ -416,6 +444,11 @@ class CallManager {
     CallKeep.addEventListener('endCall', () => {
       if (this.state === 'ringing') this.decline();
       else if (this.state === 'active') this.end();
+      // Killed/backgrounded ring: the call lives in AsyncStorage, not in
+      // `this`, so both branches above miss it and the caller was never told
+      // anything — declining a locked-phone ring did nothing at all.
+      // `answerCall` has always had this branch; `endCall` never did.
+      else void this.declinePendingBackgroundRing();
     });
   }
 
@@ -685,6 +718,25 @@ class CallManager {
         this.ring(call);
       }
     } catch {}
+  }
+
+  // Decline counterpart to consumePendingBackgroundRing. Tells the caller the
+  // ring was rejected so their side stops ringing and the server writes the
+  // missed-call row, then drops the stashed ring so a later launch doesn't
+  // resurrect it.
+  private async declinePendingBackgroundRing() {
+    try {
+      const raw = await AsyncStorage.getItem('spidr_pending_call');
+      if (!raw) return;
+      await AsyncStorage.removeItem('spidr_pending_call');
+      const pending = JSON.parse(raw);
+      if (Date.now() - (pending.ts || 0) > 45_000) return; // stale ring
+      const socket = this.socket ?? await getSocket();
+      socket?.emit('call:decline', {
+        callerId: pending.callerId,
+        conversationId: pending.conversationId,
+      });
+    } catch { /* non-fatal */ }
   }
 }
 

@@ -14,7 +14,7 @@ import { FlashList } from '@shopify/flash-list';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ArrowLeft, Users as UsersIcon, MoreVertical, Crown, LogOut, UserMinus, Pencil } from 'lucide-react-native';
+import { ArrowLeft, Users as UsersIcon, MoreVertical, Crown, LogOut, UserMinus, Pencil, Phone } from 'lucide-react-native';
 import { TextInput } from 'react-native';
 import { Image } from 'expo-image';
 import { entities } from '../../lib/apiClient';
@@ -26,6 +26,7 @@ import { MessageInput } from '../../components/chat/MessageInput';
 import { Spinner } from '../../components/ui/Spinner';
 import { NotFound } from '../../components/ui/NotFound';
 import { ScopeNotifPicker } from '../../components/ui/ScopeNotifPicker';
+import { voiceRoom } from '../../lib/voiceRoom';
 
 function formatDateDivider(d: Date) {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
@@ -216,6 +217,15 @@ export default function GroupChat() {
     staleTime: 60_000,
   });
 
+  // Group calls address the mesh as server 'group' / channel <groupId> —
+  // exactly what KineticChat writes on web, so both ends meet in one room.
+  const { data: voiceSessions = [] } = useQuery({
+    queryKey: ['voiceSessions', 'group', groupId],
+    queryFn: () => entities.VoiceSession.filter({ server_id: 'group', channel_id: groupId }),
+    enabled: !!groupId,
+    refetchInterval: 20_000,
+  });
+
   useEffect(() => { setExtra([]); }, [groupId]);
 
   useEffect(() => {
@@ -237,10 +247,14 @@ export default function GroupChat() {
         }
         queryClient.invalidateQueries({ queryKey: ['group-messages', groupId] });
       };
+      const onVoiceChanged = () =>
+        queryClient.invalidateQueries({ queryKey: ['voiceSessions', 'group', groupId] });
       socket.emit('join:group', { groupId });
       socket.on('group:message', onMessage);
+      socket.on('voice:session-changed', onVoiceChanged);
       cleanup = () => {
         socket.off('group:message', onMessage);
+        socket.off('voice:session-changed', onVoiceChanged);
       };
     })();
     return () => { mounted = false; cleanup?.(); };
@@ -286,6 +300,13 @@ export default function GroupChat() {
 
   const groupName = (group as any)?.name || 'Group Chat';
   const memberCount = ((group as any)?.members || []).length;
+
+  const liveCallers = ((voiceSessions as any[]) || []).filter((s) => !s.is_spidr_ai);
+  const inCall = !!groupId && voiceRoom.isSameRoom({ serverId: 'group', channelId: groupId, kind: 'group', name: groupName });
+  const openCall = () =>
+    router.push(
+      `/voice/${groupId}?serverId=group&name=${encodeURIComponent(groupName)}&kind=group`
+    );
 
   if (!groupId || groupError) return <NotFound what="group chat" />;
 
@@ -343,6 +364,9 @@ export default function GroupChat() {
           </Text>
         </View>
 
+        <TouchableOpacity onPress={openCall} style={{ padding: 6 }} hitSlop={4}>
+          <Phone size={18} color={liveCallers.length || inCall ? '#22c55e' : '#a1a1aa'} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setShowMembers(true)} style={{ padding: 6 }} hitSlop={4}>
           <UsersIcon size={18} color="#a1a1aa" />
         </TouchableOpacity>
@@ -350,6 +374,49 @@ export default function GroupChat() {
           <MoreVertical size={18} color="#a1a1aa" />
         </TouchableOpacity>
       </View>
+
+      {/* Live-call banner. There is no server-side group fanout for
+          `call:invite`, so — exactly as on web — presence IS the ring: other
+          members discover the call by seeing occupants here. */}
+      {!inCall && liveCallers.length > 0 ? (
+        <TouchableOpacity
+          onPress={openCall}
+          activeOpacity={0.85}
+          style={{
+            marginHorizontal: 12,
+            marginTop: 8,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 10,
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            borderRadius: 14,
+            backgroundColor: 'rgba(6,20,12,0.9)',
+            borderWidth: 1,
+            borderColor: 'rgba(34,197,94,0.45)',
+          }}
+        >
+          <View
+            style={{
+              width: 30, height: 30, borderRadius: 15,
+              backgroundColor: 'rgba(34,197,94,0.2)',
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <Phone size={14} color="#22c55e" />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ color: '#22c55e', fontSize: 8, fontFamily: 'monospace', letterSpacing: 2, fontWeight: '900' }}>
+              /// LIVE VOICE WEB
+            </Text>
+            <Text style={{ color: '#e4e4e7', fontSize: 12 }} numberOfLines={1}>
+              <Text style={{ fontWeight: '900' }}>{liveCallers.length}</Text>
+              {liveCallers.length === 1 ? ' member is' : ' members are'} on this web
+            </Text>
+          </View>
+          <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: '900', letterSpacing: 1 }}>JOIN →</Text>
+        </TouchableOpacity>
+      ) : null}
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}

@@ -1,6 +1,6 @@
 # SPIDR APEX — Pricing & Monetization Reference
 
-> Source of truth as implemented in code as of 2026-09-02 (branch `dev`; audited across the 1.9.57 → 1.9.69 server patch chain plus the client-only DJ booth patches p1970–p1992, none of which touched APEX pricing, the Stripe data model, or the checkout/portal flow — 1.9.55 remains the last APEX-specific patch).
+> Source of truth as implemented in code as of 2026-09-07 (branch `dev`; audited across the 1.9.57 → 1.9.94 patch chain, none of which touched APEX pricing, the Stripe data model, or the checkout/portal flow — 1.9.55 remains the last APEX-specific patch. The uncommitted auth redesign, in-app notification-banner work, and the 2026-09-07 mobile voice-web batch in flight on `dev` do not touch billing either. Citations re-verified this audit: `routes/webhooks/stripe.js`, `models/UserProfile.js:42-70` (`apex_tier` enum `['free','apex']`, Stripe fields server-only), and all three of `ApexCommand.jsx` / `ApexStore.jsx` / `ApexVisuals.jsx` still resolve).
 > Primary implementation: `spidr-client/src/components/spidr/ApexCommand.jsx` (checkout + manage UI),
 > `spidr-server/src/models/UserProfile.js:42-70` (tier + Stripe state),
 > `spidr-server/src/routes/webhooks/stripe.js` (signed webhook — only writer of `apex_tier`),

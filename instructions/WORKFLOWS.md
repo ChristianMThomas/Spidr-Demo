@@ -10,7 +10,7 @@ Before the workflows, understand the atomic skills and what the compound ones ch
 
 | Skill | What it does | What's abstracted inside |
 |---|---|---|
-| `/start` | Switches to Opus 4.7, activates compact-opus + token-reduction for the session. Run once. | Invokes `compact-opus` skill + `token-reduction` skill. |
+| `/start` | Switches to Opus 5, activates compact-opus + token-reduction for the session. Run once. | Invokes `compact-opus` skill + `token-reduction` skill. |
 | `/dev` | Starts auth (:8080), server (:4000), and client (:5173) as background processes. | Nothing — runs three Bash commands in parallel. |
 | `/kill` | Stops all three dev services by killing ports 8080 / 4000 / 5173. | `npx kill-port` — one command. |
 | `/patch` | Logs a new SPIDR_SYS patch note into both the server `NEWS` array and the client `MOCK_NEWS` array, byte-identical, newest first. Verifies sync before finishing. **Does not commit or push.** | Nothing — direct file edits + grep verification. |
@@ -32,7 +32,7 @@ You've just cloned the repo and opened Claude Code for the first time.
 ```
 /start
   └── Checks model, activates compact-opus + token-reduction.
-      If you're not on Opus 4.7 it will tell you: run /model claude-opus-4-7 first.
+      If you're not on Opus 5 it will tell you: run /model claude-opus-5 first.
 
 (Once model is confirmed)
 
@@ -452,7 +452,7 @@ Something isn't starting. Ports are already in use, or a service crashed.
   └─ Phase 2 (fresh context): read handoff.md → brief → act on Next Step
 
 /start
-  ├─ Check / request model switch to Opus 4.7
+  ├─ Check / request model switch to Opus 5
   ├─ Invoke compact-opus skill
   └─ Invoke token-reduction skill
 ```

@@ -11,4 +11,6 @@ const PUBLIC_INTERACTION_FIELDS = [
 module.exports = crudRouter(Comment, {
   ownerField: 'user_id',
   publicWriteFields: PUBLIC_INTERACTION_FIELDS,
+  // Pinning is a moderator affordance, not something an author self-grants.
+  protectedFields: ['is_pinned'],
 });

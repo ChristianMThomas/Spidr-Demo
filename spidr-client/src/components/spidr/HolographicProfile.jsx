@@ -47,6 +47,19 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
     enabled: !!userId && open
   });
 
+  // The @handle has to be the account's real username. It used to be derived
+  // by slugifying display_name, so it silently changed every time someone
+  // renamed themselves and never matched the @username Settings shows.
+  // UserProfile carries no username field (only username_* styling fields),
+  // so it comes off the User record. GET /users/:id is auth-guarded but not
+  // owner-restricted, so this resolves for other people's profiles too.
+  const { data: account } = useQuery({
+    queryKey: ['user-account', userId],
+    queryFn: () => entities.User.get(userId),
+    enabled: !!userId && open,
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Symbiote Profile Takeover (removed): the original Patch 2.0 pushed an
   // APEX user's thread color into the global SymbioteInfectionOverlay state
   // when their profile modal opened, which painted a full-screen gooey blob
@@ -453,8 +466,17 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
               </div>
               <div className="text-sm font-mono mt-1">
                 <span className="text-gray-500">@</span>
-                <span className="text-gray-300 font-bold">{userProfile?.display_name?.toLowerCase().replace(/\s+/g, '_') || 'user'}</span>
-                <span className="text-gray-600">#{userId?.slice(0, 4) || '0000'}</span>
+                <span className="text-gray-300 font-bold">
+                  {account?.username || (isOwnProfile ? currentUser?.username : null) || 'user'}
+                </span>
+                {/* The real tag off the profile — this used to render the first
+                    4 chars of the Mongo id (falling back to '0000'), so every
+                    profile showed a tag that matched nobody's actual #handle.
+                    Render nothing when absent rather than faking one; the
+                    server backfills tags via utils/tagService. */}
+                {userProfile?.discriminator && (
+                  <span className="text-gray-600">#{userProfile.discriminator}</span>
+                )}
               </div>
               {userProfile?.custom_status && (
                 <p className="text-[11px] text-gray-500 italic mt-1">{userProfile.custom_status}</p>

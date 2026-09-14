@@ -13,6 +13,7 @@ import { auth, account } from '../../lib/apiClient';
 import { useAppShell } from '../../lib/appShellContext';
 import { useAuth } from '../../lib/authContext';
 import { useThemeColors } from '../../lib/theme';
+import { isPasswordStrong, PASSWORD_REQUIREMENTS_MESSAGE } from '../../lib/passwordPolicy';
 
 // ── Security & 2FA (mobile) ──────────────────────────────────────────────────
 // Small-screen port of spidr-client/src/components/spidr/SecurityMatrix.jsx.
@@ -356,7 +357,7 @@ function PasswordModal({ visible, onClose }: { visible: boolean; onClose: () => 
 
   const submit = async () => {
     if (next !== confirm) { Alert.alert('Passwords do not match'); return; }
-    if (next.length < 8) { Alert.alert('Password must be at least 8 characters'); return; }
+    if (!isPasswordStrong(next)) { Alert.alert('Weak password', PASSWORD_REQUIREMENTS_MESSAGE); return; }
     setLoading(true);
     try {
       await auth.changePassword({ currentPassword: curr, newPassword: next });
@@ -394,6 +395,9 @@ function PasswordModal({ visible, onClose }: { visible: boolean; onClose: () => 
             </View>
           </View>
         ))}
+        <Text style={{ color: '#71717a', fontSize: 11 }}>
+          8+ characters, no spaces, with upper and lowercase letters, a number, and a special character.
+        </Text>
         <TouchableOpacity
           onPress={submit}
           disabled={loading || !curr || !next || !confirm}

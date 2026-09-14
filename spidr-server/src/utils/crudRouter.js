@@ -2,6 +2,23 @@
  * crudRouter(Model)
  * Generates a standard REST router for a Mongoose model.
  * Supports: GET / (list + filter), GET /:id, POST /, PATCH /:id, DELETE /:id
+ *
+ * opts:
+ *   ownerField        string | string[] — who owns a doc. Gates PATCH/DELETE,
+ *                     and is stamped onto the doc on POST.
+ *   privateRead       true = LIST is force-scoped to the caller's own rows and
+ *                     GET /:id 404s for non-owners. REQUIRED for any resource
+ *                     whose rows are private to one user (DMs, AI logs, saved
+ *                     audio). Without it, ownerField protects WRITES ONLY and
+ *                     every row is readable by any authenticated user.
+ *                     Left off for resources that must be cross-readable
+ *                     (UserProfile — rendering @handle#tag needs another
+ *                     user's profile; Friend, Server, Clip, Comment, Feed).
+ *   publicWriteFields fields a non-owner may PATCH (likes/reactions).
+ *   protectedFields   extra field names no client may ever set, on create or
+ *                     update. PROTECTED_FIELDS below is a shared blocklist of
+ *                     User/Stripe/streak names; per-model trust flags
+ *                     (CustomBot.is_official, Comment.is_pinned) belong here.
  */
 const express   = require('express');
 const authMiddleware = require('../middleware/auth');
@@ -11,6 +28,10 @@ module.exports = function crudRouter(Model, opts = {}) {
   const {
     protect = true,
     ownerField = null,
+    // See header. Off by default because most resources are cross-readable;
+    // turning it on is how a resource becomes private.
+    privateRead = false,
+    protectedFields = [],
     // Fields any authenticated user (not just the owner) may patch. Designed
     // for "social interaction" fields on a resource someone else owns —
     // e.g. likes/reactions/comments_count on a Clip — without granting full
@@ -26,6 +47,25 @@ module.exports = function crudRouter(Model, opts = {}) {
     if (!ownerField) return true;
     const fields = Array.isArray(ownerField) ? ownerField : [ownerField];
     return fields.some(f => doc[f]?.toString() === userId?.toString());
+  }
+
+  const ownerFields = ownerField
+    ? (Array.isArray(ownerField) ? ownerField : [ownerField])
+    : [];
+  // ownerField may be an array (OR-checked on read); the field actually
+  // stamped at create time is the first entry. Assigning the array itself
+  // produced a literal "user_id,author_id" key and left the doc ownerless.
+  const primaryOwnerField = ownerFields[0] || null;
+
+  // Strips keys no client may set, on create and update alike.
+  function sanitise(body) {
+    const out = {};
+    for (const [k, v] of Object.entries(body || {})) {
+      if (k.startsWith('$')) continue;
+      if (PROTECTED_FIELDS.has(k) || extraProtected.has(k)) continue;
+      out[k] = v;
+    }
+    return out;
   }
 
   const guard = protect ? authMiddleware : (req, res, next) => next();
@@ -48,6 +88,13 @@ module.exports = function crudRouter(Model, opts = {}) {
         } else {
           query[k] = v;
         }
+      }
+
+      // Private resources: force owner scoping so LIST can never return
+      // another user's rows, whatever filters the caller supplies.
+      if (privateRead && ownerFields.length) {
+        const uid = req.user?.id?.toString();
+        query.$or = ownerFields.map(f => ({ [f]: uid }));
       }
 
       let q = Model.find(query);
@@ -78,6 +125,11 @@ module.exports = function crudRouter(Model, opts = {}) {
     try {
       const doc = await Model.findById(req.params.id).lean();
       if (!doc) return res.status(404).json({ error: 'Not found' });
+      // 404 rather than 403 — for a private row, existence is itself
+      // information, and an id-guessing caller shouldn't learn it.
+      if (privateRead && !isOwner(doc, req.user?.id)) {
+        return res.status(404).json({ error: 'Not found' });
+      }
       res.json(normalise(doc));
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -87,8 +139,11 @@ module.exports = function crudRouter(Model, opts = {}) {
   // ── CREATE ─────────────────────────────────────────────────────────────────
   router.post('/', guard, async (req, res) => {
     try {
-      const data = req.body;
-      if (ownerField) data[ownerField] = req.user?.id;
+      // Same filter PATCH applies. Without it, Model.create(req.body) let a
+      // client set ANY schema field at creation time — e.g. CustomBot's
+      // is_official, minting a bot that renders as Spidr-endorsed.
+      const data = sanitise(req.body);
+      if (primaryOwnerField) data[primaryOwnerField] = req.user?.id;
       const doc = await Model.create(data);
       res.status(201).json(normalise(doc.toObject()));
     } catch (err) {
@@ -124,6 +179,9 @@ module.exports = function crudRouter(Model, opts = {}) {
     'apex_first_activated_at',
   ]);
 
+  // Per-model additions to the blocklist above (see opts.protectedFields).
+  const extraProtected = new Set(protectedFields);
+
   router.patch('/:id', guard, async (req, res) => {
     try {
       const existing = await Model.findById(req.params.id).lean();
@@ -140,7 +198,7 @@ module.exports = function crudRouter(Model, opts = {}) {
 
       const safeBody = {};
       for (const [k, v] of Object.entries(req.body)) {
-        if (k.startsWith('$') || PROTECTED_FIELDS.has(k)) continue;
+        if (k.startsWith('$') || PROTECTED_FIELDS.has(k) || extraProtected.has(k)) continue;
         if (!owner && !publicWriteSet.has(k)) continue; // strip non-allowlisted keys
         safeBody[k] = v;
       }

@@ -63,7 +63,7 @@ If you're not shipping a release (docs change, `.claude/` edit, in-progress bran
 
 Three-step session primer:
 
-1. Checks current model is `claude-opus-4-7`. If not, asks you to run `/model claude-opus-4-7` and re-invoke. (`/model` is a built-in CLI command, not a skill — only you can switch it.)
+1. Checks current model is `claude-opus-5`. If not, asks you to run `/model claude-opus-5` and re-invoke. (`/model` is a built-in CLI command, not a skill — only you can switch it.)
 2. Activates the **compact-opus** skill (concise responses, full reasoning).
 3. Activates the **token-reduction** skill (~80% shorter, terminal-friendly).
 

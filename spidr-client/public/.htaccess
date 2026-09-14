@@ -14,6 +14,28 @@ Header always set X-Frame-Options "SAMEORIGIN"
 Header always set X-XSS-Protection "1; mode=block"
 Header always set Referrer-Policy "strict-origin-when-cross-origin"
 
+# Content-Security-Policy. Deliberately served as a header here rather than as
+# a <meta> tag in index.html: Electron loads that same built index.html over
+# file://, where 'self' resolves unreliably, so a meta CSP would risk breaking
+# the desktop app while adding nothing for it.
+#
+# The real win is script-src 'self' — it blocks injected inline and remote
+# scripts, which is the XSS class that matters. style-src needs 'unsafe-inline'
+# because Radix and framer-motion set element styles at runtime. img/media/
+# connect stay broad (https:) because avatars, clips and GIFs come from R2,
+# Spotify, Steam and the GIF providers; restricting them to an allowlist is a
+# follow-up once those hosts are pinned down. Even broad, this still forbids
+# plaintext http: exfiltration and any object/embed.
+Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+
+# Permissions-Policy — helmet doesn't ship this one and it was unset here too.
+Header always set Permissions-Policy "geolocation=(), payment=(), usb=()"
+
+# HSTS. includeSubDomains is intentionally omitted: auth.spidrapp.infinitetechteam.com
+# is a sibling subdomain on separate infrastructure, and asserting the policy
+# for the whole tree from here would be a commitment made on its behalf.
+Header always set Strict-Transport-Security "max-age=31536000"
+
 # Cache static assets aggressively, never cache index.html
 <FilesMatch "\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|webp)$">
   Header set Cache-Control "public, max-age=31536000, immutable"

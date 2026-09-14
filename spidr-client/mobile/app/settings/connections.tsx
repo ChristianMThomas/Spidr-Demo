@@ -53,10 +53,20 @@ export default function Connections() {
     queryClient.invalidateQueries({ queryKey: ['user-profile', currentUser?.id] });
   };
 
-  const handleSpotifyConnect = () => {
-    openHttps(`${BASE_URL}/spotify/auth/start?userId=${currentUser?.id}`);
-    // User completes OAuth in the browser; pull the new state when they return.
-    setTimeout(() => refetch(), 4000);
+  // The browser hop carries no Authorization header, so identity used to ride
+  // along as a bare ?userId= — which meant a link minted for someone else's id
+  // would attach THEIR Spotify tokens to whoever's account was in the URL.
+  // We now exchange the session for a short-lived signed link token first.
+  const handleSpotifyConnect = async () => {
+    try {
+      const { token } = await api.get('/spotify/auth/link-token');
+      if (!token) throw new Error('no link token');
+      openHttps(`${BASE_URL}/spotify/auth/start?token=${encodeURIComponent(token)}`);
+      // User completes OAuth in the browser; pull the new state when they return.
+      setTimeout(() => refetch(), 4000);
+    } catch {
+      Alert.alert('Spotify', 'Could not start Spotify connect — try again.');
+    }
   };
 
   const handleSpotifyDisconnect = async () => {

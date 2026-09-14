@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { getSocket } from '@/api/apiClient';
+import { useQuery } from '@tanstack/react-query';
+import { entities, getSocket } from '@/api/apiClient';
+import ServerAvatar from './ServerAvatar';
 import {
   Bell, X, MessageCircle, UserPlus, AtSign, Megaphone, Calendar, Film, Check
 } from 'lucide-react';
@@ -89,6 +91,12 @@ export function NotificationProvider({ currentUser, children }) {
       body: n.body || '',
       link: n.link || null,
       feed_id: n.feed_id || null,
+      // Origin fields. Present only for server traffic — their absence is what
+      // collapses a signal back to the two-row shape (see SignalCard).
+      server_id: n.server_id || null,
+      server_name: n.server_name || '',
+      server_icon: n.server_icon || '',
+      channel_name: n.channel_name || '',
       read: false,
       created: Date.now(),
     };
@@ -104,11 +112,47 @@ export function NotificationProvider({ currentUser, children }) {
         return next;
       });
     }
-    // Transient ripple toast
-    setRipples((prev) => [...prev, note]);
+    // Transient ripple toast. Capped at 3 — a three-row card is ~85px, so a
+    // taller stack than this starts eating the viewport. Server signals hold
+    // longer because there's a third row of text to actually read.
+    setRipples((prev) => [...prev, note].slice(-3));
+    const dwell = note.type === 'message' || note.type === 'mention' ? 6000 : 4500;
     setTimeout(() => {
       setRipples((prev) => prev.filter((r) => r.id !== note.id));
-    }, 4500);
+    }, dwell);
+  }, []);
+
+  // Server name/icon/channel for the three-row signal card. Same query key and
+  // staleTime as Sidebar's, so this shares one cache entry instead of adding a
+  // request; the ref keeps the socket effect from resubscribing on every
+  // servers refetch.
+  const { data: servers = [] } = useQuery({
+    queryKey: ['servers'],
+    queryFn: () => entities.Server.list('-created_date', 50),
+    staleTime: 30000,
+    enabled: !!currentUser?.id,
+  });
+  const serversRef = useRef(servers);
+  useEffect(() => { serversRef.current = servers; }, [servers]);
+
+  /**
+   * Resolve a message's origin from the cached servers list. Channels are
+   * embedded on the Server doc, so name + icon + channel come from one record
+   * with no extra request. Returns {} when the server isn't in cache — the card
+   * then falls back to its two-row shape rather than rendering a half-filled
+   * origin row.
+   */
+  const resolveOrigin = useCallback((serverId, channelId) => {
+    if (!serverId) return {};
+    const server = (serversRef.current || []).find((s) => String(s.id) === String(serverId));
+    if (!server?.name) return {};
+    const channel = (server.channels || []).find((c) => String(c.id) === String(channelId));
+    return {
+      server_id: serverId,
+      server_name: server.name,
+      server_icon: server.icon_url || '',
+      channel_name: channel?.name || '',
+    };
   }, []);
 
   // ── Socket + window-event wiring ───────────────────────────────────────────
@@ -125,10 +169,21 @@ export function NotificationProvider({ currentUser, children }) {
       // Mention of us → mention notification; otherwise a generic new-message.
       const mentionedMe = typeof msg.content === 'string' &&
         (msg.content.includes(`@${currentUser.username}`) || msg.content.includes(`@${currentUser.full_name}`));
+      // The card leads with the sender and carries the server on its own row,
+      // so the title is just the name — "X mentioned you" would duplicate what
+      // the @ badge and accent already say.
+      const sender = msg.author_name || msg.user_name || 'Someone';
+      const origin = resolveOrigin(msg.server_id, msg.channel_id);
+      // Attachment-only copy matches the push path (Message.js) so the native
+      // banner and the in-app card read identically. 140 chars fills two lines.
+      const count = Array.isArray(msg.attachments) ? msg.attachments.length : 0;
+      const snippet = msg.content
+        ? msg.content.slice(0, 140)
+        : (count > 1 ? `Sent ${count} attachments` : 'Sent an attachment');
       if (mentionedMe) {
-        pushNotification({ type: 'mention', title: `${msg.author_name || msg.user_name || 'Someone'} mentioned you`, body: msg.content.slice(0, 80), link: msg.server_id ? `/servers/${msg.server_id}?channel=${msg.channel_id}&msg=${msg.id}` : '/servers', key: `mention-${msg.id}` });
+        pushNotification({ type: 'mention', title: sender, body: snippet, ...origin, link: msg.server_id ? `/servers/${msg.server_id}?channel=${msg.channel_id}&msg=${msg.id}` : '/servers', key: `mention-${msg.id}` });
       } else {
-        pushNotification({ type: 'message', title: `${msg.author_name || msg.user_name || 'New message'}`, body: (msg.content || '').slice(0, 80), link: msg.server_id ? `/servers/${msg.server_id}?channel=${msg.channel_id}` : null, key: `msg-${msg.id}` });
+        pushNotification({ type: 'message', title: sender, body: snippet, ...origin, link: msg.server_id ? `/servers/${msg.server_id}?channel=${msg.channel_id}` : null, key: `msg-${msg.id}` });
       }
     };
 
@@ -203,7 +258,7 @@ export function NotificationProvider({ currentUser, children }) {
       socket.off('feed:reply', onFeedReply);
       window.removeEventListener('spidr-notify', onWindowNotify);
     };
-  }, [currentUser?.id, currentUser?.username, currentUser?.full_name, pushNotification]);
+  }, [currentUser?.id, currentUser?.username, currentUser?.full_name, pushNotification, resolveOrigin]);
 
   const unread = items.filter((i) => !i.read).length;
   const unreadFeedReplies = items.filter((i) => !i.read && i.type === 'feed_reply').length;
@@ -283,23 +338,17 @@ export function NotificationProvider({ currentUser, children }) {
                 ) : (
                   items.map((note) => {
                     const meta = TYPE_META[note.type] || TYPE_META.default;
-                    const Icon = meta.Icon;
                     return (
                       <button
                         key={note.id}
                         onClick={() => openItem(note)}
                         className={`w-full text-left flex items-start gap-3 rounded-xl px-3 py-2.5 transition-colors ${
+                          note.type === 'mention' ? 'border-l-2 border-red-500/70' : ''
+                        } ${
                           note.read ? 'bg-transparent hover:bg-white/5' : 'bg-white/[0.04] hover:bg-white/[0.07]'
                         }`}
                       >
-                        <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ backgroundColor: meta.accent + '22' }}>
-                          <Icon className="w-4 h-4" style={{ color: meta.accent }} />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-white text-sm font-semibold truncate">{note.title}</p>
-                          {note.body && <p className="text-zinc-500 text-xs truncate">{note.body}</p>}
-                          <p className="text-zinc-700 text-[10px] mt-0.5">{timeAgo(note.created)}</p>
-                        </div>
+                        <SignalCard note={note} meta={meta} variant="panel" />
                         {!note.read && <span className="w-2 h-2 rounded-full bg-red-500 mt-2 shrink-0" />}
                       </button>
                     );
@@ -313,33 +362,128 @@ export function NotificationProvider({ currentUser, children }) {
 
       {/* Transient "web ripple" toasts */}
       <div className="fixed bottom-24 right-4 z-[70] flex flex-col gap-2 pointer-events-none">
-        <AnimatePresence>
+        <AnimatePresence mode="popLayout">
           {ripples.map((note) => {
             const meta = TYPE_META[note.type] || TYPE_META.default;
-            const Icon = meta.Icon;
+            const isMention = note.type === 'mention';
             return (
               <motion.button
                 key={note.id}
-                initial={{ x: 300, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: 300, opacity: 0 }}
+                layout
+                initial={{ x: 300, opacity: 0, scale: 0.96 }}
+                animate={{ x: 0, opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, x: 40, scale: 0.98, transition: { duration: 0.18 } }}
+                transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                 onClick={() => openItem(note)}
-                className="pointer-events-auto flex items-start gap-2.5 bg-[#0b0b0d]/95 backdrop-blur-xl border rounded-xl px-3 py-2.5 shadow-2xl max-w-[300px]"
-                style={{ borderColor: meta.accent + '55' }}
+                className="pointer-events-auto relative flex items-start gap-2.5 bg-[#0b0b0d]/95 backdrop-blur-xl border rounded-xl pl-3.5 pr-3 py-2.5 shadow-2xl w-[320px] overflow-hidden text-left"
+                style={{
+                  borderColor: meta.accent + '55',
+                  ...(isMention
+                    ? { boxShadow: '0 0 0 1px rgba(239,68,68,0.35), 0 0 18px rgba(239,68,68,0.25)' }
+                    : null),
+                }}
               >
-                <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: meta.accent + '22' }}>
-                  <Icon className="w-4 h-4" style={{ color: meta.accent }} />
-                </span>
-                <div className="min-w-0 text-left">
-                  <p className="text-white text-xs font-bold truncate">{note.title}</p>
-                  {note.body && <p className="text-zinc-400 text-[11px] truncate">{note.body}</p>}
-                </div>
+                {/* Accent rail — snaps taut on entry, the "web strand" beat. */}
+                <motion.span
+                  aria-hidden
+                  className="absolute left-0 top-0 bottom-0 w-[2px] origin-top"
+                  style={{ backgroundColor: meta.accent }}
+                  initial={{ scaleY: 0 }}
+                  animate={{ scaleY: 1 }}
+                  transition={{ delay: 0.12, duration: 0.25 }}
+                />
+                <SignalCard note={note} meta={meta} variant="toast" />
               </motion.button>
             );
           })}
         </AnimatePresence>
       </div>
     </NotificationContext.Provider>
+  );
+}
+
+/**
+ * SignalCard — the icon column plus text rows shared by the ripple toast and
+ * the Signals panel row.
+ *
+ * Server traffic reads as three rows — who / where / what — behind the
+ * SERVER's icon badged with the type glyph, not the sender's avatar: the
+ * sender is already named on the first line, so the picture is better spent
+ * telling you which room lit up. Everything else (DMs, friend requests, clips,
+ * feed replies) has no origin to show and collapses to the original two-row
+ * shape with the accent-tinted type tile.
+ */
+function SignalCard({ note, meta, variant }) {
+  const Icon = meta.Icon;
+  const toast = variant === 'toast';
+  const hasOrigin = !!note.server_name;
+
+  return (
+    <>
+      <div className={`relative shrink-0 ${toast ? '' : 'mt-0.5'}`}>
+        {hasOrigin ? (
+          <>
+            <ServerAvatar
+              src={note.server_icon}
+              name={note.server_name}
+              size={toast ? 36 : 40}
+              rounded="rounded-lg"
+              letters={2}
+            />
+            <span
+              className={`absolute -bottom-1 -right-1 rounded-full flex items-center justify-center ring-2 ring-[#0b0b0d] ${
+                toast ? 'w-[14px] h-[14px]' : 'w-4 h-4'
+              }`}
+              style={{ backgroundColor: meta.accent }}
+            >
+              <Icon className={`text-white ${toast ? 'w-2 h-2' : 'w-2.5 h-2.5'}`} strokeWidth={3} />
+            </span>
+          </>
+        ) : (
+          <span
+            className={`rounded-lg flex items-center justify-center ${toast ? 'w-9 h-9' : 'w-10 h-10'}`}
+            style={{ backgroundColor: meta.accent + '22' }}
+          >
+            <Icon className="w-4 h-4" style={{ color: meta.accent }} />
+          </span>
+        )}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <p className={`text-white leading-tight truncate ${toast ? 'text-xs font-bold' : 'text-sm font-semibold'}`}>
+          {note.title}
+        </p>
+
+        {/* Where it came from. Small, tracked and uppercase so it reads as a
+            location label rather than prose, and tinted in the type accent so
+            it doubles as the color cue without competing with the name above
+            or the message below. Mentions get the full accent and an @. */}
+        {hasOrigin && (
+          <p
+            className="mt-0.5 flex items-baseline gap-1 min-w-0 text-[10px] font-semibold uppercase tracking-wider leading-tight"
+            style={{ color: note.type === 'mention' ? meta.accent : meta.accent + 'cc' }}
+          >
+            {note.type === 'mention' && <span className="font-black shrink-0">@</span>}
+            <span className="truncate">{note.server_name}</span>
+            {note.channel_name && (
+              <span className="shrink-0 max-w-[45%] truncate">· #{note.channel_name}</span>
+            )}
+          </p>
+        )}
+
+        {note.body && (
+          <p
+            className={`mt-1 leading-snug line-clamp-2 break-words ${
+              toast ? 'text-zinc-300 text-[11px]' : 'text-zinc-400 text-xs'
+            }`}
+          >
+            {note.body}
+          </p>
+        )}
+
+        {!toast && <p className="text-zinc-700 text-[10px] mt-1">{timeAgo(note.created)}</p>}
+      </div>
+    </>
   );
 }
 

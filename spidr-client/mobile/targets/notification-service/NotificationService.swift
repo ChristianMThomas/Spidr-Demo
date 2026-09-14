@@ -18,28 +18,42 @@
 //    1:1 (DMs, friend requests) — no subtitle. Icon = the sender's avatar.
 //
 //    Group (server mentions, server messages, group chats) — subtitle present.
-//        Icon = the SERVER's or GROUP's icon, title = who posted, subtitle =
-//        where, body = the message.
+//        Icon = the SERVER's or GROUP's icon, title = WHERE it was posted,
+//        body = "who: the message". The place goes in the title because that
+//        is the only slot besides the body that iOS paints here — see the
+//        design note below.
 //
 //  Both shapes read the icon from the same "image" data key, because the
 //  server already resolved which picture belongs there (a server's own icon,
 //  or the sender's pfp when it has none).
 //
-//  DESIGN NOTE — why the layout does not rely on iOS's group rendering:
-//  the obvious way to build the group shape is speakableGroupName plus
-//  setImage(_:forParameterNamed: \.speakableGroupName). That is not reliable.
-//  With recipients nil, iOS silently renders the intent as a 1:1: it takes the
-//  icon from INPerson.image, takes the title from INPerson.displayName, and
-//  DISCARDS the subtitle — which is exactly how server mentions ended up
-//  looking like DMs. So instead:
+//  DESIGN NOTE — a communication notification has TWO paintable slots, not
+//  three. iOS takes the title from INPerson.displayName and prints the body.
+//  It does not paint content.subtitle at all, and nothing brings it back:
+//  setting it before updating(from:), or re-applying it after, changes only
+//  what the content object says, never what the banner shows. An earlier
+//  version did exactly that, on the theory that iOS was mis-rendering the
+//  intent as a 1:1 and dropping the middle line as a side effect. It was not.
+//  A push the server confirmed as group-shaped (PUSH_DEBUG=1 stamped it
+//  [GROUP/img]) still arrived on device with no middle line.
 //
-//    • the icon we want always goes on INPerson.image, which iOS honours in
-//      both shapes (it is what makes the DM banner work today), and
-//    • the subtitle is re-applied AFTER updating(from:), so the middle line
-//      survives whatever iOS decides to do with it.
+//  So the group shape is composed for two slots, the way Messages composes a
+//  group banner:
 //
-//  recipients is still populated for group pushes so the conversation is
-//  described honestly, but no visible slot depends on iOS accepting it.
+//    • INPerson.displayName carries the GROUP name, so the title says where,
+//    • the poster is folded into the body as "Name: message", so who is
+//      still visible without a slot of its own, and
+//    • the icon goes on INPerson.image, which iOS honours in both shapes
+//      (it is what makes the DM banner work today).
+//
+//  INPerson also identifies the CONVERSATION rather than the poster for group
+//  pushes — every message in a channel must map to one person or iOS threads
+//  each poster separately. recipients is still populated so the conversation
+//  is described honestly, but no visible slot depends on iOS accepting it.
+//
+//  The subtitle is still SENT by the server and still read here: it is how
+//  this file tells group from 1:1, and the attachment fallback below is a
+//  plain notification, where iOS does render a real subtitle line.
 //
 //  Fails safe at every step: if the intent is refused we fall back to the
 //  trailing attachment, and if that fails too the original notification is
@@ -188,17 +202,50 @@ class NotificationService: UNNotificationServiceExtension {
 
         let image = iconData.map { INImage(imageData: $0) }
 
+        // A communication notification has exactly TWO paintable slots: the
+        // title, which iOS takes from INPerson.displayName, and the body.
+        // There is no third slot — iOS discards content.subtitle when it
+        // restyles around the intent, no matter what we set it to afterwards.
+        // Verified on device: a push confirmed [GROUP/img] by the server still
+        // rendered without its middle line.
+        //
+        // So a group push is composed the way Messages composes one: the place
+        // goes in the title, the poster is folded into the body. The poster
+        // stays visible and the banner stops reading as a 1:1 from that person.
+        //
+        //   1:1    title "ChrisAlt"                      body "the message"
+        //   group  title "Anime Haven · #general-chat"   body "ChrisAlt: the message"
+        let isGroup = groupName != nil
+        let displayName = groupName ?? senderName
+
+        // Identity of the CONVERSATION, not the poster. For a group every
+        // message must map to the same person or iOS treats each poster as a
+        // separate thread and stacking breaks; the channel/conversation id is
+        // that stable identity. 1:1 keeps the sender's own id.
+        let handleValue: String = {
+            if !isGroup { return senderId.isEmpty ? senderName : senderId }
+            return content.threadIdentifier.isEmpty ? displayName : content.threadIdentifier
+        }()
+
         let sender = INPerson(
-            personHandle: INPersonHandle(value: senderId.isEmpty ? senderName : senderId, type: .unknown),
+            personHandle: INPersonHandle(value: handleValue, type: .unknown),
             nameComponents: nil,
-            displayName: senderName,
+            displayName: displayName,
             // The icon slot. For a group push this is deliberately the SERVER's
             // picture rather than the poster's — iOS paints INPerson.image and
             // does not reliably paint the group image.
             image: image,
             contactIdentifier: nil,
-            customIdentifier: senderId.isEmpty ? nil : senderId
+            customIdentifier: handleValue.isEmpty ? nil : handleValue
         )
+
+        // Compose on a COPY. `content` is also what the caller falls back to
+        // when the intent is refused, and that path renders a real subtitle
+        // line — prefixing its body there would print the poster's name twice.
+        guard let composed = content.mutableCopy() as? UNMutableNotificationContent else { return nil }
+        if isGroup && !senderName.isEmpty {
+            composed.body = senderName + ": " + content.body
+        }
 
         // A group conversation needs recipients for iOS to describe it as one.
         // "me" is enough — the extension has no roster, and nothing visible
@@ -217,16 +264,16 @@ class NotificationService: UNNotificationServiceExtension {
         )
 
         let intent = INSendMessageIntent(
-            recipients: groupName == nil ? nil : [me],
+            recipients: isGroup ? [me] : nil,
             outgoingMessageType: .outgoingMessageText,
-            content: content.body,
+            content: composed.body,
             speakableGroupName: groupName.map { INSpeakableString(spokenPhrase: $0) },
             conversationIdentifier: content.threadIdentifier.isEmpty ? nil : content.threadIdentifier,
             serviceName: "Spidr",
             sender: sender,
             attachments: nil
         )
-        if let image = image, groupName != nil {
+        if let image = image, isGroup {
             intent.setImage(image, forParameterNamed: \.speakableGroupName)
         }
 
@@ -236,15 +283,15 @@ class NotificationService: UNNotificationServiceExtension {
         interaction.direction = .incoming
         interaction.donate(completion: nil)
 
-        guard let updated = try? content.updating(from: intent) else { return nil }
+        guard let updated = try? composed.updating(from: intent) else { return nil }
 
-        // updating(from:) drops the subtitle whenever iOS decides to render the
-        // intent as a 1:1. Put it back so the middle line never depends on that
-        // decision.
-        guard let groupName = groupName, updated.subtitle != groupName else { return updated }
-        guard let restored = updated.mutableCopy() as? UNMutableNotificationContent else { return updated }
-        restored.subtitle = groupName
-        return restored
+        // No subtitle is re-applied here on purpose. The previous version put
+        // it back after updating(from:), on the theory that iOS had dropped it
+        // by mis-rendering the intent as a 1:1 — but iOS never paints a
+        // subtitle on a communication notification at all, so restoring it
+        // only made the content disagree with the banner. The context now
+        // lives in the title, which iOS does paint.
+        return updated
     }
 
     // MARK: - Image fetching

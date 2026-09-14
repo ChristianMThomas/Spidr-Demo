@@ -468,6 +468,7 @@ export default function SpidrShell() {
                 server={voiceSession.server}
                 channel={voiceSession.channel}
                 currentUser={voiceSession.currentUser || currentUser}
+                startWithVideo={!!voiceSession.startWithVideo}
                 onLeave={() => { endVoiceSession(); }}
                 onMinimize={() => { setVoiceDeckExpanded(false); setIsCallMinimized(true); }}
                 theaterHostId={theaterHostId}

@@ -7,11 +7,6 @@
     "scheme": "spidr",
     "userInterfaceStyle": "dark",
     "icon": "./assets/spidr-app-mobile.png",
-    "splash": {
-      "image": "./assets/spidr-app-mobile-splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#111111"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.infinitetechteam.spidr",
@@ -42,7 +37,7 @@
       "icon": "./assets/spidr-app-mobile.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/spidr-app-mobile.png",
-        "backgroundColor": "#111111"
+        "backgroundColor": "#000000"
       },
       "permissions": [
         "android.permission.RECORD_AUDIO",
@@ -76,7 +71,8 @@
       ],
       "expo-asset",
       "expo-notifications",
-      "@bacons/apple-targets"
+      "@bacons/apple-targets",
+      "expo-font"
     ],
     "extra": {
       "apiUrl": "https://cooperative-simplicity-production-bb44.up.railway.app",

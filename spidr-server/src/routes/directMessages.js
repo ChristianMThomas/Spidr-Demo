@@ -6,6 +6,17 @@ const { filterOrphans } = require('../utils/filterExistingUsers');
 
 const router = express.Router();
 
+// A DM has three participant fields: sender_id, receiver_id (required) and
+// recipient_id (an alias some frontend code writes instead). Any of them
+// matching the caller makes them a participant, so all three must be checked
+// or a legitimate reader gets a spurious 404.
+const PARTICIPANT_FIELDS = ['sender_id', 'receiver_id', 'recipient_id'];
+
+function isParticipant(doc, userId) {
+  const uid = userId?.toString();
+  return PARTICIPANT_FIELDS.some(f => doc[f]?.toString() === uid);
+}
+
 // GET / — same query surface as crudRouter, but drops rows whose OTHER
 // participant is a deleted User. The current caller is always sender_id
 // or recipient_id and exists, so this effectively hides DMs with ghost
@@ -20,6 +31,13 @@ router.get('/', authMW, async (req, res) => {
       else if (typeof v === 'object' && v !== null) continue;
       else query[k] = v;
     }
+    // Force participant scoping. Without this, GET /direct-messages with no
+    // filters returned up to 200 arbitrary users' private DMs to any
+    // authenticated caller (GAPS.md #1). Applied AFTER the client filters are
+    // built so no supplied filter can widen it back out.
+    const uid = req.user?.id?.toString();
+    query.$or = PARTICIPANT_FIELDS.map(f => ({ [f]: uid }));
+
     let q = DirectMessage.find(query);
     if (_orderBy) {
       const field = _orderBy.startsWith('-') ? _orderBy.slice(1) : _orderBy;
@@ -59,7 +77,24 @@ router.post('/read-conversation', authMW, async (req, res) => {
   }
 });
 
-// Standard CRUD — sender owns their messages.
+// GET /:id — participant-scoped. Must be declared BEFORE the crudRouter
+// mount below, whose bare findById would otherwise hand any DM to anyone who
+// can guess an ObjectId. Recipients need reads, so this checks participancy
+// rather than the stricter sender-only ownership used for writes.
+router.get('/:id', authMW, async (req, res) => {
+  try {
+    const doc = await DirectMessage.findById(req.params.id).lean();
+    if (!doc) return res.status(404).json({ error: 'Not found' });
+    // 404 rather than 403 — a DM's existence is itself private.
+    if (!isParticipant(doc, req.user?.id)) return res.status(404).json({ error: 'Not found' });
+    const { _id, __v, ...rest } = doc;
+    res.json({ id: _id?.toString(), ...rest });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Standard CRUD — sender owns their messages (writes stay sender-only).
 router.use('/', crudRouter(DirectMessage, { ownerField: 'sender_id' }));
 
 module.exports = router;

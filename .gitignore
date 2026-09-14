@@ -7,6 +7,11 @@ spidr-client/.env.development
 spidr-client/.env.production
 spidr-client/.env.local
 spidr-client/.env.staging
+# Dotless variants — a file named plain `env` leaked RESEND_API_KEY, MONGO_URI
+# and JWT_SECRET in commit 5a49385 because `.env` alone doesn't match it.
+env
+*.env
+env.*
 
 # HARD-EXCLUDE all secret material — Firebase admin service accounts,
 # Apple APNs/VoIP keys, distribution certificates, provisioning profiles.

@@ -85,6 +85,7 @@ router.get('/', authMW, async (req, res) => {
 // ownerField: 'user_id' locks PATCH/DELETE to the item's actor. System-generated
 // events set user_id: 'system' — no real user's id equals 'system', so those
 // items are automatically immutable from user-facing CRUD.
-router.use('/', crudRouter(Feed, { ownerField: 'user_id' }));
+// is_pinned is a curation flag, not self-assignable at create time.
+router.use('/', crudRouter(Feed, { ownerField: 'user_id', protectedFields: ['is_pinned'] }));
 
 module.exports = router;

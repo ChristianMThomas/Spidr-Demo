@@ -348,6 +348,9 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
       server: { id: 'dm', name: `DM — ${displayName}`, channels: [], members: [] },
       channel: { id: activeConversationId, name: displayName, type: 'voice' },
       currentUser,
+      // videoOn already decided the ring's `kind` below; it has to reach the
+      // media join too or the caller rings "video" and sends audio only.
+      startWithVideo: videoOn,
     });
     createSessionMutation.mutate({
       server_id: 'dm',

@@ -147,10 +147,16 @@ export default function IncomingCallBanner() {
           is_speaking: false,
         }).catch(() => { /* non-fatal: the join still works */ });
       } else if (call.conversationId) {
+        // The ring carries `kind`, but the media join ignored it and always
+        // came up audio-only — so answering a video call connected with no
+        // camera and the caller stared at a black tile. Answer a video ring
+        // with video, the way the caller asked for it.
+        const answerWithVideo = call.kind === 'video';
         startVoiceSession?.({
           server:  { id: 'dm', name: `DM — ${callerName}`, channels: [], members: [] },
           channel: { id: call.conversationId, name: callerName, type: 'voice' },
           currentUser,
+          startWithVideo: answerWithVideo,
         });
         entities.VoiceSession.create({
           server_id: 'dm',
@@ -159,7 +165,7 @@ export default function IncomingCallBanner() {
           user_name: currentUser?.full_name || currentUser?.username,
           user_avatar: currentUser?.avatar_url || '',
           is_muted: false,
-          is_video_on: false,
+          is_video_on: answerWithVideo,
           is_speaking: false,
         }).catch(() => { /* non-fatal */ });
       }

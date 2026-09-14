@@ -1,36 +1,16 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-  Image,
-  Linking,
-} from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Eye, EyeOff, Check } from 'lucide-react-native';
+import { Eye, EyeOff, Mail, Lock, User, AtSign } from 'lucide-react-native';
 import { useAuth } from '../../lib/authContext';
 import AuthShell, { GlassCard } from '../../components/auth/AuthShell';
+import { Head, Field, Checkbox, Btn, Notice, Foot, PasswordChecklist, C, T } from '../../components/auth/authKit';
+import { isPasswordStrong, PASSWORD_REQUIREMENTS_MESSAGE } from '../../lib/passwordPolicy';
 
-const LABEL = {
-  color: 'rgba(255,255,255,0.3)',
-  fontSize: 10,
-  fontWeight: '800' as const,
-  letterSpacing: 2,
-  marginBottom: 6,
-};
-
-const INPUT = {
-  backgroundColor: 'rgba(0,0,0,0.6)',
-  borderWidth: 1,
-  borderColor: 'rgba(255,255,255,0.10)',
-  borderRadius: 14,
-  paddingHorizontal: 16,
-  paddingVertical: 13,
-  color: '#fff',
-  fontSize: 14,
-};
+// Terms + Privacy live on the public marketing site. Linking.openURL hands off
+// to the system browser, so the half-filled signup form survives in the app.
+const LEGAL_URL = 'https://www.spidrapp.com/#privacy';
+const openLegal = () => { Linking.openURL(LEGAL_URL).catch(() => {}); };
 
 export default function Register() {
   const { register } = useAuth();
@@ -47,11 +27,15 @@ export default function Register() {
 
   const submit = async () => {
     if (!username || !email || !password) {
-      setError('Username, email, and passcode required');
+      setError('Alias, email, and password required');
+      return;
+    }
+    if (!isPasswordStrong(password)) {
+      setError(PASSWORD_REQUIREMENTS_MESSAGE);
       return;
     }
     if (!agreed) {
-      setError('You must agree to the Terms of Service and Privacy Policy');
+      setError('Please accept the Terms and Privacy Policy to continue.');
       return;
     }
     setBusy(true);
@@ -77,262 +61,109 @@ export default function Register() {
   return (
     <AuthShell>
       <GlassCard>
-        {/* Logo + title */}
-        <View style={{ alignItems: 'center', marginBottom: 24 }}>
-          <Image
-            source={require('../../assets/logo.png')}
-            style={{ width: 56, height: 56, marginBottom: 10 }}
-            resizeMode="contain"
+        <Head eyebrow="Join the web" />
+
+        <View style={{ gap: 16 }}>
+          <Field
+            label="Display name"
+            icon={User}
+            placeholder="What should we call you?"
+            value={fullName}
+            onChangeText={setFullName}
           />
-          <View style={{ flexDirection: 'row' }}>
-            <Text style={{ color: '#fff', fontSize: 36, fontWeight: '900', letterSpacing: -1.5 }}>
-              SPID
-            </Text>
-            <Text style={{ color: '#ef4444', fontSize: 36, fontWeight: '900', letterSpacing: -1.5 }}>
-              R
-            </Text>
-          </View>
-          <Text
-            style={{
-              color: 'rgba(255,255,255,0.25)',
-              fontSize: 10,
-              letterSpacing: 3.5,
-              marginTop: 4,
-            }}
-          >
-            MODULE NEXUS GATEWAY
-          </Text>
-        </View>
 
-        {/* Mode toggle */}
-        <View
-          style={{
-            flexDirection: 'row',
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            borderRadius: 14,
-            padding: 4,
-            marginBottom: 22,
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.05)',
-          }}
-        >
-          <TouchableOpacity
-            onPress={() => router.replace('/(auth)/login')}
-            style={{ flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center' }}
-          >
-            <Text
-              style={{
-                color: 'rgba(255,255,255,0.3)',
-                fontWeight: '800',
-                fontSize: 12,
-                letterSpacing: 1,
-              }}
-            >
-              INITIALIZE
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={{
-              flex: 1,
-              paddingVertical: 11,
-              borderRadius: 10,
-              alignItems: 'center',
-              backgroundColor: '#dc2626',
-            }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12, letterSpacing: 1 }}>
-              FORM CONNECTION
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* FULL NAME */}
-        <Text style={LABEL}>FULL NAME</Text>
-        <TextInput
-          style={[INPUT, { marginBottom: 14 }]}
-          placeholder="Your name"
-          placeholderTextColor="rgba(255,255,255,0.2)"
-          value={fullName}
-          onChangeText={setFullName}
-        />
-
-        {/* ALIAS — @username + #tag in one glass row */}
-        <Text style={LABEL}>ALIAS</Text>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: '#050505',
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.10)',
-            borderRadius: 14,
-            paddingHorizontal: 12,
-            marginBottom: 6,
-          }}
-        >
-          <Text style={{ color: 'rgba(239,68,68,0.7)', fontSize: 14, marginRight: 6 }}>@</Text>
-          <TextInput
-            style={{
-              flex: 1,
-              color: '#fff',
-              fontSize: 14,
-              paddingVertical: 13,
-            }}
-            placeholder="username"
-            placeholderTextColor="rgba(255,255,255,0.2)"
+          <Field
+            label="Email"
+            icon={Mail}
+            placeholder="you@example.com"
             autoCapitalize="none"
-            value={username}
-            onChangeText={setUsername}
+            autoComplete="email"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
           />
-          <Text style={{ color: 'rgba(255,255,255,0.25)', fontSize: 14, marginHorizontal: 6 }}>#</Text>
-          <TextInput
-            style={{
-              width: 64,
-              color: '#fff',
-              fontSize: 14,
-              paddingVertical: 13,
-              textAlign: 'center',
-              letterSpacing: 2,
-            }}
-            placeholder="abcd"
-            placeholderTextColor="rgba(255,255,255,0.2)"
-            autoCapitalize="none"
-            maxLength={4}
-            value={discriminator}
-            onChangeText={(t) => setDiscriminator(t.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4))}
-          />
-        </View>
-        <Text style={{ color: 'rgba(255,255,255,0.25)', fontSize: 10, marginBottom: 14, lineHeight: 14 }}>
-          Your @username and a 4-character tag together make you unique. Leave the tag empty and we'll pick one for you.
-        </Text>
 
-        {/* SECURE SIGNAL */}
-        <Text style={LABEL}>SECURE SIGNAL</Text>
-        <TextInput
-          style={[INPUT, { marginBottom: 14 }]}
-          placeholder="name@domain.com"
-          placeholderTextColor="rgba(255,255,255,0.2)"
-          autoCapitalize="none"
-          autoComplete="email"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
-
-        {/* PASSCODE */}
-        <Text style={LABEL}>PASSCODE</Text>
-        <View style={{ position: 'relative', marginBottom: 14 }}>
-          <TextInput
-            style={[INPUT, { paddingRight: 44 }]}
-            placeholder="••••••••"
-            placeholderTextColor="rgba(255,255,255,0.2)"
+          <Field
+            label="Password"
+            icon={Lock}
+            placeholder="At least 8 characters"
             secureTextEntry={!showPw}
             value={password}
             onChangeText={setPassword}
+            trailing={
+              <TouchableOpacity
+                onPress={() => setShowPw((v) => !v)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                {showPw ? <EyeOff size={16} strokeWidth={1.75} color={C.ink30} />
+                        : <Eye size={16} strokeWidth={1.75} color={C.ink30} />}
+              </TouchableOpacity>
+            }
           />
-          <TouchableOpacity
-            onPress={() => setShowPw((v) => !v)}
-            style={{ position: 'absolute', right: 12, top: 0, bottom: 0, justifyContent: 'center' }}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            {showPw ? (
-              <EyeOff size={16} color="rgba(255,255,255,0.5)" />
-            ) : (
-              <Eye size={16} color="rgba(255,255,255,0.5)" />
-            )}
-          </TouchableOpacity>
+          <PasswordChecklist password={password} />
+
+          {/* Alias — the API needs @username#tag, so this takes the single
+              optional slot rather than adding a fifth field. One container
+              hosts both inputs; Field's single input can't express the split. */}
+          <View style={{ gap: 6 }}>
+            <Text style={T.label}>Your alias</Text>
+            <View
+              style={{
+                flexDirection: 'row', alignItems: 'center', gap: 8,
+                height: 46, paddingHorizontal: 14, borderRadius: 12,
+                backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.border,
+              }}
+            >
+              <AtSign size={16} strokeWidth={1.75} color={C.ink30} />
+              <TextInput
+                // @ts-ignore — nativewind's cssInterop escape hatch; see AuthShell.tsx
+                cssInterop={false}
+                placeholder="username"
+                placeholderTextColor={C.ink22}
+                autoCapitalize="none"
+                value={username}
+                onChangeText={setUsername}
+                style={{ flex: 1, minWidth: 0, color: C.white, fontSize: 14, padding: 0 }}
+              />
+              <Text style={{ color: 'rgba(255,255,255,0.25)', fontSize: 14 }}>#</Text>
+              <TextInput
+                // @ts-ignore — nativewind's cssInterop escape hatch; see AuthShell.tsx
+                cssInterop={false}
+                placeholder="abcd"
+                placeholderTextColor={C.ink22}
+                maxLength={4}
+                autoCapitalize="none"
+                value={discriminator}
+                onChangeText={(v) => setDiscriminator(v.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4))}
+                style={{ width: 52, color: C.white, fontSize: 14, textAlign: 'center', letterSpacing: 2, padding: 0 }}
+              />
+            </View>
+            <Text style={T.meta}>Leave the tag blank and we'll pick one for you.</Text>
+          </View>
+
+          <Checkbox checked={agreed} onChange={setAgreed}>
+            <Text style={{ fontSize: 13, color: C.ink55 }}>
+              I agree to the{' '}
+              <Text style={{ color: C.white }} onPress={openLegal}>Terms</Text>
+              {' '}and{' '}
+              <Text style={{ color: C.white }} onPress={openLegal}>Privacy Policy</Text>
+            </Text>
+          </Checkbox>
+
+          {error && <Notice title={error} />}
+
+          <Btn label="Create account" onPress={submit} busy={busy} />
         </View>
 
-        {/* Terms + privacy agreement — required for store compliance */}
-        <TouchableOpacity
-          onPress={() => setAgreed((v) => !v)}
-          activeOpacity={0.8}
-          style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}
-        >
-          <View
-            style={{
-              width: 20,
-              height: 20,
-              borderRadius: 6,
-              borderWidth: 1,
-              borderColor: agreed ? '#dc2626' : 'rgba(255,255,255,0.2)',
-              backgroundColor: agreed ? '#dc2626' : 'transparent',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginTop: 1,
-            }}
-          >
-            {agreed && <Check size={13} color="#fff" strokeWidth={4} />}
-          </View>
-          <Text style={{ flex: 1, color: 'rgba(255,255,255,0.4)', fontSize: 11, lineHeight: 16 }}>
-            I agree to the{' '}
-            <Text
-              style={{ color: '#ef4444' }}
-              onPress={() => Linking.openURL('https://spidrapp.infinitetechteam.com/terms')}
-            >
-              Terms of Service
-            </Text>{' '}
-            and{' '}
-            <Text
-              style={{ color: '#ef4444' }}
-              onPress={() => Linking.openURL('https://spidrapp.infinitetechteam.com/privacy')}
-            >
-              Privacy Policy
-            </Text>
-            .
-          </Text>
-        </TouchableOpacity>
-
-        {error && (
-          <View
-            style={{
-              backgroundColor: 'rgba(239,68,68,0.1)',
-              borderWidth: 1,
-              borderColor: 'rgba(239,68,68,0.3)',
-              borderRadius: 10,
-              padding: 10,
-              marginBottom: 12,
-            }}
-          >
-            <Text style={{ color: '#f87171', fontSize: 12, textAlign: 'center' }}>{error}</Text>
-          </View>
-        )}
-
-        <TouchableOpacity
-          onPress={submit}
-          disabled={busy}
-          style={{
-            backgroundColor: '#dc2626',
-            borderRadius: 14,
-            paddingVertical: 14,
-            alignItems: 'center',
-            shadowColor: '#ef4444',
-            shadowOffset: { width: 0, height: 0 },
-            shadowOpacity: 0.3,
-            shadowRadius: 20,
-            elevation: 6,
-            opacity: busy ? 0.6 : 1,
-          }}
-        >
-          {busy ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13, letterSpacing: 2.5 }}>
-              JOIN NETWORK
-            </Text>
-          )}
-        </TouchableOpacity>
-
-        <Text
-          style={{
-            color: 'rgba(255,255,255,0.15)',
-            fontSize: 10,
-            textAlign: 'center',
-            marginTop: 16,
-          }}
-        >
-          A verification code will be sent to your email.
+        <Text style={[T.meta, { textAlign: 'center' }]}>
+          We'll send a verification code to your email.
         </Text>
+
+        <Foot
+          question="Already have an account?"
+          action="Sign in"
+          onPress={() => router.replace('/(auth)/login')}
+        />
       </GlassCard>
     </AuthShell>
   );

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,7 @@ import {
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { entities } from '../../../lib/apiClient';
+import { getSocket } from '../../../lib/socket';
 import { useAppShell } from '../../../lib/appShellContext';
 import { Avatar } from '../../../components/ui/Avatar';
 import { Spinner } from '../../../components/ui/Spinner';
@@ -96,10 +97,15 @@ function ChannelRow({
   name,
   icon,
   onPress,
+  right,
+  occupants,
 }: {
   name: string;
   icon: React.ReactNode;
   onPress: () => void;
+  right?: React.ReactNode;
+  /** Voice-web occupants, rendered as a stacked avatar row under the name. */
+  occupants?: any[];
 }) {
   return (
     <TouchableOpacity
@@ -116,12 +122,25 @@ function ChannelRow({
     >
       {/* Fixed-width icon slot so every channel name aligns at the same x */}
       <View style={{ width: 28, alignItems: 'flex-start' }}>{icon}</View>
-      <Text
-        style={{ color: '#e4e4e7', fontSize: 15, fontWeight: '600', flex: 1 }}
-        numberOfLines={1}
-      >
-        {name}
-      </Text>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text
+          style={{ color: '#e4e4e7', fontSize: 15, fontWeight: '600' }}
+          numberOfLines={1}
+        >
+          {name}
+        </Text>
+        {occupants && occupants.length > 0 ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 5 }}>
+            {occupants.slice(0, 4).map((s: any) => (
+              <Avatar key={String(s.id || s.user_id)} uri={s.user_avatar} name={s.user_name} size={18} />
+            ))}
+            <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: '800' }}>
+              {occupants.length > 4 ? `+${occupants.length - 4}` : ''}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+      {right}
     </TouchableOpacity>
   );
 }
@@ -440,6 +459,35 @@ export default function ServerChannelList() {
     };
   }, [server]);
 
+  // Live voice-web occupancy — the same VoiceSession rows the web sidebar
+  // reads, so a channel someone joined on desktop shows people here too.
+  const { data: voiceSessions = [] } = useQuery({
+    queryKey: ['voiceSessions', id],
+    queryFn: () => entities.VoiceSession.filter({ server_id: id }),
+    enabled: !!id,
+    refetchInterval: 20_000,
+  });
+
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    (async () => {
+      const socket = await getSocket();
+      const refresh = () => queryClient.invalidateQueries({ queryKey: ['voiceSessions', id] });
+      socket.on('voice:session-changed', refresh);
+      cleanup = () => socket.off('voice:session-changed', refresh);
+    })();
+    return () => cleanup?.();
+  }, [id, queryClient]);
+
+  const occupantsByChannel = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    for (const s of (voiceSessions as any[]) || []) {
+      if (!s?.channel_id) continue;
+      (map[s.channel_id] ||= []).push(s);
+    }
+    return map;
+  }, [voiceSessions]);
+
   // A dead invite link 404s here. Previously the query errored, `server`
   // stayed undefined, and this sat on a spinner forever.
   if (!id || serverError) return <NotFound what="server" />;
@@ -526,7 +574,7 @@ export default function ServerChannelList() {
           </>
         )}
 
-        {/* VOICE WEBS — voice channels (Phase 2 — needs custom dev client) */}
+        {/* VOICE WEBS — tapping joins the same P2P mesh the web deck uses */}
         {voiceChannels.length > 0 && (
           <>
             <CategoryHeader
@@ -535,19 +583,31 @@ export default function ServerChannelList() {
               onToggle={() => toggle('voice')}
             />
             {!collapsed['voice'] &&
-              voiceChannels.map((c) => (
-                <ChannelRow
-                  key={String(c.id || c._id)}
-                  name={c.name}
-                  icon={<Volume2 size={18} color="#71717a" />}
-                  onPress={() =>
-                    Alert.alert(
-                      'Voice on mobile',
-                      'Voice channels need the Phase 2 custom dev client (react-native-webrtc). Use the web client for now.'
-                    )
-                  }
-                />
-              ))}
+              voiceChannels.map((c) => {
+                const channelId = String(c.id || c._id);
+                const occupants = occupantsByChannel[channelId] || [];
+                return (
+                  <ChannelRow
+                    key={channelId}
+                    name={c.name}
+                    icon={<Volume2 size={18} color={occupants.length ? '#22c55e' : '#71717a'} />}
+                    occupants={occupants}
+                    right={
+                      occupants.length ? (
+                        <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '900' }}>
+                          {occupants.length}
+                        </Text>
+                      ) : null
+                    }
+                    onPress={() =>
+                      router.push(
+                        `/voice/${channelId}?serverId=${encodeURIComponent(String(id))}` +
+                        `&name=${encodeURIComponent(c.name)}&kind=server`
+                      )
+                    }
+                  />
+                );
+              })}
           </>
         )}
       </ScrollView>

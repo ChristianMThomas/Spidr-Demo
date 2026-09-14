@@ -114,6 +114,22 @@ export default function CallScreen() {
     return values[0] || null;
   }, [remoteStreams]);
 
+  // A remote stream existing is NOT the same as it carrying video — a peer can
+  // answer a video call audio-only, which is exactly what the web client does
+  // today. Gating the RTCView on stream existence alone painted a black
+  // surface AND suppressed the avatar fallback below, so you got a dead black
+  // screen with no name and no face while still hearing them.
+  // remoteStreams stays in the dep list on purpose: callManager replaces the
+  // map object on every ontrack, so a video track arriving late (or the peer
+  // switching their camera on mid-call) re-runs this.
+  const remoteHasVideo = useMemo(() => {
+    const tracks = primaryRemoteStream?.getVideoTracks?.() || [];
+    return tracks.some((t: any) => t.readyState !== 'ended');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [primaryRemoteStream, remoteStreams]);
+
+  const showRemoteVideo = isVideo && !!RTCView && !!primaryRemoteStream && remoteHasVideo;
+
   const end = () => {
     callManager.end();
     // The state listener will router.back(), but do it eagerly too.
@@ -126,7 +142,7 @@ export default function CallScreen() {
       <StatusBar barStyle="light-content" />
       <View style={{ flex: 1, backgroundColor: '#000' }}>
         {/* Video primary layer */}
-        {isVideo && RTCView && primaryRemoteStream ? (
+        {showRemoteVideo ? (
           <RTCView
             streamURL={primaryRemoteStream.toURL?.()}
             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
@@ -135,8 +151,10 @@ export default function CallScreen() {
           />
         ) : null}
 
-        {/* Voice mode centered content */}
-        {!isVideo || !primaryRemoteStream ? (
+        {/* Voice mode centered content — also the fallback for a video call
+            whose peer isn't sending video, so you always see who you're on
+            with instead of a black rectangle. */}
+        {!showRemoteVideo ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
             <Animated.View style={{ transform: [{ scale: pulse }], marginBottom: 24 }}>
               <View style={{ padding: 4, borderRadius: 999, borderWidth: 2, borderColor: 'rgba(239,68,68,0.5)' }}>

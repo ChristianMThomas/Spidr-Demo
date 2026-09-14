@@ -625,10 +625,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                       )}
                     </Avatar>
                     <div className="flex-1">
-                      <p className="font-medium text-white">
-                        {liveName}
-                        <span className="text-zinc-500">#{friend.friend_discriminator}</span>
-                      </p>
+                      <p className="font-medium text-white">{liveName}</p>
                       <p className="text-xs text-zinc-500">Incoming request</p>
                     </div>
                     <div className="flex gap-2">
@@ -684,10 +681,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                       )}
                     </Avatar>
                     <div className="flex-1">
-                      <p className="font-medium text-white">
-                        {liveName}
-                        <span className="text-zinc-500">#{friend.friend_discriminator}</span>
-                      </p>
+                      <p className="font-medium text-white">{liveName}</p>
                       <p className="text-xs text-zinc-500">Outgoing request</p>
                     </div>
                     <Button
@@ -884,21 +878,12 @@ function FriendCard({ friend, profile, currentUser, onViewProfile, queryClient, 
         </div>
         
         <div className="relative z-[2] flex-1 min-w-0">
-          {friend.nickname ? (
-            <>
-              <p className="font-medium text-white truncate">{friend.nickname}</p>
-              <p className="text-xs text-zinc-500 truncate">
-                {friend.friend_name}#{friend.friend_discriminator}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="font-medium text-white truncate">
-                {profile?.display_name || friend.friend_name}
-                <span className="text-zinc-500 ml-1 opacity-60">#{friend.friend_discriminator}</span>
-              </p>
-            </>
-          )}
+          {/* One name only — your nickname for them if you set one, else their
+              current display name. The #tag lives on their profile; repeating
+              it in every row was noise. */}
+          <p className="text-base font-semibold text-white truncate">
+            {friend.nickname || profile?.display_name || friend.friend_name}
+          </p>
           {/* Unread DM preview snippet */}
           {unreadInfo ? (
             <p className="text-xs text-[#FF3333] truncate font-medium">

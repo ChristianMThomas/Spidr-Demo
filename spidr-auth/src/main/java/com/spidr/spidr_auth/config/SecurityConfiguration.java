@@ -1,6 +1,7 @@
 package com.spidr.spidr_auth.config;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -14,6 +15,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Configuration
@@ -22,6 +24,15 @@ import java.util.List;
 public class SecurityConfiguration {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    /**
+     * Whether to allow http://localhost origins through CORS. True for local
+     * development; application-railway.properties sets it false so the
+     * production deployment does not accept credentialed requests from a page
+     * served on a visitor's own machine.
+     */
+    @Value("${app.cors.allow-local-dev:true}")
+    private boolean allowLocalDevOrigins;
 
     // ── Security Filter Chain ─────────────────────────────────────────────────
 
@@ -71,18 +82,29 @@ public class SecurityConfiguration {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // Allowed origins — Vite dev server, Electron (file://), production frontend
-        config.setAllowedOrigins(List.of(
-            "http://localhost:5173",
-            "http://localhost:4000",
+        // Allowed origins. NOTE: an Origin header is scheme://host[:port] and
+        // never carries a path, so the two ".../login" entries that used to sit
+        // in this list could never match anything - they are dropped.
+        List<String> origins = new ArrayList<>(List.of(
             "https://spidrapp.infinitetechteam.com",
             "https://www.spidrapp.infinitetechteam.com",
-            "https://spidrapp.infinitetechteam.com/login",
-            "https://www.spidrapp.infinitetechteam.com/login",
-            "http://localhost:3000",
             "app://.",
             "file://"
         ));
+
+        // Dev-only origins. These were previously hardcoded into the same list
+        // used by the Railway deployment, which - combined with
+        // setAllowCredentials(true) below - let any page on a victim's
+        // localhost make credentialed calls against production auth.
+        if (allowLocalDevOrigins) {
+            origins.addAll(List.of(
+                "http://localhost:5173",
+                "http://localhost:4000",
+                "http://localhost:3000"
+            ));
+        }
+
+        config.setAllowedOrigins(origins);
 
         // Allowed HTTP methods
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));

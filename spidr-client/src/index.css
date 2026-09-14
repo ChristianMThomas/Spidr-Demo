@@ -2,6 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Le Chaudron Magique';
+  src: url('./assets/fonts/LeChaudronMagique.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Autofill — Chrome/Safari/Edge paint a hard white (or pale blue) background
+   on autofilled inputs and force dark text, which blows out every dark field
+   in the app. You cannot override that background with `background-color`;
+   the UA style wins. The working fix is a huge inset box-shadow, which paints
+   over the UA background but under the text, plus -webkit-text-fill-color to
+   win back the ink.
+
+   #050505 is the composite of the design's input — rgba(0,0,0,.6) over the
+   glass card rgba(255,255,255,.03) over the black page — flattened, since a
+   translucent shadow would let the white bleed through. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #050505 inset !important;
+  box-shadow: 0 0 0 1000px #050505 inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff;
+  border-radius: inherit;
+  /* Chrome repaints its background a tick after commit; an absurd delay on the
+     background-color transition means that repaint never visibly lands. */
+  transition: background-color 600000s 0s ease-in-out;
+}
+
+/* Firefox (and the spec'd pseudo-class) — honours background-color directly. */
+input:autofill,
+textarea:autofill,
+select:autofill {
+  background-color: #050505 !important;
+  color: #ffffff !important;
+  filter: none;
+}
+
 
 @layer base {
   :root {

@@ -19,7 +19,12 @@ const ICE_SERVERS = [
   { urls: 'stun:stun2.l.google.com:19302' },
 ];
 
-export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled = true }) {
+// startWithVideo: acquire the camera on the auto-join below instead of
+// audio-only. Until this existed the initial join was ALWAYS audio-only and
+// `is_video_on` on the VoiceSession row was pure presence decoration — a
+// video call connected with no camera track on either side, and video only
+// appeared if someone manually hit the camera toggle afterwards.
+export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled = true, startWithVideo = false }) {
   const [localStream, setLocalStream]   = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({}); // socketId -> MediaStream
   const [isMuted, setIsMuted]           = useState(false);
@@ -226,16 +231,30 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
         ...(micId ? { deviceId: prefs.micId ? { exact: micId } : { ideal: micId } } : {}),
       };
       // Get microphone (and optional camera)
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: audioConstraints,
-        video: video ? { width: 1280, height: 720, frameRate: 30 } : false,
-      });
+      let videoOn = video;
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: audioConstraints,
+          video: videoOn ? { width: 1280, height: 720, frameRate: 30 } : false,
+        });
+      } catch (err) {
+        // getUserMedia is all-or-nothing: a camera that is missing, busy, or
+        // blocked rejects the whole request and takes the microphone with it,
+        // aborting the join in the outer catch — which lands you in a call
+        // that looks connected and has no audio at all. Drop the camera and
+        // keep the call.
+        if (!videoOn) throw err;
+        console.warn('[useWebRTC] camera unavailable, joining audio-only:', err.name);
+        videoOn = false;
+        stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+      }
 
       if (muted) stream.getAudioTracks().forEach(t => { t.enabled = false; });
 
       localStreamRef.current = stream;
       setLocalStream(stream);
-      setIsVideoOn(video);
+      setIsVideoOn(videoOn);
       setIsMuted(muted);
 
       // Connect to socket and join voice room
@@ -492,9 +511,12 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
   // Auto-join on mount if enabled
   useEffect(() => {
     if (enabled && currentUser) {
-      join({ muted: false });
+      join({ muted: false, video: startWithVideo });
       return () => { leave(); };
     }
+    // startWithVideo is read once at join time on purpose — adding it to the
+    // deps would tear down and rebuild the whole session on a camera toggle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, currentUser?.id]);
 
   /**

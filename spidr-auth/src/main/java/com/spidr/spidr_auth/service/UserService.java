@@ -59,9 +59,7 @@ public class UserService {
             throw new RuntimeException("Current password is incorrect");
         }
 
-        if (newPassword.length() < 8) {
-            throw new RuntimeException("New password must be at least 8 characters");
-        }
+        PasswordPolicy.requireStrong(newPassword);
 
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepo.save(user);

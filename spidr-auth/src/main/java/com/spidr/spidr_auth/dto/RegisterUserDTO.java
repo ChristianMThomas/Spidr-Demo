@@ -3,7 +3,6 @@ package com.spidr.spidr_auth.dto;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -20,7 +19,8 @@ public class RegisterUserDTO {
     @Email(message = "Invalid email format")
     private String email;
 
+    // Strength rules are enforced by PasswordPolicy in AuthService so the client
+    // gets one readable {error} instead of the generic "Validation failed".
     @NotBlank(message = "Password is required")
-    @Size(min = 8, message = "Password must be at least 8 characters")
     private String password;
 }
