@@ -439,6 +439,8 @@ export const SPOTIFY_CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || '';
 // search modal — the user sees "No matches" instead of a crash.
 // Apple Music (MusicKit) — Spidr's Discord differentiator.
 export const appleMusic = {
+  status:        ()      => api.get('/apple-music/status'),
+  connectionLink: ()    => api.post('/apple-music/auth/link', {}),
   devToken:       ()      => api.get('/apple-music/dev-token'),
   search:         (q, limit = 12) => api.get(`/apple-music/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   saveUserToken:  (music_user_token) => api.post('/apple-music/user-token', { music_user_token }),

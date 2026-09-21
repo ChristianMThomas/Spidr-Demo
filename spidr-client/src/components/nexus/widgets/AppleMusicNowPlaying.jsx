@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Music2, ExternalLink } from 'lucide-react';
-import { entities, appleMusic, getSocket } from '@/api/apiClient';
+import { entities, appleMusic } from '@/api/apiClient';
 import { useNowPlaying as useNowPlayingPresence } from '@/context/NowPlayingContext';
 import useMusicKit from '@/components/spidr/useMusicKit';
 import { toast } from 'sonner';
@@ -41,12 +41,19 @@ export default function AppleMusicNowPlaying({ userId, isOwnProfile }) {
     enabled: !!userId,
     staleTime: 60_000,
   });
-  const connected = !!profile?.neural_links?.apple_music_connected || musicKit.authorized;
+  const connected = isOwnProfile ? musicKit.connected : !!profile?.neural_links?.apple_music_connected;
 
   // Recently played (own, connected) — the honest fallback signal.
   const { data: recent } = useQuery({
     queryKey: ['apple-recent', userId],
-    queryFn: () => appleMusic.recentlyPlayed().then(r => r?.track || null).catch(() => null),
+    queryFn: async () => {
+      try { return (await appleMusic.recentlyPlayed())?.track || null; }
+      catch {
+        await musicKit.refresh().catch(() => {});
+        queryClient.invalidateQueries({ queryKey: ['user-profile', userId] });
+        return null;
+      }
+    },
     enabled: !!isOwnProfile && connected,
     staleTime: 60_000,
     refetchInterval: 120_000,
@@ -62,9 +69,10 @@ export default function AppleMusicNowPlaying({ userId, isOwnProfile }) {
 
   const handleConnect = async () => {
     try {
-      await musicKit.authorize();
+      const result = await musicKit.authorize();
       queryClient.invalidateQueries({ queryKey: ['user-profile', userId] });
-      toast.success('Apple Music connected');
+      if (result?.pending) toast('Waiting for Apple Music authorization');
+      else toast.success('Apple Music connected');
     } catch (err) {
       toast.error(err?.message || 'Could not connect Apple Music');
     }
@@ -100,11 +108,11 @@ export default function AppleMusicNowPlaying({ userId, isOwnProfile }) {
           </p>
           <button
             onClick={handleConnect}
-            disabled={!musicKit.ready}
+            disabled={!musicKit.ready || musicKit.busy}
             className="px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40 transition-all hover:scale-[1.02]"
             style={{ background: 'linear-gradient(135deg, #fa243c, #a250fa)' }}
           >
-            {musicKit.ready ? 'Connect Apple Music' : 'Loading…'}
+            {musicKit.pending ? 'Awaiting authorization' : musicKit.busy ? 'Connecting...' : musicKit.ready ? 'Connect Apple Music' : 'Loading...'}
           </button>
         </div>
       </WidgetShell>

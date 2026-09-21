@@ -1,0 +1,37 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { generateKeyPairSync } = require('node:crypto');
+const jwt = require('jsonwebtoken');
+const service = require('../src/utils/appleMusicService');
+const { publicProfile, connectionSafeBody } = require('../src/utils/profileConnections');
+
+test('Apple developer signing, configuration and public profile boundary', async t => {
+  const names = ['APPLE_TEAM_ID', 'APPLE_MUSICKIT_KEY_ID', 'APPLE_MUSICKIT_PRIVATE_KEY', 'APPLE_MUSICKIT_PRIVATE_KEY_PATH'];
+  const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
+  t.after(() => { for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; } service.resetDeveloperToken(); });
+  names.forEach(name => delete process.env[name]);
+  assert.equal(service.configuration().configured, false);
+  process.env.APPLE_TEAM_ID = 'TESTTEAM01';
+  process.env.APPLE_MUSICKIT_KEY_ID = 'TESTKEY001';
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  process.env.APPLE_MUSICKIT_PRIVATE_KEY = privateKey.export({ type: 'pkcs8', format: 'pem' }).replaceAll('\n', '\\n');
+  assert.equal(service.configuration().configured, true);
+  const token = service.developerToken();
+  const decoded = jwt.verify(token.token, publicKey, { algorithms: ['ES256'] });
+  assert.equal(decoded.iss, 'TESTTEAM01');
+  assert.equal(decoded.exp - decoded.iat, 43200);
+  assert.equal(jwt.decode(token.token, { complete: true }).header.kid, 'TESTKEY001');
+  assert.equal(service.developerToken().token, token.token);
+  process.env.APPLE_MUSICKIT_PRIVATE_KEY = 'invalid-key';
+  assert.equal(service.configuration().code, 'invalid_configuration');
+  await assert.rejects(service.validateUserToken({ token: 'wrong type' }), { status: 400 });
+  await assert.rejects(service.validateUserToken('bad\ntoken'), { status: 400 });
+  const profile = { id: 'test', neural_links: { apple_music_connected: true, apple_music_user_token: 'secret', spotify_access_token: 'secret', steam: true } };
+  assert.deepEqual(publicProfile([profile])[0].neural_links, { apple_music_connected: true, steam: true });
+  assert.equal(profile.neural_links.apple_music_user_token, 'secret', 'serializer does not mutate stored data');
+  assert.deepEqual(connectionSafeBody({ neural_links: { apple_music_connected: true, apple_music_user_token: 'bad', spotify_access_token: 'bad', steam: true }, 'neural_links.apple_music_connected': true }, true), { 'neural_links.steam': true });
+  const song = service.trackShape({ id: '1', attributes: { name: 'Track', artistName: 'Artist', artwork: { url: 'https://example.test/{w}x{h}.jpg' } } }, 'gb');
+  assert.equal(song.album_art_url, 'https://example.test/300x300.jpg');
+  assert.equal(song.preview_url, null);
+  assert.equal(song.source, 'apple');
+});

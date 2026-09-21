@@ -1,200 +1,100 @@
 const express = require('express');
-const jwt = require('jsonwebtoken');
+const path = require('node:path');
+const { randomBytes, createHash } = require('node:crypto');
+const rateLimit = require('express-rate-limit');
 const authMW = require('../middleware/auth');
-const UserProfile = require('../models/UserProfile');
-
-/**
- * Apple Music (MusicKit) integration — Spidr's edge over Discord, which has
- * NO Apple Music support at all.
- *
- *   GET    /apple-music/dev-token        — MusicKit developer token (JWT ES256)
- *   GET    /apple-music/search?q=        — catalog search (dev token only —
- *                                          works for EVERY user, no connection
- *                                          needed, previews included)
- *   POST   /apple-music/user-token       — store the Music User Token minted by
- *                                          MusicKit JS `authorize()` client-side
- *   GET    /apple-music/recently-played  — the user's last played track (Apple
- *                                          has NO live now-playing endpoint;
- *                                          this is the closest official signal)
- *   DELETE /apple-music/disconnect       — clear stored connection
- *
- * Required env (Apple Developer Program → Certificates → Keys → MusicKit):
- *   APPLE_TEAM_ID              e.g. "AB12CD34EF"
- *   APPLE_MUSICKIT_KEY_ID      e.g. "XYZ123ABCD"
- *   APPLE_MUSICKIT_PRIVATE_KEY the .p8 contents (literal newlines or \n-escaped)
- *
- * Without these, /dev-token returns 503 { configured: false } and the client
- * hides all Apple Music UI — the feature degrades to invisible, never broken.
- */
-
+const Connection = require('../models/AppleMusicConnection');
+const Link = require('../models/AppleMusicLink');
+const User = require('../models/User');
+const service = require('../utils/appleMusicService');
 const router = express.Router();
+const hash = value => createHash('sha256').update(value).digest('hex');
+const handle = fn => async (req, res, next) => {
+  try { await fn(req, res, next); }
+  catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not update Apple Music connection.', code: error.code || 'connection_error' }); }
+};
+router.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
-const TEAM_ID = process.env.APPLE_TEAM_ID || '';
-const KEY_ID = process.env.APPLE_MUSICKIT_KEY_ID || '';
-const PRIVATE_KEY = (process.env.APPLE_MUSICKIT_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-const STOREFRONT_DEFAULT = process.env.APPLE_MUSIC_STOREFRONT || 'us';
-
-const configured = () => !!(TEAM_ID && KEY_ID && PRIVATE_KEY);
-
-// ── Developer token (cached; Apple allows up to 6 months, we mint 12h) ──────
-let devTokenCache = { token: null, expiresAt: 0 };
-function getDevToken() {
-  if (!configured()) return null;
-  if (devTokenCache.token && Date.now() < devTokenCache.expiresAt - 60_000) {
-    return devTokenCache.token;
-  }
-  const now = Math.floor(Date.now() / 1000);
-  const token = jwt.sign(
-    { iss: TEAM_ID, iat: now, exp: now + 12 * 60 * 60 },
-    PRIVATE_KEY,
-    { algorithm: 'ES256', keyid: KEY_ID }
-  );
-  devTokenCache = { token, expiresAt: (now + 12 * 60 * 60) * 1000 };
-  return token;
-}
-
-router.get('/dev-token', authMW, (req, res) => {
-  if (!configured()) {
-    return res.status(503).json({ configured: false, error: 'Apple Music is not configured on this server' });
-  }
-  try {
-    res.json({ configured: true, token: getDevToken() });
-  } catch (err) {
-    console.error('[apple-music] dev token mint failed:', err.message);
-    res.status(500).json({ configured: true, error: 'Could not mint developer token — check APPLE_MUSICKIT_PRIVATE_KEY format' });
-  }
+// Electron blocks remote auth windows. Use a single-use browser handoff,
+// never the user's Spidr session JWT.
+router.get('/connect', (req, res) => {
+  res.set('Content-Security-Policy', "default-src 'none'; script-src 'self' https://js-cdn.music.apple.com; style-src 'self'; connect-src 'self' https://*.apple.com https://*.itunes.apple.com; img-src 'self' data: https://*.mzstatic.com; frame-src https://*.apple.com https://*.itunes.apple.com; media-src blob: https:; worker-src blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+  res.set('Referrer-Policy', 'no-referrer');
+  res.sendFile(path.join(__dirname, '../public/apple-music-connect.html'));
 });
+router.get('/connect.js', (req, res) => res.sendFile(path.join(__dirname, '../public/apple-music-connect.js')));
+router.get('/connect.css', (req, res) => res.sendFile(path.join(__dirname, '../public/apple-music-connect.css')));
 
-// ── Catalog search ───────────────────────────────────────────────────────────
-// Same track shape as /spotify/search so every existing selection surface
-// (DJ booth, anthem picker) can consume results with zero changes:
-// { id, name, artist, album, album_art_url, preview_url, external_url,
-//   duration_ms, source: 'apple' }
-router.get('/search', authMW, async (req, res) => {
-  if (!configured()) return res.status(503).json({ error: 'Apple Music not configured', tracks: [] });
-  try {
-    const q = (req.query.q || '').toString().trim();
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 12, 1), 25);
-    if (!q) return res.json({ tracks: [] });
-
-    const url = `https://api.music.apple.com/v1/catalog/${STOREFRONT_DEFAULT}/search` +
-      `?types=songs&limit=${limit}&term=${encodeURIComponent(q)}`;
-    const r = await fetch(url, { headers: { Authorization: `Bearer ${getDevToken()}` } });
-    if (!r.ok) {
-      const body = await r.text().catch(() => '');
-      console.error(`[apple-music] search ${r.status} for q="${q}":`, body.slice(0, 300));
-      if (r.status === 401) devTokenCache = { token: null, expiresAt: 0 };
-      return res.status(502).json({ error: 'Apple Music search failed', status: r.status });
-    }
-    const data = await r.json();
-    const songs = data?.results?.songs?.data || [];
-    const tracks = songs.map((s) => {
-      const a = s.attributes || {};
-      // Artwork URL templates use {w}x{h} placeholders.
-      const art = a.artwork?.url
-        ? a.artwork.url.replace('{w}', '300').replace('{h}', '300')
-        : null;
-      return {
-        id: s.id,
-        name: a.name || '',
-        artist: a.artistName || 'Unknown',
-        album: a.albumName || '',
-        album_art_url: art,
-        // Apple still ships previews for virtually the whole catalog —
-        // unlike Spotify post-2024. This is why DJ Apple Music "just works".
-        preview_url: a.previews?.[0]?.url || null,
-        external_url: a.url || `https://music.apple.com/${STOREFRONT_DEFAULT}/song/${s.id}`,
-        duration_ms: a.durationInMillis || 0,
-        source: 'apple',
-      };
-    });
-    res.json({ tracks });
-  } catch (err) {
-    console.error('[apple-music] search error:', err.message);
-    res.status(503).json({ error: err.message, tracks: [] });
-  }
+const browserLimit = rateLimit({ windowMs: 60000, max: 30, standardHeaders: true, legacyHeaders: false });
+const linkAuth = handle(async (req, res, next) => {
+  const token = req.get('authorization')?.replace(/^Bearer /, '') || '';
+  if (!/^[a-f0-9]{64}$/.test(token)) throw service.failure(403, 'Reopen Apple Music connection from Spidr.', 'invalid_link');
+  const link = await Link.findOne({ token_hash: hash(token), expires_at: { $gt: new Date() } }).lean();
+  if (!link) throw service.failure(403, 'This connection link expired. Reopen it from Spidr.', 'invalid_link');
+  req.appleLink = link;
+  next();
 });
-
-// ── Store the Music User Token (client mints it via MusicKit authorize()) ───
-router.post('/user-token', authMW, async (req, res) => {
+router.post('/auth/link', authMW, handle(async (req, res) => {
+  service.developerToken();
+  const token = randomBytes(32).toString('hex');
+  const url = new URL('/apple-music/connect', process.env.SERVER_URL || 'http://localhost:4000');
+  if (!['http:', 'https:'].includes(url.protocol)) throw service.failure(503, 'Apple Music browser URL is not configured.', 'invalid_configuration');
+  await Link.deleteMany({ user_id: req.user.id });
+  await Link.create({ user_id: req.user.id, token_hash: hash(token), expires_at: new Date(Date.now() + 300000) });
+  url.hash = token;
+  res.json({ url: url.href });
+}));
+router.post('/auth/session', browserLimit, linkAuth, handle(async (req, res) => {
+  res.json({ configured: true, ...service.developerToken() });
+}));
+router.post('/auth/complete', browserLimit, linkAuth, handle(async (req, res) => {
+  const token = req.body?.music_user_token;
+  const storefront = await service.validateUserToken(token);
+  const claimed = await Link.findOneAndDelete({ _id: req.appleLink._id, expires_at: { $gt: new Date() } });
+  if (!claimed) throw service.failure(403, 'This connection link has already been used.', 'invalid_link');
+  if (!await User.exists({ _id: claimed.user_id, is_banned: { $ne: true } })) throw service.failure(403, 'This Spidr account is no longer available.', 'invalid_link');
+  await service.saveConnection(req.appleLink.user_id, token, storefront);
+  res.json({ connected: true, storefront });
+}));
+router.get('/status', authMW, handle(async (req, res) => {
+  const connection = await Connection.findOne({ user_id: req.user.id }).lean();
+  res.json({ ...service.configuration(), user_id: req.user.id, connected: !!connection, storefront: connection?.storefront || null, connected_at: connection?.connected_at || null });
+}));
+router.get('/dev-token', authMW, handle(async (req, res) => {
+  const config = service.configuration();
+  if (!config.configured) return res.status(503).json(config);
+  res.json({ configured: true, ...service.developerToken() });
+}));
+router.post('/user-token', authMW, handle(async (req, res) => {
+  const token = req.body?.music_user_token;
+  const storefront = await service.validateUserToken(token);
+  await service.saveConnection(req.user.id, token, storefront);
+  res.json({ connected: true, storefront });
+}));
+router.get('/search', authMW, handle(async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 300) : '';
+  if (!q) return res.json({ tracks: [] });
+  const connection = await Connection.findOne({ user_id: req.user.id }).lean();
+  const storefront = connection?.storefront || process.env.APPLE_MUSIC_STOREFRONT || 'us';
+  if (!/^[a-z]{2}$/i.test(storefront)) throw service.failure(503, 'Apple Music storefront is not configured correctly.', 'invalid_configuration');
+  const params = new URLSearchParams({ types: 'songs', limit: String(Math.min(Math.max(parseInt(req.query.limit, 10) || 12, 1), 25)), term: q });
+  const data = await service.appleRequest(`/catalog/${storefront}/search?${params}`);
+  res.json({ tracks: (data?.results?.songs?.data || []).map(song => service.trackShape(song, storefront)) });
+}));
+router.get('/recently-played', authMW, handle(async (req, res) => {
+  const connection = await Connection.findOne({ user_id: req.user.id }).select('+user_token').lean();
+  if (!connection) return res.json({ connected: false, track: null });
   try {
-    const token = (req.body?.music_user_token || '').toString();
-    if (!token) return res.status(400).json({ error: 'music_user_token required' });
-    await UserProfile.updateOne(
-      { user_id: req.user.id },
-      {
-        $set: {
-          'neural_links.apple_music_connected': true,
-          'neural_links.apple_music_user_token': token,
-          'neural_links.apple_music_connected_at': new Date(),
-        },
-      },
-      { upsert: false }
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
+    const data = await service.appleRequest('/me/recent/played/tracks?limit=1', connection.user_token);
+    res.json({ connected: true, track: data?.data?.[0] ? service.trackShape(data.data[0], connection.storefront) : null });
+  } catch (error) {
+    if (error.code === 'reconnect_required') await service.disconnect(req.user.id, connection.user_token);
+    throw error;
   }
-});
-
-// ── Recently played (closest official signal to "listening now") ────────────
-// Honest limitation: Apple Music's API has NO real-time now-playing endpoint.
-// Live presence comes from playback through Spidr (MusicKit player) or the
-// desktop OS media session; this endpoint is the "recently played" fallback.
-router.get('/recently-played', authMW, async (req, res) => {
-  if (!configured()) return res.status(503).json({ error: 'Apple Music not configured' });
-  try {
-    const profile = await UserProfile.findOne(
-      { user_id: req.user.id },
-      { neural_links: 1 }
-    ).lean();
-    const userToken = profile?.neural_links?.apple_music_user_token;
-    if (!userToken) return res.status(400).json({ error: 'Apple Music not connected' });
-
-    const r = await fetch('https://api.music.apple.com/v1/me/recent/played/tracks?limit=1', {
-      headers: {
-        Authorization: `Bearer ${getDevToken()}`,
-        'Music-User-Token': userToken,
-      },
-    });
-    if (r.status === 403) {
-      // Token revoked / expired — flip the connection flag off honestly.
-      await UserProfile.updateOne(
-        { user_id: req.user.id },
-        { $set: { 'neural_links.apple_music_connected': false } }
-      );
-      return res.status(403).json({ error: 'Apple Music session expired — reconnect' });
-    }
-    if (!r.ok) return res.status(502).json({ error: `Apple Music ${r.status}` });
-    const data = await r.json();
-    const t = data?.data?.[0]?.attributes;
-    if (!t) return res.json({ track: null });
-    res.json({
-      track: {
-        name: t.name,
-        artist: t.artistName,
-        album_art_url: t.artwork?.url?.replace('{w}', '120').replace('{h}', '120') || null,
-        external_url: t.url || null,
-      },
-    });
-  } catch (err) {
-    res.status(503).json({ error: err.message });
-  }
-});
-
-router.delete('/disconnect', authMW, async (req, res) => {
-  try {
-    await UserProfile.updateOne(
-      { user_id: req.user.id },
-      {
-        $set: { 'neural_links.apple_music_connected': false },
-        $unset: { 'neural_links.apple_music_user_token': '' },
-      }
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
+}));
+router.delete('/disconnect', authMW, handle(async (req, res) => {
+  await Link.deleteMany({ user_id: req.user.id });
+  await service.disconnect(req.user.id);
+  res.json({ connected: false });
+}));
 module.exports = router;

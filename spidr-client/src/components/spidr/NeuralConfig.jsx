@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Gamepad2, Twitch, Check, X, ExternalLink, Unlink } from 'lucide-react';
+import { Gamepad2, Twitch, Check, X, ExternalLink, Unlink, Music2, RefreshCw } from 'lucide-react';
 import { entities } from '@/api/apiClient';
 import { toast } from 'sonner';
 import useMusicKit from './useMusicKit';
@@ -58,15 +58,17 @@ export default function NeuralConfig({ currentUser, onClose }) {
     }
   };
 
-  // Apple Music (MusicKit) — configured=false hides the card entirely so
-  // servers without Apple credentials never show a dead button.
   const musicKit = useMusicKit();
-  const appleConnected = musicKit.authorized || !!neuralLinks.apple_music_connected;
+  const appleConnected = musicKit.connected;
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ['user-profile', currentUser?.id] });
+    queryClient.invalidateQueries({ queryKey: ['apple-recent', currentUser?.id] });
+  }, [appleConnected, currentUser?.id, queryClient]);
   const handleAppleConnect = async () => {
     try {
-      await musicKit.authorize();
-      queryClient.invalidateQueries({ queryKey: ['neural-config'] });
-      toast.success('Apple Music connected');
+      const result = await musicKit.authorize();
+      if (result?.pending) toast('Waiting for Apple Music authorization');
+      else toast.success('Apple Music connected');
     } catch (err) {
       toast.error(err?.message === 'Not authorized' ? 'Authorization was cancelled' : (err?.message || 'Could not connect Apple Music'));
     }
@@ -74,7 +76,7 @@ export default function NeuralConfig({ currentUser, onClose }) {
   const handleAppleDisconnect = async () => {
     try {
       await musicKit.unauthorize();
-      queryClient.invalidateQueries({ queryKey: ['neural-config'] });
+      queryClient.invalidateQueries({ queryKey: ['user-profile', currentUser?.id] });
       toast.success('Apple Music disconnected');
     } catch {
       toast.error('Failed to disconnect Apple Music');
@@ -147,15 +149,13 @@ export default function NeuralConfig({ currentUser, onClose }) {
           onDisconnect={handleSpotifyDisconnect}
         />
 
-        {/* ── Apple Music — MusicKit (hidden when server lacks credentials) ─── */}
-        {musicKit.configured !== false && (
+        {/* Apple Music uses the same two Connections entry points as Spotify. */}
           <AppleMusicCard
             connected={appleConnected}
-            ready={musicKit.ready}
+            musicKit={musicKit}
             onConnect={handleAppleConnect}
             onDisconnect={handleAppleDisconnect}
           />
-        )}
 
         {/* ── Steam — simple toggle ─────────────────────────────────────────── */}
         <ToggleCard
@@ -192,61 +192,43 @@ function SpotifyLogo({ size = 20, className = '' }) {
   );
 }
 
-function AppleMusicCard({ connected, ready, onConnect, onDisconnect }) {
+function AppleMusicCard({ connected, musicKit, onConnect, onDisconnect }) {
+  const { configured, ready, authorized, pending, busy, error, retry } = musicKit;
+  const needsLocalAuthorization = connected && !authorized && !window.electronAPI?.isElectron;
+  const status = pending ? 'Awaiting authorization' : configured === null ? 'Checking connection' : configured === false ? 'Server setup required' : connected ? 'Connected' : 'Not connected';
   return (
-    <div className="relative group overflow-hidden bg-[#111] border border-white/5 rounded-xl p-6 transition-all hover:border-white/10 col-span-1 md:col-span-2">
-      <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-[0.04] transition-opacity duration-500"
-        style={{ background: 'linear-gradient(135deg, #fa243c, #a250fa)' }}
-      />
-      <div className="relative z-10 flex flex-col sm:flex-row sm:items-center gap-5">
-        <div className="flex items-center gap-4 flex-shrink-0">
-          <div
-            className="w-14 h-14 rounded-xl flex items-center justify-center transition-all duration-300"
-            style={{
-              background: connected ? 'linear-gradient(135deg, #fa243c, #a250fa)' : '#1a1a1a',
-              boxShadow: connected ? '0 0 28px rgba(250,36,60,0.35)' : 'none',
-            }}
-          >
-            {/* Apple Music glyph — simple note mark */}
-            <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"
-              className={connected ? 'text-white' : 'text-gray-600'}>
-              <path d="M9 3v10.55A4 4 0 1 0 11 17V7h8V3H9z" />
-            </svg>
-          </div>
-          <div>
-            <h3 className="font-black text-white text-sm tracking-wide">Apple Music</h3>
-            <span className={`text-[10px] font-mono uppercase tracking-widest ${connected ? 'text-[#fa5c6e]' : 'text-gray-600'}`}>
-              {connected ? '● Connected' : '○ Not connected'}
-            </span>
-          </div>
+    <section aria-label="Apple Music connection" className="relative bg-[#111] border border-white/5 rounded-lg p-6 col-span-1 md:col-span-2">
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="w-12 h-12 shrink-0 rounded-lg bg-[#fa243c]/15 text-[#fa243c] flex items-center justify-center">
+          <Music2 size={26} aria-hidden="true" />
         </div>
-        <p className="text-[11px] text-gray-500 leading-relaxed flex-1">
-          {connected
-            ? 'Apple Music is linked. DJ sessions can spin from the Apple catalog — and as a subscriber you hear FULL tracks in the booth, not 30-second previews. Playback through Spidr shows on your profile in real time.'
-            : 'Connect Apple Music to DJ from the Apple catalog and unlock full-track listening in DJ sessions (subscription required for full tracks). Something Discord simply does not have.'}
-        </p>
-        <div className="flex-shrink-0">
-          {connected ? (
-            <button
-              onClick={onDisconnect}
-              className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-red-500/10 border border-white/10 hover:border-red-500/30 text-gray-400 hover:text-red-400 text-[11px] font-bold uppercase tracking-widest rounded-lg transition-all whitespace-nowrap"
-            >
-              <Unlink size={11} /> Disconnect
+        <div className="flex-1 min-w-32">
+          <h3 className="font-bold text-white text-sm">Apple Music</h3>
+          <p role="status" className="text-xs text-zinc-400 mt-1">{status}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {(!connected || needsLocalAuthorization) && configured !== false && (
+            <button onClick={onConnect} disabled={!ready || busy}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[#cf1836] text-white text-xs font-semibold disabled:opacity-40">
+              <ExternalLink size={14} />
+              {busy ? 'Connecting...' : needsLocalAuthorization ? 'Authorize this device' : 'Connect Apple Music'}
             </button>
-          ) : (
-            <button
-              onClick={onConnect}
-              disabled={!ready}
-              className="flex items-center gap-2 px-5 py-2.5 text-white text-[11px] font-black uppercase tracking-widest rounded-lg transition-all whitespace-nowrap disabled:opacity-40"
-              style={{ background: 'linear-gradient(135deg, #fa243c, #a250fa)' }}
-            >
-              {ready ? 'Connect Apple Music' : 'Loading…'} <ExternalLink size={11} />
+          )}
+          {(connected || pending) && (
+            <button onClick={onDisconnect} disabled={busy && !pending} aria-label={pending ? 'Cancel Apple Music connection' : 'Disconnect Apple Music'}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-white/15 text-zinc-300 text-xs disabled:opacity-40">
+              <Unlink size={14} /> {pending ? 'Cancel' : 'Disconnect'}
+            </button>
+          )}
+          {!ready && error && (
+            <button onClick={retry} className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-white/15 text-zinc-300 text-xs">
+              <RefreshCw size={14} /> Retry
             </button>
           )}
         </div>
       </div>
-    </div>
+      {error && <p role="alert" className="text-xs text-rose-300 mt-3 break-words">{error}</p>}
+    </section>
   );
 }
 
