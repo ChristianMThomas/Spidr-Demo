@@ -514,7 +514,9 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                     />
                   )}
                   {activeTab === 'modules' && (
-                  <ModulesTab userId={userId} isOwnProfile={isOwnProfile} />
+                  /* module_order rides down from the profile record this
+                     component already holds, so the tab never re-fetches it. */
+                  <ModulesTab userId={userId} isOwnProfile={isOwnProfile} moduleOrder={userProfile?.module_order} />
                   )}
                   {activeTab === 'links' && (
                     <LinksTab 

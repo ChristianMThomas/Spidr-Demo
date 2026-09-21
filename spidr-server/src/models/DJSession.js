@@ -6,10 +6,25 @@ const s = new Schema({
   host_user_name:  String,
   host_user_avatar:String,
   track_id:        { type: String, required: true },
-  // Which catalog the track came from — 'apple' sessions let connected
-  // Apple Music subscribers play the FULL track in sync (previews for
-  // everyone else); 'spotify' sessions play the 30s preview.
-  source:          { type: String, enum: ['spotify', 'apple'], default: 'spotify' },
+  // Which catalog the track came from. Apple Music is now the ONLY host
+  // catalog: the DJ must have a connected Apple Music account, Apple
+  // subscribers in the room play the full master in sync, and Spotify
+  // Premium listeners are resolved onto the same master via ISRC.
+  // 'spotify' stays in the enum only so sessions written before this change
+  // still load; nothing writes it any more.
+  source:          { type: String, enum: ['spotify', 'apple'], default: 'apple' },
+  // ISRC — the International Standard Recording Code. This is the pivot the
+  // whole cross-service party turns on: Apple and Spotify both key the same
+  // master recording by it, so broadcasting the ISRC lets a Spotify client
+  // resolve the exact same recording rather than a re-record, a live version
+  // or a remaster that happens to share a title.
+  isrc:            { type: String, default: '' },
+  // Spotify "Listen Along" party roster. One entry per Premium listener whose
+  // player this server is driving. Stored on the session rather than in
+  // memory so the roster survives a restart and so a track change can re-sync
+  // every member without waiting for their client to notice.
+  //   { user_id, user_name, user_avatar, joined_at, last_synced_at, last_error }
+  listen_along:    { type: [Schema.Types.Mixed], default: [] },
   // Full track metadata cached at start/next time (schema-first — Mongoose
   // strict mode drops unknown fields). This is what lets every listener's
   // client actually PLAY audio: the 30s preview URL is broadcast with the

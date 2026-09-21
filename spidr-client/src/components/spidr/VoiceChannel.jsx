@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, integrations, getSocket, spotify } from '@/api/apiClient';
+import { entities, integrations, getSocket, spotify, appleMusic } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Mic, MicOff, Video, VideoOff, Monitor, PhoneOff, Headphones, HeadphoneOff,
@@ -261,7 +261,24 @@ export default function VoiceChannel({
       socket.off('voice:ai-speak', onAISpeak);
   }, [channel?.id, queryClient]);
 
-  const handleStartDJ = () => setDjPickerOpen(true);
+  // The booth hosts from Apple Music only — the host's subscription supplies
+  // the full master the room hears and the ISRC that Spotify listeners are
+  // resolved onto. The server enforces this too (409 apple_music_required);
+  // checking here means the host gets told BEFORE picking a track instead of
+  // after, which is the difference between a gate and a dead end.
+  const handleStartDJ = async () => {
+    try {
+      const status = await appleMusic.status();
+      if (!status?.connected) {
+        toast.error('Connect Apple Music in Settings to host the DJ booth.');
+        return;
+      }
+    } catch {
+      // Status endpoint down or Apple Music unconfigured on this server. Let
+      // the picker open; the POST is the real gate and will say why.
+    }
+    setDjPickerOpen(true);
+  };
   const handleEndDJ = async () => {
     try { await spotify.djSession.end(channel.id); }
     catch (err) { toast.error(err?.message || 'Could not end DJ session'); }
@@ -278,9 +295,12 @@ export default function VoiceChannel({
         track_artist:  track.artist || '',
         album_art_url: track.album_art_url || '',
         preview_url:   track.preview_url || '',
-        external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
+        external_url:  track.external_url || '',
         duration_ms:   track.duration_ms || 0,
-        source:        track.source === 'apple' ? 'apple' : 'spotify',
+        // Rides along so Spotify Premium listeners can be resolved onto the
+        // exact same master recording via Listen Along.
+        isrc:          track.isrc || '',
+        source:        'apple',
       });
       setDjPickerOpen(false);
       toast.success(`Now spinning: ${track.name}`);
@@ -1450,9 +1470,11 @@ export default function VoiceChannel({
           >
             <Tv size={18} className={theaterHostId === currentUser?.id ? 'text-red-300' : 'text-white/40'} />
           </DockBtn>
-          {/* DJ Booth — Spotify-driven music broadcast. Same start/stop/take-over
-              UX as Sync Feed: clicking it as host ends, as guest toasts, as
-              empty channel opens the Spotify picker → start session. */}
+          {/* DJ Booth — Apple Music broadcast. Same start/stop/take-over UX as
+              Sync Feed: clicking it as host ends, as guest toasts, as empty
+              channel opens the Apple picker → start session. Hosting requires
+              a connected Apple Music account; Spotify Premium listeners join
+              the same track through Listen Along on the booth card. */}
           <DockBtn
             active={djSession?.host_id === currentUser?.id}
             onClick={() => {
@@ -1467,7 +1489,7 @@ export default function VoiceChannel({
             title={
               djSession?.host_id === currentUser?.id ? 'End DJ Session' :
               djSession?.host_id ? `${djSession.host_user_name || 'Host'} is DJing` :
-              'Start DJ Session'
+              'Start DJ Session (Apple Music)'
             }
             activeTint="#1DB954"
           >
@@ -1581,11 +1603,12 @@ export default function VoiceChannel({
         onClose={() => setDjPickerOpen(false)}
         onSelect={handleSelectDJTrack}
         title="Start DJ Session"
-        subtitle="Spidr DJ"
+        subtitle="Apple Music"
         actionLabel="Spin"
         requirePreview
         allowAppleMusic
-        emptyHint="Pick a track — only songs with a playable 30s preview are shown, so everyone in the call actually hears it."
+        forceProvider="apple"
+        emptyHint="Pick a track from Apple Music. Subscribers in the call hear the full master; everyone on Spotify Premium can Listen Along on their own account."
       />
     </div>
   );

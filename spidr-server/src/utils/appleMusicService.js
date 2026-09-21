@@ -84,6 +84,13 @@ function trackShape(song, storefront = 'us') {
   return { id: song.id, name: a.name || '', artist: a.artistName || 'Unknown', album: a.albumName || '',
     album_art_url: a.artwork?.url?.replace('{w}', '300').replace('{h}', '300') || null,
     preview_url: a.previews?.[0]?.url || null, external_url: a.url || `https://music.apple.com/${storefront}/song/${song.id}`,
-    duration_ms: a.durationInMillis || 0, source: 'apple' };
+    duration_ms: a.durationInMillis || 0,
+    // The ISRC is what lets a Spotify Premium listener land on the exact same
+    // master recording during Listen Along. Apple returns it on catalog songs;
+    // when it is missing (rare — mostly library uploads) cross-service sync is
+    // impossible for that track, and the UI says so rather than falling back
+    // to a title match, which reliably finds the wrong recording.
+    isrc: a.isrc || '',
+    source: 'apple' };
 }
 module.exports = { failure, configuration, developerToken, resetDeveloperToken, appleRequest, validateUserToken, saveConnection, disconnect, trackShape };

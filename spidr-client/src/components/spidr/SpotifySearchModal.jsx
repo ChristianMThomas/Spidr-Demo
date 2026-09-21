@@ -36,11 +36,18 @@ export default function SpotifySearchModal({
   // its whole catalog (unlike Spotify post-2024), and Apple tracks unlock
   // FULL-length playback for connected subscribers in the booth.
   allowAppleMusic = false,
+  // Pin the modal to one catalog and hide the provider tabs entirely.
+  // The DJ booth passes 'apple': the booth hosts from Apple Music only, so
+  // offering a Spotify tab there would just be a way to pick a track the
+  // session cannot legally or technically broadcast.
+  forceProvider = null,
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [hiddenCount, setHiddenCount] = useState(0);
-  const [provider, setProvider] = useState('spotify'); // 'spotify' | 'apple'
+  const [pickedProvider, setPickedProvider] = useState('spotify'); // 'spotify' | 'apple'
+  const provider = forceProvider || pickedProvider;
+  const setProvider = setPickedProvider;
   const [appleAvailable, setAppleAvailable] = useState(true); // hides tab on 503
   const [loading, setLoading] = useState(false);
   const [playingId, setPlayingId] = useState(null); // which preview is auditioning
@@ -196,7 +203,7 @@ export default function SpotifySearchModal({
             </div>
 
             {/* Results */}
-            {allowAppleMusic && appleAvailable && (
+            {allowAppleMusic && appleAvailable && !forceProvider && (
           <div className="flex items-center gap-1 px-4 pb-2">
             {[['spotify', 'SPOTIFY'], ['apple', 'APPLE MUSIC']].map(([id, label]) => (
               <button

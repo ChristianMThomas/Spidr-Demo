@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import useAudioSpectrum from '@/hooks/useAudioSpectrum';
 import useNowPlaying from '@/hooks/useNowPlaying';
 import SpotifySearchModal from './SpotifySearchModal';
+import ListenAlongPartyCard from './ListenAlongPartyCard';
 import { toast } from 'sonner';
 import './DJMatrix.css';
 
@@ -49,7 +50,11 @@ export default function DJMatrix({ channel, djSession, isHost, currentUser, part
       track_name: track.name || '', track_artist: track.artist || '',
       album_art_url: track.album_art_url || '', preview_url: track.preview_url || '',
       external_url: track.external_url || '', duration_ms: track.duration_ms || 0,
-      source: track.source === 'apple' ? 'apple' : 'spotify', audio_route: live ? 'stream' : 'preview',
+      // The ISRC rides along with every track change. It is what a Spotify
+      // Premium listener's player is resolved onto during Listen Along — the
+      // booth hosts from Apple Music, so this is the only cross-service key.
+      isrc: track.isrc || '',
+      source: 'apple', audio_route: live ? 'stream' : 'preview',
     };
     if (pickerMode === 'queue') await spotify.djSession.enqueue(channel.id, track.id, metadata);
     else await spotify.djSession.next(channel.id, track.id, metadata);
@@ -57,7 +62,7 @@ export default function DJMatrix({ channel, djSession, isHost, currentUser, part
 
   const status = {
     streaming: `Live audio via ${djSession?.host_user_name || 'DJ'}`,
-    waiting: 'Waiting for live audio', preview: 'Track preview', fulltrack: 'Apple Music',
+    waiting: 'Waiting for live audio', preview: 'Track preview', fulltrack: 'Playing with Apple Music',
     paused: 'Paused for you', deafened: 'Deafened', blocked: 'Audio needs your attention',
     ended: 'Preview finished', unavailable: 'No preview available', error: audio.audioError || 'Audio unavailable', loading: 'Loading audio...',
   }[audio.status] || 'DJ Booth';
@@ -131,8 +136,20 @@ export default function DJMatrix({ channel, djSession, isHost, currentUser, part
           {(isHost || track.added_by === currentUser?.id) && <button className="dj-icon-button dj-remove" disabled={busy} title="Remove track" aria-label={`Remove ${track.track_name}`} onClick={() => run(() => spotify.djSession.dequeue(channel.id, track.qid))}><Trash2 size={14} /></button>}
         </li>)}</ol>}
       </section>}
+      {/* Listen Along — the Spotify half of the room. Hidden during Share
+          Audio, where there is no catalog track to resolve, and hidden until
+          the session actually has a track to match. */}
+      {!live && !!djSession?.track_id && !String(djSession.track_id).startsWith('live:') && (
+        <div className="dj-listen-along">
+          <ListenAlongPartyCard channelId={channel.id} djSession={djSession} currentUser={currentUser} isHost={isHost} />
+        </div>
+      )}
       <footer className="dj-footer"><span><Disc3 size={12} />SPIDR DJ</span><span>{busy && <Loader2 size={12} className="animate-spin" />}{live ? 'LIVE AUDIO' : 'LISTENING TOGETHER'}</span></footer>
     </section>
-    <SpotifySearchModal open={!!pickerMode} onClose={() => setPickerMode(null)} onSelect={selectTrack} title={pickerMode === 'queue' ? 'Add to queue' : 'Change track'} subtitle="Spidr DJ" actionLabel={pickerMode === 'queue' ? 'Queue' : 'Play'} requirePreview={!live} allowAppleMusic />
+    {/* Apple Music only. The booth hosts from Apple: it is what supplies the
+        full master for subscribers in the room and the ISRC that Spotify
+        listeners are resolved onto. A Spotify tab here would only offer
+        tracks the session cannot broadcast. */}
+    <SpotifySearchModal open={!!pickerMode} onClose={() => setPickerMode(null)} onSelect={selectTrack} title={pickerMode === 'queue' ? 'Add to queue' : 'Change track'} subtitle="Apple Music" actionLabel={pickerMode === 'queue' ? 'Queue' : 'Play'} requirePreview={!live} allowAppleMusic forceProvider="apple" />
   </div>;
 }

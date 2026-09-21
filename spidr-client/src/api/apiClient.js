@@ -321,6 +321,15 @@ export const tags = {
   check: (tag) => api.get(`/user-profiles/tag/check?tag=${encodeURIComponent(tag)}`),
 };
 
+// Profile module layout. Separate from the profile PATCH surface because the
+// server intersects the submitted ids against what the caller actually has
+// installed before saving. Always send the FULL order, never a move — the
+// write is idempotent, so two fast drags resolve to the last one rather than
+// to a corrupted sequence.
+export const profileModules = {
+  reorder: (order) => api.put('/user-profiles/modules/reorder', { order }),
+};
+
 // Account self-service + platform-admin moderation.
 // deleteMe cascades every user-owned collection server-side; admin methods
 // require User.role === 'admin' or is_admin === true.
@@ -527,6 +536,22 @@ export const spotify = {
       api.delete(`/voice-channels/${channelId}/dj-session/queue/${qid}`),
     advance: (channelId) =>
       api.post(`/voice-channels/${channelId}/dj-session/advance`, {}),
+    // ── Listen Along ────────────────────────────────────────────────────
+    // The booth hosts from Apple Music only. A Spotify Premium listener's
+    // own player is driven onto the DJ's current track via its ISRC — no
+    // audio crosses accounts, each Spotify plays for its own owner.
+    listenAlong: {
+      // Whether THIS user can join right now. One of 'ready' |
+      // 'not_connected' | 'reconnect_required' | 'premium_required', so the
+      // button names the actual next step instead of failing generically.
+      status: () => api.get('/spotify/listen-along/status'),
+      join:   (channelId) => api.post(`/voice-channels/${channelId}/dj-session/listen-along`, {}),
+      leave:  (channelId) => api.delete(`/voice-channels/${channelId}/dj-session/listen-along`),
+      // Manual catch-up. Spotify never pushes us playback state, so drift
+      // (a pause, a call, a device handoff) is corrected on request rather
+      // than by polling every party member's player on a timer.
+      resync: (channelId) => api.post(`/voice-channels/${channelId}/dj-session/listen-along/resync`, {}),
+    },
     // Pass the Aux — host migration. Offer/accept/decline rather than a
     // unilateral push, because the incoming DJ has to start their own screen
     // share for audio to keep flowing and only they can trigger that.

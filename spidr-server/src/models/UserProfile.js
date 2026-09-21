@@ -100,6 +100,18 @@ const s = new Schema({
   web_bio:        String,
   web_hashtags:   [String],
 
+  // Profile module layout — the ORDER the owner dragged their modules into,
+  // as module_ids. Mongo preserves array order, so the index IS the position;
+  // there is no per-module order column to keep consistent.
+  //
+  // Deliberately decoupled from the InstalledModule docs, which remain the
+  // source of truth for WHICH modules exist. This array only answers "in what
+  // order", and the two are reconciled at render: an id here that is no longer
+  // installed is skipped, and an installed module missing from here falls to
+  // the end. That means installing or uninstalling a module never has to write
+  // this array, and a stale entry can never hide a module the user owns.
+  module_order:   { type: [String], default: [] },
+
   // PC widget
   pc_specs:       { type: Schema.Types.Mixed, default: {} },
   neural_links:   { type: Schema.Types.Mixed, default: {} },

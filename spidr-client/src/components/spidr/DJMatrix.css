@@ -91,6 +91,11 @@
 .dj-aux-offer > svg { color: #8ddaab; }
 .dj-aux-offer p { flex: 1; min-width: 160px; font-size: 11px; line-height: 1.6; }
 .dj-offer-actions { gap: 7px; }
+/* Listen Along party card. Sits between the playback note and the footer as
+   its own band so the Spotify half of the room reads as a distinct surface
+   rather than another row of booth chrome. The card itself is Tailwind. */
+.dj-listen-along { margin-top: 18px; }
+
 .dj-footer { justify-content: space-between; gap: 12px; margin-top: 22px; font: 8px ui-monospace, monospace; color: #73887b; flex-wrap: wrap; }
 .dj-footer > span { gap: 6px; }
 .dj-booth button:focus-visible, .dj-booth input:focus-visible { outline: 2px solid #a0ebbb; outline-offset: 4px; }

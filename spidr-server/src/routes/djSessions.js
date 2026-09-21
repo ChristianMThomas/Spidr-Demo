@@ -27,8 +27,76 @@ const authMW       = require('../middleware/auth');
 const DJSession    = require('../models/DJSession');
 const VoiceSession = require('../models/VoiceSession');
 const UserProfile  = require('../models/UserProfile');
+const AppleMusicConnection = require('../models/AppleMusicConnection');
+const spotifySync  = require('../services/spotifySync');
 
 const router = express.Router();
+
+// ── Apple Music is the only host catalog ────────────────────────────────────
+// Hosting a booth means having a real Apple Music subscription connected. That
+// is what gives the room a full master to play rather than a 30-second clip,
+// and it is what produces the ISRC that Spotify listeners are resolved onto.
+// The one exception is Share Audio (`mode: 'share'`), which carries no catalog
+// track at all — the DJ's own screen-share audio is the source, so there is no
+// catalog to require.
+async function requireAppleHost(userId) {
+  if (!await AppleMusicConnection.exists({ user_id: userId })) {
+    const error = new Error('Connect Apple Music to host the DJ booth.');
+    error.status = 409;
+    error.code = 'apple_music_required';
+    throw error;
+  }
+}
+
+/**
+ * Where the session clock is right now, in milliseconds.
+ *
+ * `started_at` is set every time the track changes, so elapsed-since-start IS
+ * the playback position — the same clock the Apple Music listeners seek to in
+ * useDJAudio. Spotify listeners are seeked to the same number, which is what
+ * puts both services on the same beat.
+ */
+function sessionPositionMs(session) {
+  const started = new Date(session?.started_at || 0).getTime();
+  if (!Number.isFinite(started) || !started) return 0;
+  const elapsed = Math.max(0, Date.now() - started);
+  const duration = Number(session?.duration_ms) || 0;
+  return duration ? Math.min(elapsed, Math.max(0, duration - 1500)) : elapsed;
+}
+
+/**
+ * Re-points every Listen Along member at the session's current track.
+ *
+ * Fire-and-forget on purpose: the host changing a song must not block on five
+ * Spotify round trips, and one listener with a dead device must not fail the
+ * track change for the room. Failures are recorded on that listener's roster
+ * entry so their own card can explain itself; a listener whose authorization
+ * is gone is dropped from the party outright rather than being retried on
+ * every future track.
+ */
+function resyncParty(session) {
+  const members = session?.listen_along || [];
+  if (!members.length || !session?.isrc) return;
+  const positionMs = sessionPositionMs(session);
+  for (const member of members) {
+    spotifySync.syncListenerToTrack(member.user_id, { isrc: session.isrc, positionMs })
+      .then(() => DJSession.updateOne(
+        { _id: session._id, 'listen_along.user_id': member.user_id },
+        { $set: { 'listen_along.$.last_synced_at': new Date(), 'listen_along.$.last_error': null } },
+      ))
+      .catch((error) => {
+        const fatal = ['not_connected', 'reconnect_required', 'premium_required'].includes(error.code);
+        return DJSession.updateOne(
+          { _id: session._id },
+          fatal
+            ? { $pull: { listen_along: { user_id: member.user_id } } }
+            : { $set: { 'listen_along.$[m].last_error': error.code || 'sync_failed' } },
+          fatal ? {} : { arrayFilters: [{ 'm.user_id': member.user_id }] },
+        );
+      })
+      .catch(() => { /* the party roster is not worth crashing a track change over */ });
+  }
+}
 
 function normalise(doc) {
   if (!doc) return null;
@@ -118,7 +186,14 @@ function trackMeta(body = {}) {
     ...(body.audio_route === 'stream' || body.audio_route === 'preview' ? { audio_route: body.audio_route } : {}),
     external_url:  String(body.external_url  || '').slice(0, 500),
     duration_ms:   Number(body.duration_ms)  || 0,
-    source:        body.source === 'apple' ? 'apple' : 'spotify',
+    // ISRCs are 12 alphanumerics. Anything else is dropped rather than stored,
+    // because a malformed code produces a silent Spotify search miss that
+    // presents to the user as "this song isn't on Spotify".
+    isrc:          /^[A-Za-z0-9]{12}$/.test(String(body.isrc || '')) ? String(body.isrc).toUpperCase() : '',
+    // Apple is the only catalog the booth hosts from. This deliberately no
+    // longer reads the client's claim: a session either came through the Apple
+    // picker or it is a Share Audio session carrying no catalog track at all.
+    source:        'apple',
   };
 }
 
@@ -162,6 +237,9 @@ router.get('/:channelId/dj-session', handle(async (req, res) => {
 
 router.post('/:channelId/dj-session', handle(async (req, res) => {
   const sharing = req.body?.mode === 'share';
+  // Share Audio needs no catalog — the DJ's own shared audio is the source.
+  // Every other way of opening the booth now requires Apple Music.
+  if (!sharing) await requireAppleHost(uid(req));
   const track_id = sharing ? 'live:' + randomUUID() : trackId(req.body);
   const profile = await UserProfile.findOne({ user_id: uid(req) }).lean();
   const meta = sharing ? { track_name: 'Live audio', audio_route: 'preview' } : await ensurePreview(trackMeta(req.body));
@@ -175,12 +253,17 @@ router.post('/:channelId/dj-session', handle(async (req, res) => {
 
 router.patch('/:channelId/dj-session', handle(async (req, res) => {
   const session = await hostSession(req);
+  await requireAppleHost(uid(req));
   const track_id = trackId(req.body);
   const meta = await ensurePreview(trackMeta(req.body));
   // Updating the annotation for the same song must not restart its preview.
   const updated = await DJSession.findOneAndUpdate({ _id: session._id, host_id: uid(req), track_id: session.track_id }, {
     $set: { ...meta, track_id, ...(track_id !== session.track_id ? { started_at: new Date() } : {}) },
   }, { new: true }).lean();
+  // A genuine track change drags the whole Spotify party onto the new song.
+  // Re-annotating the same track must not, or every metadata tweak would
+  // restart playback from zero for everyone listening along.
+  if (updated && track_id !== session.track_id) resyncParty(updated);
   publish(req, res, updated);
 }));
 
@@ -196,6 +279,12 @@ router.delete('/:channelId/dj-session', handle(async (req, res) => {
   const session = await hostSession(req);
   const result = await DJSession.deleteOne({ _id: session._id, host_id: uid(req) });
   if (!result.deletedCount) fail(409, 'The DJ session changed');
+  // Ending the booth has to stop the party too. Without this, everyone who
+  // joined Listen Along keeps playing the DJ's last song on their own Spotify
+  // long after the room emptied, with no card left to explain why.
+  for (const member of session.listen_along || []) {
+    spotifySync.pauseListener(member.user_id).catch(() => {});
+  }
   emitChanged(req, req.params.channelId, null);
   res.json({ success: true });
 }));
@@ -230,9 +319,87 @@ router.post('/:channelId/dj-session/advance', handle(async (req, res) => {
   if (!next) fail(409, 'Queue is empty');
   const meta = trackMeta(next);
   delete meta.audio_route;
-  publish(req, res, await DJSession.findOneAndUpdate({
+  const advanced = await DJSession.findOneAndUpdate({
     _id: session._id, host_id: uid(req), 'queue.0.qid': next.qid,
-  }, { $set: { ...meta, track_id: next.track_id, started_at: new Date() }, $pop: { queue: -1 } }, { new: true }).lean());
+  }, { $set: { ...meta, track_id: next.track_id, started_at: new Date() }, $pop: { queue: -1 } }, { new: true }).lean();
+  if (advanced) resyncParty(advanced);
+  publish(req, res, advanced);
+}));
+
+// ── Listen Along ────────────────────────────────────────────────────────────
+// A Spotify Premium listener's own player, driven onto the DJ's current track
+// via its ISRC. No audio crosses between accounts: each listener's Spotify
+// plays for them, we only say what and from where.
+
+const partyMember = (session, userId) => (session.listen_along || []).find(m => m.user_id === userId);
+
+router.post('/:channelId/dj-session/listen-along', handle(async (req, res) => {
+  const session = await sessionFor(req);
+  if (!session.isrc) fail(409, 'This track has no ISRC, so it cannot be matched on Spotify.');
+  const userId = uid(req);
+
+  // Play first, join second. Adding someone to a party whose playback never
+  // started would show an avatar on a card for a person hearing silence.
+  const result = await spotifySync.syncListenerToTrack(userId, {
+    isrc: session.isrc,
+    positionMs: sessionPositionMs(session),
+  });
+
+  const profile = await UserProfile.findOne({ user_id: userId }).lean();
+  const entry = {
+    user_id: userId,
+    user_name: profile?.display_name || profile?.full_name || profile?.username || 'Spider',
+    user_avatar: profile?.avatar_url || '',
+    joined_at: new Date(),
+    last_synced_at: new Date(),
+    last_error: null,
+  };
+  // Conditional push: rejoining from a second device must not duplicate the
+  // avatar on the party card.
+  const joined = await DJSession.findOneAndUpdate(
+    { _id: session._id, 'listen_along.user_id': { $ne: userId } },
+    { $push: { listen_along: entry } },
+    { new: true },
+  ).lean();
+  const current = joined || await DJSession.findOne({ _id: session._id }).lean();
+  emitChanged(req, req.params.channelId, normalise(current));
+  res.status(201).json({ ...normalise(current), synced: result });
+}));
+
+router.delete('/:channelId/dj-session/listen-along', handle(async (req, res) => {
+  const session = await sessionFor(req);
+  const userId = uid(req);
+  if (!partyMember(session, userId)) fail(404, 'You are not in this listen-along party');
+  // Pause before removing. Leaving the party while the song keeps playing is
+  // the behaviour people read as "the button did nothing".
+  await spotifySync.pauseListener(userId);
+  publish(req, res, await DJSession.findOneAndUpdate(
+    { _id: session._id },
+    { $pull: { listen_along: { user_id: userId } } },
+    { new: true },
+  ).lean());
+}));
+
+// Manual catch-up. Spotify playback drifts (a listener pauses, takes a call,
+// loses a device), and nothing in the Web API streams us that. Rather than
+// polling every member's player on a timer — which burns rate limit for the
+// whole account pool — the card offers a resync the listener presses when
+// they notice they are off.
+router.post('/:channelId/dj-session/listen-along/resync', handle(async (req, res) => {
+  const session = await sessionFor(req);
+  const userId = uid(req);
+  if (!partyMember(session, userId)) fail(404, 'You are not in this listen-along party');
+  if (!session.isrc) fail(409, 'This track has no ISRC, so it cannot be matched on Spotify.');
+  const result = await spotifySync.syncListenerToTrack(userId, {
+    isrc: session.isrc,
+    positionMs: sessionPositionMs(session),
+  });
+  const updated = await DJSession.findOneAndUpdate(
+    { _id: session._id, 'listen_along.user_id': userId },
+    { $set: { 'listen_along.$.last_synced_at': new Date(), 'listen_along.$.last_error': null } },
+    { new: true },
+  ).lean();
+  res.json({ ...normalise(updated || session), synced: result });
 }));
 
 const HANDOFF_TTL_MS = 60_000;
@@ -277,8 +444,14 @@ router.post('/:channelId/dj-session/handoff/decline', handle(async (req, res) =>
 
 router.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
-  res.status(error.code === 11000 ? 409 : error.status || 400).json({
-    error: error.code === 11000 ? 'A DJ session is already active' : error.message,
+  const duplicate = error.code === 11000;
+  res.status(duplicate ? 409 : error.status || 400).json({
+    error: duplicate ? 'A DJ session is already active' : error.message,
+    // The machine-readable code is what lets the Listen Along button render
+    // the right recovery ("Open Spotify on a device", "Reconnect Spotify",
+    // "Connect Apple Music") instead of dumping a sentence into a toast.
+    // 11000 is Mongo's duplicate-key marker, not one of ours.
+    ...(error.code && !duplicate ? { code: error.code } : {}),
   });
 });
 module.exports = router;

@@ -13,13 +13,29 @@ const authMW      = require('../middleware/auth');
 const { getSecret } = require('../utils/jwtSecret');
 const UserProfile = require('../models/UserProfile');
 const spotifyPresence = require('../utils/spotifyPresence');
+const spotifySync = require('../services/spotifySync');
 
 const router = express.Router();
 
+// The first three drive the Now Playing widgets. The last two exist for the
+// DJ booth's Listen Along party:
+//   user-modify-playback-state — start/seek/pause the listener's own player,
+//     which is the entire mechanism (we never send them audio).
+//   user-read-private — read `product`, the only way to know an account is
+//     Premium. Playback control is Premium-only, so without this the first
+//     honest answer we could give a free user is an opaque 403.
+//
+// Adding scopes does NOT upgrade tokens that already exist. Grants issued
+// before this shipped carry the old three, and Spotify's response to using
+// them for playback is an unexplained 403 — so the granted scope string is
+// recorded at callback and refresh time and checked before we try anything.
+// See `spotify_scopes` below and services/spotifySync.js.
 const SCOPES = [
   'user-read-currently-playing',
   'user-read-playback-state',
   'user-read-recently-played',
+  'user-modify-playback-state',
+  'user-read-private',
 ].join(' ');
 
 // The OAuth hop happens in the system browser, which carries no Authorization
@@ -111,6 +127,12 @@ router.get('/auth/callback', async (req, res) => {
           'neural_links.spotify_access_token':  tokens.access_token,
           'neural_links.spotify_refresh_token': tokens.refresh_token,
           'neural_links.spotify_token_expires': Date.now() + tokens.expires_in * 1000,
+          // What Spotify ACTUALLY granted, which can be narrower than what we
+          // asked for (the user can decline individual permissions). Listen
+          // Along checks this rather than assuming the current SCOPES string,
+          // so an older grant is reported as "reconnect" instead of failing
+          // with a 403 nobody can act on.
+          'neural_links.spotify_scopes':        tokens.scope || '',
         },
       },
     );
@@ -392,6 +414,45 @@ router.get('/search', authMW, async (req, res) => {
   }
 });
 
+// ── GET /spotify/listen-along/status ─────────────────────────────────────────
+// One call the Listen Along button can render itself from. Returns an explicit
+// state rather than a bare boolean, because the four ways a user can be unable
+// to join need four different things said to them:
+//   not_connected     → "Connect Spotify"
+//   reconnect_required→ "Reconnect Spotify" (grant predates the write scope)
+//   premium_required  → "Spotify Premium required" (nothing they can do here)
+//   ready             → show the button
+router.get('/listen-along/status', authMW, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const { token, scopesOk } = await spotifySync.accessTokenFor(req.user.id);
+    if (!scopesOk) {
+      return res.json({
+        state: 'reconnect_required', connected: true, premium: null,
+        reason: 'Reconnect Spotify to grant playback control for Listen Along.',
+      });
+    }
+    const check = await spotifySync.checkSpotifyPremium(token);
+    if (!check.allowed) {
+      return res.json({
+        state: check.code, connected: true,
+        premium: check.code === 'premium_required' ? false : null,
+        reason: check.reason,
+      });
+    }
+    res.json({ state: 'ready', connected: true, premium: true });
+  } catch (error) {
+    if (error.code === 'not_connected') {
+      return res.json({ state: 'not_connected', connected: false, premium: null, reason: 'Connect Spotify to listen along.' });
+    }
+    if (error.code === 'reconnect_required') {
+      return res.json({ state: 'reconnect_required', connected: true, premium: null, reason: error.message });
+    }
+    console.error('[spotify] listen-along status error:', error.message);
+    res.status(error.status || 503).json({ state: 'error', reason: error.message });
+  }
+});
+
 router.delete('/auth/disconnect', authMW, async (req, res) => {
   await UserProfile.findOneAndUpdate(
     { user_id: req.user.id },
@@ -401,6 +462,7 @@ router.delete('/auth/disconnect', authMW, async (req, res) => {
         'neural_links.spotify_access_token':  null,
         'neural_links.spotify_refresh_token': null,
         'neural_links.spotify_token_expires': null,
+        'neural_links.spotify_scopes':        '',
       },
     },
   );
