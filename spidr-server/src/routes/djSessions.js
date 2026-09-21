@@ -115,7 +115,7 @@ function trackMeta(body = {}) {
     album_art_url: String(body.album_art_url || '').slice(0, 500),
     preview_url:   String(body.preview_url   || '').slice(0, 500),
     preview_source: String(body.preview_source || '').slice(0, 20),
-    ...(body.audio_route ? { audio_route: String(body.audio_route).slice(0, 20) } : {}),
+    ...(body.audio_route === 'stream' || body.audio_route === 'preview' ? { audio_route: body.audio_route } : {}),
     external_url:  String(body.external_url  || '').slice(0, 500),
     duration_ms:   Number(body.duration_ms)  || 0,
     source:        body.source === 'apple' ? 'apple' : 'spotify',
@@ -123,348 +123,162 @@ function trackMeta(body = {}) {
 }
 
 // ── GET /voice-channels/:channelId/dj-session ────────────────────────────────
-router.get('/:channelId/dj-session', authMW, async (req, res) => {
+const { randomUUID } = require('node:crypto');
+const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
+const handle = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
+const uid = req => String(req.user.id || req.user.userId);
+const sessionFor = async req => {
+  const session = await DJSession.findOne({ channel_id: req.params.channelId }).lean();
+  if (!session) fail(404, 'No active DJ session');
+  return session;
+};
+const hostSession = async req => {
+  const session = await sessionFor(req);
+  if (session.host_id !== uid(req)) fail(403, 'Only the DJ can change this session');
+  return session;
+};
+const publish = (req, res, session, status = 200) => {
+  if (!session) fail(409, 'The DJ session changed. Please try again.');
+  const out = normalise(session);
+  emitChanged(req, req.params.channelId, out);
+  res.status(status).json(out);
+};
+const trackId = body => {
+  if (typeof body?.track_id !== 'string' || !body.track_id || body.track_id.length > 200) fail(400, 'track_id required');
+  return body.track_id;
+};
+
+// All mutations require current room presence, not just a previously owned role.
+router.use('/:channelId/dj-session', authMW, async (req, res, next) => {
   try {
-    const doc = await DJSession.findOne({ channel_id: req.params.channelId }).lean();
-    res.json(normalise(doc));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    if (req.method !== 'GET' && !await callerInChannel(uid(req), req.params.channelId)) fail(403, 'Join the voice channel first');
+    next();
+  } catch (error) { next(error); }
 });
 
-// ── POST /voice-channels/:channelId/dj-session ───────────────────────────────
-// Body: { track_id }
-router.post('/:channelId/dj-session', authMW, async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const { track_id } = req.body || {};
-    const userId = req.user?.id || req.user?.userId;
+router.get('/:channelId/dj-session', handle(async (req, res) => {
+  res.json(normalise(await DJSession.findOne({ channel_id: req.params.channelId }).lean()));
+}));
 
-    if (!track_id) return res.status(400).json({ error: 'track_id required' });
-    if (!await callerInChannel(userId, channelId)) {
-      return res.status(403).json({ error: 'Join the voice channel before starting a DJ session' });
-    }
+router.post('/:channelId/dj-session', handle(async (req, res) => {
+  const sharing = req.body?.mode === 'share';
+  const track_id = sharing ? 'live:' + randomUUID() : trackId(req.body);
+  const profile = await UserProfile.findOne({ user_id: uid(req) }).lean();
+  const meta = sharing ? { track_name: 'Live audio', audio_route: 'preview' } : await ensurePreview(trackMeta(req.body));
+  const doc = await DJSession.create({
+    channel_id: req.params.channelId, host_id: uid(req),
+    host_user_name: profile?.display_name || profile?.full_name || profile?.username || 'Spider',
+    host_user_avatar: profile?.avatar_url || '', track_id, ...meta, started_at: new Date(),
+  });
+  publish(req, res, doc.toObject(), 201);
+}));
 
-    // Reject if a session is already active. Use the unique index to win
-    // any race — first writer wins, second gets a duplicate-key error.
-    const existing = await DJSession.findOne({ channel_id: channelId }).lean();
-    if (existing) {
-      return res.status(409).json({ error: 'A DJ session is already active in this channel', session: normalise(existing) });
-    }
+router.patch('/:channelId/dj-session', handle(async (req, res) => {
+  const session = await hostSession(req);
+  const track_id = trackId(req.body);
+  const meta = await ensurePreview(trackMeta(req.body));
+  // Updating the annotation for the same song must not restart its preview.
+  const updated = await DJSession.findOneAndUpdate({ _id: session._id, host_id: uid(req), track_id: session.track_id }, {
+    $set: { ...meta, track_id, ...(track_id !== session.track_id ? { started_at: new Date() } : {}) },
+  }, { new: true }).lean();
+  publish(req, res, updated);
+}));
 
-    const profile = await UserProfile.findOne({ user_id: userId }).lean();
-    const doc = await DJSession.create({
-      channel_id:       channelId,
-      host_id:          userId,
-      host_user_name:   profile?.full_name || profile?.username || 'Spider',
-      host_user_avatar: profile?.avatar_url,
-      track_id,
-      ...(await ensurePreview(trackMeta(req.body))),
-      ...(req.body?.mode === 'share'
-        ? { audio_route: 'stream', track_name: req.body.track_name || 'Live audio', track_artist: req.body.track_artist || '' }
-        : {}),
-      started_at:       new Date(),
-    });
+router.patch('/:channelId/dj-session/route', handle(async (req, res) => {
+  const session = await hostSession(req);
+  const route = req.body?.audio_route;
+  if (!['stream', 'preview'].includes(route)) fail(400, 'Invalid audio route');
+  publish(req, res, await DJSession.findOneAndUpdate({ _id: session._id, host_id: uid(req) },
+    { $set: { audio_route: route } }, { new: true }).lean());
+}));
 
-    const session = normalise(doc.toObject());
-    emitChanged(req, channelId, session);
-    res.status(201).json(session);
-  } catch (err) {
-    // Duplicate key from the unique index — another caller raced us.
-    if (err?.code === 11000) {
-      const existing = await DJSession.findOne({ channel_id: req.params.channelId }).lean();
-      return res.status(409).json({ error: 'A DJ session is already active in this channel', session: normalise(existing) });
-    }
-    res.status(400).json({ error: err.message });
+router.delete('/:channelId/dj-session', handle(async (req, res) => {
+  const session = await hostSession(req);
+  const result = await DJSession.deleteOne({ _id: session._id, host_id: uid(req) });
+  if (!result.deletedCount) fail(409, 'The DJ session changed');
+  emitChanged(req, req.params.channelId, null);
+  res.json({ success: true });
+}));
+
+router.post('/:channelId/dj-session/queue', handle(async (req, res) => {
+  const session = await sessionFor(req);
+  const track_id = trackId(req.body);
+  const profile = await UserProfile.findOne({ user_id: uid(req) }).lean();
+  const entry = { qid: randomUUID(), track_id, ...(await ensurePreview(trackMeta(req.body))),
+    added_by: uid(req), added_by_name: profile?.display_name || profile?.full_name || profile?.username || 'Spider', added_at: new Date() };
+  // Conditional push is atomic: parallel requesters cannot overwrite each other,
+  // duplicate a track, or both claim the last available queue slot.
+  publish(req, res, await DJSession.findOneAndUpdate({
+    _id: session._id, 'queue.49': { $exists: false },
+    queue: { $not: { $elemMatch: { track_id, source: entry.source } } },
+  }, { $push: { queue: entry } }, { new: true }).lean(), 201);
+}));
+
+router.delete('/:channelId/dj-session/queue/:qid', handle(async (req, res) => {
+  const session = await sessionFor(req);
+  const entry = session.queue.find(q => q.qid === req.params.qid);
+  if (!entry) fail(404, 'Not in queue');
+  if (session.host_id !== uid(req) && entry.added_by !== uid(req)) fail(403, 'Only the requester or DJ can remove this track');
+  publish(req, res, await DJSession.findOneAndUpdate({
+    _id: session._id, $or: [{ host_id: uid(req) }, { queue: { $elemMatch: { qid: entry.qid, added_by: uid(req) } } }],
+  }, { $pull: { queue: { qid: entry.qid } } }, { new: true }).lean());
+}));
+
+router.post('/:channelId/dj-session/advance', handle(async (req, res) => {
+  const session = await hostSession(req);
+  const next = session.queue?.[0];
+  if (!next) fail(409, 'Queue is empty');
+  const meta = trackMeta(next);
+  delete meta.audio_route;
+  publish(req, res, await DJSession.findOneAndUpdate({
+    _id: session._id, host_id: uid(req), 'queue.0.qid': next.qid,
+  }, { $set: { ...meta, track_id: next.track_id, started_at: new Date() }, $pop: { queue: -1 } }, { new: true }).lean());
+}));
+
+const HANDOFF_TTL_MS = 60_000;
+router.post('/:channelId/dj-session/handoff', handle(async (req, res) => {
+  const session = await hostSession(req);
+  const target = req.body?.to_user_id;
+  if (typeof target !== 'string' || !target || target === uid(req)) fail(400, 'Choose another participant');
+  if (session.handoff && Date.now() - session.handoff.at < HANDOFF_TTL_MS) fail(409, 'An aux offer is already pending');
+  const present = await VoiceSession.findOne({ channel_id: req.params.channelId, user_id: target }).lean();
+  if (!present) fail(409, 'That person is no longer in the call');
+  const handoff = { to_user_id: target, to_user_name: present.user_name || 'Spider', from_user_id: uid(req),
+    from_user_name: session.host_user_name || 'DJ', at: Date.now() };
+  publish(req, res, await DJSession.findOneAndUpdate({
+    _id: session._id, host_id: uid(req), ...(session.handoff ? { 'handoff.at': session.handoff.at } : { handoff: null }),
+  }, { $set: { handoff } }, { new: true }).lean());
+}));
+
+router.post('/:channelId/dj-session/handoff/accept', handle(async (req, res) => {
+  const session = await sessionFor(req);
+  const offer = session.handoff;
+  if (!offer || offer.to_user_id !== uid(req)) fail(403, 'No aux offer for you');
+  const filter = { _id: session._id, host_id: offer.from_user_id, 'handoff.at': offer.at, 'handoff.to_user_id': uid(req) };
+  if (Date.now() - offer.at > HANDOFF_TTL_MS) {
+    const expired = await DJSession.findOneAndUpdate(filter, { $set: { handoff: null } }, { new: true }).lean();
+    if (expired) emitChanged(req, req.params.channelId, normalise(expired));
+    fail(410, 'That offer expired');
   }
+  const profile = await UserProfile.findOne({ user_id: uid(req) }).lean();
+  publish(req, res, await DJSession.findOneAndUpdate(filter, { $set: {
+    host_id: uid(req), host_user_name: profile?.display_name || offer.to_user_name || 'Spider',
+    host_user_avatar: profile?.avatar_url || '', handoff: null, audio_route: 'preview',
+  } }, { new: true }).lean());
+}));
+
+router.post('/:channelId/dj-session/handoff/decline', handle(async (req, res) => {
+  const session = await sessionFor(req);
+  if (session.host_id !== uid(req) && session.handoff?.to_user_id !== uid(req)) fail(403, 'Not your offer');
+  publish(req, res, await DJSession.findOneAndUpdate({
+    _id: session._id, ...(session.handoff ? { 'handoff.at': session.handoff.at } : { handoff: null }),
+  }, { $set: { handoff: null } }, { new: true }).lean());
+}));
+
+router.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  res.status(error.code === 11000 ? 409 : error.status || 400).json({
+    error: error.code === 11000 ? 'A DJ session is already active' : error.message,
+  });
 });
-
-// ── PATCH /voice-channels/:channelId/dj-session ──────────────────────────────
-// Body: { track_id } — change the track. Host only.
-router.patch('/:channelId/dj-session', authMW, async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const { track_id } = req.body || {};
-    const userId = req.user?.id || req.user?.userId;
-
-    if (!track_id) return res.status(400).json({ error: 'track_id required' });
-
-    const existing = await DJSession.findOne({ channel_id: channelId });
-    if (!existing) return res.status(404).json({ error: 'No active DJ session' });
-    if (existing.host_id !== userId) {
-      return res.status(403).json({ error: 'Only the DJ host can change the track' });
-    }
-
-    existing.track_id  = track_id;
-    Object.assign(existing, await ensurePreview(trackMeta(req.body)));
-    existing.started_at = new Date();
-    await existing.save();
-
-    const session = normalise(existing.toObject());
-    emitChanged(req, channelId, session);
-    res.json(session);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// ── DELETE /voice-channels/:channelId/dj-session ─────────────────────────────
-// End the session. Host only.
-router.delete('/:channelId/dj-session', authMW, async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const userId = req.user?.id || req.user?.userId;
-
-    const existing = await DJSession.findOne({ channel_id: channelId }).lean();
-    if (!existing) return res.json({ success: true }); // already gone — idempotent
-    if (existing.host_id !== userId) {
-      return res.status(403).json({ error: 'Only the DJ host can end the session' });
-    }
-
-    await DJSession.deleteOne({ channel_id: channelId });
-    emitChanged(req, channelId, null);
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// ── Collaborative queue ─────────────────────────────────────────────────────
-// Anyone in the call can append a track; the DJ advances through it. This is
-// what makes the booth a shared session rather than one person's radio show.
-
-// POST /:channelId/dj-session/queue — append a track to the up-next list.
-router.post('/:channelId/dj-session/queue', authMW, async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const userId = req.user?.id;
-    const { track_id } = req.body || {};
-    // A track is OPTIONAL now. The booth was built preview-first, but
-    // Spotify no longer returns a 30s preview for most of its catalogue, so
-    // requiring a track meant most sessions had nothing to play. A DJ can
-    // now open a session purely to share their own audio, with the track
-    // card as optional annotation rather than the thing being played.
-    if (!track_id && req.body?.mode !== 'share') {
-      return res.status(400).json({ error: 'track_id required' });
-    }
-
-    const session = await DJSession.findOne({ channel_id: channelId });
-    if (!session) return res.status(404).json({ error: 'No active DJ session' });
-
-    // Cap the queue so one person can't flood the booth.
-    if ((session.queue || []).length >= 50) {
-      return res.status(409).json({ error: 'Queue is full (50 tracks)' });
-    }
-    // Don't allow the same track twice in a row in the queue.
-    if ((session.queue || []).some(q => q.track_id === track_id)) {
-      return res.status(409).json({ error: 'That track is already queued' });
-    }
-
-    const profile = await UserProfile.findOne({ user_id: userId }).lean();
-    const entry = {
-      // A stable id so the client can key rows and target removals without
-      // relying on array position, which shifts as tracks are consumed.
-      qid: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      track_id,
-      ...(await ensurePreview(trackMeta(req.body))),
-      added_by:      userId,
-      added_by_name: profile?.full_name || profile?.username || 'Spider',
-      added_at:      new Date(),
-    };
-    session.queue = [...(session.queue || []), entry];
-    session.markModified('queue');
-    await session.save();
-
-    const out = normalise(session.toObject());
-    emitChanged(req, channelId, out);
-    res.status(201).json(out);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// DELETE /:channelId/dj-session/queue/:qid — pull a track.
-// You may remove your own entry; the host may remove anyone's.
-router.delete('/:channelId/dj-session/queue/:qid', authMW, async (req, res) => {
-  try {
-    const { channelId, qid } = req.params;
-    const userId = req.user?.id;
-    const session = await DJSession.findOne({ channel_id: channelId });
-    if (!session) return res.status(404).json({ error: 'No active DJ session' });
-
-    const entry = (session.queue || []).find(q => q.qid === qid);
-    if (!entry) return res.status(404).json({ error: 'Not in queue' });
-    if (String(entry.added_by) !== String(userId) && String(session.host_id) !== String(userId)) {
-      return res.status(403).json({ error: 'Only the person who queued it or the DJ can remove it' });
-    }
-
-    session.queue = (session.queue || []).filter(q => q.qid !== qid);
-    session.markModified('queue');
-    await session.save();
-
-    const out = normalise(session.toObject());
-    emitChanged(req, channelId, out);
-    res.json(out);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// POST /:channelId/dj-session/advance — host pops the next queued track and
-// makes it the now-playing. Kept server-side so the queue and the current
-// track can never disagree.
-router.post('/:channelId/dj-session/advance', authMW, async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const userId = req.user?.id;
-    const session = await DJSession.findOne({ channel_id: channelId });
-    if (!session) return res.status(404).json({ error: 'No active DJ session' });
-    if (String(session.host_id) !== String(userId)) {
-      return res.status(403).json({ error: 'Only the DJ can advance the queue' });
-    }
-    const [next, ...rest] = session.queue || [];
-    if (!next) return res.status(409).json({ error: 'Queue is empty' });
-
-    session.track_id      = next.track_id;
-    session.track_name    = next.track_name;
-    session.track_artist  = next.track_artist;
-    session.album_art_url = next.album_art_url;
-    session.preview_url   = next.preview_url;
-    session.preview_source= next.preview_source || '';
-    session.external_url  = next.external_url;
-    session.duration_ms   = next.duration_ms;
-    session.source        = next.source || session.source;
-    session.started_at    = new Date();
-    session.queue         = rest;
-    session.markModified('queue');
-    await session.save();
-
-    const out = normalise(session.toObject());
-    emitChanged(req, channelId, out);
-    res.json(out);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-
-// ── Pass the Aux — host migration ───────────────────────────────────────────
-// In a P2P mesh the music lives on the DJ's machine, so when they leave it
-// dies with them. This is the handoff that makes a session outlive its
-// founder — the one thing a server-side music bot does better today, because
-// a bot never leaves the channel.
-//
-// Deliberately a two-step offer/accept rather than a unilateral push: the
-// incoming host has to start their OWN screen share for audio to keep
-// flowing, and we can't do that for them (browsers require a user gesture on
-// the target's machine). Handing the role over without their consent would
-// produce a session with a host who isn't playing anything.
-
-const HANDOFF_TTL_MS = 60 * 1000;
-
-// POST /:channelId/dj-session/handoff  { to_user_id, to_user_name }
-router.post('/:channelId/dj-session/handoff', authMW, async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const userId = req.user?.id;
-    const { to_user_id, to_user_name } = req.body || {};
-    if (!to_user_id) return res.status(400).json({ error: 'to_user_id required' });
-    if (String(to_user_id) === String(userId)) {
-      return res.status(400).json({ error: "You're already the DJ" });
-    }
-
-    const session = await DJSession.findOne({ channel_id: channelId });
-    if (!session) return res.status(404).json({ error: 'No active DJ session' });
-    if (String(session.host_id) !== String(userId)) {
-      return res.status(403).json({ error: 'Only the DJ can pass the aux' });
-    }
-
-    // The target must actually be in the call — otherwise the aux could be
-    // handed to someone who left, stranding the session with an absent host.
-    const present = await VoiceSession.findOne({ channel_id: channelId, user_id: to_user_id }).lean();
-    if (!present) return res.status(409).json({ error: 'That person is no longer in the call' });
-
-    session.handoff = {
-      to_user_id:     String(to_user_id),
-      to_user_name:   String(to_user_name || 'Spider').slice(0, 80),
-      from_user_id:   String(userId),
-      from_user_name: session.host_user_name || 'the DJ',
-      at:             Date.now(),
-    };
-    session.markModified('handoff');
-    await session.save();
-
-    const out = normalise(session.toObject());
-    emitChanged(req, channelId, out);
-    res.json(out);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// POST /:channelId/dj-session/handoff/accept — target takes the aux.
-router.post('/:channelId/dj-session/handoff/accept', authMW, async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const userId = req.user?.id;
-    const session = await DJSession.findOne({ channel_id: channelId });
-    if (!session) return res.status(404).json({ error: 'No active DJ session' });
-
-    const offer = session.handoff;
-    if (!offer || String(offer.to_user_id) !== String(userId)) {
-      return res.status(403).json({ error: 'No aux offer for you' });
-    }
-    if (Date.now() - (offer.at || 0) > HANDOFF_TTL_MS) {
-      session.handoff = null;
-      session.markModified('handoff');
-      await session.save();
-      return res.status(410).json({ error: 'That offer expired' });
-    }
-
-    const profile = await UserProfile.findOne({ user_id: userId }).lean();
-    session.host_id        = String(userId);
-    session.host_user_name = profile?.display_name || offer.to_user_name || 'Spider';
-    session.handoff        = null;
-    // The new host isn't sharing yet, so the room falls back to the preview
-    // until they start one. Leaving it on 'stream' would point everyone at
-    // an audio pipe that no longer exists.
-    session.audio_route    = 'preview';
-    session.markModified('handoff');
-    await session.save();
-
-    const out = normalise(session.toObject());
-    emitChanged(req, channelId, out);
-    res.json(out);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// POST /:channelId/dj-session/handoff/decline — target declines, or the host
-// cancels their own pending offer.
-router.post('/:channelId/dj-session/handoff/decline', authMW, async (req, res) => {
-  try {
-    const { channelId } = req.params;
-    const userId = req.user?.id;
-    const session = await DJSession.findOne({ channel_id: channelId });
-    if (!session) return res.status(404).json({ error: 'No active DJ session' });
-
-    const offer = session.handoff;
-    const isTarget = offer && String(offer.to_user_id) === String(userId);
-    const isHost   = String(session.host_id) === String(userId);
-    if (!isTarget && !isHost) return res.status(403).json({ error: 'Not your offer' });
-
-    session.handoff = null;
-    session.markModified('handoff');
-    await session.save();
-
-    const out = normalise(session.toObject());
-    emitChanged(req, channelId, out);
-    res.json(out);
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
 module.exports = router;

@@ -19,12 +19,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import api from './apiClient';
 import { getSocket } from './socket';
+import { voiceRoom } from './voiceRoom';
 import { emitter } from './eventEmitter';
 import { getWebRTC, getCallKeep, getMessaging, getInCallManager, getExpoNotifications, callsSupported } from './nativeCalls';
 import { loadAvPrefs } from './avPrefs';
 
 export interface CallPeerInfo { id: string; name?: string; avatar?: string }
 export interface CallInfo {
+  callId?: string;
+  groupId?: string;
   conversationId: string;
   peer: CallPeerInfo;         // the other party
   kind: 'voice' | 'video';
@@ -58,6 +61,9 @@ class CallManager {
   isCameraOff = false;
   localStream: any = null;
   remoteStreams: Record<string, any> = {}; // socketId → MediaStream
+  accountCalls: any[] = [];
+  private mediaGeneration = 0;
+  private accepting = false;
 
   private currentUser: any = null;
   private peers: Record<string, any> = {}; // socketId → RTCPeerConnection
@@ -90,20 +96,35 @@ class CallManager {
       return;
     }
 
-    this.socket.on('call:incoming', ({ conversationId, caller, kind }: any) => {
+    this.socket.on('call:incoming', ({ callId, conversationId, groupId, caller, kind }: any) => {
       console.log('[callManager] call:incoming socket event', { conversationId, caller, kind });
       this.ring({
-        conversationId,
+        callId, groupId, conversationId: groupId || conversationId,
         peer: { id: caller?.id, name: caller?.name, avatar: caller?.avatar },
         kind: kind === 'video' ? 'video' : 'voice',
         direction: 'incoming',
       });
     });
-    this.socket.on('call:cancelled', ({ conversationId }: any) => {
-      if (this.call?.conversationId === conversationId && this.state === 'ringing') {
+    this.socket.on('call:cancelled', ({ callId, conversationId, groupId }: any) => {
+      if ((this.call?.callId === callId || this.call?.conversationId === (groupId || conversationId)) && this.state === 'ringing') {
         this.stopRinging('cancelled');
       }
     });
+    this.socket.on('call:state', ({ calls }: any) => {
+      this.accountCalls = calls || [];
+      emitter.emit('call:account', this.accountCalls);
+      const incoming = this.accountCalls.find(c => c.status === 'ringing' && c.callerId !== this.currentUser?.id && !c.declined);
+      if (incoming && this.state === 'idle') this.ring(this.fromSnapshot(incoming));
+    });
+    const localEnd = (payload: any) => {
+      if (this.call && (payload.callId === this.call.callId || (!this.call.callId && payload.conversationId === this.call.conversationId))) this.end(false);
+    };
+    this.socket.on('call:ended', localEnd);
+    this.socket.on('call:left', localEnd);
+    this.socket.on('call:transferred', localEnd);
+    this.socket.on('call:answered-elsewhere', localEnd);
+    this.socket.on('connect', () => this.socket.emit('call:sync', {}));
+    this.socket.emit('call:sync', {});
 
     // One-line native inventory — tells dev build (webrtc/callkeep present)
     // apart from Expo Go (all absent) at a glance in any log paste.
@@ -128,9 +149,10 @@ class CallManager {
   // ── Ringing ───────────────────────────────────────────────────────────────
   private ring(call: CallInfo) {
     // Dedupe: socket + push both fire for reliability.
-    const last = this.recentRings.get(call.conversationId) || 0;
+    const ringKey = call.callId || call.conversationId;
+    const last = this.recentRings.get(ringKey) || 0;
     if (Date.now() - last < 30_000) return;
-    this.recentRings.set(call.conversationId, Date.now());
+    this.recentRings.set(ringKey, Date.now());
 
     if (this.state !== 'idle') return; // busy — let it ring out on the caller side
 
@@ -167,16 +189,11 @@ class CallManager {
   // ── Accept / decline (callee side) ────────────────────────────────────────
   async accept() {
     const call = this.call;
-    if (!call || this.state !== 'ringing') return;
+    if (!call || this.state !== 'ringing' || this.accepting) return;
     getInCallManager()?.stopRingtone();
 
-    this.socket?.emit('call:accept', {
-      callerId: call.peer.id,
-      conversationId: call.conversationId,
-    });
-
     if (!callsSupported()) {
-      // Expo Go: signal accepted (so web caller connects) but explain media.
+      // Expo Go cannot answer a media call; leave the server invitation intact.
       this.state = 'idle';
       const c = this.call;
       this.call = null;
@@ -185,13 +202,20 @@ class CallManager {
       return;
     }
 
-    await this.joinMedia(call);
+    this.accepting = true;
+    try {
+      if (voiceRoom.state !== 'idle') throw new Error('Leave your voice room first');
+      const result = await this.action('call:accept', { callId: call.callId, conversationId: call.conversationId, groupId: call.groupId });
+      await this.joinMedia({ ...call, callId: result.call.callId });
+    } catch (error: any) { this.end(); emitter.emit('call:error', error.message); }
+    finally { this.accepting = false; }
   }
 
   decline() {
     const call = this.call;
     if (!call) return;
     this.socket?.emit('call:decline', {
+      callId: call.callId, groupId: call.groupId,
       callerId: call.peer.id,
       conversationId: call.conversationId,
     });
@@ -200,25 +224,59 @@ class CallManager {
 
   // ── Caller side: invite accepted → join media ─────────────────────────────
   async startOutgoing(call: Omit<CallInfo, 'direction'>) {
+    if (voiceRoom.state !== 'idle') throw new Error('Leave your voice room first');
     if (!callsSupported()) {
       emitter.emit('call:unsupported', { ...call, direction: 'outgoing' });
       return false;
     }
-    await this.joinMedia({ ...call, direction: 'outgoing' });
+    const result = await this.action('call:sync');
+    const owned = result.calls.find((c: any) => c.isOwner && c.conversationId === call.conversationId);
+    if (!owned) return false;
+    try { await this.joinMedia({ ...call, callId: owned.callId, direction: 'outgoing' }); }
+    catch (error) { this.end(); throw error; }
     return true;
   }
 
+  private action(event: string, data: any = {}): Promise<any> {
+    return new Promise((resolve, reject) => {
+      this.socket.timeout(10000).emit(event, data, (error: any, result: any) => {
+        if (error || !result?.ok) reject(new Error(result?.error || 'Could not reach the call server'));
+        else resolve(result);
+      });
+    });
+  }
+
+  private fromSnapshot(call: any): CallInfo {
+    const peer = call.participants?.find((p: any) => p.id !== this.currentUser?.id) || call.caller;
+    return { callId: call.callId, groupId: call.groupId, conversationId: call.groupId || call.conversationId,
+      peer: { ...peer, name: call.groupName || peer?.name }, kind: call.kind === 'video' ? 'video' : 'voice',
+      direction: call.callerId === this.currentUser?.id ? 'outgoing' : 'incoming' };
+  }
+
+  async transferHere(callId: string) {
+    if (this.state !== 'idle' || voiceRoom.state !== 'idle') throw new Error('End your current call on this device first');
+    if (!callsSupported()) throw new Error('Device switching needs the full Spidr app');
+    const { call: pending } = await this.action('call:transfer:request', { callId });
+    const stream = await getWebRTC().mediaDevices.getUserMedia({ audio: true, video: pending.kind === 'video' });
+    try {
+      const { call } = await this.action('call:transfer:commit', { callId, transferId: pending.transferId });
+      await this.joinMedia(this.fromSnapshot(call), stream);
+    } catch (error) { stream.getTracks().forEach((track: any) => track.stop()); throw error; }
+  }
+
   // ── Media (mirrors web useWebRTC: mesh over voice:signal) ─────────────────
-  private async joinMedia(call: CallInfo) {
+  private async joinMedia(call: CallInfo, preparedStream?: any) {
     const { RTCPeerConnection, RTCIceCandidate, mediaDevices } = getWebRTC();
+    const generation = ++this.mediaGeneration;
 
     this.call = call;
     // Device-local defaults from Settings → Voice & Video.
     const prefs = await loadAvPrefs();
-    const stream = await mediaDevices.getUserMedia({
+    const stream = preparedStream || await mediaDevices.getUserMedia({
       audio: { echoCancellation: prefs.echo_cancellation, noiseSuppression: prefs.noise_suppression },
       video: call.kind === 'video' ? { facingMode: 'user', width: 1280, height: 720 } : false,
     });
+    if (generation !== this.mediaGeneration) { stream.getTracks().forEach((t: any) => t.stop()); return; }
     this.localStream = stream;
 
     this.isMuted = prefs.join_muted;
@@ -238,6 +296,7 @@ class CallManager {
       if (cfg?.iceServers?.length) this.iceConfig = cfg;
     } catch { this.iceConfig = FALLBACK_ICE; }
 
+    if (generation !== this.mediaGeneration) { stream.getTracks().forEach((t: any) => t.stop()); return; }
     const socket = this.socket;
 
     const createPeer = (socketId: string, isInitiator: boolean) => {
@@ -265,7 +324,7 @@ class CallManager {
           this.remoteStreams = next;
           emitter.emit('call:streams', this.remoteStreams);
           // 1:1 DM call — the other side vanishing ends the call.
-          if (Object.keys(this.peers).length === 0 && this.state === 'active') this.end();
+          if (!this.call?.callId && Object.keys(this.peers).length === 0 && this.state === 'active') this.end();
         }
       };
 
@@ -319,12 +378,12 @@ class CallManager {
 
     const onPeerLeft = ({ socketId }: any) => {
       const pc = this.peers[socketId];
-      if (pc) { try { pc.close(); } catch {} delete this.peers[socketId]; }
+      if (pc) { pc.onconnectionstatechange = null; try { pc.close(); } catch {} delete this.peers[socketId]; }
       const next = { ...this.remoteStreams };
       delete next[socketId];
       this.remoteStreams = next;
       emitter.emit('call:streams', this.remoteStreams);
-      if (Object.keys(this.peers).length === 0 && this.state === 'active') this.end();
+      if (!this.call?.callId && Object.keys(this.peers).length === 0 && this.state === 'active') this.end();
     };
 
     this.mediaHandlers = {
@@ -336,7 +395,7 @@ class CallManager {
 
     // Same room the web voice deck joins for DM calls.
     socket.emit('voice:join', {
-      serverId: 'dm',
+      serverId: call.groupId ? 'group' : 'dm',
       channelId: call.conversationId,
       userId: this.currentUser?.id,
       userName: this.currentUser?.full_name || this.currentUser?.username,
@@ -388,19 +447,25 @@ class CallManager {
     emitter.emit('call:controls', { isMuted: this.isMuted, isSpeaker: this.isSpeaker, isCameraOff: this.isCameraOff });
   }
 
-  end() {
+  end(notify = true) {
     const call = this.call;
+    this.mediaGeneration++;
+    this.call = null;
+    this.state = 'idle';
     getInCallManager()?.stopRingtone();
     getInCallManager()?.stop();
 
     try { this.localStream?.getTracks?.().forEach((t: any) => t.stop()); } catch {}
     this.localStream = null;
-    Object.values(this.peers).forEach((pc: any) => { try { pc.close(); } catch {} });
+    Object.values(this.peers).forEach((pc: any) => { pc.onconnectionstatechange = null; try { pc.close(); } catch {} });
     this.peers = {};
     this.remoteStreams = {};
 
     if (this.socket && call) {
-      this.socket.emit('voice:leave', { serverId: 'dm', channelId: call.conversationId });
+      if (notify) {
+        this.socket.emit('call:cancel', { callId: call.callId, conversationId: call.conversationId, groupId: call.groupId });
+        this.socket.emit('voice:leave', { serverId: call.groupId ? 'group' : 'dm', channelId: call.conversationId });
+      }
       for (const [event, handler] of Object.entries(this.mediaHandlers)) this.socket.off(event, handler);
       this.mediaHandlers = {};
     }
@@ -664,7 +729,9 @@ class CallManager {
   handlePushData(data: any) {
     if (!data?.type) return;
     if (data.type === 'incoming_call') {
+      if (data.expiresAt && Number(data.expiresAt) <= Date.now()) return;
       this.ring({
+        callId: data.callId, groupId: data.groupId || undefined,
         conversationId: data.conversationId,
         peer: { id: data.callerId, name: data.callerName, avatar: data.callerAvatar },
         kind: data.kind === 'video' ? 'video' : 'voice',
@@ -705,6 +772,7 @@ class CallManager {
       const pending = JSON.parse(raw);
       if (Date.now() - (pending.ts || 0) > 45_000) return; // stale ring
       const call: CallInfo = {
+        callId: pending.callId, groupId: pending.groupId || undefined,
         conversationId: pending.conversationId,
         peer: { id: pending.callerId, name: pending.callerName, avatar: pending.callerAvatar },
         kind: pending.kind === 'video' ? 'video' : 'voice',
@@ -733,6 +801,7 @@ class CallManager {
       if (Date.now() - (pending.ts || 0) > 45_000) return; // stale ring
       const socket = this.socket ?? await getSocket();
       socket?.emit('call:decline', {
+        callId: pending.callId, groupId: pending.groupId || undefined,
         callerId: pending.callerId,
         conversationId: pending.conversationId,
       });

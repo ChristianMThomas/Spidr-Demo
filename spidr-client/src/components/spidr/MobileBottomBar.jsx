@@ -48,7 +48,7 @@ export default function MobileBottomBar({ activeTab, setActiveTab, onToggleSideb
                 active ? 'text-red-500' : 'text-zinc-500 hover:text-white active:bg-white/5'
               }`}
             >
-              <Icon className="w-5 h-5" />
+              {it.id === 'home' ? <SpiderLogo size={24} /> : <Icon className="w-5 h-5" />}
               <span className="text-[9px] font-bold uppercase tracking-wide">{it.label}</span>
             </button>
           );

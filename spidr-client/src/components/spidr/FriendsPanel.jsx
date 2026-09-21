@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useMenu } from '@/components/MenuContext';
+import { useReadState } from '@/hooks/useReadState';
 import { togglePin as libTogglePin, getPins as libGetPins } from '@/lib/spidrWebPins';
 import HolographicProfile from './HolographicProfile';
 import DirectMessages from './DirectMessages';
@@ -41,6 +42,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
   const [tab, setTab] = useState(initialTab || 'all');
   const queryClient = useQueryClient();
   const { triggerMenu: triggerGroupMenu } = useMenu();
+  const { data: readState } = useReadState(currentUser?.id);
 
   // When the parent passes a fresh initialTab, snap to it and consume it
   React.useEffect(() => {
@@ -423,7 +425,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-zinc-900">
+    <div className="page-theme-surface flex-1 min-h-0 min-w-0 flex flex-col bg-zinc-900">
       {/* Header — md:pr-[200px] reserves space for the shell's top-right
           cluster on desktop only. On <md the cluster collapses, so the header
           reclaims full width. Create Group shrinks to an icon button and the
@@ -434,7 +436,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
         <Button
           size="sm"
           onClick={() => setShowCreateGroup(true)}
-          className="bg-purple-600 hover:bg-purple-700 shrink-0"
+          className="page-theme-action bg-purple-600 hover:bg-purple-700 shrink-0"
           title="Create Group"
         >
           <Users className="w-4 h-4 md:mr-2" />
@@ -581,6 +583,7 @@ export default function FriendsPanel({ currentUser, onVoiceJoin, onVoiceLeave, o
                       <p className="text-white text-sm font-semibold truncate flex items-center gap-1.5">
                         {isPinned && <Pin className="w-3 h-3 text-red-400 fill-red-400 shrink-0" />}
                         {group.name || 'Untitled group'}
+                        {readState?.groups?.[group.id] && <span aria-label="Unread messages" className="h-2 w-2 shrink-0 rounded-full bg-red-500" />}
                       </p>
                       <p className="text-zinc-500 text-xs truncate">{memberCount} member{memberCount === 1 ? '' : 's'}</p>
                     </div>

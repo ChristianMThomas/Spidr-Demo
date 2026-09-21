@@ -308,10 +308,7 @@ function ServerSettingsSheet({
         style: 'destructive',
         onPress: async () => {
           try {
-            const nextMembers = (server?.members || []).filter(
-              (m: any) => m.user_id !== currentUserId,
-            );
-            await entities.Server.update(server.id, { members: nextMembers });
+            await entities.Server.leave(server.id);
             onClose();
             router.back();
           } catch (err: any) {

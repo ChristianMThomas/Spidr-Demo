@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Globe } from 'lucide-react';
 
 import { NotificationBell } from './NotificationCenter';
 import BiomassBalancePill from './BiomassBalancePill';
@@ -83,6 +84,9 @@ export default function TitleBar({ currentUser }) {
       >
         {currentUser && (
           <div className="flex items-center gap-2">
+            {window.electronAPI?.quickBrowser && <button title="Quick browser" aria-label="Quick browser"
+              onClick={() => window.dispatchEvent(new Event('spidr-quick-browser-toggle'))}
+              className="w-8 h-8 grid place-items-center rounded-md text-zinc-400 hover:text-white hover:bg-white/10"><Globe size={16} /></button>}
             <NotificationBell />
             <BiomassBalancePill />
             <UserStatusChip />

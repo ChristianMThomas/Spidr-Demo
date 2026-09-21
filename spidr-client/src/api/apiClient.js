@@ -132,6 +132,9 @@ export const entities = {
   Friend:           entity('friends'),
   Server: {
     ...entity('servers'),
+    join: (id, invite_message_id) => api.post(`/servers/${id}/join`, { invite_message_id }),
+    requestJoin: (id) => api.post(`/servers/${id}/join-requests`, {}),
+    leave: (id) => api.post(`/servers/${id}/leave`, {}),
     // POST /servers/:id/invite → { invite_code, invite_url }
     generateInvite: (id, rotate = false) =>
       api.post(`/servers/${id}/invite`, { rotate }),
@@ -499,6 +502,7 @@ export const spotify = {
   // { host_id, track_id, started_at } and emits over the channel's
   // socket room so all members re-render with the DJ matrix.
   djSession: {
+    setAudioRoute: (channelId, audio_route) => api.patch(`/voice-channels/${channelId}/dj-session/route`, { audio_route }),
     get:   (channelId) => api.get(`/voice-channels/${channelId}/dj-session`).catch(() => null),
     // meta = { track_name, track_artist, album_art_url, preview_url,
     // external_url, duration_ms } — cached on the session so LISTENERS can

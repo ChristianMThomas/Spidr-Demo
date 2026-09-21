@@ -3,10 +3,11 @@ const crudRouter = require('../utils/crudRouter');
 const authMiddleware = require('../middleware/auth');
 const Server = require('../models/Server');
 const User = require('../models/User');
-const feedEvents = require('../utils/feedEvents');
-const welcomeBot = require('../utils/welcomeBot');
+const { randomBytes } = require('node:crypto');
+const { isMember, canManage, canUpdateNicknames, isListed, summary, discoveryFields } = require('../utils/serverAccess');
 
 const router = express.Router();
+router.use('/', require('./serverDiscovery'));
 
 // Strip members / banned_users referencing users that no longer exist.
 // One User query per request covers every server passed in. Read-side
@@ -33,12 +34,7 @@ async function pruneGhostMembers(servers) {
 
 // Helper: generate a short alphanumeric invite code
 function generateInviteCode() {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 8; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return code;
+  return randomBytes(12).toString('base64url');
 }
 
 // POST /servers/:id/invite — generate (or rotate) a server invite code.
@@ -77,79 +73,6 @@ router.post('/:id/invite', authMiddleware, async (req, res) => {
   }
 });
 
-// POST /servers/join — join a server by invite code.
-// Body: { invite_code, user_name, user_avatar }
-router.post('/join', authMiddleware, async (req, res) => {
-  try {
-    const { invite_code, user_name, user_avatar } = req.body;
-    if (!invite_code || typeof invite_code !== 'string') {
-      return res.status(400).json({ error: 'invite_code required' });
-    }
-    const server = await Server.findOne({ invite_code: invite_code.trim() });
-    if (!server) return res.status(404).json({ error: 'Invalid invite code' });
-
-    const userId = req.user?.id;
-    const already = (server.members || []).some(m => m.user_id === userId);
-    if (already || server.owner_id?.toString() === userId?.toString()) {
-      return res.json({
-        id: server._id.toString(),
-        name: server.name,
-        already_member: true,
-      });
-    }
-
-    server.members = [
-      ...(server.members || []),
-      {
-        user_id: userId,
-        user_name: user_name || 'User',
-        user_avatar: user_avatar || '',
-        role: 'Member',
-        joined_at: new Date(),
-      },
-    ];
-    await server.save();
-
-    // 3.3 — notify connected clients so the member list updates live without a
-    // reload. Emit both the server room and a global event the panel listens for.
-    try {
-      const io = req.app.get('io');
-      if (io) {
-        const payload = {
-          server_id: server._id.toString(),
-          member: { user_id: userId, user_name: user_name || 'User', user_avatar: user_avatar || '', role: 'Member' },
-        };
-        io.to(`server:${server._id.toString()}`).emit('server:member-joined', payload);
-        io.emit('server:member-joined', payload);
-      }
-    } catch { /* non-fatal */ }
-
-    // Welcome Bot trigger — fires for new members only.
-    // Logged failures inside the helper; join must succeed even if welcome breaks.
-    welcomeBot.fireWelcome(
-      server,
-      { user_id: userId, user_name: user_name || 'User' },
-      req.app.get('io')
-    ).catch(() => {});
-
-    // Fire-and-forget feed event so this shows up in the home activity feed
-    feedEvents.serverJoin({
-      user_id: userId,
-      user_name: user_name || 'User',
-      user_avatar: user_avatar || '',
-      server_id: server._id.toString(),
-      server_name: server.name,
-    });
-
-    res.json({
-      id: server._id.toString(),
-      name: server.name,
-      already_member: false,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // GET /servers/lookup/:code — preview a server by invite code (no join)
 router.get('/lookup/:code', async (req, res) => {
@@ -163,6 +86,8 @@ router.get('/lookup/:code', async (req, res) => {
       icon_url: server.icon_url,
       banner_url: server.banner_url,
       member_count: (server.members || []).length,
+      tags: server.tags || [],
+      rules: server.rules || [],
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -225,46 +150,44 @@ router.patch('/:serverId/roles/:roleId', authMiddleware, async (req, res) => {
   }
 });
 
-// PATCH /servers/:id — custom handler that runs BEFORE the generic crudRouter
-// so we can detect new members added via this path (the public-server "Join"
-// button calls Server.update({ members: [...] }) directly instead of going
-// through POST /servers/join) and fire the Welcome Bot for each.
-const PROTECTED_FIELDS = new Set(['password', 'is_banned', 'role', 'is_verified', 'is_admin', 'twoFactorSecret', 'twoFactorMethod']);
+// Settings changes require server permissions; joining uses dedicated routes.
+const SETTINGS_FIELDS = new Set(['name', 'description', 'icon_url', 'banner_url', 'category', 'tags', 'rules', 'is_public', 'is_discoverable', 'allow_join_requests', 'members', 'banned_users', 'channels', 'roles', 'emojis', 'muted_members', 'timeouts', 'hidden_roles', 'show_role_labels', 'sanctuary', 'airlock', 'bots', 'bot_config']);
 router.patch('/:id', authMiddleware, async (req, res) => {
   try {
-    const before = await Server.findById(req.params.id).select('members').lean();
+    const before = await Server.findById(req.params.id).lean();
     if (!before) return res.status(404).json({ error: 'Not found' });
-    const beforeIds = new Set((before.members || []).map(m => m.user_id).filter(Boolean));
-
-    const safeBody = {};
-    for (const [k, v] of Object.entries(req.body)) {
-      if (k.startsWith('$') || PROTECTED_FIELDS.has(k)) continue;
-      safeBody[k] = v;
-    }
-
-    const updated = await Server.findByIdAndUpdate(
-      req.params.id,
-      { $set: safeBody },
-      { new: true, runValidators: true }
-    ).lean();
-
-    // Fire Welcome Bot for each newly-added member.
-    const newMembers = (updated.members || []).filter(
-      m => m.user_id && !beforeIds.has(m.user_id)
-    );
-    if (newMembers.length > 0) {
-      const io = req.app.get('io');
-      for (const m of newMembers) {
-        welcomeBot.fireWelcome(updated, m, io).catch(() => {});
+    const userId = String(req.user.id);
+    const member = (before.members || []).find(m => m.user_id === userId);
+    const moderationOnly = Object.keys(req.body).every(k => ['members', 'banned_users', 'muted_members', 'timeouts'].includes(k));
+    const isModerator = ['mod', 'moderator'].includes(String(member?.role || '').toLowerCase());
+    const nicknameOnly = canUpdateNicknames(before, userId, req.body);
+    if (!canManage(before, userId) && !(isModerator && moderationOnly) && !nicknameOnly) return res.status(403).json({ error: 'Server administrator permission required' });
+    if (Object.keys(req.body).some(k => !SETTINGS_FIELDS.has(k))) return res.status(400).json({ error: 'Unsupported server setting' });
+    const safeBody = { ...req.body, ...discoveryFields(req.body) };
+    if (safeBody.members) {
+      if (!Array.isArray(safeBody.members)) return res.status(400).json({ error: 'Invalid members' });
+      if (isModerator && !canManage(before, userId) && !nicknameOnly) {
+        const previous = new Map((before.members || []).map(m => [m.user_id, m]));
+        if (safeBody.members.some(m => !previous.has(m.user_id) || JSON.stringify(m) !== JSON.stringify(previous.get(m.user_id))) ||
+          (before.members || []).some(m => canManage(before, m.user_id) && !safeBody.members.some(n => n.user_id === m.user_id))) {
+          return res.status(403).json({ error: 'Moderators may only remove non-admin members' });
+        }
       }
     }
-
-    const { _id, __v, ...rest } = updated;
-    res.json({ id: _id?.toString(), ...rest });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
+    const updated = await Server.findOneAndUpdate(
+      { _id: before._id, updatedAt: before.updatedAt }, { $set: safeBody }, { new: true, runValidators: true }
+    ).lean();
+    if (!updated) return res.status(409).json({ error: 'Server changed. Please refresh and try again' });
+    res.json(visibleServer(updated, userId));
+  } catch (err) { res.status(400).json({ error: err.message }); }
 });
+
+function visibleServer(doc, userId) {
+  if (!isMember(doc, userId)) return summary(doc, userId);
+  const { _id, __v, ...rest } = doc;
+  if (!canManage(doc, userId)) delete rest.join_requests;
+  return { id: String(_id), ...rest };
+}
 
 // GET overrides — same behavior as crudRouter but with ghost-member pruning
 // applied before responding, so deleted users never render in the sidebar.
@@ -272,9 +195,9 @@ router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const doc = await Server.findById(req.params.id).lean();
     if (!doc) return res.status(404).json({ error: 'Not found' });
+    if (!isMember(doc, req.user.id) && (!isListed(doc) || (doc.banned_users || []).includes(String(req.user.id)))) return res.status(404).json({ error: 'Not found' });
     await pruneGhostMembers(doc);
-    const { _id, __v, ...rest } = doc;
-    res.json({ id: _id?.toString(), ...rest });
+    res.json(visibleServer(doc, req.user.id));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -288,7 +211,8 @@ router.get('/', authMiddleware, async (req, res) => {
       else if (typeof v === 'object' && v !== null) continue;
       else query[k] = v;
     }
-    let q = Server.find(query);
+    const visibility = { $or: [{ owner_id: String(req.user.id) }, { 'members.user_id': String(req.user.id) }, { $and: [{ banned_users: { $ne: String(req.user.id) } }, { $or: [{ is_discoverable: true }, { is_public: { $ne: false }, is_discoverable: { $ne: false } }] }] }] };
+    let q = Server.find({ $and: [query, visibility] });
     if (_orderBy) {
       const field = _orderBy.startsWith('-') ? _orderBy.slice(1) : _orderBy;
       if (/^[a-zA-Z0-9_.]+$/.test(field)) q = q.sort({ [field]: _orderBy.startsWith('-') ? -1 : 1 });
@@ -296,7 +220,7 @@ router.get('/', authMiddleware, async (req, res) => {
     if (_limit) q = q.limit(Math.min(Math.max(parseInt(_limit, 10) || 50, 1), 200));
     const docs = await q.lean();
     await pruneGhostMembers(docs);
-    res.json(docs.map(d => { const { _id, __v, ...rest } = d; return { id: _id?.toString(), ...rest }; }));
+    res.json(docs.map(d => visibleServer(d, req.user.id)));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

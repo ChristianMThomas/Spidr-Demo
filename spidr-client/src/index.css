@@ -366,3 +366,19 @@ button, a, input, textarea, select, label,
     filter: drop-shadow(0 0 16px rgba(239, 68, 68, 0.6));
   }
 }
+
+/* Blinking caret for the homepage banner's typed status line. step-end keeps
+   it a hard on/off blink like a terminal, rather than a soft fade. */
+@keyframes spidr-caret {
+  0%, 49%  { opacity: 1; }
+  50%, 100%{ opacity: 0; }
+}
+
+/* Slow counter-rotation for the banner's dashed containment ring. */
+@keyframes spidr-ring-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*="spidr-ring-spin"] { animation: none !important; }
+}

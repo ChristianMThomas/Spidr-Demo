@@ -5,6 +5,35 @@ const UserProfile = require('../models/UserProfile');
 const { validateCustomTag, isTagAvailable, generateUniqueDiscriminator } = require('../utils/tagService');
 
 const router = express.Router();
+const { publicProfile, connectionSafeBody } = require('../utils/profileConnections');
+router.use((req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = body => json(publicProfile(body));
+  if (['POST', 'PATCH'].includes(req.method)) {
+    for (const key of ['is_private', 'hide_activity']) {
+      if (req.body?.[key] !== undefined && typeof req.body[key] !== 'boolean') return res.status(400).json({ error: key + ' must be a boolean' });
+    }
+    req.body = connectionSafeBody(req.body, req.method === 'PATCH');
+  }
+  next();
+});
+
+router.get('/privacy', authMW, async (req, res) => {
+  try {
+    const profile = await UserProfile.findOne({ user_id: req.user.id }).select('is_private hide_activity').lean();
+    res.set('Cache-Control', 'no-store').json({ is_private: profile?.is_private === true, hide_activity: profile?.hide_activity === true });
+  } catch { res.status(500).json({ error: 'Could not load privacy settings' }); }
+});
+router.patch('/privacy', authMW, async (req, res) => {
+  try {
+    const updates = {};
+    for (const key of ['is_private', 'hide_activity']) if (typeof req.body[key] === 'boolean') updates[key] = req.body[key];
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'No privacy settings supplied' });
+    await UserProfile.updateOne({ user_id: req.user.id }, { $set: updates }, { upsert: true, runValidators: true });
+    const profile = await UserProfile.findOne({ user_id: req.user.id }).select('is_private hide_activity').lean();
+    res.set('Cache-Control', 'no-store').json({ is_private: profile.is_private === true, hide_activity: profile.hide_activity === true });
+  } catch { res.status(500).json({ error: 'Could not save privacy settings' }); }
+});
 
 /**
  * POST /user-profiles/tag — claim a custom word tag ("Auxtin#vibes") or

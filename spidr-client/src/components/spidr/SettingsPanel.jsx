@@ -20,6 +20,7 @@ import ThemeStudio from './ThemeStudio';
 import ImageCropper from './ImageCropper';
 import AVLab from './AVLab';
 import NeuralConfig from './NeuralConfig';
+import ActivityPrivacySettings from './ActivityPrivacySettings';
 import SecurityMatrix from './SecurityMatrix';
 import SpidrProtocolSettings from './SpidrProtocolSettings';
 import UpdatesCard from './UpdatesCard';
@@ -922,6 +923,7 @@ export default function SettingsPanel({ currentUser, appTheme, onThemeChange }) 
           <TabsContent value="privacy" className="p-6 m-0">
             <h2 className="text-2xl font-bold text-white mb-6">Privacy & Safety</h2>
             <div className="space-y-4 max-w-lg">
+              <ActivityPrivacySettings currentUser={currentUser} />
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-white font-medium">Allow Direct Messages</p>

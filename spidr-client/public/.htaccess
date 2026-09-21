@@ -26,7 +26,7 @@ Header always set Referrer-Policy "strict-origin-when-cross-origin"
 # Spotify, Steam and the GIF providers; restricting them to an allowlist is a
 # follow-up once those hosts are pinned down. Even broad, this still forbids
 # plaintext http: exfiltration and any object/embed.
-Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://js-cdn.music.apple.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 
 # Permissions-Policy — helmet doesn't ship this one and it was unset here too.
 Header always set Permissions-Policy "geolocation=(), payment=(), usb=()"

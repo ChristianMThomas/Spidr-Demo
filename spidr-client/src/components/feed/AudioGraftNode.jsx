@@ -14,7 +14,7 @@ import { motion } from 'framer-motion';
  *   onTap        click handler (unmute / open source)
  *   apexColor    accent color
  */
-export default function AudioGraftNode({ audio, audioRef, playing, muted, onTap, apexColor = '#FF3333' }) {
+export default function AudioGraftNode({ audio, audioRef, playing, muted, onTap, apexColor = '#FF3333', inline = false }) {
   if (!audio) return null;
   const streamUrl = audio.previewUrl;
   const showMuted = muted || !streamUrl;
@@ -26,7 +26,7 @@ export default function AudioGraftNode({ audio, audioRef, playing, muted, onTap,
         onClick={onTap}
         whileTap={{ scale: [1, 0.8, 1] }}
         title={audio.title ? `${audio.title}${audio.author ? ' — ' + audio.author : ''}` : 'Grafted audio'}
-        className="absolute bottom-3 right-3 z-30 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center overflow-hidden"
+        className={`${inline ? 'relative shrink-0' : 'absolute bottom-3 right-3 z-30'} w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center overflow-hidden`}
         style={{ boxShadow: playing ? `0 0 14px ${apexColor}99` : 'none' }}
       >
         <motion.div

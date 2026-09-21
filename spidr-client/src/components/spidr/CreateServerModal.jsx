@@ -5,6 +5,7 @@ import { entities, integrations } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, X, Globe, Lock, Plus, Hash } from 'lucide-react';
 import { toast } from 'sonner';
+import ServerDiscoveryFields, { discoveryForm, discoveryPayload } from './ServerDiscoveryFields';
 
 /**
  * CreateServerModal — opened from the desktop sidebar's `+` button (and
@@ -20,10 +21,11 @@ import { toast } from 'sonner';
  *   • Create — make a new server you own
  *   • Join   — paste an invite code to join an existing server
  */
-export default function CreateServerModal({ open, onClose, currentUser }) {
+export default function CreateServerModal({ open, onClose, currentUser, initialTab = 'create' }) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState('create');
   const [formData, setFormData] = useState({
+    ...discoveryForm(),
     name: '',
     description: '',
     icon_url: '',
@@ -32,13 +34,14 @@ export default function CreateServerModal({ open, onClose, currentUser }) {
   });
   const [inviteCode, setInviteCode] = useState('');
   const [uploading, setUploading] = useState(false);
+  useEffect(() => { if (open) setTab(initialTab); }, [open, initialTab]);
 
   // Reset modal state every time it closes so a stuck "Creating..." button
   // from a prior failed mutation doesn't carry over into the next session.
   useEffect(() => {
     if (!open) {
       const t = setTimeout(() => {
-        setFormData({ name: '', description: '', icon_url: '', banner_url: '', is_public: true });
+        setFormData({ name: '', description: '', icon_url: '', banner_url: '', ...discoveryForm() });
         setInviteCode('');
         setTab('create');
       }, 200);
@@ -146,6 +149,7 @@ export default function CreateServerModal({ open, onClose, currentUser }) {
       icon_url: formData.icon_url,
       banner_url: formData.banner_url,
       is_public: formData.is_public,
+      ...discoveryPayload(formData),
     });
   };
 
@@ -174,7 +178,8 @@ export default function CreateServerModal({ open, onClose, currentUser }) {
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 320, damping: 28 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl overflow-hidden"
+            role="dialog" aria-modal="true" aria-label="Add a server"
+            className="w-full max-w-md max-h-[90dvh] rounded-lg overflow-y-auto"
             style={{
               background: 'rgba(15, 15, 15, 0.96)',
               backdropFilter: 'blur(24px)',
@@ -270,29 +275,7 @@ export default function CreateServerModal({ open, onClose, currentUser }) {
                   />
                 </Field>
 
-                {/* Visibility */}
-                <Field label="Visibility">
-                  <div className="grid grid-cols-2 gap-2">
-                    <VisChip
-                      Icon={Globe}
-                      label="Public"
-                      sub="Discoverable on Radar"
-                      active={formData.is_public}
-                      activeColor="rgba(59, 130, 246, 0.5)"
-                      activeBg="rgba(59, 130, 246, 0.10)"
-                      onClick={() => setFormData(prev => ({ ...prev, is_public: true }))}
-                    />
-                    <VisChip
-                      Icon={Lock}
-                      label="Invite only"
-                      sub="Hidden, code required"
-                      active={!formData.is_public}
-                      activeColor="rgba(239, 68, 68, 0.5)"
-                      activeBg="rgba(239, 68, 68, 0.10)"
-                      onClick={() => setFormData(prev => ({ ...prev, is_public: false }))}
-                    />
-                  </div>
-                </Field>
+                <ServerDiscoveryFields value={formData} onChange={setFormData} />
 
                 {/* Actions */}
                 <div className="flex gap-2 pt-2">

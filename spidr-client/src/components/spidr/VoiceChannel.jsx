@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, integrations, getSocket, spotify } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Mic, MicOff, Video, VideoOff, Monitor, PhoneOff, Headphones, HeadphoneOff,
-  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, AudioLines, ExternalLink, Maximize2, Tv
+  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, AudioLines, ExternalLink, Maximize2, Tv, Globe
 } from 'lucide-react';
 import { toast } from 'sonner';
 import SpiderLogo from './SpiderLogo';
@@ -17,7 +17,9 @@ import { useSpidrVoice } from './SpidrVoice';
 import { applySink, getMediaPrefs } from '@/lib/mediaDevicePrefs';
 import { streamHasAudio, audioSupportFor } from '@/lib/shareAudioSupport';
 import { getSharedAudioContext, getSharedSource, releaseSharedSource } from '@/lib/sharedAudioContext';
-const ClipFeed = React.lazy(() => import('@/components/feed/ClipFeed'));
+// (ClipFeed's lazy import moved into TheaterStage — it was only used by the
+// theater slot that used to live in this file, and the stage owns the feed
+// mount now.)
 import SpidrVoiceVisualizer from './SpidrVoice';
 import SpidrAIProfile, { SPIDR_AI_AVATAR } from './SpidrAIProfile';
 import CallAVControls from './CallAVControls';
@@ -27,6 +29,9 @@ import HolographicProfile from './HolographicProfile';
 import VoiceDeckContextMenu from './VoiceDeckContextMenu';
 import TheaterStage from './TheaterStage';
 import DJMatrix from './DJMatrix';
+import CallScreenAudio from './CallScreenAudio';
+import useDJAudio from '@/hooks/useDJAudio';
+import useDJStreamStats from '@/hooks/useDJStreamStats';
 import SpotifySearchModal from './SpotifySearchModal';
 import { useWebRTC } from './useWebRTC';
 import { useSpeakingDetector } from '@/hooks/useSpeakingDetector';
@@ -36,6 +41,8 @@ export default function VoiceChannel({
   // Set by the shell when the session was started as a video call, so the
   // camera comes up with the join instead of waiting for a manual toggle.
   startWithVideo = false,
+  callId = null,
+  initialStream = null,
   // ── Theater Mode props ───────────────────────────────────────────────
   // Controlled by the parent shell so the TheaterStage can be mounted at
   // a higher layer than the voice tile grid (it needs the channel scope
@@ -136,6 +143,7 @@ export default function VoiceChannel({
     currentUser,
     enabled:   true,
     startWithVideo,
+    initialStream,
   });
 
   // Attach local video stream to <video> element
@@ -213,6 +221,28 @@ export default function VoiceChannel({
     queryFn: () => spotify.djSession.get(channel.id),
     enabled: !!channel?.id,
   });
+
+  const isDJHost = djSession?.host_id === currentUser?.id;
+  const djPeerEntry = Object.entries(rtc.peers || {}).find(([, peer]) => peer.userId === djSession?.host_id);
+  const djSocketId = djPeerEntry?.[0];
+  const djHostStream = isDJHost ? (isSharing ? screenStream : null) : rtc.screenStreams?.[djSocketId];
+  const [djStreamElement, setDJStreamElement] = useState(null);
+  const djAudio = useDJAudio({ djSession, isHost: isDJHost, hostStream: djHostStream, streamElement: djStreamElement, isDeafened });
+  const djStats = useDJStreamStats(djPeerEntry?.[1]?.pc, djHostStream, djAudio.audioRoute === 'stream' && !isDJHost);
+  const onScreenAudioBlocked = useCallback(() => {
+    if (!audioUnlockedRef.current) setAudioBlocked(true);
+  }, []);
+
+  useEffect(() => {
+    if (!djSession || !isDJHost) return;
+    const route = djAudio.liveAudioActive ? 'stream' : 'preview';
+    if (route === djSession.audio_route) return;
+    let active = true;
+    spotify.djSession.setAudioRoute(channel.id, route).then(session => {
+      if (active) queryClient.setQueryData(['djSession', channel.id], session);
+    }).catch(error => { if (active) toast.error(error.message || 'Could not update DJ audio'); });
+    return () => { active = false; };
+  }, [djSession?.host_id, djSession?.audio_route, isDJHost, djAudio.liveAudioActive, channel.id, queryClient]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -336,7 +366,7 @@ export default function VoiceChannel({
   const hasJoinedRef = useRef(false);
 
   useEffect(() => {
-    if (!currentUser || hasJoinedRef.current) return;
+    if (callId || !currentUser || hasJoinedRef.current) return;
     hasJoinedRef.current = true;
     playSound('join');
 
@@ -366,6 +396,7 @@ export default function VoiceChannel({
     playSound('leave');
     rtc.leave();
     if (isSharing) stopShare();
+    if (callId) { onLeave(); return; }
     const all = await entities.VoiceSession.filter({ server_id: server.id, user_id: currentUser?.id });
     await Promise.all(all.map(s => entities.VoiceSession.delete(s.id).catch(() => {})));
     queryClient.invalidateQueries({ queryKey: ['voiceSessions'] });
@@ -403,7 +434,9 @@ export default function VoiceChannel({
       const deaf = !!e.detail?.deafened;
       isDeafenedRef.current = deaf;
       setIsDeafened(deaf);
-      Object.values(remoteAudioRefs.current || {}).forEach((el) => { if (el) el.muted = deaf; });
+      Object.entries(remoteAudioRefs.current || {}).forEach(([key, el]) => {
+        if (el && !key.startsWith('screen-')) el.muted = deaf;
+      });
       if (mySession) updateMutation.mutate({ id: mySession.id, data: { is_deafened: deaf } });
     };
     const onDisconnect = () => { handleLeave(); };
@@ -769,24 +802,19 @@ export default function VoiceChannel({
       ))}
       {Object.entries(rtc.screenStreams || {}).map(([sid, stream]) => (
         stream.getAudioTracks().length > 0 ? (
-          <audio
+          <CallScreenAudio
             key={`screen-${sid}`}
-            autoPlay
-            playsInline
-            muted={false}
-            ref={el => {
-              const key = `screen-${sid}`;
-              if (!el) { delete remoteAudioRefs.current[key]; return; }
-              remoteAudioRefs.current[key] = el;
-              if (isDeafenedRef.current) el.muted = true;
-              applySink(el);
-              if (el.srcObject !== stream) el.srcObject = stream;
-              el.play().catch(() => { if (!audioUnlockedRef.current) setAudioBlocked(true); });
-            }}
-            style={{ display: 'none' }}
+            socketId={sid}
+            stream={stream}
+            audioRefs={remoteAudioRefs}
+            muted={isDeafened || (sid === djSocketId && djAudio.userPaused)}
+            volume={sid === djSocketId ? djAudio.localVolume / 100 : 1}
+            onElement={sid === djSocketId ? setDJStreamElement : undefined}
+            onBlocked={onScreenAudioBlocked}
           />
         ) : null
       ))}
+      <audio ref={djAudio.audioRef} playsInline style={{ display: 'none' }} />
 
       {/* ── INVISIBLE SPEAKING BROADCASTER ─────────────────────────────────
           One hidden speaking detector per remote peer, mounted at the
@@ -995,35 +1023,37 @@ export default function VoiceChannel({
               )}
             </div>
           ) : (
+            // Theater needs a real height, not a content-sized one. This
+            // container's parent is `flex items-center justify-center`, so
+            // without `self-stretch` this div sizes to its content, `h-full`
+            // inside TheaterStage resolves against auto, and the stage's
+            // `flex-1` collapses to zero — the header and the reaction dock
+            // end up stacked on top of each other with no video between
+            // them. `self-stretch min-h-0` is the whole fix.
             <div className={`w-full ${
-              viewMode === 'spider' ? 'max-w-md ml-auto' : 'max-w-[1280px] mx-auto'
+              theaterHostId
+                ? 'h-full self-stretch min-h-0 max-w-[1280px] mx-auto flex'
+                : viewMode === 'spider' ? 'max-w-md ml-auto' : 'max-w-[1280px] mx-auto'
             }`}>
               {theaterHostId ? (
                 // ── THEATER MODE ──────────────────────────────────────
                 // Highest-priority branch — even if someone is also
-                // screen-sharing, the Sync Feed broadcast takes the
-                // stage. TheaterStage handles host/guest split internally
-                // (host scroll broadcasts; guest stage has pointer-events
-                // disabled). children = the feed component the host is
-                // broadcasting. We hand in a placeholder for now: the
-                // host's ClipFeed mount point is the right place to drop
-                // your actual feed component once you've decided which
-                // surface owns it (ProfilePage clips? FeedPanel's
-                // ClipFeed? a dedicated TheaterFeed wrapper?).
+                // screen-sharing, the Sync Feed broadcast takes the stage.
+                // TheaterStage owns the whole surface now: it mounts the
+                // real ClipFeed, runs the host→room clip sync over the
+                // socket, and handles the host/guest split internally.
                 <TheaterStage
                   channelId={channel?.id}
                   isHost={theaterHostId === currentUser?.id}
                   hostUserId={theaterHostId}
                   hostUserName={theaterHostName}
+                  hostAvatar={
+                    uniqueSessions.find(s => s.user_id === theaterHostId)?.user_avatar || ''
+                  }
                   currentUser={currentUser}
+                  viewerCount={uniqueSessions.length}
                   onStop={() => onStopTheater?.()}
-                >
-                  <TheaterFeedSlot
-                    isHost={theaterHostId === currentUser?.id}
-                    hostUserName={theaterHostName}
-                    currentUser={currentUser}
-                  />
-                </TheaterStage>
+                />
               ) : djSession ? (
                 // ── DJ MODE ───────────────────────────────────────────
                 // Below Theater (video broadcast outranks audio-only),
@@ -1046,8 +1076,10 @@ export default function VoiceChannel({
                   // that the DJ's live audio is still arriving, instead of
                   // trusting a session flag the DJ can no longer update if
                   // their client died.
-                  screenStreams={rtc.screenStreams || {}}
-                  ownScreenStream={isSharing ? screenStream : null}
+                  audio={djAudio}
+                  hostStream={djHostStream}
+                  streamStats={djStats}
+                  deckHidden={deckHidden}
                   onStop={() => queryClient.invalidateQueries({ queryKey: ['djSession', channel.id] })}
                 />
               ) : screenActive ? (
@@ -1329,7 +1361,7 @@ export default function VoiceChannel({
       {/* ── TACTICAL DOCK ── floats over the stage so it doesn't slice the
           screen in half. Glass pill at bottom-center, terminate button
           separated from the safe controls by a divider. */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+      <div className="voice-control-dock absolute bottom-6 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
         <div className="flex items-center gap-1 px-2 py-1.5 rounded-full"
           style={{
             background: 'rgba(0, 0, 0, 0.55)',
@@ -1466,6 +1498,11 @@ export default function VoiceChannel({
               activeTint="#eab308"
             >
               <Zap size={18} className={squadOverclock ? 'text-yellow-300' : 'text-white/40'} />
+            </DockBtn>
+          )}
+          {window.electronAPI?.quickBrowser && (
+            <DockBtn onClick={() => window.dispatchEvent(new Event('spidr-quick-browser-toggle'))} title="Quick browser">
+              <Globe size={18} className="text-white/40" />
             </DockBtn>
           )}
           {onMinimize && (
@@ -2270,64 +2307,12 @@ function CommPanel({ sessions, profiles, rtc, currentUser, channelId, serverId, 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TheaterFeedSlot — the placeholder rendered inside TheaterStage's children
-// slot. The actual feed broadcast (which clip the host is currently watching)
-// requires server-side state distribution. Until that's wired, this slot
-// shows a clear, branded "Waiting for broadcast" tile for guests, and a
-// "Drop your feed component here" call-out for the host.
-//
-// To swap this for the real feed:
-//   1. Import the feed component you want to broadcast (e.g. ClipFeed wrapped
-//      to fetch just the host's own clips, or the host's full personalized
-//      THE WEB feed if your scroll-broadcast model targets feed position
-//      rather than specific clips).
-//   2. Replace the <TheaterFeedSlot ... /> inside VoiceChannel with
-//      <YourFeedComponent host={theaterHostId} />.
-//   3. The host's instance scrolls freely (TheaterStage broadcasts the scroll
-//      position via window event + socket emit). Guests' instance has
-//      pointer-events disabled by TheaterStage's outer wrapper, so their
-//      copy of the feed scrolls but doesn't accept clicks.
+// TheaterFeedSlot is gone. It was a placeholder wrapper that fetched ['clips']
+// and mounted an uncontrolled ClipFeed, which meant host and guests each
+// scrolled their own private feed and the "sync" was decorative. TheaterStage
+// now owns the feed mount, the clip-id broadcast and the guest mirror, so the
+// slot has no job left. See TheaterStage.jsx.
 // ─────────────────────────────────────────────────────────────────────────────
-function TheaterFeedSlot({ isHost, hostUserName, currentUser }) {
-  // The REAL feed, finally mounted. This slot used to be a placeholder card
-  // ("mount your feed component here…"), which is why Sync Feed showed
-  // nothing. Host and guests both mount the same global clip list; the
-  // host's scroll drives guests via TheaterStage's scroll relay.
-  const { data: clips = [], isLoading } = useQuery({
-    queryKey: ['clips'],
-    queryFn: () => entities.Clip.list('-created_date', 50),
-    staleTime: 30_000,
-  });
-
-  if (isLoading) {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-        <Loader2 className="w-6 h-6 text-red-500 animate-spin" />
-        <p className="text-zinc-500 text-xs font-mono uppercase tracking-widest">Weaving the feed…</p>
-      </div>
-    );
-  }
-  if (!clips.length) {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center">
-        <Tv className="w-8 h-8 text-red-400 mb-3" />
-        <p className="text-white font-bold">THE WEB is empty</p>
-        <p className="text-zinc-500 text-xs mt-1">No strands to broadcast yet.</p>
-      </div>
-    );
-  }
-  return (
-    <React.Suspense fallback={
-      <div className="w-full h-full flex items-center justify-center">
-        <Loader2 className="w-6 h-6 text-red-500 animate-spin" />
-      </div>
-    }>
-      <div className="w-full h-full">
-        <ClipFeed clips={clips} currentUser={currentUser} audioMap={{}} />
-      </div>
-    </React.Suspense>
-  );
-}
 
 /**
  * PeerSpeakingBroadcaster — an invisible always-on speaking detector for a

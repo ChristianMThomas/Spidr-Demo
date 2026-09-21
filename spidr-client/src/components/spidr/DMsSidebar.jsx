@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Search, Pin } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getPins } from '@/lib/spidrWebPins';
+import { useMenu } from '@/components/MenuContext';
 import NameplateBackground from './NameplateBackground';
 
 const statusColors = {
@@ -20,6 +21,7 @@ const statusColors = {
 };
 
 export default function DMsSidebar({ currentUser, onSelectConversation, activeConversationId, onOpenAddFriend }) {
+  const { triggerMenu } = useMenu();
   const [search, setSearch] = useState('');
   const [isHoveringButton, setIsHoveringButton] = useState(false);
   const [spiderClicks, setSpiderClicks] = useState(0);
@@ -188,6 +190,7 @@ export default function DMsSidebar({ currentUser, onSelectConversation, activeCo
             {filteredConversations.map((conv) => (
               <motion.button
                 key={conv.conversationId}
+                onContextMenu={e => triggerMenu(e, 'dm', { id: conv.friendId, name: conv.friendName })}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => onSelectConversation(conv)}

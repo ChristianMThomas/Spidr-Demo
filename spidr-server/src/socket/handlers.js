@@ -17,6 +17,8 @@ const { recordMessage, checkContent, isAutoModInstalled } = require('../utils/au
 const spotifyPresence = require('../utils/spotifyPresence');
 const { sendCallPush, sendCallEndPush } = require('../utils/push');
 const notifications = require('../utils/notifications');
+const { createCallSessions } = require('./callSessions');
+const { createCallSessionServices } = require('./callSessionServices');
 
 // Shared secret resolver — keeps HTTP, socket, and rate-limit verification in sync.
 const { getSecret } = require('../utils/jwtSecret');
@@ -129,6 +131,48 @@ async function canAdminDisconnect(userId, { serverId, channelId, groupId }) {
   }
 }
 
+// ── Theater Mode state ──────────────────────────────────────────────────────
+// Co-op THE WEB feed broadcast inside a voice call. Host-authoritative: one
+// broadcaster per voice room, and the host's current CLIP ID is the single
+// source of truth (deliberately not a scroll offset — the feed is index-
+// virtualised and two clients' feed orderings are never guaranteed to match,
+// so a position sync would quietly show different people different videos).
+//
+// In-memory and per-process on purpose: theater state is worthless after a
+// restart because the call it belongs to is gone too. If the Socket.io Redis
+// adapter later fans voice rooms across instances, this map has to move to
+// Upstash alongside it — until then a multi-instance deploy only syncs
+// viewers who happened to land on the same node.
+const theaterRooms = new Map(); // room -> { hostId, hostName, hostAvatar, hostSocketId, clipId, clipIndex, paused, updatedAt }
+
+// Sync spam guard, kept separate from the generic socketRateLimit so a host
+// flicking through clips can't starve their own chat/voice event budget.
+const theaterSyncGuard = new Map(); // socketId -> last accepted emit (ms)
+const THEATER_SYNC_MIN_MS = 60;
+
+function theaterStateOf(room) {
+  const s = theaterRooms.get(room);
+  if (!s) return null;
+  return {
+    hostId: s.hostId,
+    hostName: s.hostName,
+    hostAvatar: s.hostAvatar,
+    clipId: s.clipId || null,
+    clipIndex: s.clipIndex ?? 0,
+    paused: !!s.paused,
+    updatedAt: s.updatedAt,
+  };
+}
+
+// Tears theater down if `socket` was the broadcaster. Called from voice:leave
+// and from disconnecting, where the socket is still joined to its rooms.
+function endTheaterIfHost(io, socket, room) {
+  const state = theaterRooms.get(room);
+  if (!state || state.hostSocketId !== socket.id) return;
+  theaterRooms.delete(room);
+  io.to(room).emit('theater:state', null);
+}
+
 module.exports = function registerHandlers(io) {
 
   // ── Spotify presence worker — single poller per Spotify-connected user,
@@ -165,10 +209,7 @@ module.exports = function registerHandlers(io) {
   // ── Presence tracking ──────────────────────────────────────────────────────
   // userId → Set<socketId>  (a user can have multiple tabs / devices)
   const onlineUsers = new Map();
-  // conversationId | groupId -> true, set the moment a call is answered.
-  // Hanging up a connected call also emits call:cancel, which otherwise
-  // wrote a bogus "didn't answer" row for every completed call.
-  const answeredCalls = new Set();
+  const callSessions = createCallSessions({ io, onlineUsers, ...createCallSessionServices(io, onlineUsers), rateLimit: (...args) => socketRateLimit(...args) });
   // socketId → { userId, lastSeen }  (for heartbeat reaper)
   const socketHeartbeats = new Map();
 
@@ -245,7 +286,7 @@ module.exports = function registerHandlers(io) {
         if (sock) sock.disconnect(true);
       }
     }
-  }, 15 * 1000);
+  }, 15 * 1000).unref();
 
   // ── Per-socket event rate limiting ─────────────────────────────────────────
   // Cheap in-memory token bucket per socket. Stops a single connection from
@@ -572,8 +613,20 @@ module.exports = function registerHandlers(io) {
         return socket.emit('error', { message: 'Not allowed to join this voice room' });
       }
       const room = voiceRoomFor(data);
-      socket.join(room);
+      if (!callSessions.ownsVoice(socket, data)) return socket.emit('voice:error', { reason: 'This call is active on another device' });
+      await socket.join(room);
       socket._voiceRoom = room;
+      if (['dm', 'group'].includes(data.serverId)) {
+        try {
+          const profile = await UserProfile.findOne({ user_id: userId }).select('display_name avatar_url').lean();
+          if (!socket.rooms.has(room) || !callSessions.ownsVoice(socket, data)) return;
+          await VoiceSession.findOneAndUpdate({ user_id: userId, channel_id: data.channelId }, { $set: {
+            server_id: data.serverId, user_name: profile?.display_name || 'User', user_avatar: profile?.avatar_url || '',
+            is_speaking: false, is_screen_sharing: false,
+          } }, { upsert: true, new: true });
+          io.emit('voice:session-changed', { server_id: data.serverId, channel_id: data.channelId });
+        } catch (error) { console.warn('[call] presence failed:', error.message); }
+      }
       socket.to(room).emit('voice:peer-joined', { userId, socketId: socket.id });
     });
 
@@ -582,9 +635,13 @@ module.exports = function registerHandlers(io) {
       // Only announce a departure from a room this socket was actually in, so
       // a leave for an arbitrary room can't spoof peer-left at its members.
       if (!socket.rooms.has(room)) return;
+      // Close the stage before leaving the room, or the broadcast outlives
+      // the broadcaster and everyone stares at a frozen clip.
+      endTheaterIfHost(io, socket, room);
       socket.leave(room);
       if (socket._voiceRoom === room) socket._voiceRoom = null;
       socket.to(room).emit('voice:peer-left', { userId, socketId: socket.id });
+      callSessions.leaveVoice(socket, data).catch(error => console.warn('[call] leave failed:', error.message));
     });
 
     socket.on('voice:signal', ({ to, signal }) => {
@@ -595,7 +652,7 @@ module.exports = function registerHandlers(io) {
       const room = socket._voiceRoom;
       if (!room || !socket.rooms.has(room)) return;
       if (!io.sockets.adapter.rooms.get(room)?.has(to)) return;
-      io.to(to).emit('voice:signal', { from: socket.id, signal });
+      io.to(to).emit('voice:signal', { from: socket.id, userId: socket.userId, signal });
     });
 
     // Relay screen-share classification metadata to the rest of the room so
@@ -610,6 +667,104 @@ module.exports = function registerHandlers(io) {
         streamId: data.streamId,
         active: data.active,
       });
+    });
+
+    // ── Theater Mode — co-op THE WEB feed broadcast ─────────────────────────
+    // Every handler below is scoped to socket._voiceRoom (set by voice:join)
+    // rather than to a room name the client hands us, so a socket can only
+    // broadcast into a call it is actually sitting in.
+
+    socket.on('theater:start', async () => {
+      if (!socketRateLimit(socket)) return;
+      const room = socket._voiceRoom;
+      if (!room || !socket.rooms.has(room)) return;
+
+      const existing = theaterRooms.get(room);
+      // Someone else already has the stage. Don't silently steal it — the
+      // client shows a toast naming the current host.
+      if (existing && existing.hostId !== userId) {
+        return socket.emit('theater:denied', { hostId: existing.hostId, hostName: existing.hostName });
+      }
+
+      // Identity comes from the DB, not from the payload, so a broadcaster
+      // can't label themselves as somebody else in the viewers' header.
+      let profile = null;
+      try {
+        profile = await UserProfile.findOne({ user_id: userId }).select('display_name avatar_url').lean();
+      } catch { /* fall through to a plain label */ }
+      // The socket may have left the call during the await.
+      if (!socket.rooms.has(room)) return;
+
+      const state = {
+        hostId: userId,
+        hostName: profile?.display_name || 'Host',
+        hostAvatar: profile?.avatar_url || '',
+        hostSocketId: socket.id,
+        clipId: null,
+        clipIndex: 0,
+        paused: false,
+        updatedAt: Date.now(),
+      };
+      theaterRooms.set(room, state);
+      io.to(room).emit('theater:state', theaterStateOf(room));
+    });
+
+    socket.on('theater:stop', () => {
+      if (!socketRateLimit(socket)) return;
+      const room = socket._voiceRoom;
+      if (!room || !socket.rooms.has(room)) return;
+      const state = theaterRooms.get(room);
+      if (!state || state.hostId !== userId) return; // only the host closes the stage
+      theaterRooms.delete(room);
+      io.to(room).emit('theater:state', null);
+    });
+
+    // Host-only. Carries the clip the host is on plus its play state; guests
+    // resolve the clip id against their own copy of the feed and fetch it
+    // directly if they don't have it.
+    socket.on('theater:sync', ({ clipId, clipIndex, paused } = {}) => {
+      const room = socket._voiceRoom;
+      if (!room || !socket.rooms.has(room)) return;
+      const state = theaterRooms.get(room);
+      if (!state || state.hostId !== userId) return;
+
+      const now = Date.now();
+      const last = theaterSyncGuard.get(socket.id) || 0;
+      if (now - last < THEATER_SYNC_MIN_MS) return;
+      theaterSyncGuard.set(socket.id, now);
+
+      state.clipId    = typeof clipId === 'string' ? clipId.slice(0, 128) : null;
+      state.clipIndex = Number.isFinite(clipIndex) ? Math.max(0, Math.min(9999, clipIndex | 0)) : 0;
+      state.paused    = !!paused;
+      state.updatedAt = now;
+      socket.to(room).emit('theater:sync', {
+        clipId: state.clipId,
+        clipIndex: state.clipIndex,
+        paused: state.paused,
+        updatedAt: now,
+      });
+    });
+
+    // Ghost reactions — anyone in the room, host included. Relayed to
+    // everyone else; the sender already rendered their own burst locally.
+    socket.on('theater:reaction', ({ emoji, id } = {}) => {
+      if (!socketRateLimit(socket)) return;
+      const room = socket._voiceRoom;
+      if (!room || !socket.rooms.has(room)) return;
+      if (!theaterRooms.has(room)) return;
+      if (typeof emoji !== 'string' || emoji.length > 8) return;
+      socket.to(room).emit('theater:reaction', {
+        id: typeof id === 'string' ? id.slice(0, 64) : `${Date.now()}`,
+        userId,
+        emoji,
+      });
+    });
+
+    // Catch-up for a late joiner (or a client that just reconnected).
+    socket.on('theater:request-state', () => {
+      const room = socket._voiceRoom;
+      if (!room || !socket.rooms.has(room)) return;
+      socket.emit('theater:state', theaterStateOf(room));
     });
 
     // 3.2 — Admin force-disconnect: an admin asks the server to kick a user
@@ -691,156 +846,7 @@ module.exports = function registerHandlers(io) {
       } catch {}
     });
 
-    // ── DM call signaling ─────────────────────────────────────────────────────
-    // Relays a ringing invite (and its lifecycle) to the recipient's sockets so
-    // the incoming-call banner can show. Pure signaling; the actual media is
-    // handled by the existing voice session join once the callee accepts.
-    socket.on('call:invite', ({ recipientId, conversationId, caller, kind }) => {
-      // call:invite is the DM lane only - group calls use presence as the ring
-      // and never emit this - so a conversation containing both parties is the
-      // right gate. Previously anyone could ring any user, repeatedly.
-      if (!socketRateLimit(socket, 5)) return;
-      if (!recipientId || !isDmPair(conversationId, userId, recipientId)) return;
-      if (conversationId) answeredCalls.delete(conversationId);
-      const recvSockets = onlineUsers.get(recipientId);
-      if (recvSockets) {
-        for (const sid of recvSockets) {
-          io.to(sid).emit('call:incoming', {
-            conversationId,
-            caller: caller || { id: userId },
-            callerId: userId,
-            kind: kind || 'voice',
-          });
-        }
-      }
-      // Also ring native devices (Android FCM / iOS APNs) via broker so per-user
-      // voice_calls toggle + DND + close-friend rules apply. Silent no-op if
-      // FIREBASE_SERVICE_ACCOUNT isn't set locally.
-      notifications.dispatch('voice_call', recipientId, {
-        conversationId,
-        caller: caller || { id: userId },
-        kind: kind || 'voice',
-      }, { senderId: userId });
-    });
-    socket.on('call:accept', ({ callerId, conversationId, groupId }) => {
-      const key = groupId || conversationId;
-      if (key) answeredCalls.add(key);
-      const sockets = onlineUsers.get(callerId);
-      if (sockets) for (const sid of sockets) io.to(sid).emit('call:accepted', { conversationId, byUserId: userId });
-      // Stop the ring on the acceptor's OTHER devices — bypass the gate so
-      // the ring always dies even if voice_calls is disabled on this account.
-      sendCallEndPush(userId, { conversationId, reason: 'answered' });
-    });
-    // ── Missed-call writer ────────────────────────────────────────────────
-    // On any call ending without both parties connecting, write a system
-    // row to the chat DB so the missed-call bubble is durable across
-    // reloads. reason = 'declined' | 'unanswered' | 'cancelled'.
-    //   DM lane   → DirectMessage row (conversationId present)
-    //   Group lane → GroupChatMessage row (groupId present)
-    // Names are resolved HERE, never trusted from the client: mobile's
-    // call:cancel / call:decline carry no callerName, which is why rows
-    // written from a phone all rendered as "Someone".
-    async function displayNameOf(uid, fallback) {
-      if (!uid) return fallback || 'Someone';
-      try {
-        // Look in BOTH places. `username` lives on the User model, NOT on
-        // UserProfile — querying only UserProfile meant any account without a
-        // custom display_name resolved to nothing and fell through to the
-        // "Someone" fallback on missed-call rows.
-        const [p, u] = await Promise.all([
-          UserProfile.findOne({ user_id: uid }).select('display_name').lean(),
-          User.findById(uid).select('full_name username').lean(),
-        ]);
-        return p?.display_name || u?.full_name || u?.username || fallback || 'Someone';
-      } catch {
-        return fallback || 'Someone';
-      }
-    }
-
-    async function writeMissedCall({ conversationId, groupId, callerId, callerName, receiverId, reason }) {
-      try {
-        // A call that was actually answered never "missed" anything — the
-        // hang-up that follows must not leave a missed-call bubble behind.
-        const key = groupId || conversationId;
-        if (key && answeredCalls.has(key)) {
-          answeredCalls.delete(key);
-          return;
-        }
-        const resolvedCaller = await displayNameOf(callerId, callerName);
-        if (groupId) {
-          const group = await GroupChat.findById(groupId).select('name').lean();
-          const groupName = group?.name || 'the group';
-          await GroupChatMessage.create({
-            group_id: groupId,
-            user_id: callerId,
-            user_name: resolvedCaller,
-            // Receiving members read "<caller> called <group>"; the caller's
-            // own client flips this to "You tried calling <group>".
-            content: `${resolvedCaller} called ${groupName}`,
-            is_missed_call: true,
-            missed_call_reason: reason,
-            caller_id: callerId,
-            caller_name: resolvedCaller,
-            group_name: groupName,
-          });
-          io.to(`group:${groupId}`).emit('group-message:new', {});
-        } else if (conversationId) {
-          // The recipient's display name lets the caller's side render
-          // "Sammy123 didn't answer" instead of a generic "Someone".
-          const recipientName = receiverId ? await displayNameOf(receiverId, '') : '';
-          await DirectMessage.create({
-            sender_id: callerId,
-            receiver_id: receiverId || '',
-            recipient_id: receiverId || '',
-            recipient_name: recipientName,
-            conversation_id: conversationId,
-            sender_name: resolvedCaller,
-            content: `Missed call from ${resolvedCaller}`,
-            is_missed_call: true,
-            missed_call_reason: reason,
-            caller_id: callerId,
-            caller_name: resolvedCaller,
-          });
-          // Notify the receiver (their bell + DM list refresh)
-          const recvSockets = onlineUsers.get(receiverId);
-          if (recvSockets) {
-            for (const sid of recvSockets) {
-              io.to(sid).emit('dm:new', { conversation_id: conversationId, sender_id: callerId, recipient_id: receiverId });
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('[missed-call] write failed:', err.message);
-      }
-    }
-
-    socket.on('call:decline', async ({ callerId, conversationId, groupId, callerName }) => {
-      const sockets = onlineUsers.get(callerId);
-      if (sockets) for (const sid of sockets) io.to(sid).emit('call:declined', { conversationId, groupId, byUserId: userId });
-      // Stop ring on the decliner's other devices too.
-      if (conversationId) sendCallEndPush(userId, { conversationId, reason: 'declined' });
-      // Receiver actively declined — write the missed-call row on the
-      // caller's side (they are the ones who "missed" being connected).
-      await writeMissedCall({ conversationId, groupId, callerId, callerName, receiverId: userId, reason: 'declined' });
-    });
-
-    socket.on('call:cancel', async ({ recipientId, conversationId, groupId, reason, callerName }) => {
-      const targets = groupId ? null : onlineUsers.get(recipientId);
-      if (targets) for (const sid of targets) io.to(sid).emit('call:cancelled', { conversationId, groupId, byUserId: userId });
-      if (groupId) io.to(`group:${groupId}`).emit('call:cancelled', { groupId, byUserId: userId });
-      // Kill the ring on the recipient's native devices too.
-      if (recipientId && conversationId) {
-        sendCallEndPush(recipientId, { conversationId, reason: reason || 'cancelled' });
-      }
-      // Caller cancelled OR the client's 60s no-answer timer fired.
-      // callerName travels with the event so the row can label itself.
-      await writeMissedCall({
-        conversationId, groupId,
-        callerId: userId, callerName,
-        receiverId: recipientId,
-        reason: reason || 'cancelled',
-      });
-    });
+    callSessions.register(socket);
 
     // ── NowPlaying presence (T1 — OS media session / T1+ — Spotify) ─────────
     socket.on('nowplaying:update', async (data) => {
@@ -848,7 +854,8 @@ module.exports = function registerHandlers(io) {
       if (!data?.trackName) return;
       const nowPlaying = {
         isPlaying:  data.isPlaying ?? true,
-        source:     'os',
+        source:     data.source === 'apple' || data.provider === 'apple_music' ? 'apple' : 'os',
+        provider:   data.source === 'apple' || data.provider === 'apple_music' ? 'apple_music' : undefined,
         trackName:  typeof data.trackName === 'string' ? data.trackName : null,
         artists:    Array.isArray(data.artists) ? data.artists : (data.artist ? [String(data.artist)] : []),
         albumArt:   typeof data.albumArt === 'string' ? data.albumArt : null,
@@ -904,9 +911,13 @@ module.exports = function registerHandlers(io) {
     socket.on('disconnecting', () => {
       for (const room of socket.rooms) {
         if (room.startsWith('voice:')) {
+          // Same reason as voice:leave — a host whose tab died must not leave
+          // the room pinned to a broadcast nobody is driving any more.
+          endTheaterIfHost(io, socket, room);
           socket.to(room).emit('voice:peer-left', { userId, socketId: socket.id });
         }
       }
+      theaterSyncGuard.delete(socket.id);
     });
 
     // ── Disconnect ───────────────────────────────────────────────────────────
@@ -924,6 +935,7 @@ module.exports = function registerHandlers(io) {
     });
 
     socket.on('disconnect', async () => {
+      await callSessions.disconnect(socket).catch(error => console.warn('[call] disconnect failed:', error.message));
       socketEventCounts.delete(socket.id);
       // Release every Spotify subscription this socket held so the poller
       // can stop polling users no one is watching anymore.
@@ -994,7 +1006,7 @@ module.exports = function registerHandlers(io) {
         })();
       }
       try {
-        await VoiceSession.deleteMany({ user_id: userId, is_spidr_ai: { $ne: true } });
+        if (wentOffline) await VoiceSession.deleteMany({ user_id: userId, is_spidr_ai: { $ne: true } });
       } catch { /* ignore */ }
     });
   });

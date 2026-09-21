@@ -16,9 +16,12 @@ import AirlockSettings from './AirlockSettings';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { scanContent } from './ContentScanner';
 import ContentBlockedModal from './ContentBlockedModal';
+import ServerDiscoveryFields, { discoveryForm, discoveryPayload } from './ServerDiscoveryFields';
+import ServerJoinRequests from './ServerJoinRequests';
 
 export default function ServerSettingsModal({ open, onClose, server, currentUser }) {
   const [formData, setFormData] = useState({
+    ...discoveryForm(server),
     name: server?.name || '',
     description: server?.description || '',
     icon_url: server?.icon_url || '',
@@ -38,6 +41,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
   React.useEffect(() => {
     if (server) {
       setFormData({
+        ...discoveryForm(server),
         name: server.name || '',
         description: server.description || '',
         icon_url: server.icon_url || '',
@@ -123,6 +127,8 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
     onSuccess: (_, data) => {
       queryClient.invalidateQueries({ queryKey: ['servers'] });
       toast.success('Server updated!');
+      queryClient.invalidateQueries({ queryKey: ['radar'] });
+      queryClient.invalidateQueries({ queryKey: ['server', server.id] });
       // Log the settings change
       entities.ServerAuditLog.create({
         server_id: server.id,
@@ -134,7 +140,8 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
         details: `Updated server settings`
       });
       onClose();
-    }
+    },
+    onError: error => toast.error(error?.data?.error || error.message || 'Could not save server'),
   });
 
   const handleSave = () => {
@@ -154,7 +161,8 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
       emojis,
       hidden_roles: hiddenRoles,
       sanctuary: sanctuarySettings,
-      airlock: airlockSettings
+      airlock: airlockSettings,
+      ...discoveryPayload(formData),
     };
     
     updateServerMutation.mutate(data);
@@ -336,6 +344,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
       label: 'Community',
       items: [
         { id: 'members',    label: 'Members',    icon: Users,       color: 'text-white' },
+        { id: 'requests', label: 'Join requests', icon: ListChecks, color: 'text-white' },
       ],
     },
     {
@@ -488,26 +497,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
                       disabled={!isOwner}
                     />
                   </div>
-                  <div>
-                    <label className="text-sm text-zinc-400 mb-1 block">Discovery Tags</label>
-                    <Input
-                      value={formData.tagsInput}
-                      onChange={(e) => setFormData({ ...formData, tagsInput: e.target.value })}
-                      placeholder="#gaming #anime #esports (max 5)"
-                      className="bg-zinc-800 border-zinc-700 text-white font-mono text-sm"
-                      disabled={!isOwner}
-                    />
-                    <p className="text-[10px] text-zinc-600 mt-1">
-                      #tags make your server findable on Signal Radar — searchable and filterable by category.
-                    </p>
-                    {(formData.tagsInput || '').trim() && (
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {[...new Set((formData.tagsInput || '').split(/[\s,]+/).map(t => t.replace(/^#/, '').toLowerCase()).filter(Boolean))].slice(0, 5).map(t => (
-                          <span key={t} className="px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-[10px] font-mono">#{t}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <ServerDiscoveryFields value={formData} onChange={setFormData} disabled={!isOwner} section="metadata" />
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-sm text-zinc-400 mb-1 block">Server Icon</label>
@@ -833,39 +823,7 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
             </TabsContent>
 
             <TabsContent value="visibility" className="space-y-4">
-              {/* Public / Invite Only Toggle */}
-              {isOwner && (
-                <div className="bg-zinc-800 rounded-lg p-4 border border-zinc-700">
-                  <p className="text-white font-semibold mb-3">Server Visibility</p>
-                  <p className="text-xs text-zinc-400 mb-4">Control whether your server is discoverable publicly or invite-only:</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => updateServerMutation.mutate({ is_public: true })}
-                      className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
-                        server.is_public !== false
-                          ? 'border-blue-500 bg-blue-500/10'
-                          : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
-                      }`}
-                    >
-                      <Globe className={`w-6 h-6 ${server.is_public !== false ? 'text-blue-500' : 'text-zinc-500'}`} />
-                      <p className="text-xs font-bold text-white uppercase">Public</p>
-                      <p className="text-[10px] text-zinc-500">Discoverable on Signal Radar</p>
-                    </button>
-                    <button
-                      onClick={() => updateServerMutation.mutate({ is_public: false })}
-                      className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
-                        server.is_public === false
-                          ? 'border-red-500 bg-red-500/10'
-                          : 'border-zinc-700 bg-zinc-800/50 hover:border-zinc-600'
-                      }`}
-                    >
-                      <Lock className={`w-6 h-6 ${server.is_public === false ? 'text-red-500' : 'text-zinc-500'}`} />
-                      <p className="text-xs font-bold text-white uppercase">Invite Only</p>
-                      <p className="text-[10px] text-zinc-500">Hidden, requires invite link</p>
-                    </button>
-                  </div>
-                </div>
-              )}
+              <ServerDiscoveryFields value={formData} onChange={setFormData} disabled={!isOwner} section="access" />
 
               {/* Hide Roles */}
               <div className="bg-zinc-800 rounded-lg p-4 border border-zinc-700">
@@ -977,6 +935,10 @@ export default function ServerSettingsModal({ open, onClose, server, currentUser
 
             <TabsContent value="reports" className="space-y-4">
               <ServerReportsPanel serverId={server?.id} currentUser={currentUser} />
+            </TabsContent>
+
+            <TabsContent value="requests" className="space-y-4">
+              <ServerJoinRequests serverId={server.id} />
             </TabsContent>
 
             <TabsContent value="airlock" className="space-y-4">

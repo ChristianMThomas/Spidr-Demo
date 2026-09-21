@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/lib/AuthContext';
 import { auth } from '@/api/apiClient';
 import { checkPassword, isPasswordStrong, PASSWORD_REQUIREMENTS_MESSAGE } from '@/lib/passwordPolicy';
-import SpiderLogo from './SpiderLogo';
+import { SpidrWordmark } from './SpidrBrand';
 import {
   Loader2, Eye, EyeOff, RefreshCw, Smartphone, Mail, Lock, User, AtSign,
   ArrowLeft, Check, CircleCheck, KeyRound,
@@ -55,23 +55,12 @@ function Edges() {
   );
 }
 
-// Header block. Logo sits beside the wordmark+eyebrow stack rather than above
-// it — the lockup reads as one mark, and the reclaimed vertical space lets the
-// spider run much larger. Title/body (Forgot + Verify only) stay centred below.
+// Header block. The supplied wordmark sits above the eyebrow.
 function Head({ eyebrow, title, body }) {
   return (
     <div className="flex flex-col items-center gap-2.5 text-center">
-      <div className="flex items-center gap-3.5">
-        <SpiderLogo size={96} />
-        <div className="flex flex-col items-start">
-          {/* leading-[1.45] not leading-none — Le Chaudron Magique is a brush
-              script whose ascenders overshoot a 1.0 line box and clip at the top. */}
-          <div className="font-chaudron text-6xl leading-[1.45] tracking-[5px] text-white">
-            Spid<span className="text-red-500">R</span>
-          </div>
-          {eyebrow && <div className={`${EYEBROW} mt-3 text-left`}>{eyebrow}</div>}
-        </div>
-      </div>
+      <SpidrWordmark className="w-52 max-w-full h-auto" />
+      {eyebrow && <div className={EYEBROW}>{eyebrow}</div>}
       {title && <div className={`${TITLE} mt-0.5`}>{title}</div>}
       {body && <div className={BODY}>{body}</div>}
     </div>

@@ -55,6 +55,8 @@ class VoiceRoom {
   private socket: any = null;
   private iceConfig: any = FALLBACK_ICE;
   private sessionId: string | null = null;
+  private callId: string | null = null;
+  private generation = 0;
   private mutedBeforeDeafen = false;
   private handlers: Record<string, (payload: any) => void> = {};
 
@@ -72,6 +74,7 @@ class VoiceRoom {
     // than tearing down a live mesh and rebuilding it.
     if (this.state !== 'idle' && this.isSameRoom(room)) return true;
     if (this.state !== 'idle') await this.leave();
+    const generation = ++this.generation;
 
     this.room = room;
     this.currentUser = currentUser;
@@ -98,6 +101,7 @@ class VoiceRoom {
       emitter.emit('voice:room-error', { message: err?.message || 'Microphone unavailable' });
       return false;
     }
+    if (generation !== this.generation) { stream.getTracks().forEach((t: any) => t.stop()); return false; }
     this.localStream = stream;
 
     this.isMuted = prefs.join_muted;
@@ -113,6 +117,23 @@ class VoiceRoom {
 
     const socket = await getSocket();
     this.socket = socket;
+    if (generation !== this.generation) return false;
+    if (room.kind === 'group') {
+      try {
+        const state = await this.action('call:sync');
+        const active = state.calls.find((c: any) => c.groupId === room.channelId);
+        const result = await this.action(active ? 'call:accept' : 'call:invite', active ? { callId: active.callId } : { groupId: room.channelId });
+        if (generation !== this.generation) {
+          socket.emit('call:cancel', { callId: result.call.callId });
+          return false;
+        }
+        this.callId = result.call.callId;
+      } catch (error: any) {
+        await this.leave();
+        emitter.emit('voice:room-error', { message: error.message });
+        return false;
+      }
+    }
 
     const createPeer = (socketId: string, isInitiator: boolean) => {
       const pc = new RTCPeerConnection(this.iceConfig);
@@ -160,6 +181,10 @@ class VoiceRoom {
         if (!socketId || socketId === socket.id || this.peers[socketId]) return;
         createPeer(socketId, true);
       },
+      'call:transferred': (data: any) => { if (data.callId === this.callId) this.leave(false); },
+      'call:ended': (data: any) => { if (data.callId === this.callId) this.leave(false); },
+      'call:left': (data: any) => { if (data.callId === this.callId) this.leave(false); },
+      'voice:error': (data: any) => { emitter.emit('voice:room-error', { message: data.reason }); this.leave(); },
       'voice:peer-left': ({ socketId }: any) => {
         if (socketId) this.dropPeer(socketId);
       },
@@ -205,7 +230,8 @@ class VoiceRoom {
     this.isSpeaker = true;
     InCall?.setForceSpeakerphoneOn(true);
 
-    await this.openPresence();
+    if (!this.callId) await this.openPresence();
+    if (generation !== this.generation) return false;
 
     this.state = 'connected';
     emitter.emit('voice:room-state', { state: this.state, room: this.room });
@@ -213,9 +239,12 @@ class VoiceRoom {
   }
 
   // ── Leave ─────────────────────────────────────────────────────────────────
-  async leave() {
+  async leave(notify = true) {
     const room = this.room;
     if (!room && this.state === 'idle') return;
+    this.generation++;
+    const callId = this.callId;
+    this.callId = null;
 
     getInCallManager()?.stop();
 
@@ -226,7 +255,8 @@ class VoiceRoom {
     this.remoteStreams = {};
 
     if (this.socket) {
-      if (room) this.socket.emit('voice:leave', this.joinPayload());
+      if (room && notify) this.socket.emit('voice:leave', this.joinPayload());
+      if (callId && notify) this.socket.emit('call:cancel', { callId });
       for (const [event, handler] of Object.entries(this.handlers)) this.socket.off(event, handler);
     }
     this.handlers = {};
@@ -295,6 +325,15 @@ class VoiceRoom {
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
+  private action(event: string, data: any = {}): Promise<any> {
+    return new Promise((resolve, reject) => {
+      this.socket.timeout(10000).emit(event, data, (error: any, result: any) => {
+        if (error || !result?.ok) reject(new Error(result?.error || 'Could not reach the call server'));
+        else resolve(result);
+      });
+    });
+  }
+
   private joinPayload() {
     return {
       serverId: this.room!.serverId,
@@ -306,7 +345,7 @@ class VoiceRoom {
 
   private dropPeer(socketId: string) {
     const pc = this.peers[socketId];
-    if (pc) { try { pc.close(); } catch {} delete this.peers[socketId]; }
+    if (pc) { delete this.peers[socketId]; pc.onconnectionstatechange = null; try { pc.close(); } catch {} }
     if (!(socketId in this.remoteStreams)) return;
     const next = { ...this.remoteStreams };
     delete next[socketId];

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import {
   Heart, MessageCircle, Share2, Play, Volume2, VolumeX,
   Plus, ChevronUp, ChevronDown, Bookmark, Send, Sparkles, Folder,
@@ -236,7 +237,7 @@ export default function FeedPanel({ currentUser }) {
       .map(([tag, score]) => ({ tag, score: Math.round(score) }));
   }, [clips]);
 
-  const [pulseOpen, setPulseOpen] = useState(true);
+  const [pulseOpen, setPulseOpen] = useState(false);
 
   // Audio tracks used by clips in this feed — lifted here so all ClipCards
   // share one query rather than each refetching.
@@ -271,19 +272,19 @@ export default function FeedPanel({ currentUser }) {
   ];
 
   return (
-    <div className="flex-1 flex bg-black/40">
+    <div className="page-theme-surface flex-1 min-w-0 flex bg-black/40">
       <div className="flex-1 flex flex-col relative overflow-hidden">
 
         {/* Tab bar — pr-[200px] reserves space for the shell's top-right
             cluster so the last tab (SAVED) doesn't get covered. */}
-        <div className="border-b border-zinc-800 px-4 pr-[200px] flex-shrink-0 flex items-center gap-2">
-          <div className="flex flex-1 h-12 items-end gap-1">
+        <div className="border-b border-zinc-800 px-3 md:pr-[200px] flex-shrink-0 flex flex-wrap items-center gap-2">
+          <div className="flex flex-1 min-w-0 h-12 items-end gap-1 overflow-x-auto">
             {TABS.map(({ val, Icon, label }) => (
               <button
                 key={val}
                 onClick={() => setActiveTab(val)}
                 className={`flex items-center gap-1.5 px-3 h-12 text-[11px] font-bold tracking-wide border-b-2 transition-colors whitespace-nowrap
-                  ${activeTab === val ? 'border-red-500 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}
+                  ${activeTab === val ? 'page-theme-selected border-red-500 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}
               >
                 <Icon className="w-3.5 h-3.5" />
                 {label}
@@ -297,6 +298,21 @@ export default function FeedPanel({ currentUser }) {
               placeholder="Search…"
               className="w-32 bg-zinc-800/60 border border-zinc-700 text-white text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-red-500 placeholder-zinc-600 transition-all focus:w-48"
             />
+          )}
+          {activeTab === 'main' && !userArchiveId && trendingTags.length > 0 && (
+            <Popover open={pulseOpen} onOpenChange={setPulseOpen}>
+              <PopoverTrigger asChild>
+                <button title="Trending tags" aria-label="Trending tags" className="w-8 h-8 shrink-0 flex items-center justify-center rounded-md text-red-400 hover:bg-white/10"><Flame size={16} /></button>
+              </PopoverTrigger>
+              <PopoverContent align="end" collisionPadding={12} className="z-[140] w-56 p-0 bg-black border-white/10" aria-label="Trending tags">
+                <PulsePanel tags={trendingTags} activeTag={debouncedQ} onToggleOpen={() => setPulseOpen(false)}
+                  onPick={tag => { setSearchQuery(searchQuery === tag ? '' : tag); setPulseOpen(false); }} />
+              </PopoverContent>
+            </Popover>
+          )}
+          {(activeTab === 'main' || activeTab === 'profile') && (
+            <button onClick={() => document.getElementById('vid-upload')?.click()} title="Upload clip" aria-label="Upload clip"
+              className="page-theme-action w-8 h-8 shrink-0 flex items-center justify-center rounded-md bg-red-600 hover:bg-red-700 text-white"><Plus size={18} /></button>
           )}
         </div>
 
@@ -341,19 +357,6 @@ export default function FeedPanel({ currentUser }) {
                     : <EmptyFeed onUpload={() => document.getElementById('vid-upload')?.click()} />)
                 : <ClipFeed clips={mainTabClips} currentUser={currentUser} onEditClip={setEditingClip} feedPersonalized={!!feedData?.personalized && !userArchiveId} audioMap={audioMap} initialClipId={jumpClipId} onOpenProfile={(u) => setViewingUser(u)} />
           )}
-          {/* Pulse sidebar — top-5 trending tags. Floats on the LEFT edge
-              of the main feed area. Clicking a tag pipes it into the
-              search bar so filteredClips narrows. Hidden when in archive
-              mode (the archive is by definition single-user). */}
-          {activeTab === 'main' && !userArchiveId && trendingTags.length > 0 && (
-            <PulsePanel
-              tags={trendingTags}
-              activeTag={debouncedQ}
-              open={pulseOpen}
-              onToggleOpen={() => setPulseOpen(o => !o)}
-              onPick={(tag) => setSearchQuery(searchQuery === tag ? '' : tag)}
-            />
-          )}
           {activeTab === 'friends-feed' && (
             friendClips.length === 0
               ? <NoFriendClips />
@@ -367,15 +370,6 @@ export default function FeedPanel({ currentUser }) {
           {activeTab === 'collections' && <CollectionsView collections={collections} selectedCollection={selectedCollection} onSelectCollection={setSelectedCollection} currentUser={currentUser} queryClient={queryClient} allClips={clips} onJumpToClip={(id) => { setJumpClipId(id); setActiveTab('main'); }} />}
         </div>
 
-        {/* Upload FAB */}
-        {(activeTab === 'main' || activeTab === 'profile') && (
-          <label htmlFor="vid-upload" className="cursor-pointer">
-            <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
-              className="absolute bottom-6 right-6 bg-red-600 hover:bg-red-700 rounded-full w-14 h-14 flex items-center justify-center shadow-[0_0_20px_rgba(220,38,38,0.45)] z-10">
-              <Plus className="w-6 h-6 text-white" />
-            </motion.div>
-          </label>
-        )}
       </div>
 
       <input type="file" accept="video/*" className="hidden" id="vid-upload"
@@ -409,7 +403,7 @@ function EmptyFeed({ onUpload }) {
       <Globe className="w-8 h-8 text-red-500/40" />
     </div>
     <p className="text-zinc-400 font-bold text-sm">The Web is empty. Be first.</p>
-    <button onClick={onUpload} className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm transition-colors">
+    <button onClick={onUpload} className="page-theme-action flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-sm transition-colors">
       <Plus className="w-4 h-4" /> Upload Clip
     </button>
   </div>;
@@ -565,23 +559,11 @@ function RecentsTab({ profiles, onClear }) {
 // a tag to pipe it into the search bar (which already filters by hashtag
 // via the debounced query). Click again to clear. Collapsible — when
 // closed, only a small "Pulse" button remains so the feed has full room.
-function PulsePanel({ tags, activeTag, open, onToggleOpen, onPick }) {
+function PulsePanel({ tags, activeTag, onToggleOpen, onPick }) {
   const activeLower = (activeTag || '').toLowerCase();
-  if (!open) {
-    return (
-      <button
-        onClick={onToggleOpen}
-        className="absolute top-4 left-4 z-40 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 hover:border-red-500/40 transition-all"
-        title="Show Pulse — trending tags"
-      >
-        <Flame className="w-3.5 h-3.5 text-red-400" />
-        <span className="font-mono text-[10px] tracking-widest uppercase text-white">Pulse</span>
-      </button>
-    );
-  }
   return (
     <div
-      className="absolute top-4 left-4 z-40 w-56 rounded-2xl bg-black/65 backdrop-blur-md border border-white/10 shadow-[0_8px_24px_rgba(0,0,0,0.5)] overflow-hidden"
+      className="w-full overflow-hidden"
     >
       <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
         <p className="flex items-center gap-1.5 font-mono text-[10px] tracking-widest uppercase text-red-400">

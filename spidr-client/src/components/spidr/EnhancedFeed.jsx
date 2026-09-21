@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { entities, auth, integrations } from '@/api/apiClient';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { entities, api } from '@/api/apiClient';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Heart, MessageCircle, Share2, Pin, TrendingUp, Users, Award, Megaphone, Zap, Send, AtSign, UserCog } from 'lucide-react';
 import FeedCommentsSection from './FeedCommentsSection';
+import { Eye, EyeOff, MoreHorizontal } from 'lucide-react';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { useNotifications } from './NotificationCenter';
 function fromNow(date) {
   const diff = Date.now() - new Date(date).getTime();
@@ -51,30 +53,34 @@ const typeColors = {
   profile_update: 'text-emerald-400',
 };
 
-export default function EnhancedFeed({ currentUser }) {
+export default function EnhancedFeed({ currentUser, full = false }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  const { data: feedItems = [], isLoading } = useQuery({
-    queryKey: ['enhanced-feed'],
-    queryFn: () => entities.Feed.list('-created_date', 30),
+  const { data, isLoading, isError, refetch, hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
+    queryKey: ['enhanced-feed', currentUser?.id],
+    initialPageParam: null,
+    queryFn: ({ pageParam }) => api.get(`/feeds?_orderBy=-_id&_limit=30${pageParam ? `&_before=${pageParam}` : ''}`),
+    getNextPageParam: page => page.length === 30 ? page[page.length - 1].id : undefined,
     refetchInterval: 60000,
     staleTime: 30000,
   });
+  const feedItems = data?.pages.flat() || [];
 
   const reactMutation = useMutation({
-    mutationFn: async ({ feedId, emoji, currentReactions }) => {
-      const reactions = { ...(currentReactions || {}) };
-      const users = reactions[emoji] || [];
-      if (users.includes(currentUser?.id)) {
-        reactions[emoji] = users.filter(u => u !== currentUser?.id);
-        if (reactions[emoji].length === 0) delete reactions[emoji];
-      } else {
-        reactions[emoji] = [...users, currentUser?.id];
-      }
-      return entities.Feed.update(feedId, { reactions });
-    },
+    mutationFn: ({ feedId, emoji }) => api.post(`/feeds/${feedId}/react`, { emoji }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['enhanced-feed'] }),
+    onError: () => toast.error('Could not react to this activity'),
+  });
+
+  const visibilityMutation = useMutation({
+    mutationFn: ({ id, hidden }) => entities.Feed.update(id, { is_hidden: hidden }),
+    onSuccess: item => {
+      queryClient.invalidateQueries({ queryKey: ['enhanced-feed'] });
+      queryClient.invalidateQueries({ queryKey: ['feed-comments', item.id] });
+      toast.success(item.is_hidden ? 'Activity hidden from others' : 'Activity restored to your audience');
+    },
+    onError: () => toast.error('Could not change activity visibility'),
   });
 
   const pinnedItems = feedItems.filter(f => f.is_pinned);
@@ -90,6 +96,7 @@ export default function EnhancedFeed({ currentUser }) {
     );
   }
 
+  if (isError) return <p role="alert" className="p-4 text-sm text-red-300">Could not load activity. <button className="underline" onClick={() => refetch()}>Try again</button></p>;
   if (feedItems.length === 0) {
     return (
       <div className="text-center py-10 bg-zinc-800/30 rounded-xl border border-red-900/20">
@@ -110,21 +117,22 @@ export default function EnhancedFeed({ currentUser }) {
       {pinnedItems.length > 0 && (
         <div className="space-y-2 mb-4">
           {pinnedItems.map(item => (
-            <FeedCard key={item.id} item={item} currentUser={currentUser} onReact={reactMutation.mutate} navigate={navigate} isPinned />
+            <FeedCard key={item.id} item={item} currentUser={currentUser} onReact={reactMutation.mutate} onVisibility={visibilityMutation.mutate} visibilityBusy={visibilityMutation.isPending} navigate={navigate} isPinned />
           ))}
         </div>
       )}
 
       <AnimatePresence>
         {regularItems.map((item, i) => (
-          <FeedCard key={item.id} item={item} currentUser={currentUser} onReact={reactMutation.mutate} navigate={navigate} index={i} />
+          <FeedCard key={item.id} item={item} currentUser={currentUser} onReact={reactMutation.mutate} onVisibility={visibilityMutation.mutate} visibilityBusy={visibilityMutation.isPending} navigate={navigate} index={i} />
         ))}
       </AnimatePresence>
+      {full && hasNextPage && <button className="w-full py-3 text-sm text-white/70 hover:bg-white/5" disabled={isFetchingNextPage} onClick={() => fetchNextPage()}>{isFetchingNextPage ? 'Loading...' : 'Load more activity'}</button>}
     </div>
   );
 }
 
-function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 }) {
+function FeedCard({ item, currentUser, onReact, onVisibility, visibilityBusy, navigate, isPinned, index = 0 }) {
   const [showComments, setShowComments] = useState(false);
   const Icon = typeIcons[item.type] || Zap;
   const colorClass = typeColors[item.type] || 'text-zinc-400';
@@ -246,10 +254,26 @@ function FeedCard({ item, currentUser, onReact, navigate, isPinned, index = 0 })
             className={`${deepLink ? 'cursor-pointer hover:opacity-90' : ''}`}
             onClick={() => { if (deepLink && navigate) navigate(deepLink); }}
           >
-            <div className="flex items-center gap-2 mb-0.5">
+            <div className="flex flex-wrap items-center gap-2 mb-0.5">
               <span className="font-semibold text-white text-sm truncate">{item.user_name || item.title}</span>
               <span className={`text-[10px] uppercase font-mono tracking-wider ${colorClass}`}>{item.type?.replace('_', ' ')}</span>
               <span className="text-zinc-600 text-[10px] ml-auto shrink-0">{fromNow(item.created_date)}</span>
+              {item.is_hidden && <span className="inline-flex items-center gap-1 text-xs text-amber-300"><EyeOff size={12} /> Hidden, only you</span>}
+              {item.user_id === currentUser?.id && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" aria-label="Activity options" title="Activity options"
+                      className="w-8 h-8 shrink-0 inline-flex items-center justify-center rounded hover:bg-white/10 text-zinc-400"
+                      onClick={event => event.stopPropagation()}><MoreHorizontal size={16} /></button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent onClick={event => event.stopPropagation()}>
+                    <DropdownMenuItem disabled={visibilityBusy} onSelect={() => onVisibility({ id: item.id, hidden: !item.is_hidden })}>
+                      {item.is_hidden ? <Eye size={14} className="mr-2" /> : <EyeOff size={14} className="mr-2" />}
+                      {item.is_hidden ? 'Unhide activity' : 'Hide activity'}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
             {/* For mention events show "Title" then snippet on second line */}
             {item.type === 'mention' && item.content ? (

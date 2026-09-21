@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Bookmark } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { Zap, Bell, Radio, MessageCircle, Blocks, Activity, Terminal } from 'lucide-react';
@@ -126,6 +127,8 @@ export default function MobileMenuPanel({ open, onClose, currentUser, activeTab 
             />
 
             {/* Divider before destinations */}
+            <MenuRow title="Saved Messages" leading={<Bookmark className="w-5 h-5 mx-2 text-zinc-200" />}
+              onClick={() => { window.dispatchEvent(new Event('spidr-open-saved-messages')); onClose(); }} />
             <div className="h-px bg-white/5 my-2" />
 
             {/* 4–8. Destinations */}
@@ -138,7 +141,7 @@ export default function MobileMenuPanel({ open, onClose, currentUser, activeTab 
                   <div className={`w-9 h-9 rounded-full border flex items-center justify-center shrink-0 transition-colors ${
                     activeTab === id ? 'bg-red-600/20 border-red-500/50' : 'bg-black/40 border-white/10'
                   }`}>
-                    {Icon ? <Icon className="w-4 h-4 text-zinc-200" /> : <SpiderLogo size={20} />}
+                    {id === 'home' ? <SpiderLogo size={20} /> : Icon ? <Icon className="w-4 h-4 text-zinc-200" /> : <SpiderLogo size={20} />}
                   </div>
                 }
                 title={label}

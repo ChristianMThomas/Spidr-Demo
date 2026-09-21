@@ -143,7 +143,7 @@ function WelcomeBanner({ name }: { name: string }) {
           }}
         />
         <Image
-          source={require('../../assets/spidr-mascot.png')}
+          source={require('../../assets/spidr-wordmark.png')}
           style={{ width: 76, height: 76 }}
           resizeMode="contain"
         />

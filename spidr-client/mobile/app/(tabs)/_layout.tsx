@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
-import { Home, Users, Server, Film, Settings as SettingsIcon } from 'lucide-react-native';
+import { Image } from 'react-native';
+import { Users, Server, Film, Settings as SettingsIcon } from 'lucide-react-native';
 import { useThemeColors } from '../../lib/theme';
 import { useUnread } from '../../lib/unreadContext';
 
@@ -33,7 +34,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'HOME',
-          tabBarIcon: ({ color, size }) => <Home color={color} size={size - 2} />,
+          tabBarIcon: ({ size }) => <Image source={require('../../assets/logo.png')} style={{ width: size, height: size }} resizeMode="contain" />,
         }}
       />
       <Tabs.Screen

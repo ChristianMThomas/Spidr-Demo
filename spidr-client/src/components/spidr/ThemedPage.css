@@ -1,0 +1,7 @@
+.themed-page { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; }
+.themed-page .page-theme-surface { background: var(--spidr-surface); }
+.themed-page .page-theme-main { background: transparent; }
+.themed-page [role=tab][data-state=active], .themed-page .page-theme-action { background: var(--spidr-accent); color: var(--spidr-accent-ink); }
+.themed-page .page-theme-selected { background: var(--spidr-glow); border-color: var(--spidr-accent); }
+.themed-page .page-theme-highlight { color: var(--spidr-accent); }
+.themed-page .page-theme-action:hover { filter: brightness(1.15); }

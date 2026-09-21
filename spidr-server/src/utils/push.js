@@ -237,10 +237,11 @@ async function sendVisiblePush(userId, { title, body, subtitle, data = {}, image
 }
 
 /** Ring a user's devices for an incoming call. */
-function sendCallPush(recipientId, { conversationId, caller, kind }) {
+function sendCallPush(recipientId, { callId, conversationId, groupId, groupName, expiresAt, caller, kind }) {
   return sendDataPush(recipientId, {
     type: 'incoming_call',
-    conversationId,
+    conversationId: conversationId || groupId || '',
+    callId: callId || '', groupId: groupId || '', groupName: groupName || '', expiresAt: String(expiresAt || ''),
     kind: kind || 'voice',
     callerId: caller?.id || '',
     callerName: caller?.name || 'Spidr',
@@ -249,10 +250,11 @@ function sendCallPush(recipientId, { conversationId, caller, kind }) {
 }
 
 /** Stop the ring on a user's devices (caller cancelled / answered elsewhere). */
-function sendCallEndPush(recipientId, { conversationId, reason }) {
+function sendCallEndPush(recipientId, { callId, conversationId, groupId, reason }) {
   return sendDataPush(recipientId, {
     type: 'call_ended',
-    conversationId,
+    conversationId: conversationId || groupId || '',
+    callId: callId || '', groupId: groupId || '',
     reason: reason || 'cancelled',
   }).catch((err) => console.warn('call-end push failed:', err.message));
 }

@@ -38,38 +38,8 @@ export default function ServerInviteCard({ msg, currentUser }) {
       if (!isRecipient) throw new Error('Only the recipient can accept this invite.');
       if (!data.server_id) throw new Error('Invite is missing the server id.');
 
-      // Read the server fresh so we don't stomp any membership changes
-      // that happened since the invite was sent. If we can't read it,
-      // fall back to the snapshot the inviter captured at send time.
-      let members = [];
-      let serverName = data.server_name || 'this server';
-      try {
-        const server = await entities.Server.get?.(data.server_id);
-        if (server) {
-          members = server.members || [];
-          serverName = server.name || serverName;
-        } else {
-          members = data.members_snapshot || [];
-        }
-      } catch {
-        members = data.members_snapshot || [];
-      }
-
-      // Idempotent — if we're somehow already a member, skip the write.
-      const already = members.some(m => m.user_id === currentUser.id);
-      if (!already) {
-        await entities.Server.update(data.server_id, {
-          members: [
-            ...members,
-            {
-              user_id: currentUser.id,
-              user_name: currentUser.full_name || currentUser.username,
-              user_avatar: currentUser.avatar_url || '',
-              role: 'Member',
-            },
-          ],
-        });
-      }
+      const joined = await entities.Server.join(data.server_id, msg.id);
+      const serverName = joined.name || data.server_name || 'this server';
 
       // Stamp the invite card so it locks into its terminal state and
       // can't be accepted again from another device / refresh.

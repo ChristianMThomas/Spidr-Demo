@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ActivityIndicator, Image,
-  useWindowDimensions, TextInputProps,
+  TextInputProps,
 } from 'react-native';
 import { Check, CircleCheck } from 'lucide-react-native';
 import { checkPassword } from '../../lib/passwordPolicy';
@@ -42,34 +42,10 @@ export const T = {
 export function Head({
   eyebrow, title, body,
 }: { eyebrow?: string; title?: string; body?: string }) {
-  const { width } = useWindowDimensions();
-  const small = width < 400;
-  const logo = small ? 78 : 92;
-  const mark = small ? 40 : 48;
   return (
     <View style={{ alignItems: 'center', gap: 10 }}>
-      {/* Logo beside the wordmark+eyebrow stack rather than above it — the
-          lockup reads as one mark, and the reclaimed vertical space lets the
-          spider run much larger. Title/body stay centred below. */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-        <Image
-          source={require('../../assets/spidr-mascot.png')}
-          style={{ width: logo, height: logo }}
-          resizeMode="contain"
-        />
-        <View style={{ alignItems: 'flex-start' }}>
-          {/* Le Chaudron Magique is a brush script — its ascenders and the R's
-              flourish overshoot the default line box and get clipped at the
-              top. lineHeight ~1.45x plus a little top padding gives the glyphs
-              room; the negative marginBottom pulls the extra space back out so
-              the eyebrow below doesn't drift. */}
-          <View style={{ flexDirection: 'row', paddingTop: mark * 0.18, marginBottom: -mark * 0.12 }}>
-            <Text style={{ fontFamily: 'LeChaudronMagique', color: C.white, fontSize: mark, lineHeight: mark * 1.45, letterSpacing: 4 }}>Spid</Text>
-            <Text style={{ fontFamily: 'LeChaudronMagique', color: C.red, fontSize: mark, lineHeight: mark * 1.45, letterSpacing: 4 }}>R</Text>
-          </View>
-          {!!eyebrow && <Text style={[T.eyebrow, { marginTop: 12 }]}>{eyebrow}</Text>}
-        </View>
-      </View>
+      <Image source={require('../../assets/spidr-wordmark.png')} accessibilityLabel="Spidr" style={{ width: 208, height: 156 }} resizeMode="contain" />
+      {!!eyebrow && <Text style={T.eyebrow}>{eyebrow}</Text>}
       {!!title && <Text style={[T.title, { marginTop: 2, textAlign: 'center' }]}>{title}</Text>}
       {!!body && <Text style={[T.body, { textAlign: 'center' }]}>{body}</Text>}
     </View>

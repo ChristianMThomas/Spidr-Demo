@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { getSocket, spotify } from '@/api/apiClient';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -27,12 +27,25 @@ export function NowPlayingProvider({ children }) {
   const myUserId = user?.id;
   const [ownNowPlaying, setOwnNowPlaying]     = useState(null);
   const [peersNowPlaying, setPeersNowPlaying] = useState(new Map());
+  const applePlaying = useRef(false);
+  useEffect(() => {
+    const onApplePlayback = ({ detail }) => {
+      applePlaying.current = !!detail?.isPlaying;
+      setOwnNowPlaying(detail || null);
+      const socket = getSocket();
+      if (detail?.isPlaying) socket.emit('nowplaying:update', detail);
+      else socket.emit('nowplaying:clear');
+    };
+    window.addEventListener('spidr:musickit-now-playing', onApplePlayback);
+    return () => window.removeEventListener('spidr:musickit-now-playing', onApplePlayback);
+  }, []);
 
   // T1: Electron OS media session (Windows SMTC via IPC) — reads ANY media
   // playing on the OS, no Spotify account required.
   useEffect(() => {
     if (!window.electronAPI?.onNowPlayingChange) return;
     const cleanup = window.electronAPI.onNowPlayingChange((data) => {
+      if (applePlaying.current) return;
       const hasTrack = data?.trackName && String(data.trackName).trim();
       setOwnNowPlaying(hasTrack ? data : null);
       const socket = getSocket();
@@ -59,7 +72,7 @@ export function NowPlayingProvider({ children }) {
     const socket = getSocket();
 
     const apply = (payload) => {
-      if (cancelled) return;
+      if (cancelled || applePlaying.current) return;
       const np = toLegacyShape(payload);
       setOwnNowPlaying(np);
 

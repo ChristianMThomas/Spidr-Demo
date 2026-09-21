@@ -1,13 +1,16 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Heart, MessageCircle, Share2, Volume2, VolumeX, Play,
   Bookmark, Sparkles, Send, Users, Lock,
-  Maximize2, Minimize2, RotateCw, Repeat2, Plus, Check,
+  Maximize2, Minimize2, RotateCw, Repeat2, Plus, Check, X,
 } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import './ClipFeed.css';
 import { entities, algorithm, follows as followsApi } from '@/api/apiClient';
 import { toast } from 'sonner';
 import RichComments from '@/components/spidr/RichComments';
@@ -97,6 +100,11 @@ import FrequencyArchive from '@/components/feed/FrequencyArchive';
  * inside ClipCard. The parent only manages position.
  */
 
+// Every mounted, interactive ClipFeed registers here. The keydown handler
+// only acts for the highest-priority entry, so two feeds mounted at once
+// (Theater Mode over a backgrounded FeedPanel) don't both consume arrow keys.
+const KEYBOARD_FEEDS = new Set();
+
 export default function ClipFeed({
   clips,
   currentUser,
@@ -105,8 +113,27 @@ export default function ClipFeed({
   audioMap,
   initialClipId,
   onOpenProfile,   // (user) => open their WEB profile in-feed
+  // ── Externally-driven mode (Theater Mode) ──────────────────────────────
+  // All four are optional and every default reproduces the standalone
+  // FeedPanel behaviour exactly, so existing call sites are untouched.
+  //   index             controlled clip position. When it's a finite number
+  //                     the feed stops owning its own index and simply
+  //                     renders whatever the parent points at.
+  //   onIndexChange     (nextIndex, clip) fired whenever navigation happens,
+  //                     controlled or not. This is what the theater host
+  //                     broadcasts from.
+  //   interactive       false disables wheel / swipe / keyboard / dot-jump
+  //                     and drops the feed into read-only mirror mode.
+  //   keyboardPriority  only the highest-priority mounted feed answers arrow
+  //                     keys, so an open theater doesn't scrub the FeedPanel
+  //                     sitting behind it at the same time.
+  index,
+  onIndexChange,
+  interactive = true,
+  keyboardPriority = 0,
+  showChrome = true,    // top "THE WEB // n / m" label + side dot rail
 }) {
-  const [idx, setIdx] = useState(() => {
+  const [localIdx, setLocalIdx] = useState(() => {
     if (!initialClipId) return 0;
     const i = clips.findIndex(c => c.id === initialClipId);
     return i >= 0 ? i : 0;
@@ -117,10 +144,35 @@ export default function ClipFeed({
   const isSnappingRef = useRef(false);
   const lastSnapTimeRef = useRef(0);
 
-  // Clamp idx if clips list shrinks
+  // Controlled vs uncontrolled. `idx` is always the clamped truth for render.
+  const controlled = Number.isFinite(index);
+  const idx = clips.length === 0
+    ? 0
+    : Math.max(0, Math.min(clips.length - 1, controlled ? index : localIdx));
+
+  // Ref mirror so advance()/commitIdx() can read the current position without
+  // re-creating themselves on every index change.
+  const idxRef = useRef(idx);
+  idxRef.current = idx;
+  const onIndexChangeRef = useRef(onIndexChange);
+  onIndexChangeRef.current = onIndexChange;
+
+  // The single place the index moves. Side effects (onIndexChange) fire here
+  // rather than inside a setState updater, which React would double-invoke.
+  const commitIdx = useCallback((next) => {
+    if (!clips.length) return;
+    const clamped = Math.max(0, Math.min(clips.length - 1, next));
+    if (clamped === idxRef.current) return;
+    if (!controlled) setLocalIdx(clamped);
+    onIndexChangeRef.current?.(clamped, clips[clamped]);
+  }, [clips, controlled]);
+
+  // Clamp idx if clips list shrinks (uncontrolled only — when a parent owns
+  // the index, clamping is its job and writing here would fight it).
   useEffect(() => {
-    if (idx >= clips.length) setIdx(Math.max(0, clips.length - 1));
-  }, [clips.length, idx]);
+    if (controlled) return;
+    if (localIdx >= clips.length) setLocalIdx(Math.max(0, clips.length - 1));
+  }, [clips.length, localIdx, controlled]);
 
   // Determine which 3 clips are mounted at the moment.
   // For idx=0 we show [null, clips[0], clips[1]].
@@ -136,27 +188,39 @@ export default function ClipFeed({
   // Wheel events drive index changes directly (works on desktop). Touch swipes
   // and pointer drags trigger native scroll which we observe via scrollTop.
   const advance = useCallback((delta) => {
+    if (!interactive) return;
     if (isSnappingRef.current) return;
     const now = Date.now();
     if (now - lastSnapTimeRef.current < 220) return; // throttle
     lastSnapTimeRef.current = now;
-    setIdx((prev) => {
-      const next = Math.max(0, Math.min(clips.length - 1, prev + delta));
-      return next;
-    });
-  }, [clips.length]);
+    commitIdx(idxRef.current + delta);
+  }, [commitIdx, interactive]);
 
   const onWheel = useCallback((e) => {
+    if (!interactive) return;
     // Threshold of 25 prevents trackpad inertia from triggering many advances
     if (Math.abs(e.deltaY) < 25) return;
     e.preventDefault();
     advance(e.deltaY > 0 ? 1 : -1);
-  }, [advance]);
+  }, [advance, interactive]);
 
-  // Keyboard navigation — accessibility
+  // Keyboard navigation — accessibility.
+  // Only the highest-priority mounted feed responds. Without this, opening
+  // Theater Mode over a mounted FeedPanel meant one arrow-key press advanced
+  // both feeds at once.
   useEffect(() => {
+    if (!interactive) return;
+    const entry = { priority: keyboardPriority, advance };
+    KEYBOARD_FEEDS.add(entry);
     const handler = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.target.isContentEditable) return;
+      // Highest priority wins; ties go to the most recently mounted feed.
+      let top = null;
+      for (const f of KEYBOARD_FEEDS) {
+        if (!top || f.priority >= top.priority) top = f;
+      }
+      if (top !== entry) return;
       if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'j') {
         e.preventDefault();
         advance(1);
@@ -166,13 +230,20 @@ export default function ClipFeed({
       }
     };
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [advance]);
+    return () => {
+      KEYBOARD_FEEDS.delete(entry);
+      window.removeEventListener('keydown', handler);
+    };
+  }, [advance, interactive, keyboardPriority]);
 
   // ── Touch / pointer swipe (mobile) ─────────────────────────────────────────
   const touchStartY = useRef(null);
-  const onTouchStart = (e) => { touchStartY.current = e.touches[0]?.clientY; };
+  const onTouchStart = (e) => {
+    if (!interactive) return;
+    touchStartY.current = e.touches[0]?.clientY;
+  };
   const onTouchEnd = (e) => {
+    if (!interactive) return;
     if (touchStartY.current == null) return;
     const endY = e.changedTouches[0]?.clientY ?? touchStartY.current;
     const delta = touchStartY.current - endY;
@@ -199,11 +270,13 @@ export default function ClipFeed({
       onTouchEnd={onTouchEnd}
     >
       {/* Top label */}
-      <div className="absolute top-3 inset-x-0 text-center z-10 pointer-events-none">
-        <span className="text-[10px] font-black tracking-widest text-red-600/40 uppercase">
-          {feedPersonalized ? '⚡ YOUR WEB' : 'THE WEB'} // {idx + 1} / {clips.length}
-        </span>
-      </div>
+      {showChrome && (
+        <div className="absolute top-3 inset-x-0 text-center z-10 pointer-events-none">
+          <span className="text-[10px] font-black tracking-widest text-red-600/40 uppercase">
+            {feedPersonalized ? '⚡ YOUR WEB' : 'THE WEB'} // {idx + 1} / {clips.length}
+          </span>
+        </div>
+      )}
 
       {/* Three-slot virtualized stack — the active slot is centered, the
           prev slot is translated up and the next slot is translated down.
@@ -227,7 +300,10 @@ export default function ClipFeed({
               className="absolute inset-0 flex items-center justify-center pointer-events-none"
               style={{ willChange: 'transform' }}
             >
-              <div className={isCurrent ? 'pointer-events-auto' : 'pointer-events-none'}>
+              {/* In mirror mode the active card stays inert too — guests
+                  watch the host's clip, they don't like/relay/comment on it
+                  from inside the theater. */}
+              <div className={`clip-slot-content ${isCurrent && interactive ? 'pointer-events-auto' : 'pointer-events-none'}`}>
                 <ClipCard
                   clip={clip}
                   isActive={isCurrent}
@@ -247,21 +323,24 @@ export default function ClipFeed({
       </div>
 
       {/* Side dots — keeps the user oriented in the feed */}
-      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-1.5 z-20">
-        {clips.slice(Math.max(0, idx - 3), idx + 4).map((_, i) => {
-          const ai = Math.max(0, idx - 3) + i;
-          return (
-            <button
-              key={ai}
-              onClick={() => setIdx(ai)}
-              className={`w-1 rounded-full transition-all ${
-                ai === idx ? 'h-6 bg-red-500' : 'h-1.5 bg-zinc-600 hover:bg-red-400'
-              }`}
-              aria-label={`Jump to clip ${ai + 1}`}
-            />
-          );
-        })}
-      </div>
+      {showChrome && (
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-1.5 z-20">
+          {clips.slice(Math.max(0, idx - 3), idx + 4).map((_, i) => {
+            const ai = Math.max(0, idx - 3) + i;
+            return (
+              <button
+                key={ai}
+                disabled={!interactive}
+                onClick={() => commitIdx(ai)}
+                className={`w-1 rounded-full transition-all ${
+                  ai === idx ? 'h-6 bg-red-500' : 'h-1.5 bg-zinc-600 hover:bg-red-400'
+                } ${interactive ? '' : 'cursor-default'}`}
+                aria-label={`Jump to clip ${ai + 1}`}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -740,17 +819,17 @@ function ClipCard({
   // the experience.
   const showRotateHint = orientation === 'portrait' && isSmallViewport && isWideClip;
 
-  const cardWidth = comments
+  const cardWidth = comments && !isSmallViewport
     ? 'max(280px, min(540px, calc(92vw - 392px)))'
     : (expanded
         ? `min(92vw, calc(80vh * ${aspectNum}))`
         : 'min(720px, 92vw)');
-  const cardMaxHeight = expanded ? '80vh' : '82vh';
+  const cardMaxHeight = '100%';
+  const renderComments = pane => isSmallViewport ? createPortal(pane, document.body) : pane;
 
   return (
     <div
-      className="relative flex gap-3 items-center"
-      style={{ height: '82vh' }}
+      className="clip-layout relative flex gap-3 items-center"
     >
       {/* Video card. In mobile-landscape-fullscreen we break out of the feed
           layout and pin the card to the viewport edges — gives wide clips
@@ -760,8 +839,8 @@ function ClipCard({
         ref={graftContainerRef}
         className={
           mobileFullscreen
-            ? 'fixed inset-0 z-[100] bg-black overflow-hidden'
-            : 'relative bg-zinc-900 rounded-2xl overflow-hidden border shadow-2xl'
+            ? 'clip-card fixed inset-0 z-[100] bg-black overflow-hidden'
+            : 'clip-card relative bg-zinc-900 rounded-2xl overflow-hidden border shadow-2xl'
         }
         style={mobileFullscreen ? {
           borderColor: 'transparent',
@@ -902,17 +981,6 @@ function ClipCard({
           onLoadedMetadata={(e) => { const v = e.target; if (v.videoWidth) setNatSize({ width: v.videoWidth, height: v.videoHeight }); }}
         />
 
-        {/* Grafted external audio — floating auto-play disc (Patch 2.13) */}
-        {graft && (
-          <AudioGraftNode
-            audio={graft}
-            audioRef={graftAudioRef}
-            playing={graftPlaying}
-            muted={graftMuted || !graft.previewUrl}
-            onTap={handleGraftTap}
-          />
-        )}
-
         {/* Buffering spinner */}
         <AnimatePresence>
           {buffering && isActive && (
@@ -940,15 +1008,9 @@ function ClipCard({
           <div className="h-full bg-red-500 transition-none" style={{ width: `${progress}%` }} />
         </div>
 
-        {/* Telemetry strip — Symbiote HUD style. Sits just above the
-            progress bar, hugs the bottom-left, gives the clip a small
-            "live signal" read: views + an interaction-spike pulse derived
-            from total engagement. The dot ticks regardless of activity so
-            the panel always reads as a live feed. */}
-        <TelemetryPanel clip={clip} />
-
         {/* Author/caption overlay */}
-        <div className="absolute bottom-2 left-0 right-12 px-3 pt-8 bg-gradient-to-t from-black/80 via-black/30 to-transparent">
+        <div className="clip-details bg-gradient-to-t from-black/90 via-black/70 to-transparent"
+          onWheel={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()}>
           <div className="flex items-center gap-2 mb-1">
             <button
               type="button"
@@ -986,7 +1048,7 @@ function ClipCard({
               </button>
             )}
           </div>
-          {clip.caption && <p className="text-white text-xs line-clamp-2 mb-1">{clip.caption}</p>}
+          {clip.caption && <p className="text-white text-xs line-clamp-2 mb-1 break-words">{clip.caption}</p>}
           {/* Game tag pill — surfaces the game the creator was playing
               when they uploaded the clip. Only renders if clip.game_tag is
               set on the payload (new optional field; safe to leave null on
@@ -994,7 +1056,7 @@ function ClipCard({
               hashtags. */}
           {clip.game_tag && (
             <div className="mb-1">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.05] backdrop-blur-md border border-white/10 text-[10px] font-semibold text-purple-400">
+              <span className="inline-flex max-w-full items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.05] backdrop-blur-md border border-white/10 text-[10px] font-semibold text-purple-400 break-words">
                 <span aria-hidden="true">🎮</span>
                 {clip.game_tag}
               </span>
@@ -1003,7 +1065,7 @@ function ClipCard({
           {(clip.hashtags || []).length > 0 && (
             <div className="flex flex-wrap gap-1 mb-1">
               {clip.hashtags.slice(0, 4).map((t, i) =>
-                <span key={i} className="text-red-400 text-[10px] font-bold">#{t}</span>
+                <span key={i} className="text-red-400 text-[10px] font-bold break-all">#{t}</span>
               )}
             </div>
           )}
@@ -1014,12 +1076,24 @@ function ClipCard({
             />
           )}
 
+          {Array.isArray(clip.reactions) && clip.reactions.length > 0 && (
+            <div className="clip-reactions flex gap-1 flex-wrap my-2" aria-label="Clip reactions">
+              {clip.reactions.map((r, i) => (
+                <motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }}
+                  className="bg-zinc-800/90 rounded-full px-2 py-0.5 flex items-center gap-1">
+                  <span className="text-sm">{r.emoji}</span>
+                  <span className="text-white text-[10px]">{r.users.length}</span>
+                </motion.div>
+              ))}
+            </div>
+          )}
+
           {/* Join Server CTA — shown when the creator linked a server. */}
           {clip.server_id && (
             <motion.button
               onClick={(e) => { e.stopPropagation(); navigate(`/servers/${clip.server_id}`); }}
               whileTap={{ scale: 0.96 }}
-              className="mt-2 w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-[#FF3333]/90 to-[#990000]/90 hover:from-[#FF3333] hover:to-[#990000] border border-[#FF3333]/40 shadow-[0_0_18px_rgba(255,51,51,0.3)] transition-all"
+              className="clip-server-link mt-2 w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-[#FF3333]/90 to-[#990000]/90 hover:from-[#FF3333] hover:to-[#990000] border border-[#FF3333]/40 shadow-[0_0_18px_rgba(255,51,51,0.3)] transition-all"
             >
               {clip.server_icon
                 ? <img src={clip.server_icon} alt="" className="w-6 h-6 rounded-lg object-cover shrink-0 border border-white/20" />
@@ -1031,23 +1105,17 @@ function ClipCard({
               <span className="text-[10px] font-black text-white bg-black/30 rounded-full px-2 py-1 shrink-0">JOIN</span>
             </motion.button>
           )}
+          <div className="clip-footer-meta">
+            {graft && (
+              <AudioGraftNode audio={graft} audioRef={graftAudioRef} playing={graftPlaying}
+                muted={graftMuted || !graft.previewUrl} onTap={handleGraftTap} inline />
+            )}
+            <TelemetryPanel clip={clip} />
+          </div>
         </div>
 
-        {/* Reactions */}
-        {Array.isArray(clip.reactions) && clip.reactions.length > 0 && (
-          <div className="absolute bottom-20 left-3 flex gap-1 flex-wrap max-w-[55%]">
-            {clip.reactions.map((r, i) => (
-              <motion.div key={i} initial={{ scale: 0 }} animate={{ scale: 1 }}
-                className="bg-zinc-800/90 rounded-full px-2 py-0.5 flex items-center gap-1">
-                <span className="text-sm">{r.emoji}</span>
-                <span className="text-white text-[10px]">{r.users.length}</span>
-              </motion.div>
-            ))}
-          </div>
-        )}
-
         {/* Side actions */}
-        <div className="absolute right-2 bottom-20 flex flex-col gap-3 items-center">
+        <div className="clip-actions" aria-label="Clip actions" onWheel={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()}>
           {/* Profile Node — creator avatar sitting at the top of the dock,
               with a small red `+` button overlapping the bottom for a
               1-tap follow (TikTok pattern). Hidden when the viewer is the
@@ -1063,10 +1131,10 @@ function ClipCard({
               currentUserAvatar={currentUser?.avatar_url}
             />
           )}
-          <SideBtn onClick={() => likeMut.mutate()} label={clip.likes?.length || 0} active={hasLiked}>
+          <SideBtn title={hasLiked ? 'Unlike clip' : 'Like clip'} onClick={() => likeMut.mutate()} label={clip.likes?.length || 0} active={hasLiked}>
             <Heart className="w-5 h-5" fill={hasLiked ? 'currentColor' : 'none'} />
           </SideBtn>
-          <SideBtn onClick={() => setComments(v => !v)} label={clip.comments_count || 0} active={comments}>
+          <SideBtn title="Comments" onClick={() => setComments(v => !v)} label={clip.comments_count || 0} active={comments}>
             <MessageCircle className="w-5 h-5" />
           </SideBtn>
           {/* Signal Relay — 1-tap repost. The active state flips to a
@@ -1082,27 +1150,22 @@ function ClipCard({
             <Repeat2 className="w-5 h-5" />
           </SideBtn>
           <EmojiPicker onEmojiSelect={(e) => reactMut.mutate(e)} currentUser={currentUser}>
-            <SideBtn label={userReactions.length || ''} active={userReactions.length > 0}>
+            <SideBtn title="React to clip" label={userReactions.length || ''} active={userReactions.length > 0}>
               <Sparkles className="w-5 h-5" />
             </SideBtn>
           </EmojiPicker>
-          <div className="relative">
-            <SideBtn onClick={() => setShareMenu(v => !v)} label={clip.shares_count || 0}>
+          <Popover open={shareMenu} onOpenChange={setShareMenu}>
+            <PopoverAnchor asChild><div>
+            <SideBtn title="Share clip" onClick={() => setShareMenu(v => !v)} label={clip.shares_count || 0}>
               <Share2 className="w-5 h-5" />
             </SideBtn>
-            <AnimatePresence>
-              {shareMenu && (
-                <motion.div
-                  initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }}
-                  className="absolute right-12 top-0 bg-zinc-800 rounded-xl border border-zinc-700 p-1.5 w-34 shadow-2xl z-30 min-w-[130px]"
-                >
+            </div></PopoverAnchor>
+                <PopoverContent side="left" align="center" collisionPadding={12} className="z-[120] w-40 bg-zinc-800 border-zinc-700 p-1.5" aria-label="Share clip options">
                   <button onClick={() => { setShareWeb(true); setShareMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-700 rounded-lg text-white text-xs">🕸️ Sling to DMs</button>
                   <button onClick={() => handleShare('link')} className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-700 rounded-lg text-white text-xs"><Send className="w-3 h-3" /> Copy Link</button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          <SideBtn onClick={() => setCollectionPickerOpen(true)}><Bookmark className="w-5 h-5" /></SideBtn>
+                </PopoverContent>
+          </Popover>
+          <SideBtn title="Save clip" onClick={() => setCollectionPickerOpen(true)}><Bookmark className="w-5 h-5" /></SideBtn>
           {/* Theater mode toggle — desktop only. Wide videos in particular
               benefit; we surface the button for every aspect so it's a
               consistent control. Hidden on small viewports where mobile
@@ -1119,21 +1182,23 @@ function ClipCard({
           {clip.audio_id && audioMap?.[clip.audio_id] && (
             <DataDisc audioTrack={audioMap[clip.audio_id]} onOpenFrequency={(t) => setFreqAudio(t)} />
           )}
-          <div
+          <Popover open={showVol} onOpenChange={setShowVol}>
+          <PopoverAnchor asChild><div
             className="relative"
             onMouseEnter={() => { clearTimeout(volLeaveTimer.current); setShowVol(true); }}
             onMouseLeave={() => { volLeaveTimer.current = setTimeout(() => setShowVol(false), 150); }}
           >
-            <SideBtn onClick={() => setMuted(v => !v)}>
+            <SideBtn title={muted ? 'Unmute clip' : 'Mute clip'} onClick={() => setMuted(v => !v)}>
               {muted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
             </SideBtn>
-            {showVol && (
-              <div
-                className="absolute right-12 top-0 bg-zinc-800/95 rounded-xl p-3 shadow-xl"
+          </div></PopoverAnchor>
+              <PopoverContent side="left" align="center" collisionPadding={12} onOpenAutoFocus={e => e.preventDefault()}
+                className="z-[120] w-28 bg-zinc-800/95 p-3 shadow-xl" aria-label="Clip volume"
                 onMouseEnter={() => { clearTimeout(volLeaveTimer.current); setShowVol(true); }}
                 onMouseLeave={() => { volLeaveTimer.current = setTimeout(() => setShowVol(false), 150); }}
               >
                 <input
+                  aria-label="Volume"
                   type="range" min="0" max="1" step="0.05" value={muted ? 0 : vol}
                   onChange={(e) => {
                     const v = parseFloat(e.target.value);
@@ -1145,24 +1210,29 @@ function ClipCard({
                     background: `linear-gradient(to right,#dc2626 0%,#dc2626 ${(muted ? 0 : vol) * 100}%,#3f3f46 ${(muted ? 0 : vol) * 100}%,#3f3f46 100%)`,
                   }}
                 />
-              </div>
-            )}
-          </div>
+              </PopoverContent>
+          </Popover>
         </div>
       </motion.div>
 
       {/* Comments pane */}
-      <AnimatePresence>
+      {renderComments(<AnimatePresence>
         {comments && (
           <motion.div
             initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 340, opacity: 1 }}
+            animate={{ width: isSmallViewport ? 'calc(100% - 24px)' : 340, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            className="bg-zinc-900 border border-white/10 rounded-2xl overflow-hidden flex-shrink-0"
-            style={{ height: '82vh' }}
+            className="clip-comments bg-zinc-900 border border-white/10 rounded-lg overflow-hidden flex-shrink-0 flex flex-col"
+            style={isSmallViewport ? { position: 'fixed', inset: 12, height: 'calc(100dvh - 24px)', zIndex: 130 } : { height: '100%' }}
+            onWheel={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} onTouchEnd={e => e.stopPropagation()}
           >
+            <div className="flex justify-end p-2 border-b border-white/10">
+              <button onClick={() => setComments(false)} title="Close comments" aria-label="Close comments" className="p-2 text-zinc-400 hover:text-white"><X size={16} /></button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
             <RichComments clipId={clip.id} currentUser={currentUser} onOpenProfile={onOpenProfile} />
+            </div>
 
             {/* Save-to-collection picker */}
             {collectionPickerOpen && (
@@ -1207,7 +1277,7 @@ function ClipCard({
             )}
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>)}
 
       <AnimatePresence>
         {shareWeb && <ShareWeb isOpen={shareWeb} onClose={() => setShareWeb(false)} clip={clip} currentUser={currentUser} />}
@@ -1226,7 +1296,7 @@ function ClipCard({
   );
 }
 
-function SideBtn({ children, onClick, label, active, title, variant = 'default' }) {
+const SideBtn = React.forwardRef(function SideBtn({ children, onClick, label, active, title, variant = 'default', ...props }, ref) {
   // Active styling depends on the variant — most actions (like, comment,
   // react) flip to red. The "relay" variant flips to a neon purple-pink
   // gradient with a glow halo so the gesture reads as distinct from a
@@ -1244,6 +1314,9 @@ function SideBtn({ children, onClick, label, active, title, variant = 'default' 
       : undefined;
   return (
     <motion.button
+      {...props}
+      ref={ref}
+      type="button"
       onClick={onClick}
       whileTap={{ scale: 0.85 }}
       title={title}
@@ -1265,10 +1338,10 @@ function SideBtn({ children, onClick, label, active, title, variant = 'default' 
       )}
     </motion.button>
   );
-}
+});
 
 // ── Telemetry Panel ─────────────────────────────────────────────────────────
-// Tiny "signal HUD" pinned to the bottom-right of each clip card. Two metrics:
+// Compact metrics in the footer flow, below the caption and server link:
 //   • VIEWS — raw count from clip.views (k/m formatted for headroom).
 //   • SPIKE — a 0-100 score derived from total engagement (likes + comments
 //             + relays) normalized so a quiet clip still pulses gently and
@@ -1295,7 +1368,7 @@ function TelemetryPanel({ clip }) {
 
   return (
     <div
-      className="absolute bottom-2 right-3 flex items-center gap-2 px-2.5 py-1 rounded-md font-mono pointer-events-none select-none"
+      className="clip-telemetry flex flex-wrap items-center gap-2 px-2.5 py-1 rounded-md font-mono pointer-events-none select-none"
       style={{
         background: 'rgba(5, 5, 5, 0.78)',
         border: '1px solid rgba(239, 68, 68, 0.45)',

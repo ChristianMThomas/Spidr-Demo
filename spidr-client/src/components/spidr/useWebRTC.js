@@ -24,7 +24,8 @@ const ICE_SERVERS = [
 // `is_video_on` on the VoiceSession row was pure presence decoration — a
 // video call connected with no camera track on either side, and video only
 // appeared if someone manually hit the camera toggle afterwards.
-export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled = true, startWithVideo = false }) {
+export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled = true, startWithVideo = false, initialStream = null }) {
+  const joinGeneration = useRef(0);
   const [localStream, setLocalStream]   = useState(null);
   const [remoteStreams, setRemoteStreams] = useState({}); // socketId -> MediaStream
   const [isMuted, setIsMuted]           = useState(false);
@@ -215,6 +216,7 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
 
   const join = useCallback(async ({ video = false, muted = false } = {}) => {
     if (!enabled || !currentUser) return;
+    const generation = ++joinGeneration.current;
 
     try {
       // 2.2 — choose an explicit default mic so the browser doesn't grab an
@@ -234,7 +236,7 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
       let videoOn = video;
       let stream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        stream = initialStream?.getAudioTracks().some(track => track.readyState === 'live') ? initialStream : await navigator.mediaDevices.getUserMedia({
           audio: audioConstraints,
           video: videoOn ? { width: 1280, height: 720, frameRate: 30 } : false,
         });
@@ -250,6 +252,7 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
         stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
       }
 
+      if (generation !== joinGeneration.current) { stream.getTracks().forEach(track => track.stop()); return; }
       if (muted) stream.getAudioTracks().forEach(t => { t.enabled = false; });
 
       localStreamRef.current = stream;
@@ -272,6 +275,7 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
         iceConfigRef.current = { iceServers: ICE_SERVERS };
       }
 
+      if (generation !== joinGeneration.current) { stream.getTracks().forEach(track => track.stop()); return; }
       socket.emit('voice:join', {
         serverId, channelId, groupId,
         userId: currentUser.id,
@@ -288,11 +292,11 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
       // When we receive a signal (offer/answer/ice). Uses the perfect-
       // negotiation algorithm so simultaneous offers (glare) during
       // renegotiation don't deadlock the connection.
-      socket.on('voice:signal', async ({ from, signal }) => {
+      socket.on('voice:signal', async ({ from, userId, signal }) => {
         let pc = peersRef.current[from];
         if (!pc) {
           pc = createPeer(from, false);
-          setPeers(prev => ({ ...prev, [from]: { pc } }));
+          setPeers(prev => ({ ...prev, [from]: { pc, userId } }));
         }
         const negState = pc._negState || {};
         const polite = pc._polite !== false;
@@ -386,9 +390,10 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
         console.error('WebRTC join error:', err);
       }
     }
-  }, [enabled, currentUser, serverId, channelId, groupId, createPeer]);
+  }, [enabled, currentUser, serverId, channelId, groupId, createPeer, initialStream]);
 
   const leave = useCallback(() => {
+    joinGeneration.current++;
     // Stop all local tracks
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;

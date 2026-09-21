@@ -150,8 +150,10 @@ export default function SpidrMenu() {
         ];
 
       // ─── Friend (avatar/row inside Friends panel) ───────────────────────
+      case 'dm':
       case 'friend':
         return [
+          { icon: CheckCircle, label: 'Mark as Read', color: 'text-white', action: 'mark-read' },
           { icon: MessageSquare, label: 'Send Message', color: 'text-white', action: 'send-message' },
           { icon: User, label: 'View Profile', color: 'text-white', action: 'view-profile' },
           { icon: AtSign, label: 'Mention', color: 'text-white', action: 'mention' },
@@ -167,6 +169,7 @@ export default function SpidrMenu() {
       // ─── Group chat (row in the Friends → Groups / "Spidr Web" tab) ──────
       case 'web_group':
         return [
+          { icon: CheckCircle, label: 'Mark as Read', color: 'text-white', action: 'mark-read' },
           { icon: MessageSquare, label: 'Open Group', color: 'text-white', action: 'open-group' },
           { icon: Pin, label: menu.data?.is_pinned ? 'Unpin from Web' : 'Pin to Web', color: 'text-white', action: 'pin-group' },
         ];

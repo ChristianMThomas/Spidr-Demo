@@ -5,6 +5,11 @@ const s = new Schema({
   // were never in the schema so Mongoose silently dropped every write.
   category: { type: String, default: '' },
   tags:     { type: [String], default: [] }, // lowercase #tags, max 5 enforced client-side
+  rules: { type: [String], default: [] },
+  // Legacy private servers remain unlisted until an admin opts in.
+  is_discoverable: { type: Boolean, default: undefined },
+  allow_join_requests: { type: Boolean, default: true },
+  join_requests: [{ _id: false, user_id: String, requested_at: { type: Date, default: Date.now } }],
   description:   String,
   icon_url:      String,
   banner_url:    String,
@@ -42,6 +47,7 @@ s.pre('save', function (next) {
 
 s.post('save', async function (doc) {
   if (!doc.wasNew) return;
+  if (doc.is_public === false || doc.is_discoverable === false) return;
   try {
     // Look up the owner's profile for nice attribution
     const UserProfile = require('./UserProfile');

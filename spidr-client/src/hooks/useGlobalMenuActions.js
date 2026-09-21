@@ -5,6 +5,7 @@ import { entities } from '@/api/apiClient';
 import { useAppShell } from '@/context/AppShellContext';
 import { getServerMode, isServerMuted, setServerMode } from '@/lib/notificationScopes';
 import { toast } from 'sonner';
+import { markConversationRead, invalidateReadState, useReadStateEvents } from './useReadState';
 
 /**
  * useGlobalMenuActions — single listener for context-menu actions that aren't
@@ -29,6 +30,7 @@ export function useGlobalMenuActions() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { currentUser, navigateToDM } = useAppShell();
+  useReadStateEvents(currentUser?.id);
 
   useEffect(() => {
     const handler = async (event) => {
@@ -211,14 +213,10 @@ export function useGlobalMenuActions() {
 
           // ── Sidebar server actions ────────────────────────────────────────
           case 'mark-read': {
-            // No persisted unread counter in this build yet — just acknowledge
-            // so the menu feels responsive. When unread counters land they'll
-            // wire up here.
-            if (data?.server_id || data?.id) {
-              localStorage.setItem(`spidr_lastread_${data.server_id || data.id}`, String(Date.now()));
-              toast.success('Marked as read');
-              queryClient.invalidateQueries({ queryKey: ['servers'] });
-            }
+            const scope = ['friend', 'dm'].includes(type) ? 'dm' : type === 'web_group' ? 'group' : type === 'channel_text' ? 'channel' : 'server';
+            await markConversationRead(scope, data?.id, data?.server_id);
+            invalidateReadState(queryClient);
+            toast.success('Marked as read');
             break;
           }
           case 'mute-server': {
@@ -255,8 +253,7 @@ export function useGlobalMenuActions() {
               toast.error("You're the owner — transfer ownership or delete the server instead.");
               return;
             }
-            const newMembers = (srv.members || []).filter(m => m.user_id !== currentUser.id);
-            await entities.Server.update(sid, { members: newMembers });
+            await entities.Server.leave(sid);
             toast.success(`Left ${srv.name}`);
             queryClient.invalidateQueries({ queryKey: ['servers'] });
             navigate('/home');

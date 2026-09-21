@@ -1,0 +1,68 @@
+.clip-slot-content {
+  width: calc(100% - 32px);
+  height: calc(100% - 48px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clip-layout {
+  height: 100%;
+  max-height: 82dvh;
+  max-width: 100%;
+}
+
+.clip-card {
+  --clip-action-width: 64px;
+  min-height: min(480px, 100%);
+  max-width: 100%;
+}
+
+/* All optional footer content shares one flow; the action column is reserved. */
+.clip-details {
+  position: absolute;
+  inset: auto var(--clip-action-width) 8px 0;
+  padding: 24px 12px 4px;
+  max-height: 65%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.clip-footer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.clip-telemetry {
+  max-width: 100%;
+}
+
+.clip-actions {
+  position: absolute;
+  right: 4px;
+  bottom: 12px;
+  width: calc(var(--clip-action-width) - 8px);
+  max-height: calc(100% - 28px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.clip-actions > * {
+  flex-shrink: 0;
+}
+
+.clip-actions::-webkit-scrollbar {
+  display: none;
+}

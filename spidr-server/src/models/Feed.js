@@ -65,6 +65,7 @@ const s = new Schema({
 
   // Engagement
   is_pinned:    { type: Boolean, default: false, index: true },
+  is_hidden:    { type: Boolean, default: false, index: true },
   reactions:    { type: Schema.Types.Mixed, default: {} },   // { "🔥": ["user_id1", ...] }
   likes:        [String],
   comments_count: { type: Number, default: 0 },

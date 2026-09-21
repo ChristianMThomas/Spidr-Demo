@@ -17,8 +17,10 @@ import { toast } from 'sonner';
 import { useTension } from '@/hooks/useTension';
 import { useStickyBoolean } from '@/hooks/useStickyBoolean';
 import { useAppShell } from '@/context/AppShellContext';
+import { markConversationRead, invalidateReadState } from '@/hooks/useReadState';
 import MessageItem from './MessageItem';
 import ChatBackdrop from './ChatBackdrop';
+import { CHAT_THEME_VARIABLES } from '@/lib/themeStyles';
 import SearchHub from './SearchHub';
 import CatchMeUpBar from './CatchMeUpBar';
 import HolographicProfile from './HolographicProfile';
@@ -50,7 +52,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   const [textEffect, setTextEffect] = useState('normal');
   const [selectedProfileUserId, setSelectedProfileUserId] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-  const { startVoiceSession, endVoiceSession, voiceSession } = useAppShell();
+  const { beginCall, accountCalls, endVoiceSession, voiceSession } = useAppShell();
   // Derived in-call state — true whenever the shell voice deck is pointing
   // at this group. Robust to any entry path (locally started, joined from
   // a presence banner, restored from minimize).
@@ -84,7 +86,13 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     if (!groupId) return;
     const socket = getSocket();
     socket.emit('join:group', { groupId });
-    const refresh = () => queryClient.invalidateQueries({ queryKey: ['group-messages', groupId] });
+    const read = () => markConversationRead('group', groupId).then(() => invalidateReadState(queryClient)).catch(() => {});
+    read();
+    const refresh = (message) => {
+      if (message?.group_id && message.group_id !== groupId) return;
+      queryClient.invalidateQueries({ queryKey: ['group-messages', groupId] });
+      if (document.visibilityState === 'visible') read();
+    };
     socket.on('group:message', refresh);
     return () => socket.off('group:message', refresh);
   }, [groupId, queryClient]);
@@ -205,11 +213,6 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
             const newContent = prompt('Edit message:', msg.content);
             if (newContent && newContent.trim()) editMessageMutation.mutate({ id: data.id, content: newContent });
           }
-        } else if (action === 'save-msg') {
-          toast.success('Message saved to bookmarks');
-        } else if (action === 'share') {
-          navigator.clipboard.writeText(data?.content || '');
-          toast.success('Message copied to clipboard');
         } else if (action === 'report') {
           setReportTarget({ type: 'message', id: data?.id, name: data?.content?.slice(0, 30) || 'Message', content: data?.content });
         } else if (action === 'save-image' && data?.attachments?.[0]) {
@@ -366,72 +369,21 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
     }
   });
 
-  const handleStartCall = () => {
-    playSound('join');
-    setInCall(true);
-    setShowCallDeck(true); // legacy flag, kept for header toggle compatibility
-    startVoiceSession({
-      server: { id: 'group', name: `Group — ${group?.name || 'Chat'}`, channels: [], members: group?.members || [], owner_id: group?.owner_id },
-      channel: { id: groupId, name: group?.name || 'Group Chat', type: 'voice' },
-      currentUser,
-    });
-    createSessionMutation.mutate({
-      server_id: 'group',
-      channel_id: groupId,
-      user_id: currentUser?.id,
-      user_name: currentUser?.full_name || currentUser?.username,
-      user_avatar: currentUser?.avatar_url || '',
-      is_muted: isMuted,
-      is_video_on: isVideoOn,
-      is_speaking: false
-    });
-    // Only the member who OPENS the call arms the no-answer timer — anyone
-    // joining an existing call isn't waiting on a pickup. If it fires, the
-    // server writes the group missed-call row: "<me> called <group>" for
-    // every other member, "<group> didn't answer" on my own side.
-    const humansAlreadyIn = (voiceSessions || []).filter(s => !s.is_spidr_ai).length;
-    if (humansAlreadyIn === 0) {
-      clearTimeout(noAnswerTimerRef.current);
-      noAnswerTimerRef.current = setTimeout(() => {
-        try {
-          getSocket().emit('call:cancel', {
-            groupId,
-            reason: 'unanswered',
-            callerName: currentUser?.full_name || currentUser?.username,
-          });
-        } catch { /* non-fatal */ }
-      }, 60_000);
-    }
-    if (onVoiceJoin) {
-      onVoiceJoin(groupId, group?.name || 'Group Chat');
-    }
+  const handleStartCall = async () => {
+    try {
+      const existing = accountCalls.find(call => call.groupId === groupId);
+      await beginCall({ groupId, ...(existing ? { callId: existing.callId } : {}) }, !!existing);
+      setInCall(true);
+      setShowCallDeck(true);
+      onVoiceJoin?.(groupId, group?.name || 'Group Chat');
+    } catch (error) { toast.error(error.message); }
   };
 
   const handleEndCall = () => {
-    playSound('leave');
-    const mySession = voiceSessions.find(s => s.user_id === currentUser?.id);
-    if (mySession) {
-      deleteSessionMutation.mutate(mySession.id);
-    }
-    // Hanging up while still alone == nobody answered the group call.
-    if (noAnswerTimerRef.current) {
-      try {
-        getSocket().emit('call:cancel', {
-          groupId,
-          reason: 'cancelled',
-          callerName: currentUser?.full_name || currentUser?.username,
-        });
-      } catch { /* non-fatal */ }
-      clearTimeout(noAnswerTimerRef.current);
-      noAnswerTimerRef.current = null;
-    }
     setInCall(false);
     endVoiceSession();
-    if (onVoiceLeave) {
-      onVoiceLeave();
-    }
+    onVoiceLeave?.();
   };
-
   const handleToggleMic = () => {
     playSound('toggle');
     const newMuted = !isMuted;
@@ -514,7 +466,7 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
   };
 
   return (
-    <div className="flex-1 flex bg-black relative overflow-hidden max-w-full">
+    <div className="flex-1 flex bg-black relative overflow-hidden max-w-full" style={CHAT_THEME_VARIABLES} data-chat-theme="group">
       {/* Group chat wallpaper (shared across members, member-settable in
           Group Settings). Renders nothing when unset. */}
       <ChatBackdrop url={group?.background_url} />
@@ -865,8 +817,8 @@ export default function KineticChat({ groupId, currentUser, onBack, onVoiceJoin,
                 data-msg-id={msg.id}
                 className="group relative select-none md:select-auto"
                 style={{ WebkitTouchCallout: 'none' }}
-                onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, sender_id: msg.sender_id, sender_name: msg.sender_name, sender_avatar: msg.sender_avatar, attachments: msg.attachments })}
-                {...bindLongPress('message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, sender_id: msg.sender_id, sender_name: msg.sender_name, sender_avatar: msg.sender_avatar, attachments: msg.attachments })}
+                onContextMenu={(e) => triggerMenu(e, 'message', { ...msg, scope: 'group' })}
+                {...bindLongPress('message', { ...msg, scope: 'group' })}
               >
                 <MessageItem
                   msg={msg}

@@ -1,5 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { createPortal } from 'react-dom';
+import { Bookmark } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Server, Settings, MessageCircle, Network, Radio, Shield, Blocks, Activity, Home } from 'lucide-react';
 import SpiderLogo from './SpiderLogo';
@@ -9,7 +11,7 @@ import { playSound } from './SoundEngine';
 import ApexStore from './ApexStore';
 import { useMenu } from '@/components/MenuContext';
 
-export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orientation = 'vertical' }) {
+export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orientation = 'vertical', position = 'left' }) {
   const navigate = useNavigate();
   const location = useLocation();
   // Active server id from the URL (/servers/:id) for the Nexus Grid active state.
@@ -87,6 +89,7 @@ export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orie
   // escape the nav list's overflow-x-hidden clip (an in-flow hover:w-48 or an
   // absolutely-positioned child would both be cut off at the 72px rail).
   const [hoverRect, setHoverRect] = useState(null);
+  useEffect(() => { setHovered(null); setHoverRect(null); }, [position]);
 
   const navItems = [
     { id: 'friends', icon: Users, label: 'Friends', mentions: totalMentions },
@@ -100,6 +103,7 @@ export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orie
     ...(isAdmin ? [
       { id: 'global-reports', icon: Shield, label: 'Global Reports' },
     ] : []),
+    { id: 'saved', icon: Bookmark, label: 'Saved Messages', action: () => window.dispatchEvent(new Event('spidr-open-saved-messages')) },
     { id: 'settings', icon: Settings, label: 'Settings' },
   ];
 
@@ -110,8 +114,8 @@ export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orie
       </AnimatePresence>
 
       <div className={`${horizontal
-          ? 'w-full h-[64px] flex flex-row items-center px-4 border-b'
-          : 'w-[72px] flex flex-col items-center py-4 border-r h-full'
+          ? `w-full h-[64px] flex flex-row items-center px-4 ${position === 'bottom' ? 'border-t' : 'border-b'}`
+          : `w-[72px] flex flex-col items-center py-4 ${position === 'right' ? 'border-l' : 'border-r'} h-full`
         } z-50 relative transition-all ${isGlass ? "bg-black/30 backdrop-blur-xl border-white/10" : "bg-[#050505] border-white/5"}`}>
       {/* ── SPIDR CORE ─────────────────────────────────────────────────────
           The app's anchor point. Dormant: desaturated + dimmed behind a
@@ -128,7 +132,7 @@ export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orie
         {activeTab === 'home' && !horizontal && (
           <motion.div
             layoutId="spidr-core-indicator"
-            className="absolute -left-3 top-6 -translate-y-1/2 w-1.5 h-9 bg-red-600 rounded-r-full z-20"
+            className={`absolute ${position === 'right' ? '-right-3 rounded-l-full' : '-left-3 rounded-r-full'} top-6 -translate-y-1/2 w-1.5 h-9 bg-red-600 z-20`}
             style={{ boxShadow: '0 0 15px rgba(220,38,38,0.9)' }}
           />
         )}
@@ -153,7 +157,7 @@ export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orie
             <span className="absolute inset-0 bg-gradient-to-b from-white/[0.03] to-transparent pointer-events-none z-20" />
           )}
           <img
-            src="/spidr-mascot.png"
+            src="/brand/spidr-symbol.png"
             alt=""
             draggable={false}
             className={`w-full h-full object-contain p-1.5 relative z-10 transition-all duration-500 ${
@@ -181,28 +185,32 @@ export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orie
           const isHovered = hovered === item.id;
           
           return (
-            <div
+            <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              aria-label={item.label}
+              title={item.label}
+              onClick={() => item.action ? item.action() : setActiveTab(item.id)}
               onMouseEnter={(e) => {
                 setHovered(item.id);
                 setHoverRect(e.currentTarget.getBoundingClientRect());
                 playSound('hover');
               }}
               onMouseLeave={() => { setHovered(null); setHoverRect(null); }}
-              className="relative w-full aspect-square flex items-center justify-center cursor-pointer"
+              onFocus={(e) => { setHovered(item.id); setHoverRect(e.currentTarget.getBoundingClientRect()); }}
+              onBlur={() => { setHovered(null); setHoverRect(null); }}
+              className={`relative shrink-0 ${horizontal ? 'w-12 h-12' : 'w-full aspect-square'} flex items-center justify-center cursor-pointer`}
             >
               {/* Spider Thread - The Silk Connection */}
               {(isActive || isHovered) && (
                 <motion.div
                   layoutId="spider-thread"
-                  className="absolute left-0 w-[3px] bg-red-600 rounded-r-full z-10"
-                  initial={{ height: 0, opacity: 0 }}
+                  className={`absolute bg-red-600 rounded-sm z-10 ${horizontal ? (position === 'bottom' ? 'bottom-0 h-[3px]' : 'top-0 h-[3px]') : (position === 'right' ? 'right-0 w-[3px]' : 'left-0 w-[3px]')}`}
+                  initial={{ opacity: 0 }}
                   animate={{ 
-                    height: isActive ? '70%' : '40%',
+                    ...(horizontal ? { width: isActive ? '70%' : '40%' } : { height: isActive ? '70%' : '40%' }),
                     opacity: 1 
                   }}
-                  exit={{ height: 0, opacity: 0 }}
+                  exit={{ opacity: 0 }}
                   transition={{
                     type: "spring",
                     stiffness: 400,
@@ -218,7 +226,7 @@ export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orie
               {(isActive || isHovered) && (
                 <motion.div 
                   layoutId="spider-silk-connector"
-                  className="absolute left-[3px] w-[10px] h-[1px] bg-red-600/50"
+                  className={`absolute bg-red-600/50 ${horizontal ? (position === 'bottom' ? 'bottom-[3px] h-[10px] w-px' : 'top-[3px] h-[10px] w-px') : (position === 'right' ? 'right-[3px] w-[10px] h-px' : 'left-[3px] w-[10px] h-px')}`}
                   transition={{ duration: 0.2 }}
                 />
               )}
@@ -258,7 +266,7 @@ export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orie
               {/* Pop-out — see NavPopout below. Rendered from the rail's
                   root as a fixed overlay so it isn't clipped by the nav
                   list's overflow-x-hidden. */}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -301,6 +309,7 @@ export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orie
       rect={hoverRect}
       isActive={hovered === activeTab}
       horizontal={horizontal}
+      position={position}
     />
     </>
   );
@@ -320,20 +329,24 @@ export default function Sidebar({ activeTab, setActiveTab, isGlass = false, orie
  *   • standard  — rounded-2xl chassis, red border, 0.4-alpha glow, bold text
  *   • mech      — clip-path angled corners, 0.6-alpha glow, black italic text
  */
-function NavPopout({ item, rect, isActive, horizontal }) {
+function NavPopout({ item, rect, isActive, horizontal, position }) {
   // Horizontal (mobile top-bar) layout has no room to slide sideways.
-  if (!item || !rect || horizontal) return null;
+  if (!item || !rect) return null;
   const isMech = !!item.mech;
-  return (
+  const right = position === 'right';
+  const style = horizontal
+    ? { left: Math.max(8, Math.min(rect.left, window.innerWidth - 240)), ...(position === 'bottom' ? { bottom: window.innerHeight - rect.top + 8 } : { top: rect.bottom + 8 }), height: 48 }
+    : { top: Math.max(8, Math.min(rect.top, window.innerHeight - rect.height - 8)), ...(right ? { right: window.innerWidth - rect.right } : { left: rect.left }), height: rect.height };
+  return createPortal((
     <AnimatePresence>
       <motion.div
         key={item.id}
         initial={{ width: rect.width, opacity: 0 }}
-        animate={{ width: 208, opacity: 1 }}
+        animate={{ width: 232, opacity: 1 }}
         exit={{ width: rect.width, opacity: 0 }}
         transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-        className="fixed z-[120] pointer-events-none flex items-center"
-        style={{ top: rect.top, left: rect.left, height: rect.height }}
+        className={`spidr-nav-popout fixed z-[120] pointer-events-none flex items-center ${right ? 'flex-row-reverse' : ''}`}
+        style={style}
       >
         {/* Chassis */}
         <div
@@ -361,10 +374,10 @@ function NavPopout({ item, rect, isActive, horizontal }) {
         </div>
         {/* Label */}
         <motion.span
-          initial={{ opacity: 0, x: -16 }}
+          initial={{ opacity: 0, x: right ? 16 : -16 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.25, delay: 0.075 }}
-          className={`relative z-10 text-white text-sm tracking-widest uppercase whitespace-nowrap ${
+          className={`relative z-10 text-white text-sm whitespace-nowrap ${
             isMech ? 'font-black italic' : 'font-bold'
           }`}
         >
@@ -372,5 +385,5 @@ function NavPopout({ item, rect, isActive, horizontal }) {
         </motion.span>
       </motion.div>
     </AnimatePresence>
-  );
+  ), document.body);
 }

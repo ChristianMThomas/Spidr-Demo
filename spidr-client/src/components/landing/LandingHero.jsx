@@ -15,7 +15,7 @@ export default function LandingHero() {
               className="absolute inset-0 blur-3xl"
               style={{ background: "radial-gradient(circle, rgba(255, 51, 51, 0.8) 0%, transparent 70%)" }}
             />
-            <img src={logo} alt="Spidr" className="w-40 h-40 md:w-64 md:h-64 relative z-10" />
+            <img src={logo} alt="Spidr" className="w-40 h-32 md:w-64 md:h-48 object-contain relative z-10" />
           </div>
         </div>
 

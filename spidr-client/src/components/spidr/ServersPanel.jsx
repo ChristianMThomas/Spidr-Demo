@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { entities, auth, integrations, getSocket, biomass as biomassApi } from '@/api/apiClient';
 import { resolveServerUsername } from '@/lib/usernameStyle';
 import { useAppShell } from '@/context/AppShellContext';
+import { useReadState, markConversationRead, invalidateReadState } from '@/hooks/useReadState';
 import { useStickyBoolean } from '@/hooks/useStickyBoolean';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
@@ -65,14 +66,7 @@ function ServerPreview({ server, currentUser, onJoined, onBack }) {
   const join = async () => {
     setBusy(true);
     try {
-      // Public servers can be joined directly via the invite-less join path;
-      // we pass the server's own invite_code when present.
-      await entities.Server.update(server.id, {
-        members: [
-          ...(Array.isArray(server.members) ? server.members : []),
-          { user_id: currentUser.id, user_name: currentUser.full_name || currentUser.username, role: 'Member', joined_at: new Date().toISOString() },
-        ],
-      });
+      await entities.Server.join(server.id);
       toast.success(`Joined ${server.name}!`);
       onJoined?.();
     } catch {
@@ -84,11 +78,9 @@ function ServerPreview({ server, currentUser, onJoined, onBack }) {
   const requestInvite = async () => {
     setBusy(true);
     try {
-      // Best-effort: notify the owner. Falls back to a friendly toast.
-      window.dispatchEvent(new CustomEvent('spidr-notify', {
-        detail: { type: 'invite-request', title: 'Invite requested', body: `You requested access to ${server.name}.` },
-      }));
-      toast.success('Invite request sent to the server admins.');
+      await entities.Server.requestJoin(server.id);
+      toast.success('Join request sent');
+      onJoined?.();
     } catch {
       toast.error('Could not send the request.');
     }
@@ -112,14 +104,14 @@ function ServerPreview({ server, currentUser, onJoined, onBack }) {
         <h2 className="text-2xl font-black text-white">{server.name}</h2>
         {server.description && <p className="text-zinc-400 text-sm mt-2">{server.description}</p>}
         <p className="text-zinc-500 text-xs mt-3">
-          {(server.members?.length || 0)} members · {isPrivate ? 'Invite only' : 'Public server'}
+          {(server.member_count ?? server.members?.length ?? 0)} members · {isPrivate ? 'Private server' : 'Public server'}
         </p>
 
         <div className="mt-6 flex flex-col gap-2">
           {isPrivate ? (
-            <button onClick={requestInvite} disabled={busy}
+            <button onClick={requestInvite} disabled={busy || server.request_pending || server.allow_join_requests === false}
               className="px-6 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold transition-colors disabled:opacity-50">
-              {busy ? 'Sending…' : 'Request Invite'}
+              {busy ? 'Sending...' : server.request_pending ? 'Request pending' : server.allow_join_requests === false ? 'Invite code required' : 'Request to join'}
             </button>
           ) : (
             <button onClick={join} disabled={busy}
@@ -179,7 +171,7 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
   });
 
   return (
-    <div className="flex-1 flex bg-[#080505] min-w-0 overflow-hidden">
+    <div className="page-theme-surface flex-1 flex bg-[#080505] min-w-0 overflow-hidden">
       {/* Server List — desktop: always visible as a 240px column.
           Mobile: visible only when no server is selected; once a server is
           chosen, the list hides and the chat takes the full width. A back
@@ -198,7 +190,7 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
       <div className={`${
         selectedServer ? 'hidden md:flex' : 'flex'
       } ${serverListCollapsed ? 'md:hidden' : ''} w-full md:w-60 shrink-0 border-r border-red-900/30 flex-col`}
-        style={{ background: 'linear-gradient(180deg, #0d0708 0%, #080505 100%)' }}>
+        style={{ background: 'rgba(8, 9, 11, 0.3)' }}>
         <div className="p-3 border-b border-red-900/20 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -228,7 +220,7 @@ export default function ServersPanel({ currentUser, selectedServerId, onSelectSe
                 onMouseEnter={() => playSound('hover')}
                 className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
                   selectedServerId === server.id 
-                    ? 'bg-red-600/20 text-white' 
+                    ? 'page-theme-selected bg-red-600/20 text-white'
                     : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
                 }`}
                 whileHover={{ x: 4 }}
@@ -332,6 +324,12 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
   });
   const [message, setMessage] = useState('');
   const [unreadChannels, setUnreadChannels] = useState({}); // channelId -> true (3.5)
+  const { data: readState } = useReadState(currentUser?.id);
+  useEffect(() => { if (readState) setUnreadChannels(readState.channels?.[server.id] || {}); }, [readState, server.id]);
+  useEffect(() => {
+    if (!selectedChannel || !server?.id) return;
+    markConversationRead('channel', selectedChannel, server.id).then(() => invalidateReadState(queryClient)).catch(() => {});
+  }, [selectedChannel, server?.id]);
   const [showSettings, setShowSettings] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   // Mobile two-pane: 'channels' shows the channels rail, 'chat' shows the
@@ -411,6 +409,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
     socket.emit('join:channel', { serverId: server.id, channelId: selectedChannel });
     const onNew = () => {
       queryClient.invalidateQueries({ queryKey: ['messages', server.id, selectedChannel] });
+      if (document.visibilityState === 'visible') markConversationRead('channel', selectedChannel, server.id).catch(() => {});
     };
     // 3.5 — mark a channel unread when a message arrives there and it isn't the
     // currently-open channel; cleared when the user opens it.
@@ -898,11 +897,6 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
             user_avatar: data?.user_avatar || data?.author_avatar || data?.sender_avatar || '',
             user_id: data?.user_id || data?.author_id || data?.sender_id || '',
           });
-        } else if (action === 'save-msg') {
-          toast.success('Message saved to bookmarks');
-        } else if (action === 'share') {
-          navigator.clipboard.writeText(data?.content || '');
-          toast.success('Message copied to clipboard');
         } else if (action === 'save-image' && data?.attachments?.[0]) {
           const a = document.createElement('a');
           a.href = data.attachments[0];
@@ -1115,14 +1109,11 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           toast.success('Server ID copied');
         } else if (action === 'server-settings') {
           setShowSettings(true);
-        } else if (action === 'mark-read') {
-          toast.success('Server marked as read');
         } else if (action === 'leave') {
           if (server.owner_id === currentUser?.id) {
             toast.error('Owner cannot leave — transfer ownership first');
           } else if (window.confirm('Leave this server?')) {
-            const newMembers = (server.members || []).filter(m => m.user_id !== currentUser?.id);
-            await entities.Server.update(server.id, { members: newMembers });
+            await entities.Server.leave(server.id);
             queryClient.invalidateQueries({ queryKey: ['servers'] });
             toast.success('Left server');
           }
@@ -1139,9 +1130,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       // success toast. Keep panel-level actions for things only this panel
       // knows how to do (edit, delete, mute, etc.).
       else if (type === 'channel_text' || type === 'channel_voice') {
-        if (action === 'mark-read') {
-          toast.success('Channel marked as read');
-        } else if (action === 'edit-channel' && isAdmin) {
+        if (action === 'edit-channel' && isAdmin) {
           setShowSettings(true);
         } else if (action === 'mute-channel') {
           toast.success('Channel muted');
@@ -1300,7 +1289,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       <div className={`${
         mobileView === 'channels' ? 'flex' : 'hidden md:flex'
       } ${channelsCollapsed ? 'md:hidden' : ''} w-full md:w-56 shrink-0 flex-col`}
-        style={{ background: 'linear-gradient(180deg, #0d0708 0%, #080505 100%)' }}>
+        style={{ background: 'rgba(8, 9, 11, 0.3)' }}>
         {/* Server Header */}
         <div
           className="h-12 px-4 flex items-center justify-between border-b border-red-900/30 bg-[#0a0506]/80 cursor-pointer hover:bg-[#140a0b]/60 transition-colors"
@@ -1418,7 +1407,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                 onMouseEnter={() => playSound('hover')}
                 className={`relative w-auto flex items-center gap-2.5 px-4 py-2 mx-2 my-1.5 rounded-full border text-sm transition-all ${
                   active
-                    ? 'bg-red-950/40 border-red-900/50 text-white'
+                    ? 'page-theme-selected bg-red-950/40 border-red-900/50 text-white'
                     : 'bg-[#0a0a0a] border-white/5 text-neutral-400 hover:border-white/10 hover:text-neutral-200'
                 }`}
                 style={{ width: 'calc(100% - 16px)' }}
@@ -1482,7 +1471,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                   }}
                   className={`relative flex items-center gap-2.5 px-4 py-2 mx-2 my-1.5 rounded-full border text-sm transition-all ${
                     active
-                      ? 'bg-red-950/40 border-red-900/50 text-white'
+                      ? 'page-theme-selected bg-red-950/40 border-red-900/50 text-white'
                       : 'bg-[#0a0a0a] border-white/5 text-neutral-400 hover:border-white/10 hover:text-neutral-200'
                   }`}
                   style={{ width: 'calc(100% - 16px)' }}
@@ -1550,7 +1539,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
       {(
       <div className={`${
         mobileView === 'chat' ? 'flex' : 'hidden md:flex'
-      } flex-1 flex-col bg-[#0a0607] min-w-0`}>
+      } page-theme-main flex-1 flex-col bg-[#0a0607] min-w-0`}>
         {/* Airlock Notice */}
         {isAirlocked && (
           <div className="px-4 py-2 bg-yellow-500/10 border-b border-yellow-500/20 flex items-center gap-2">
@@ -1562,7 +1551,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
         {/* Channel Header — pr-[200px] reserves space for the shell's
             top-right cluster (notifications + biomass pill + status chip)
             so the server-search input doesn't slide under it. */}
-        <div className="h-12 px-4 pr-[200px] flex items-center gap-2 border-b border-red-900/20" onContextMenu={(e) => triggerMenu(e, 'server', { id: server.id, name: server.name })}>
+        <div className={`min-h-12 shrink-0 px-4 py-2 ${showMembers ? '' : 'md:pr-[200px]'} flex flex-wrap items-center gap-2 border-b border-white/10`} onContextMenu={(e) => triggerMenu(e, 'server', { id: server.id, name: server.name })}>
           {/* Mobile back arrow — return to channels rail. Padded hitbox so
               the tap target clears iOS HIG 44px guidance. */}
           <button
@@ -1572,10 +1561,9 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           >
             ←
           </button>
-          <Hash className="w-5 h-5 text-red-500 shrink-0" />
-          <span className="font-bold text-white truncate">{currentChannelObj?.name || selectedChannel}</span>
-          <span className="hidden sm:inline text-neutral-500 text-sm shrink-0">· connected to the web</span>
-          <div className="ml-auto flex items-center gap-1 relative">
+          <Hash className="page-theme-highlight w-5 h-5 text-red-500 shrink-0" />
+          <span className="font-bold text-white truncate min-w-16 max-w-48">{currentChannelObj?.name || selectedChannel}</span>
+          <div className="ml-auto max-w-full flex flex-wrap items-center gap-1 relative">
             {/* Images / Links tabs. Keyword search is SignalTracker beside
                 it, so this runs mediaOnly rather than adding a second box. */}
             <SearchHub
@@ -1660,7 +1648,7 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
           <div className="space-y-4 min-w-0">
             {/* Channel beginning banner — Discord style */}
             <div className="flex flex-col items-center pt-6 pb-2 gap-2 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-red-700 to-red-900 flex items-center justify-center text-2xl font-black text-white shadow-lg shadow-red-900/30">#</div>
+              <div className="page-theme-action w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black text-white shadow-lg">#</div>
               <div>
                 <p className="text-white font-bold text-lg">#{currentChannelObj?.name || 'general'}</p>
                 <p className="text-zinc-500 text-xs">Beginning of #{currentChannelObj?.name || 'general'}</p>
@@ -1704,8 +1692,8 @@ function ServerContent({ server, currentUser, onVoiceJoin, onVoiceLeave, onMinim
                     : ''
                 }`}
                 style={{ WebkitTouchCallout: 'none' }}
-                onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, author_id: msg.author_id, author_name: msg.author_name, author_avatar: msg.author_avatar, attachments: msg.attachments })}
-                {...bindLongPress('message', { id: msg.id, content: msg.content, user_id: msg.user_id, user_name: msg.user_name, user_avatar: msg.user_avatar, author_id: msg.author_id, author_name: msg.author_name, author_avatar: msg.author_avatar, attachments: msg.attachments })}
+                onContextMenu={(e) => triggerMenu(e, 'message', { ...msg, scope: 'server' })}
+                {...bindLongPress('message', { ...msg, scope: 'server' })}
                 >
                 <div className="relative shrink-0 self-start">
                   <Avatar 

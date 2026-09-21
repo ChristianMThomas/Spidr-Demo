@@ -4,111 +4,21 @@
 <meta charset="UTF-8" />
 <title>Spidr</title>
 <style>
-  /* ── Spidr boot splash ─────────────────────────────────────────────────
-     A spinning spider-web being woven in brand red/purple, the wordmark
-     pulsing beneath it. Pure CSS/SVG — no assets to resolve, so it renders
-     identically in dev and inside the packaged exe/dmg. */
-  html, body {
-    margin: 0; padding: 0; width: 100%; height: 100%;
-    background: transparent; overflow: hidden;
-    font-family: 'Segoe UI', -apple-system, sans-serif;
-    -webkit-user-select: none; user-select: none;
-  }
-  .card {
-    width: 100%; height: 100%;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 22px;
-    background:
-      radial-gradient(ellipse 90% 70% at 50% 0%, rgba(124, 58, 237, 0.22), transparent 60%),
-      radial-gradient(ellipse 80% 60% at 50% 110%, rgba(220, 38, 38, 0.22), transparent 60%),
-      #050505;
-    border-radius: 18px;
-    border: 1px solid rgba(220, 38, 38, 0.25);
-    box-shadow: 0 0 60px rgba(220, 38, 38, 0.18);
-    -webkit-app-region: drag;
-  }
-  .web-wrap { position: relative; width: 170px; height: 170px; }
-  .web { width: 100%; height: 100%; animation: spin 14s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  /* Each web ring "weaves" itself in with dash animation, staggered */
-  .ring {
-    fill: none; stroke: #dc2626; stroke-width: 1;
-    stroke-dasharray: 600; stroke-dashoffset: 600;
-    animation: weave 2.2s ease-out forwards;
-    filter: drop-shadow(0 0 4px rgba(220, 38, 38, 0.6));
-  }
-  .ring:nth-child(2) { animation-delay: .15s; stroke: #ef4444; }
-  .ring:nth-child(3) { animation-delay: .3s; }
-  .ring:nth-child(4) { animation-delay: .45s; stroke: #7c3aed; opacity: .8; }
-  .spoke {
-    stroke: rgba(220, 38, 38, 0.55); stroke-width: 1;
-    stroke-dasharray: 90; stroke-dashoffset: 90;
-    animation: weave 1.4s ease-out forwards;
-  }
-  @keyframes weave { to { stroke-dashoffset: 0; } }
-  .spider {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 34px;
-    animation: bob 2.4s ease-in-out infinite;
-    filter: drop-shadow(0 0 10px rgba(220, 38, 38, 0.8));
-  }
-  @keyframes bob {
-    0%, 100% { transform: translate(-50%, -52%); }
-    50%      { transform: translate(-50%, -46%); }
-  }
-  .wordmark {
-    font-weight: 900; letter-spacing: .35em; font-size: 22px;
-    color: #ffffff; text-transform: uppercase;
-  }
-  .wordmark span { color: #dc2626; text-shadow: 0 0 14px rgba(220, 38, 38, 0.8); }
-  .tagline {
-    font-size: 10px; letter-spacing: .4em; text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.4);
-    animation: pulse 1.8s ease-in-out infinite;
-  }
-  @keyframes pulse { 0%, 100% { opacity: .35; } 50% { opacity: .9; } }
-  .bar {
-    width: 150px; height: 2px; border-radius: 2px;
-    background: rgba(255, 255, 255, 0.08);
-    overflow: hidden;
-  }
-  .bar::after {
-    content: ''; display: block; height: 100%; width: 40%;
-    background: linear-gradient(90deg, #dc2626, #7c3aed);
-    border-radius: 2px;
-    animation: scan 1.4s ease-in-out infinite;
-  }
-  @keyframes scan {
-    0%   { transform: translateX(-100%); }
-    100% { transform: translateX(400%); }
-  }
+  html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; font-family: 'Segoe UI', sans-serif; user-select: none; }
+  .splash { box-sizing: border-box; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; background: #08090b; border: 1px solid #512028; border-radius: 8px; -webkit-app-region: drag; }
+  .wordmark { width: 72%; max-width: 260px; height: auto; object-fit: contain; }
+  .bar { width: 120px; height: 3px; border-radius: 2px; background: #2d171d; overflow: hidden; }
+  .bar::after { content: ''; display: block; height: 100%; width: 40%; background: #ff1637; animation: scan 1.4s ease-in-out infinite; }
+  .status { color: #aaaab5; font-size: 11px; letter-spacing: 0; }
+  @keyframes scan { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
+  @media (prefers-reduced-motion: reduce) { .bar::after { animation: none; width: 100%; } }
 </style>
 </head>
 <body>
-  <div class="card">
-    <div class="web-wrap">
-      <svg class="web" viewBox="0 0 170 170" xmlns="http://www.w3.org/2000/svg">
-        <!-- spokes -->
-        <g>
-          <line class="spoke" x1="85" y1="85" x2="85"  y2="5"   />
-          <line class="spoke" x1="85" y1="85" x2="154" y2="45"  style="animation-delay:.05s" />
-          <line class="spoke" x1="85" y1="85" x2="154" y2="125" style="animation-delay:.1s" />
-          <line class="spoke" x1="85" y1="85" x2="85"  y2="165" style="animation-delay:.15s" />
-          <line class="spoke" x1="85" y1="85" x2="16"  y2="125" style="animation-delay:.2s" />
-          <line class="spoke" x1="85" y1="85" x2="16"  y2="45"  style="animation-delay:.25s" />
-        </g>
-        <!-- rings woven in -->
-        <polygon class="ring" points="85,25 137,55 137,115 85,145 33,115 33,55" />
-        <polygon class="ring" points="85,45 120,65 120,105 85,125 50,105 50,65" />
-        <polygon class="ring" points="85,62 105,74 105,96 85,108 65,96 65,74" />
-        <polygon class="ring" points="85,76 93,81 93,89 85,94 77,89 77,81" />
-      </svg>
-      <div class="spider">🕷️</div>
-    </div>
-    <div class="wordmark">SPID<span>R</span></div>
-    <div class="bar"></div>
-    <div class="tagline">Entering the Chrysalis</div>
+  <div class="splash" role="status" aria-label="Loading Spidr">
+    <img class="wordmark" src="assets/spidr-wordmark.png" alt="Spidr" />
+    <div class="bar" aria-hidden="true"></div>
+    <div class="status">Loading Spidr</div>
   </div>
 </body>
 </html>

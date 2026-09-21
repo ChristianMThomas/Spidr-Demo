@@ -1,18 +1,21 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { motion } from 'framer-motion';
 import { ChevronDown , Users } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { entities } from '@/api/apiClient';
 import { useAppShell } from '@/context/AppShellContext';
 import SpiderLogo from '@/components/spidr/SpiderLogo';
+import { SpidrWordmark } from '@/components/spidr/SpidrBrand';
 import DiscoverUsers from '@/components/spidr/DiscoverUsers';
 import EnhancedFeed from '@/components/spidr/EnhancedFeed';
 import EngagementHub from '@/components/spidr/EngagementHub';
 import TensionBar from '@/components/spidr/TensionBar';
 import SpidrSystem from '@/components/spidr/SpidrSystem';
 import SpidrWebMatrix from '@/components/spidr/SpidrWebMatrix';
-import WelcomeBanner from '@/components/spidr/WelcomeBanner';
+import useTypewriter from '@/hooks/useTypewriter';
+import { MOCK_NEWS } from '@/components/spidr/SpidrSystem';
 
 /**
  * /home — the landing dashboard.
@@ -30,6 +33,7 @@ import WelcomeBanner from '@/components/spidr/WelcomeBanner';
  *   - Right rail: EngagementHub (also contained)
  */
 export default function HomeDashboard() {
+  const [showAllActivity, setShowAllActivity] = React.useState(false);
   const { currentUser, setSelectedServerId, navigateToDM, appTheme } = useAppShell();
   const navigate = useNavigate();
 
@@ -120,6 +124,46 @@ export default function HomeDashboard() {
     return m;
   }, [friends]);
 
+  // ── Banner status lines ─────────────────────────────────────────────────
+  // Everything here is a real signal. A rotating banner that invents
+  // activity is worse than a static one — it teaches people to ignore it.
+  // Lines only appear when they have something true to report.
+  const statusLines = React.useMemo(() => {
+    const lines = [];
+
+    // Unread direct messages addressed to this user.
+    const unread = (allDMs || []).filter(
+      m => !m.is_read && (m.recipient_id === currentUser?.id || m.receiver_id === currentUser?.id)
+    ).length;
+    if (unread > 0) {
+      lines.push(`${unread} unread message${unread === 1 ? '' : 's'} waiting`);
+    }
+
+    // Pending friend requests.
+    const pending = (friends || []).filter(f => f.status === 'pending_incoming').length;
+    if (pending > 0) {
+      lines.push(`${pending} friend request${pending === 1 ? '' : 's'} pending`);
+    }
+
+    // Newest patch, straight from the changelog rather than a hardcoded copy.
+    const latest = MOCK_NEWS?.[0];
+    if (latest?.title) {
+      lines.push(latest.title.replace(/^Patch\s+/i, 'Latest build: '));
+    }
+
+    // Today's date, always available so the line never sits empty.
+    lines.push(
+      new Date().toLocaleDateString(undefined, {
+        weekday: 'long', month: 'long', day: 'numeric',
+      })
+    );
+
+    if (unread === 0 && pending === 0) lines.push('Your web is quiet');
+    return lines;
+  }, [allDMs, friends, currentUser?.id]);
+
+  const { text: statusText } = useTypewriter(statusLines);
+
   const recentConversations = React.useMemo(() => {
     const seen = new Map();
     for (const msg of allDMs) {
@@ -182,6 +226,12 @@ export default function HomeDashboard() {
 
   return (
     <div className="flex-1 bg-[#050505] overflow-y-auto relative">
+      <Dialog open={showAllActivity} onOpenChange={setShowAllActivity}>
+        <DialogContent className="max-w-3xl bg-[#0b0b0d] border-white/10 text-white">
+          <DialogHeader><DialogTitle>Activity Feed</DialogTitle><DialogDescription className="sr-only">All activity</DialogDescription></DialogHeader>
+          <div className="max-h-[75vh] overflow-y-auto"><EnhancedFeed currentUser={currentUser} full /></div>
+        </DialogContent>
+      </Dialog>
       {/* Custom scrollbar styling for the activity feed containment box.
           Scoped via `.spidr-feed-scroll` so it doesn't affect the rest of
           the app's scrollbars. */}
@@ -287,10 +337,78 @@ export default function HomeDashboard() {
         {/* ── Main column ──────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0 space-y-5">
 
-          {/* Welcome banner — ported from mobile (spidr-client/mobile/app/(tabs)/index.tsx)
-              so web + desktop match. Typewriter cycles "Welcome back, {name}"
-              with a live "N days until beta release" countdown to 2026-10-01. */}
-          <WelcomeBanner name={greetingName} />
+          {/* ── Welcome Banner ──────────────────────────────────────────────
+              Wide glass slab with the spider mascot on the left, a
+              WELCOME_BACK eyebrow, a bold first-name greeting, and a tagline.
+              A faint right-edge red glow gives it presence without
+              overpowering the rest of the dashboard. */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+            className="relative overflow-hidden rounded-2xl"
+            style={{
+              background: 'linear-gradient(100deg, rgba(239,68,68,0.10) 0%, rgba(10,10,10,0.72) 42%, rgba(5,5,5,0.72) 100%)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255, 255, 255, 0.05)',
+              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4), inset 0 0 40px rgba(0,0,0,0.5)',
+            }}
+          >
+            {/* Right-edge red glow */}
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                background:
+                  'radial-gradient(ellipse 50% 90% at 100% 50%, rgba(239, 68, 68, 0.16), transparent 70%)',
+              }}
+            />
+            {/* Hairline accent at top */}
+            <div
+              className="absolute top-0 inset-x-0 h-px pointer-events-none"
+              style={{
+                background:
+                  'linear-gradient(to right, transparent, rgba(239, 68, 68, 0.35), transparent)',
+              }}
+            />
+
+            <div className="relative flex items-center gap-5 p-6">
+              <SpidrWordmark className="w-28 h-24 max-[480px]:w-24 shrink-0" />
+
+              {/* Copy block */}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                  <p className="font-mono text-[10px] tracking-[0.32em] uppercase text-red-400/90">
+                    System Uplink Established
+                  </p>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-black text-white leading-tight tracking-wide">
+                  Hey,{' '}
+                  <span
+                    className="text-transparent bg-clip-text"
+                    style={{
+                      backgroundImage: 'linear-gradient(90deg, #ef4444, #b91c1c)',
+                      filter: 'drop-shadow(0 0 14px rgba(239,68,68,0.35))',
+                    }}
+                  >
+                    {greetingName}
+                  </span>
+                </h1>
+
+                {/* Rotating status line. min-h holds the row open so the
+                    banner doesn't jitter as text types and deletes. */}
+                <p className="mt-1 font-mono text-[12px] text-white/45 min-h-[18px] flex items-center">
+                  <span className="truncate">{statusText}</span>
+                  <span
+                    aria-hidden
+                    className="inline-block w-[7px] h-[14px] ml-1 bg-red-500 shrink-0"
+                    style={{ animation: 'spidr-caret 1s step-end infinite' }}
+                  />
+                </p>
+              </div>
+            </div>
+          </motion.div>
 
           {/* ── Stat Strip ──────────────────────────────────────────────────
               Three glass tiles in a single row. Each is its own tappable
@@ -394,7 +512,7 @@ export default function HomeDashboard() {
                 </h2>
               </div>
               <button
-                onClick={() => navigate('/feed')}
+                onClick={() => setShowAllActivity(true)}
                 className="font-mono text-[10px] uppercase tracking-[0.18em] text-red-400/80 hover:text-red-300 transition-colors"
               >
                 View All →

@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAppShell } from '@/context/AppShellContext';
 import FriendsPanel from '@/components/spidr/FriendsPanel';
+import ThemedPage from '@/components/spidr/ThemedPage';
 
 /**
  * /friends — the friends list + DMs + add-friend tab.
@@ -26,6 +27,7 @@ export default function FriendsPage() {
   // FriendsPanel uses a `tab` state internally; we pass initialTab and
   // ask it to call us back when it consumes it.
   return (
+    <ThemedPage>
     <FriendsPanel
       currentUser={currentUser}
       pendingDM={pendingDM}
@@ -56,5 +58,6 @@ export default function FriendsPage() {
         navigate('/home');
       }}
     />
+    </ThemedPage>
   );
 }

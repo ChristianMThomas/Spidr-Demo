@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, shell, globalShortcut, desktopCapturer, session } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, globalShortcut, desktopCapturer, session } = require('electron');
+const { installQuickBrowser } = require('./quickBrowser');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -208,6 +209,16 @@ function createWindow() {
   });
 
   forwardWindowState(mainWindow);
+  installQuickBrowser({ window: mainWindow, ipcMain, WebContentsView, session, shell, isTrustedUrl: url => {
+    try {
+      const current = new URL(mainWindow.webContents.getURL());
+      const candidate = new URL(url);
+      return candidate.protocol === 'file:'
+        ? candidate.pathname === current.pathname && candidate.pathname.endsWith('/dist/index.html')
+        : !!process.env.ELECTRON_START_URL && candidate.origin === new URL(process.env.ELECTRON_START_URL).origin;
+    } catch { return false; }
+  } });
+  hardenWebContents(mainWindow);
 
   mainWindow.once('ready-to-show', () => {
     closeSplash();
@@ -261,7 +272,6 @@ function createWindow() {
   // whether to act (opt-in), keeping this non-intrusive.
   mainWindow.on('blur', () => { mainWindow?.webContents.send('window:blur'); });
   mainWindow.on('focus', () => { mainWindow?.webContents.send('window:focus'); });
-  hardenWebContents(mainWindow);
 }
 
 ipcMain.on('minimize-window', () => mainWindow?.minimize());

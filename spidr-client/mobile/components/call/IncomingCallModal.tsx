@@ -19,6 +19,8 @@ export default function IncomingCallModal() {
   const { user } = useAuth();
   const router = useRouter();
   const [call, setCall] = useState<CallInfo | null>(null);
+  const [elsewhere, setElsewhere] = useState<any>(null);
+  const [transferring, setTransferring] = useState(false);
   const pulse = useRef(new Animated.Value(0.8)).current;
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -28,12 +30,15 @@ export default function IncomingCallModal() {
   }, [user?.id]);
 
   useEffect(() => {
+    const updateAccount = (calls: any[]) => setElsewhere(calls.find(c => c.canTransfer) || null);
+    updateAccount(callManager.accountCalls);
+    const offAccount = emitter.on('call:account', updateAccount);
+    const offError = emitter.on('call:error', (message: string) => Alert.alert('Call unavailable', message));
     const offState = emitter.on('call:state', ({ state, call: c }: any) => {
       if (state === 'ringing' && c?.direction === 'incoming') {
         setCall(c);
         if (autoDismissRef.current) clearTimeout(autoDismissRef.current);
         // 30s auto-decline — matches web behaviour.
-        autoDismissRef.current = setTimeout(() => callManager.decline(), 30_000);
       } else {
         if (autoDismissRef.current) { clearTimeout(autoDismissRef.current); autoDismissRef.current = null; }
         Vibration.cancel();
@@ -69,7 +74,7 @@ export default function IncomingCallModal() {
       );
     });
 
-    return () => { offState(); offUnsupported(); };
+    return () => { offState(); offUnsupported(); offAccount(); offError(); };
   }, [router]);
 
   // Pulse avatar + vibrate phone while ringing.
@@ -93,6 +98,15 @@ export default function IncomingCallModal() {
     };
   }, [call, pulse]);
 
+  if (!call && elsewhere) return <View style={{ position: 'absolute', bottom: 90, left: 16, right: 16, zIndex: 500, padding: 16, backgroundColor: '#111113', borderRadius: 8, borderWidth: 1, borderColor: '#3f3f46' }}>
+    <Text style={{ color: '#fff', marginBottom: 10 }}>Call active on another device</Text>
+    <TouchableOpacity disabled={transferring} onPress={async () => {
+      setTransferring(true);
+      try { await callManager.transferHere(elsewhere.callId); } catch (error: any) { Alert.alert('Could not switch call', error.message); } finally { setTransferring(false); }
+    }} style={{ padding: 12, backgroundColor: '#16a34a', borderRadius: 8 }}>
+      <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>{transferring ? 'Connecting...' : 'Switch to this device'}</Text>
+    </TouchableOpacity>
+  </View>;
   if (!call) return null;
 
   const callerName = call.peer?.name || 'Someone';

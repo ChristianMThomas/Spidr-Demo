@@ -3,6 +3,7 @@ import { auth, entities, getSocket } from '@/api/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { callAction, callSessionProps } from '@/lib/callActions';
 
 /**
  * AppShellContext — single source of truth for the persistent app state.
@@ -58,24 +59,90 @@ export function AppShellProvider({ children }) {
   // never resets when the pill unmounts/remounts during minimize↔expand
   // transitions. Set once on startVoiceSession, cleared on endVoiceSession.
   const [callStartedAt, setCallStartedAt] = useState(null);
+  const [accountCalls, setAccountCalls] = useState([]);
+  const voiceSessionRef = React.useRef(null);
+  const startingCallRef = React.useRef(false);
 
   // Start (or switch to) a voice session at the shell. Expanded by default,
   // exactly like clicking into a server voice channel.
   const startVoiceSession = useCallback((sessionProps) => {
+    voiceSessionRef.current = sessionProps;
     setVoiceSession(sessionProps);
     setVoiceDeckExpanded(true);
     setIsCallMinimized(false);
-    setCallStartedAt(Date.now());
+    setCallStartedAt(sessionProps.acceptedAt || Date.now());
   }, []);
 
   // End the active voice session entirely (real disconnect).
-  const endVoiceSession = useCallback(() => {
+  const endVoiceSession = useCallback((localOnly = false) => {
+    const session = voiceSessionRef.current;
+    voiceSessionRef.current = null;
+    if (!localOnly && session?.callId) getSocket().emit('call:cancel', { callId: session.callId });
+    session?.initialStream?.getTracks().forEach(track => track.stop());
     setVoiceSession(null);
     setVoiceDeckExpanded(false);
     setIsCallMinimized(false);
     setActiveCall(null);
     setCallStartedAt(null);
   }, []);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const socket = getSocket();
+    const sync = () => socket.emit('call:sync', {});
+    const onState = ({ calls }) => setAccountCalls(calls || []);
+    const onEnd = (call) => {
+      if (voiceSessionRef.current?.callId !== call.callId) return;
+      endVoiceSession(true);
+      if (call.reason === 'unanswered') toast.info('No answer');
+      else if (call.reason === 'declined') toast.info('Call declined');
+    };
+    const onTransfer = (call) => {
+      if (voiceSessionRef.current?.callId !== call.callId) return;
+      endVoiceSession(true);
+      toast.info('Call moved to your other device');
+    };
+    socket.on('connect', sync);
+    socket.on('call:state', onState);
+    socket.on('call:ended', onEnd);
+    socket.on('call:left', onEnd);
+    socket.on('call:transferred', onTransfer);
+    sync();
+    return () => {
+      socket.off('connect', sync); socket.off('call:state', onState);
+      socket.off('call:ended', onEnd); socket.off('call:left', onEnd); socket.off('call:transferred', onTransfer);
+    };
+  }, [currentUser?.id, endVoiceSession]);
+
+  const beginCall = useCallback(async (data, answer = false) => {
+    if (voiceSessionRef.current || startingCallRef.current) throw new Error('End your current call first');
+    startingCallRef.current = true;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: data.kind === 'video' });
+      const { call } = await callAction(answer ? 'call:accept' : 'call:invite', data);
+      const { calls } = await callAction('call:sync');
+      const current = calls.find(c => c.callId === call.callId && c.isOwner);
+      if (!current) throw new Error('This call has ended');
+      startVoiceSession(callSessionProps(current, currentUser, stream));
+      return current;
+    } catch (error) { stream?.getTracks().forEach(track => track.stop()); throw error; }
+    finally { startingCallRef.current = false; }
+  }, [currentUser, startVoiceSession]);
+
+  const transferCall = useCallback(async (callId) => {
+    if (voiceSessionRef.current || startingCallRef.current) throw new Error('End your current call on this device first');
+    startingCallRef.current = true;
+    let stream;
+    try {
+      const { call: pending } = await callAction('call:transfer:request', { callId });
+      // Permission failure must leave the original device connected.
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: pending.kind === 'video' });
+      const { call } = await callAction('call:transfer:commit', { callId, transferId: pending.transferId });
+      startVoiceSession(callSessionProps(call, currentUser, stream));
+    } catch (error) { stream?.getTracks().forEach(track => track.stop()); throw error; }
+    finally { startingCallRef.current = false; }
+  }, [currentUser, startVoiceSession]);
 
   // Cross-page hand-off state
   const [selectedServerId, setSelectedServerId] = useState(null);
@@ -194,6 +261,9 @@ export function AppShellProvider({ children }) {
     appTheme,
     setAppTheme,
     activeCall,
+    accountCalls,
+    beginCall,
+    transferCall,
     setActiveCall,
     isCallMinimized,
     setIsCallMinimized,

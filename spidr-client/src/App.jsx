@@ -14,6 +14,7 @@ import { AppShellProvider } from '@/context/AppShellContext';
 import { MediaProvider } from '@/context/MediaContext';
 import { NowPlayingProvider } from '@/context/NowPlayingContext';
 import SpidrShell from '@/components/SpidrShell';
+import { BrandLoading } from '@/components/spidr/SpidrBrand';
 
 /**
  * App routing — every top-level surface gets its own URL.
@@ -110,7 +111,7 @@ function AppRoutes() {
   if (isLoadingAuth) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-[#111111]">
-        <div className="w-8 h-8 border-4 border-slate-600 border-t-red-500 rounded-full animate-spin" />
+        <BrandLoading />
       </div>
     );
   }

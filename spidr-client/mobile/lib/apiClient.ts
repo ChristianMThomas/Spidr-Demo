@@ -127,6 +127,7 @@ export const entities = {
   Friend:           entity('friends'),
   Server: {
     ...entity('servers'),
+    leave: (id: string) => api.post(`/servers/${id}/leave`, {}),
     generateInvite: (id: string, rotate = false) =>
       api.post(`/servers/${id}/invite`, { rotate }),
     joinByCode: (invite_code: string, user: any) =>

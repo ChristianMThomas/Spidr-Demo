@@ -7,6 +7,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close:     () => ipcRenderer.send('close-window'),
   isElectron: true,
   platform:  process.platform,
+  quickBrowser: {
+    open: () => ipcRenderer.invoke('quick-browser:open'),
+    navigate: input => ipcRenderer.invoke('quick-browser:navigate', input),
+    action: action => ipcRenderer.invoke('quick-browser:action', action),
+    layout: layout => ipcRenderer.invoke('quick-browser:layout', layout),
+    close: () => ipcRenderer.invoke('quick-browser:close'),
+    onState: callback => {
+      const handler = (_event, state) => callback(state);
+      ipcRenderer.on('quick-browser:state', handler);
+      return () => ipcRenderer.removeListener('quick-browser:state', handler);
+    },
+  },
 
   // Screen-share capture. getDesktopSources() lists real screens/windows for
   // the StreamSelector; setShareSource(id) tells the main process which one to

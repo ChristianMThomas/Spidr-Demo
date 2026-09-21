@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAppShell } from '@/context/AppShellContext';
 import ServersPanel from '@/components/spidr/ServersPanel';
+import ThemedPage from '@/components/spidr/ThemedPage';
 
 /**
  * /servers and /servers/:serverId — server browser + chat.
@@ -23,6 +24,7 @@ export default function ServersPage() {
   }, [serverId, selectedServerId, setSelectedServerId]);
 
   return (
+    <ThemedPage>
     <ServersPanel
       currentUser={currentUser}
       selectedServerId={serverId || selectedServerId}
@@ -59,5 +61,6 @@ export default function ServersPage() {
         setIsCallMinimized(true);
       }}
     />
+    </ThemedPage>
   );
 }

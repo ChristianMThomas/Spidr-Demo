@@ -76,30 +76,42 @@ if (IS_PROD) {
     next();
   });
 }
+// ── Shared CORS origin allowlist ────────────────────────────────────────────
+// One decision function for both Express and Socket.io. These were previously
+// two separate copies and had drifted: the Socket.io copy never read
+// CLIENT_ORIGINS_EXTRA, so an origin allowed for HTTP was still refused the
+// websocket handshake.
+function isOriginAllowed(origin) {
+  // Requests with no origin (Electron .exe, mobile apps, curl)
+  if (!origin) return true;
+
+  // Development only. Ungated, this let any page served from a victim's own
+  // localhost make credentialed (credentials: true) requests against the
+  // live production API.
+  if (!IS_PROD && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))) {
+    return true;
+  }
+
+  // Electron packaged apps: file:// origin shows as null, but some show as custom protocol
+  if (origin.startsWith('file://') || origin.startsWith('app://')) return true;
+
+  // In production: allow configured CLIENT_ORIGIN + any subdomain of it
+  const allowed = process.env.CLIENT_ORIGIN || '';
+  if (allowed && (origin === allowed || origin.endsWith('.' + allowed.replace(/^https?:\/\//, '')))) {
+    return true;
+  }
+
+  // Explicit extra origins, comma-separated. Lets a local dev client talk to a
+  // deployed backend for testing without reopening all of localhost.
+  const allowedExtra = (process.env.CLIENT_ORIGINS_EXTRA || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (allowedExtra.includes(origin)) return true;
+
+  return false;
+}
+
 app.use(cors({
   origin: (origin, cb) => {
-    // Allow requests with no origin (Electron .exe, mobile apps, curl)
-    if (!origin) return cb(null, true);
-
-    // Development only. Ungated, this let any page served from a victim's own
-    // localhost make credentialed (credentials: true) requests against the
-    // live production API.
-    if (!IS_PROD && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))) {
-      return cb(null, true);
-    }
-
-    // In production: allow configured CLIENT_ORIGIN + any subdomain of it
-    const allowed = process.env.CLIENT_ORIGIN || '';
-    const allowedExtra = (process.env.CLIENT_ORIGINS_EXTRA || '').split(',').map(s => s.trim()).filter(Boolean);
-
-    if (allowed && (origin === allowed || origin.endsWith('.' + allowed.replace(/^https?:\/\//, '')))) {
-      return cb(null, true);
-    }
-    if (allowedExtra.includes(origin)) return cb(null, true);
-
-    // Electron packaged apps: file:// origin shows as null, but some show as custom protocol
-    if (origin.startsWith('file://') || origin.startsWith('app://')) return cb(null, true);
-
+    if (isOriginAllowed(origin)) return cb(null, true);
     cb(new Error('Not allowed by CORS: ' + origin));
   },
   credentials: true,
@@ -176,6 +188,7 @@ app.use('/user-profiles',      require('./routes/userProfiles'));
 app.use('/servers',            require('./routes/servers'));
 app.use('/search-hub',        require('./routes/searchHub'));
 app.use('/messages',           require('./routes/messages'));
+app.use('/message-actions',    require('./routes/messageActions'));
 app.use('/conversation-settings', require('./routes/conversationSettings'));
 app.use('/direct-messages',    require('./routes/directMessages'));
 app.use('/group-chats',        require('./routes/groupChats'));
@@ -249,16 +262,9 @@ app.use((err, req, res, next) => {
 function startSocketIO(withRedis) {
   const io = new Server(server, {
     cors: {
-      // Mirror Express CORS: allow no-origin (packaged Electron .exe), localhost, file://, configured origin
+      // Exactly the Express allowlist - see isOriginAllowed above.
       origin: (origin, cb) => {
-        if (!origin) return cb(null, true);
-        // Dev only - see the Express CORS note above.
-        if (!IS_PROD && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))) {
-          return cb(null, true);
-        }
-        if (origin.startsWith('file://') || origin.startsWith('app://')) return cb(null, true);
-        const allowed = process.env.CLIENT_ORIGIN || '';
-        if (allowed && origin === allowed) return cb(null, true);
+        if (isOriginAllowed(origin)) return cb(null, true);
         cb(new Error('Socket.io: origin not allowed: ' + origin));
       },
       credentials: true,

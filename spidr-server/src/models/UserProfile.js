@@ -24,6 +24,8 @@ const s = new Schema({
   // "Vibe Check" widget — current activity (e.g. now-playing). Stored as an
   // object so we can later attach type/url without a migration.
   activity:       { type: Object, default: undefined },
+  is_private:     { type: Boolean, default: false },
+  hide_activity:  { type: Boolean, default: false },
   // "Neon Sign" widget — free-form pronouns / short tagline.
   pronouns:       String,
 

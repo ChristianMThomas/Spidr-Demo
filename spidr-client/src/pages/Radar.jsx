@@ -6,10 +6,7 @@ import SignalRadar from '@/components/spidr/SignalRadar';
 /**
  * /radar — Signal Radar.
  *
- * The underlying component is built as a modal (it has `open`/`onClose` props
- * because it can also be opened from the sidebar dock as a popover). When
- * routed to /radar we render it inline as a full page by passing `open={true}`
- * and routing `onClose` back to /home.
+ * Discovery stays inside the persistent shell, including its sidebar.
  */
 export default function RadarPage() {
   const { currentUser } = useAppShell();

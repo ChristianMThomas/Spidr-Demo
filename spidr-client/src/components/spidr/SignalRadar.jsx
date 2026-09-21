@@ -1,890 +1,107 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { entities } from '@/api/apiClient';
-import { motion, AnimatePresence } from 'framer-motion';
-import { X, Users, Radio, Wifi, Info } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, Check, ChevronDown, Clock, Globe, KeyRound, Loader2, Lock, Plus, Radar, RefreshCw, Search, Users, X } from 'lucide-react';
+import { api, getSocket } from '@/api/apiClient';
 import { toast } from 'sonner';
+import CreateServerModal from './CreateServerModal';
+import './SignalRadar.css';
 
-/**
- * SignalRadar — Holographic Server Discovery HUD
- *
- * Aesthetic: pure black canvases with glowing red borders, translucent glass
- * panels, and red monochromatic projections of server icons. The whole panel
- * reads like a HUD beamed onto the screen, not a flat UI.
- *
- * Key design choices (from the spec):
- *   • Search bar — pure black with a thin red glowing border; brightens on focus.
- *   • Tabs — hollow glowing pill for the active tab (no solid red block).
- *   • Frequency timeline — 1px laser beam with heavy box-shadow glow; a
- *     hollow circle node with a pulsing center snaps to the active category.
- *   • Server cards — angled clip-path corners, heavily blurred translucent
- *     canvas, server icons projected with mix-blend-luminosity + red overlay
- *     + faint scanlines so they look like holograms.
- *   • Buttons — hollow red outlines that fill on hover.
- */
-
-const CATEGORIES = ['All Signals', 'Gaming', 'Social', 'Tech', 'Creative', 'Study', 'Other'];
-
-export default function SignalRadar({ open, onClose, currentUser }) {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchFocused, setSearchFocused] = useState(false);
-  const [frequencyIndex, setFrequencyIndex] = useState(0);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState(CATEGORIES[0]);
-  const [radarTab, setRadarTab] = useState('discover');
-
-  const { data: servers = [] } = useQuery({
-    queryKey: ['public-servers'],
-    queryFn: () => entities.Server.list('-created_date', 100),
-  });
-
-  const { data: friends = [] } = useQuery({
-    queryKey: ['friends-radar', currentUser?.id],
-    queryFn: () => entities.Friend.filter({ user_id: currentUser?.id, status: 'accepted' }),
-    enabled: !!currentUser?.id,
-  });
-
-  const friendIds = React.useMemo(() => new Set(friends.map(f => f.friend_id)), [friends]);
-
-  const friendServers = React.useMemo(() => {
-    return servers.filter(server =>
-      server.members?.some(m => friendIds.has(m.user_id))
-    ).map(server => ({
-      ...server,
-      _friendsInServer: server.members?.filter(m => friendIds.has(m.user_id)) || []
-    }));
-  }, [servers, friendIds]);
-
-  // Tune the frequency by tapping a category label or by clicking anywhere
-  // along the laser line. Cancels the previous transition if you flick through.
-  const transitionTimer = useRef(null);
-  const tuneTo = (newIndex) => {
-    if (newIndex === frequencyIndex) return;
-    if (transitionTimer.current) clearTimeout(transitionTimer.current);
-    setIsTransitioning(true);
-    setFrequencyIndex(newIndex);
-    setSelectedCategory(CATEGORIES[newIndex]);
-    transitionTimer.current = setTimeout(() => setIsTransitioning(false), 260);
+export default function SignalRadar({ open = true, onClose, currentUser }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('');
+  const [view, setView] = useState('all');
+  const [sort, setSort] = useState('newest');
+  const [modal, setModal] = useState(null);
+  useEffect(() => { const timer = setTimeout(() => setQuery(search.trim().replace(/^#/, '')), 250); return () => clearTimeout(timer); }, [search]);
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['radar'] });
+    queryClient.invalidateQueries({ queryKey: ['servers'] });
   };
-  useEffect(() => () => { if (transitionTimer.current) clearTimeout(transitionTimer.current); }, []);
-
-  const filteredServers = servers.filter(server => {
-    const matchesSearch = !searchTerm ||
-      server.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      server.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      server.tags?.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesCategory = selectedCategory === 'All Signals' ||
-      server.category?.toLowerCase() === selectedCategory.toLowerCase() ||
-      // #tags are the primary discovery signal now that servers can set them.
-      server.tags?.some(t => t.toLowerCase() === selectedCategory.toLowerCase()) ||
-      server.description?.toLowerCase().includes(selectedCategory.toLowerCase());
-    return matchesSearch && matchesCategory;
+  useEffect(() => {
+    if (!open || !currentUser?.id) return;
+    const socket = getSocket();
+    const refresh = () => {
+      queryClient.invalidateQueries({ queryKey: ['radar'] });
+      queryClient.invalidateQueries({ queryKey: ['servers'] });
+    };
+    socket.on('server:join-request', refresh);
+    socket.on('server:member-joined', refresh);
+    return () => { socket.off('server:join-request', refresh); socket.off('server:member-joined', refresh); };
+  }, [open, currentUser?.id, queryClient]);
+  const results = useInfiniteQuery({
+    queryKey: ['radar', currentUser?.id, query, category, view, sort],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => api.get('/servers/discover?' + new URLSearchParams({ q: query, category, view, sort, page: String(pageParam) })),
+    getNextPageParam: page => page.next_page ?? undefined,
+    enabled: open && !!currentUser?.id,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30000,
   });
-
+  const servers = results.data?.pages.flatMap(p => p.items) || [];
   if (!open) return null;
-
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center"
-        style={{ backdropFilter: 'blur(24px)' }}
-      >
-        {/* Ambient background — deep black with a soft red bleed */}
-        <div className="absolute inset-0 bg-black/90" />
-        <div
-          className="absolute inset-0 pointer-events-none opacity-60"
-          style={{
-            background:
-              'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(220,38,38,0.10), transparent 60%),' +
-              'radial-gradient(ellipse 60% 40% at 50% 100%, rgba(220,38,38,0.06), transparent 60%)',
-          }}
-        />
-        {/* Radar bloom — replaces the retro scanline grain. A single huge,
-            heavily-blurred red orb reads as a sweep through deep space and
-            lets the glass cards above it catch real colour, which flat
-            scanlines never did. */}
-        <div
-          className="absolute -top-40 left-1/2 -translate-x-1/2 w-[900px] h-[900px] rounded-full pointer-events-none"
-          style={{
-            background: 'rgba(220,38,38,0.05)',
-            filter: 'blur(140px)',
-          }}
-        />
-
-        {/* HUD frame */}
-        <motion.div
-          initial={{ scale: 0.94, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.94, opacity: 0 }}
-          transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-          className="relative w-full h-full max-w-7xl max-h-[92vh] m-6 flex flex-col"
-        >
-          {/* Header — Sonar icon + title + close button */}
-          <Header onClose={onClose} />
-
-          {/* Search bar */}
-          <SearchBar
-            value={searchTerm}
-            onChange={setSearchTerm}
-            focused={searchFocused}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
-          />
-
-          {/* Hollow glowing tabs */}
-          <TabRow
-            value={radarTab}
-            onChange={setRadarTab}
-            friendCount={friendServers.length}
-          />
-
-          {radarTab === 'discover' ? (
-            <>
-              {/* Frequency laser timeline */}
-              <FrequencyLaser
-                categories={CATEGORIES}
-                index={frequencyIndex}
-                onTune={tuneTo}
-              />
-
-              {/* Server grid */}
-              <div className="flex-1 overflow-y-auto pt-6 pr-1 -mr-1 spidr-radar-scroll">
-                <AnimatePresence mode="wait">
-                  {isTransitioning ? (
-                    <FrequencyJam key="jam" />
-                  ) : (
-                    <motion.div
-                      key={selectedCategory}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.25 }}
-                      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pb-2"
-                    >
-                      {filteredServers.length === 0 ? (
-                        <EmptyState />
-                      ) : (
-                        filteredServers.map((server, i) => (
-                          <ServerHologram
-                            key={server.id}
-                            server={server}
-                            currentUser={currentUser}
-                            index={i}
-                          />
-                        ))
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 overflow-y-auto pt-6 spidr-radar-scroll">
-              {friendServers.length === 0 ? (
-                <div className="text-center py-20">
-                  <Users className="w-12 h-12 text-red-900/50 mx-auto mb-3" />
-                  <p className="text-red-400/70 font-mono tracking-wider text-sm">NO FRIEND SIGNALS DETECTED</p>
-                  <p className="text-zinc-600 text-xs mt-2 font-mono">your network is silent on this frequency</p>
-                </div>
-              ) : (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pb-2"
-                >
-                  {friendServers.map((server, i) => (
-                    <ServerHologram
-                      key={server.id}
-                      server={server}
-                      currentUser={currentUser}
-                      friendsInServer={server._friendsInServer}
-                      index={i}
-                    />
-                  ))}
-                </motion.div>
-              )}
-            </div>
-          )}
-        </motion.div>
-
-        {/* Local style — the styles below are scoped via unique class names
-            so they don't leak into the rest of the app. */}
-        <style>{`
-          @keyframes spidr-scanline {
-            0%   { transform: translateY(-100%); }
-            100% { transform: translateY(200%); }
-          }
-          @keyframes spidr-pulse-dot {
-            0%, 100% { transform: scale(1);   opacity: 1;   }
-            50%      { transform: scale(0.5); opacity: 0.5; }
-          }
-          @keyframes spidr-sonar-ping {
-            0%   { transform: scale(1);   opacity: 0.8; }
-            100% { transform: scale(2.4); opacity: 0;   }
-          }
-          @keyframes spidr-static {
-            0%   { background-position: 0 0; }
-            100% { background-position: 0 8px; }
-          }
-          .spidr-radar-scroll::-webkit-scrollbar { width: 6px; }
-          .spidr-radar-scroll::-webkit-scrollbar-track { background: transparent; }
-          .spidr-radar-scroll::-webkit-scrollbar-thumb {
-            background: rgba(220, 38, 38, 0.25);
-            border-radius: 3px;
-          }
-          .spidr-radar-scroll::-webkit-scrollbar-thumb:hover {
-            background: rgba(220, 38, 38, 0.5);
-          }
-        `}</style>
-      </motion.div>
-    </AnimatePresence>
-  );
-}
-
-// ── Header ──────────────────────────────────────────────────────────────────
-function Header({ onClose }) {
-  return (
-    <div className="flex items-start justify-between mb-5">
-      <div className="flex items-center gap-4">
-        <SonarIcon />
-        <div>
-          <h2
-            className="text-2xl font-bold tracking-[0.25em] text-red-500"
-            style={{ textShadow: '0 0 14px rgba(220,38,38,0.45)' }}
-          >
-            SIGNAL RADAR
-          </h2>
-          <p className="text-red-900 text-[10px] font-mono tracking-[0.3em] uppercase mt-1">
-            Scanning active frequencies...
-          </p>
+    <section className="signal-radar" aria-label="Signal Radar">
+      <header className="radar-header">
+        <div className="radar-title"><Radar aria-hidden="true" size={30} /><div><span className="radar-eyebrow">COMMUNITIES</span><h1>Signal <span>Radar</span></h1></div></div>
+        <div className="radar-header-actions">
+          <button className="radar-secondary" onClick={() => setModal('join')}><KeyRound size={16} />Invite code</button>
+          <button className="radar-secondary" onClick={() => setModal('create')}><Plus size={16} />Create server</button>
+          {onClose && <button className="radar-icon" aria-label="Close Signal Radar" title="Close Signal Radar" onClick={onClose}><X size={18} /></button>}
         </div>
+      </header>
+      <div className="radar-toolbar">
+        <label className="radar-search"><Search size={18} /><input aria-label="Search servers" placeholder="Search servers, interests, or tags" value={search} onChange={e => setSearch(e.target.value)} />{search && <button className="radar-icon" aria-label="Clear search" onClick={() => setSearch('')}><X size={16} /></button>}</label>
+        <select aria-label="Server category" value={category} onChange={e => setCategory(e.target.value)}><option value="">All categories</option>{['Gaming', 'Music', 'Technology', 'Art', 'Social', 'Education', 'Other'].map(c => <option key={c} value={c.toLowerCase()}>{c}</option>)}</select>
+        <select aria-label="Sort servers" value={sort} onChange={e => setSort(e.target.value)}><option value="newest">Newest</option><option value="name">Name A-Z</option></select>
       </div>
-      <button
-        onClick={onClose}
-        aria-label="Close Signal Radar"
-        className="w-9 h-9 flex items-center justify-center text-red-500/70 border border-red-500/20 rounded-md hover:bg-red-500/10 hover:border-red-500 hover:text-red-400 hover:shadow-[0_0_15px_rgba(220,38,38,0.3)] transition-all"
-      >
-        <X className="w-4 h-4" />
-      </button>
-    </div>
+      <div className="radar-results-bar">
+        <div className="radar-tabs" role="tablist" aria-label="Server collections">{[['all', 'All servers'], ['friends', 'With friends'], ['requests', 'My requests']].map(([id, label]) => <button key={id} role="tab" aria-selected={view === id} onClick={() => setView(id)}>{label}</button>)}</div>
+        <div className="radar-count"><span aria-live="polite">{results.isPending ? 'Scanning...' : results.isError ? 'Unavailable' : `${results.data?.pages[0]?.total || 0} servers`}</span><button className="radar-icon" aria-label="Refresh servers" title="Refresh servers" disabled={results.isFetching} onClick={() => results.refetch()}><RefreshCw size={15} className={results.isFetching ? 'radar-spin' : ''} /></button></div>
+      </div>
+      {results.isPending ? <div className="radar-empty" role="status"><Loader2 className="radar-spin" />Loading servers...</div> : results.isError ? <div className="radar-empty" role="alert"><p>Servers could not be loaded.</p><button className="radar-secondary" onClick={() => results.refetch()}><RefreshCw size={16} />Try again</button></div> : servers.length === 0 ? <div className="radar-empty"><Radar size={36} /><h2>{view === 'requests' ? 'No pending requests' : 'No servers found'}</h2>{(search || category) && <button className="radar-secondary" onClick={() => { setSearch(''); setCategory(''); }}>Clear filters</button>}</div> : (
+        <div className="radar-grid">{servers.map(server => <ServerSignal key={server.id} server={server} onChanged={invalidate} onOpen={() => navigate('/servers/' + server.id)} onTag={tag => setSearch(tag)} onInvite={() => setModal('join')} />)}</div>
+      )}
+      {results.hasNextPage && <div className="radar-pagination"><button className="radar-secondary" disabled={results.isFetchingNextPage} onClick={() => results.fetchNextPage()}>{results.isFetchingNextPage ? <Loader2 size={16} className="radar-spin" /> : <ChevronDown size={16} />}Load more</button></div>}
+      <CreateServerModal open={!!modal} initialTab={modal || 'create'} onClose={() => { setModal(null); invalidate(); }} currentUser={currentUser} />
+    </section>
   );
 }
 
-function SonarIcon() {
+function ServerSignal({ server, onChanged, onOpen, onTag, onInvite }) {
+  const [expanded, setExpanded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+  const action = useMutation({
+    mutationFn: kind => kind === 'cancel' ? api.delete(`/servers/${server.id}/join-requests/me`) : api.post(`/servers/${server.id}/${kind === 'request' ? 'join-requests' : 'join'}`, {}),
+    onSuccess: (_, kind) => { onChanged(); toast.success(kind === 'request' ? 'Join request sent' : kind === 'cancel' ? 'Request cancelled' : `Joined ${server.name}`); },
+    onError: error => toast.error(error?.data?.error || error.message || 'Could not update membership'),
+  });
+  const privateServer = server.is_public === false;
+  const label = server.is_member ? 'Open server' : server.request_pending ? 'Request pending' : privateServer ? server.allow_join_requests ? 'Request to join' : 'Use invite code' : 'Join server';
+  const Icon = server.is_member ? Check : server.request_pending ? Clock : privateServer ? Lock : ArrowRight;
+  const join = () => server.is_member ? onOpen() : privateServer ? server.allow_join_requests ? action.mutate('request') : onInvite() : action.mutate('join');
   return (
-    <div className="relative w-12 h-12 flex items-center justify-center">
-      <span
-        className="absolute inset-0 rounded-full border border-red-500/70"
-        style={{ animation: 'spidr-sonar-ping 2s ease-out infinite' }}
-      />
-      <span
-        className="absolute inset-0 rounded-full border border-red-500/70"
-        style={{ animation: 'spidr-sonar-ping 2s ease-out 0.7s infinite' }}
-      />
-      <span
-        className="block w-2.5 h-2.5 rounded-full bg-red-500"
-        style={{ boxShadow: '0 0 8px rgba(220,38,38,0.9), 0 0 16px rgba(220,38,38,0.5)' }}
-      />
-    </div>
-  );
-}
-
-// ── Search bar ──────────────────────────────────────────────────────────────
-function SearchBar({ value, onChange, focused, onFocus, onBlur }) {
-  return (
-    <div className="mb-4">
-      <div
-        className="relative rounded-xl transition-all duration-300"
-        style={{
-          background: focused ? 'rgba(10,10,10,0.85)' : 'rgba(255,255,255,0.02)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-          border: '1px solid',
-          borderColor: focused ? 'rgba(220, 38, 38, 0.5)' : 'rgba(255,255,255,0.06)',
-          boxShadow: focused ? '0 0 24px rgba(220, 38, 38, 0.15)' : 'none',
-        }}
-      >
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onFocus={onFocus}
-          onBlur={onBlur}
-          placeholder="Locate signals..."
-          className="w-full bg-transparent px-4 py-3 text-white placeholder:text-white/25 placeholder:tracking-wide text-sm font-medium outline-none caret-red-500"
-        />
-      </div>
-    </div>
-  );
-}
-
-// ── Tab row ─────────────────────────────────────────────────────────────────
-function TabRow({ value, onChange, friendCount }) {
-  const tabs = [
-    { id: 'discover', label: 'DISCOVER',         icon: Radio },
-    { id: 'friends',  label: 'FRIENDS',          icon: Users, badge: friendCount },
-  ];
-  return (
-    <div className="flex items-center gap-3 mb-5">
-      {tabs.map((tab) => {
-        const Active = value === tab.id;
-        const Icon = tab.icon;
-        return (
-          <button
-            key={tab.id}
-            onClick={() => onChange(tab.id)}
-            className={`group relative px-5 py-2 font-mono text-xs tracking-[0.25em] transition-all duration-200 rounded-md ${
-              Active
-                ? 'bg-red-500/10 border border-red-500 text-red-400 shadow-[0_0_15px_rgba(220,38,38,0.25)]'
-                : 'border border-red-500/15 text-red-900 hover:text-red-500/80 hover:border-red-500/40'
-            }`}
-          >
-            <span className="flex items-center gap-2">
-              <Icon className="w-3 h-3" />
-              {tab.label}
-              {tab.badge > 0 && (
-                <span className={`ml-1 px-1.5 py-0.5 text-[9px] rounded-sm font-bold ${
-                  Active ? 'bg-red-500/30 text-red-200' : 'bg-red-900/60 text-red-500/70'
-                }`}>
-                  {tab.badge}
-                </span>
-              )}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Frequency laser timeline ────────────────────────────────────────────────
-function FrequencyLaser({ categories, index, onTune }) {
-  // Position of each category marker along the line, evenly spaced
-  const stops = categories.length;
-  const stepPct = stops > 1 ? 100 / (stops - 1) : 0;
-  const activeLeftPct = index * stepPct;
-
-  return (
-    <div className="mb-2 select-none">
-      {/* Top label row */}
-      <div className="flex items-center justify-between mb-3">
-        <span className="font-mono text-[10px] tracking-[0.3em] uppercase text-red-500/70">
-          Frequency Lock: <span className="text-red-400">{categories[index]}</span>
-        </span>
-        <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.3em] uppercase text-emerald-400/80">
-          <span className="relative flex w-1.5 h-1.5">
-            <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
-            <span className="relative rounded-full bg-emerald-400 w-1.5 h-1.5" />
-          </span>
-          Online
-        </span>
-      </div>
-
-      {/* The 1px laser beam */}
-      <div
-        className="relative h-6 flex items-center cursor-pointer"
-        role="slider"
-        aria-valuemin={0}
-        aria-valuemax={stops - 1}
-        aria-valuenow={index}
-        aria-label="Tune frequency"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowLeft')  onTune(Math.max(0, index - 1));
-          if (e.key === 'ArrowRight') onTune(Math.min(stops - 1, index + 1));
-        }}
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const x = e.clientX - rect.left;
-          const pct = Math.max(0, Math.min(1, x / rect.width));
-          onTune(Math.round(pct * (stops - 1)));
-        }}
-      >
-        {/* The thin laser line */}
-        <div
-          className="absolute left-0 right-0"
-          style={{
-            height: '1px',
-            background: 'linear-gradient(90deg, rgba(220,38,38,0.15) 0%, rgba(220,38,38,0.55) 50%, rgba(220,38,38,0.15) 100%)',
-            boxShadow: '0 0 8px rgba(220,38,38,0.55), 0 0 16px rgba(220,38,38,0.35), 0 0 24px rgba(220,38,38,0.15)',
-          }}
-        />
-        {/* Category tick marks under the line */}
-        {categories.map((_, i) => (
-          <div
-            key={i}
-            className="absolute top-1/2"
-            style={{
-              left: `${i * stepPct}%`,
-              transform: 'translate(-50%, -50%)',
-              width: i === index ? '1px' : '1px',
-              height: i === index ? '8px' : '4px',
-              background: i === index ? '#ef4444' : 'rgba(220,38,38,0.35)',
-              boxShadow: i === index ? '0 0 6px rgba(220,38,38,0.8)' : 'none',
-            }}
-          />
-        ))}
-        {/* The hollow circle node — snaps to the active category */}
-        <motion.div
-          animate={{ left: `${activeLeftPct}%` }}
-          transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-          className="absolute top-1/2 pointer-events-none"
-          style={{ transform: 'translate(-50%, -50%)' }}
-        >
-          <div
-            className="relative w-4 h-4 rounded-full border-2 border-red-500 bg-black flex items-center justify-center"
-            style={{ boxShadow: '0 0 10px rgba(220,38,38,0.6), 0 0 18px rgba(220,38,38,0.3)' }}
-          >
-            <span
-              className="block w-1.5 h-1.5 rounded-full bg-red-500"
-              style={{ animation: 'spidr-pulse-dot 1.4s ease-in-out infinite' }}
-            />
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Category labels — clickable tuning anchors */}
-      <div className="flex justify-between mt-2 font-mono text-[10px] tracking-[0.2em] uppercase">
-        {categories.map((cat, i) => (
-          <button
-            key={cat}
-            onClick={() => onTune(i)}
-            className={`transition-colors duration-150 ${
-              i === index ? 'text-red-400' : 'text-red-900 hover:text-red-500/70'
-            }`}
-            style={{ textShadow: i === index ? '0 0 8px rgba(220,38,38,0.45)' : 'none' }}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Transition jam (frequency switch) ───────────────────────────────────────
-function FrequencyJam() {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="flex items-center justify-center py-20"
-    >
-      <div
-        className="w-full h-32 relative overflow-hidden rounded-md"
-        style={{
-          background: 'repeating-linear-gradient(0deg, transparent 0 2px, rgba(220,38,38,0.06) 2px 4px)',
-          animation: 'spidr-static 0.16s steps(2) infinite',
-          border: '1px solid rgba(220,38,38,0.15)',
-        }}
-      >
-        <div className="absolute inset-0 flex items-center justify-center font-mono text-[10px] tracking-[0.4em] text-red-500/60">
-          ▓░  TUNING  ░▓
+    <article className="server-signal" aria-label={server.name}>
+      {server.banner_url && <img className="server-signal-banner" src={server.banner_url} alt="" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />}
+      <div className="server-signal-body">
+        <div className="server-signal-top">
+          <div className="server-signal-icon">{server.icon_url && !imageFailed ? <img src={server.icon_url} alt="" loading="lazy" onError={() => setImageFailed(true)} /> : <img src="/spidr-mascot.png" alt="" />}</div>
+          <span className={'server-access ' + (privateServer ? 'private' : '')}>{privateServer ? <Lock size={12} /> : <Globe size={12} />}{privateServer ? 'Private' : 'Public'}</span>
         </div>
+        <h2>{server.name}</h2>
+        <div className="server-signal-stats"><span><Users size={13} />{server.member_count.toLocaleString()} members</span>{server.friend_count > 0 && <span className="server-friends">{server.friend_count} {server.friend_count === 1 ? 'friend' : 'friends'}</span>}</div>
+        <div className="server-tags">{(server.tags || []).map(tag => <button key={tag} onClick={() => onTag(tag)}>#{tag}</button>)}</div>
+        <p className={'server-description ' + (expanded ? 'expanded' : '')}>{server.description || 'No description yet.'}</p>
+        <button className="server-details-toggle" aria-expanded={expanded} aria-controls={'server-info-' + server.id} onClick={() => setExpanded(!expanded)}>{expanded ? 'Less info' : 'Server info & rules'}<ChevronDown size={15} style={{ transform: expanded ? 'rotate(180deg)' : undefined }} /></button>
+        {expanded && <div id={'server-info-' + server.id} className="server-details">{server.category && <span className="server-category">{server.category}</span>}<h3>Server rules</h3>{server.rules?.length ? <ol>{server.rules.map((rule, i) => <li key={i}>{rule}</li>)}</ol> : <p>No rules published.</p>}</div>}
       </div>
-    </motion.div>
-  );
-}
-
-// ── Empty state ─────────────────────────────────────────────────────────────
-function EmptyState() {
-  return (
-    <div className="col-span-full text-center py-16">
-      <div className="inline-block relative mb-4">
-        <Radio className="w-12 h-12 text-red-900/60 mx-auto" />
-      </div>
-      <p className="text-red-400/70 font-mono tracking-wider text-sm">NO SIGNALS ON THIS FREQUENCY</p>
-      <p className="text-zinc-600 text-xs mt-2 font-mono">dial somewhere else on the band</p>
-    </div>
-  );
-}
-
-// ── Server Hologram (the projected server card) ─────────────────────────────
-function ServerHologram({ server, currentUser, friendsInServer, index = 0 }) {
-  const memberCount = server.members?.length || 0;
-  const signalStrength = Math.min(Math.floor(memberCount / 5) + 1, 5);
-  // Private / invite-only servers: members can't just walk in. Show a
-  // "Request Invite" affordance instead of the standard "Establish Uplink".
-  const isPrivate = server.is_public === false;
-  const isAlreadyMember = server.members?.some(m => m.user_id === currentUser?.id);
-  const hasPendingRequest = (server.join_requests || []).some(r => r.user_id === currentUser?.id);
-
-  const handleJoin = async () => {
-    try {
-      if (isAlreadyMember) {
-        toast.error('Uplink already established with this signal');
-        return;
-      }
-      const isAirlockEnabled = server.airlock?.enabled;
-      const updatedMembers = [
-        ...(server.members || []),
-        {
-          user_id: currentUser?.id,
-          user_name: currentUser?.full_name,
-          user_avatar: currentUser?.avatar_url,
-          role: 'member',
-          verified: !isAirlockEnabled
-        }
-      ];
-      await entities.Server.update(server.id, { members: updatedMembers });
-      toast.success(isAirlockEnabled
-        ? 'Uplink pending — awaiting verification.'
-        : 'Uplink established. Signal locked.');
-    } catch (error) {
-      toast.error('Uplink failed');
-    }
-  };
-
-  // Best-effort invite-request: append a pending request to the server's
-  // join_requests array. Server admins can review/approve in their settings.
-  // No backend changes required — uses the same Server.update endpoint as
-  // membership.
-  const handleRequestInvite = async () => {
-    if (isAlreadyMember) {
-      toast.error('You already have an uplink to this signal');
-      return;
-    }
-    if (hasPendingRequest) {
-      toast.info('Invite request already pending — the host will review it.');
-      return;
-    }
-    try {
-      const updatedRequests = [
-        ...(server.join_requests || []),
-        {
-          user_id: currentUser?.id,
-          user_name: currentUser?.full_name,
-          user_avatar: currentUser?.avatar_url,
-          requested_at: new Date().toISOString(),
-          status: 'pending',
-        },
-      ];
-      await entities.Server.update(server.id, { join_requests: updatedRequests });
-      toast.success('Invite request sent — awaiting host approval.');
-    } catch {
-      toast.error('Could not send invite request');
-    }
-  };
-
-  // Info overlay state — slides a stats panel up inside the card so the user
-  // never leaves the radar grid to read details.
-  const [showInfo, setShowInfo] = React.useState(false);
-
-  // Total roster vs. currently-active. memberCount above counts live
-  // presence; this is everyone who has ever joined.
-  const totalMembers = (server.members || []).length;
-  const lastActive = server.last_activity || server.updated_at || server.updatedAt || server.created_date;
-  const fmtDate = (d) => {
-    if (!d) return 'Unknown';
-    const t = new Date(d);
-    if (Number.isNaN(t.getTime())) return 'Unknown';
-    return t.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-  };
-  const relative = (d) => {
-    if (!d) return 'No pulse recorded';
-    const t = new Date(d).getTime();
-    if (Number.isNaN(t)) return 'No pulse recorded';
-    const mins = Math.floor((Date.now() - t) / 60000);
-    if (mins < 1) return 'Moments ago';
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    return days < 30 ? `${days}d ago` : fmtDate(d);
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, delay: Math.min(index * 0.04, 0.3), ease: 'easeOut' }}
-      whileHover={{ y: -2 }}
-      className="group relative"
-    >
-      {/* Glass panel — rounded and highly translucent so the radar bloom
-          behind it shows through, replacing the opaque angular plate. */}
-      <div
-        className="relative p-5 overflow-hidden rounded-2xl border border-white/5 group-hover:border-red-500/30 transition-all duration-500"
-        style={{
-          background: 'rgba(255,255,255,0.02)',
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
-        }}
-      >
-        {/* Hover bloom — a soft red wash that lifts the card off the page
-            without the hard neon border the retro version used. */}
-        <div
-          className="absolute inset-0 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"
-          style={{
-            background: 'linear-gradient(135deg, rgba(220,38,38,0.06), transparent 60%)',
-          }}
-        />
-
-        {/* === Content === */}
-        <div className="relative z-10">
-          {/* Top row — projected server icon + name */}
-          <div className="flex items-start gap-3 mb-3">
-            <ServerIconProjection
-              src={server.icon_url}
-              alt={server.name}
-              fallbackIcon={<Wifi className="w-6 h-6 text-red-500" />}
-            />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <h3 className="text-white font-bold text-sm truncate">{server.name}</h3>
-                {server.verified && (
-                  <span className="shrink-0 px-1 py-0.5 border border-red-500/60 rounded-sm text-[8px] font-bold text-red-400 leading-none">
-                    VERIFIED
-                  </span>
-                )}
-                {server.boost_level > 0 && (
-                  <span className="shrink-0 px-1 py-0.5 border border-red-500/40 rounded-sm text-[8px] font-bold text-red-400 leading-none">
-                    ⚡{server.boost_level}
-                  </span>
-                )}
-              </div>
-              <p className="text-zinc-500 text-xs line-clamp-2 leading-snug">
-                {server.description || 'No telemetry available'}
-              </p>
-            </div>
-          </div>
-
-          {/* Tags */}
-          {server.tags && server.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-3">
-              {server.tags.slice(0, 3).map((tag, i) => (
-                <span
-                  key={i}
-                  className="px-2 py-0.5 border border-red-500/15 rounded-sm text-[9px] text-red-500/70 font-mono tracking-wider uppercase"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Signal strength */}
-          <div className="mb-3">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="font-mono text-[9px] tracking-[0.25em] uppercase text-red-500/60">
-                Signal Strength
-              </span>
-              <span className="font-mono text-[9px] tracking-[0.25em] uppercase text-emerald-400/80">
-                {memberCount} Active
-              </span>
-            </div>
-            <div className="flex gap-0.5">
-              {[...Array(5)].map((_, i) => {
-                const lit = i < signalStrength;
-                return (
-                  <div
-                    key={i}
-                    className="h-1 flex-1 rounded-[1px]"
-                    style={{
-                      background: lit
-                        ? 'linear-gradient(90deg, rgba(220,38,38,0.9), rgba(220,38,38,0.5))'
-                        : 'rgba(220,38,38,0.12)',
-                      boxShadow: lit ? '0 0 4px rgba(220,38,38,0.6)' : 'none',
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Friends present (only on the Friends tab) */}
-          {friendsInServer && friendsInServer.length > 0 && (
-            <div className="flex items-center gap-2 mb-3 px-2 py-1.5 border border-red-500/20 rounded-sm bg-red-950/20">
-              <Users className="w-3 h-3 text-red-400 shrink-0" />
-              <div className="flex -space-x-1.5 shrink-0">
-                {friendsInServer.slice(0, 4).map((m, i) => (
-                  m.user_avatar ? (
-                    <img
-                      key={i}
-                      src={m.user_avatar}
-                      className="w-4 h-4 rounded-full border border-black object-cover"
-                      style={{ filter: 'grayscale(0.4)' }}
-                    />
-                  ) : (
-                    <div
-                      key={i}
-                      className="w-4 h-4 rounded-full border border-black bg-red-900/60 flex items-center justify-center text-[7px] text-red-200 font-bold"
-                    >
-                      {m.user_name?.charAt(0)}
-                    </div>
-                  )
-                ))}
-              </div>
-              <span className="text-red-400/80 text-[9px] font-mono tracking-wider uppercase truncate">
-                {friendsInServer.length} friend{friendsInServer.length !== 1 ? 's' : ''} on-air
-              </span>
-            </div>
-          )}
-
-          {/* Action button — public servers get "Establish Uplink"; private
-              ones get a "Request Invite" affordance with a pending-state
-              fallback so a user can't double-fire requests. */}
-          <div className="flex gap-2 items-stretch">
-          {isPrivate ? (
-            <button
-              onClick={handleRequestInvite}
-              disabled={hasPendingRequest || isAlreadyMember}
-              className={`flex-1 py-2 rounded-lg border transition-all duration-300 font-mono text-[10px] tracking-[0.3em] uppercase ${
-                hasPendingRequest
-                  ? 'border-yellow-500/50 text-yellow-400 cursor-not-allowed'
-                  : isAlreadyMember
-                    ? 'border-zinc-700 text-zinc-500 cursor-not-allowed'
-                    : 'border-purple-500 text-purple-400 hover:bg-purple-500 hover:text-white hover:shadow-[0_0_18px_rgba(168,85,247,0.5)]'
-              }`}
-              title={isPrivate ? 'This signal is invite-only. Request access from the host.' : ''}
-            >
-              {hasPendingRequest ? 'Request Pending' : isAlreadyMember ? 'Uplinked' : 'Request Invite'}
-            </button>
-          ) : (
-            <button
-              onClick={handleJoin}
-              className="flex-1 py-2 rounded-lg bg-white/[0.03] hover:bg-red-500/20 border border-white/5 hover:border-red-500/50 text-white/50 group-hover:text-red-400 transition-all duration-300 font-mono text-[10px] tracking-[0.3em] uppercase"
-            >
-              Establish Uplink
-            </button>
-          )}
-
-            {/* View Info — opens the stats overlay inside the card rather
-                than routing away, so the user keeps their place in the grid. */}
-            <button
-              onClick={() => setShowInfo(true)}
-              title="View signal details"
-              className="px-3 rounded-lg bg-white/[0.02] hover:bg-white/[0.08] border border-white/5 hover:border-white/20 text-white/40 hover:text-white transition-all duration-300 flex items-center justify-center shrink-0"
-            >
-              <Info className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* ── Signal details overlay ───────────────────────────────────────
-            Slides up over the card face. Uses the app's tactical wording:
-            total roster, last pulse, first contact. */}
-        <div
-          className={`absolute inset-0 z-20 p-5 flex flex-col rounded-2xl transition-all duration-500 ${
-            showInfo ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6 pointer-events-none'
-          }`}
-          style={{
-            background: 'rgba(5,5,5,0.92)',
-            backdropFilter: 'blur(28px)',
-            WebkitBackdropFilter: 'blur(28px)',
-          }}
-        >
-          <div className="flex justify-between items-center mb-3 border-b border-white/10 pb-2.5">
-            <h4 className="font-mono text-[10px] font-black tracking-[0.25em] uppercase text-red-500">
-              Signal Dossier
-            </h4>
-            <button
-              onClick={() => setShowInfo(false)}
-              className="text-white/30 hover:text-white transition-colors"
-              title="Close"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <p className="text-[11px] text-zinc-400 leading-snug line-clamp-3 mb-3">
-            {server.description || 'No telemetry available for this signal.'}
-          </p>
-
-          <div className="flex flex-col gap-2 mt-auto">
-            <div className="flex justify-between items-center bg-white/[0.02] px-2.5 py-2 rounded-lg border border-white/5">
-              <span className="font-mono text-[9px] tracking-[0.2em] text-white/40 uppercase">Total Roster</span>
-              <span className="text-xs font-bold text-white">
-                {totalMembers.toLocaleString()} {totalMembers === 1 ? 'user' : 'users'}
-              </span>
-            </div>
-            <div className="flex justify-between items-center bg-white/[0.02] px-2.5 py-2 rounded-lg border border-white/5">
-              <span className="font-mono text-[9px] tracking-[0.2em] text-white/40 uppercase">On Air Now</span>
-              <span className="text-xs font-bold text-emerald-400">{memberCount} active</span>
-            </div>
-            <div className="flex justify-between items-center bg-white/[0.02] px-2.5 py-2 rounded-lg border border-white/5">
-              <span className="font-mono text-[9px] tracking-[0.2em] text-white/40 uppercase">Last Pulse</span>
-              <span className="text-xs font-bold text-white/80">{relative(lastActive)}</span>
-            </div>
-            <div className="flex justify-between items-center bg-white/[0.02] px-2.5 py-2 rounded-lg border border-white/5">
-              <span className="font-mono text-[9px] tracking-[0.2em] text-white/40 uppercase">First Contact</span>
-              <span className="text-xs font-bold text-white/60">{fmtDate(server.created_date)}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ── Server icon, projected as a red hologram ────────────────────────────────
-// The icon is rendered with mix-blend-luminosity then tinted red via an
-// overlay. This makes any photo look like a monochrome 3D projection, no
-// matter what the user uploaded.
-function ServerIconProjection({ src, alt, fallbackIcon }) {
-  if (!src) {
-    return (
-      <div
-        className="relative w-14 h-14 border border-red-500/30 bg-red-950/30 flex items-center justify-center overflow-hidden shrink-0"
-        style={{
-          clipPath: 'polygon(15% 0, 100% 0, 100% 85%, 85% 100%, 0 100%, 0 15%)',
-        }}
-      >
-        {fallbackIcon}
-        {/* Corner accent */}
-        <span className="absolute top-0 right-0 w-2 h-px bg-red-500" />
-        <span className="absolute top-0 right-0 w-px h-2 bg-red-500" />
-      </div>
-    );
-  }
-  return (
-    <div
-      className="relative w-14 h-14 overflow-hidden shrink-0 border border-red-500/30"
-      style={{
-        clipPath: 'polygon(15% 0, 100% 0, 100% 85%, 85% 100%, 0 100%, 0 15%)',
-      }}
-    >
-      <img
-        src={src}
-        alt={alt}
-        className="absolute inset-0 w-full h-full object-cover"
-        style={{ mixBlendMode: 'luminosity', filter: 'contrast(1.2) brightness(0.85)' }}
-      />
-      {/* Red tint overlay — this is what turns the photo into a red projection */}
-      <div
-        className="absolute inset-0"
-        style={{ background: 'rgba(220, 38, 38, 0.55)', mixBlendMode: 'multiply' }}
-      />
-      {/* Subtle additive glow on top */}
-      <div
-        className="absolute inset-0"
-        style={{ background: 'rgba(239, 68, 68, 0.15)', mixBlendMode: 'screen' }}
-      />
-      {/* Scanlines baked into the icon */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-60"
-        style={{
-          backgroundImage:
-            'repeating-linear-gradient(0deg, transparent 0px, transparent 1px, rgba(0,0,0,0.4) 1px, rgba(0,0,0,0.4) 2px)',
-        }}
-      />
-      {/* Roaming scanline highlight */}
-      <div
-        className="absolute left-0 right-0 h-px pointer-events-none"
-        style={{
-          background: 'linear-gradient(90deg, transparent, rgba(255,180,180,0.7), transparent)',
-          animation: 'spidr-scanline 3s linear infinite',
-        }}
-      />
-      {/* Corner tick marks */}
-      <span className="absolute top-0 right-0 w-2 h-px bg-red-300" />
-      <span className="absolute top-0 right-0 w-px h-2 bg-red-300" />
-      <span className="absolute bottom-0 left-0 w-2 h-px bg-red-300" />
-      <span className="absolute bottom-0 left-0 w-px h-2 bg-red-300" />
-    </div>
+      <footer className="server-signal-footer">
+        <button className={'server-join ' + (privateServer ? 'private' : '')} disabled={action.isPending || (!server.is_member && server.request_pending)} onClick={join}>{action.isPending ? <Loader2 size={16} className="radar-spin" /> : <Icon size={16} />}{label}</button>
+        {server.request_pending && !server.is_member && <button className="radar-icon" aria-label={'Cancel request to ' + server.name} title="Cancel request" disabled={action.isPending} onClick={() => action.mutate('cancel')}><X size={16} /></button>}
+      </footer>
+    </article>
   );
 }

@@ -24,6 +24,7 @@ import { toast } from 'sonner';
 import HolographicProfile from './HolographicProfile';
 import MessageItem from './MessageItem';
 import ChatBackdrop from './ChatBackdrop';
+import { CHAT_THEME_VARIABLES } from '@/lib/themeStyles';
 import ChatBackgroundPicker from './ChatBackgroundPicker';
 import SearchHub from './SearchHub';
 import CallAVControls from './CallAVControls';
@@ -54,7 +55,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   const [ghostMode, setGhostMode] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [selectedProfileUserId, setSelectedProfileUserId] = useState(null);
-  const { startVoiceSession, endVoiceSession, voiceSession } = useAppShell();
+  const { beginCall, endVoiceSession, voiceSession } = useAppShell();
   const activeConversationId = conversationId || conversation?.conversationId;
   // Derived: we're "in call" for this conversation whenever the shell-level
   // voice session is pointing at it. This makes the call state robust to
@@ -180,11 +181,6 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
             const newContent = prompt('Edit message:', msg.content);
             if (newContent && newContent.trim()) editMessageMutation.mutate({ id: data.id, content: newContent });
           }
-        } else if (action === 'save-msg') {
-          toast.success('Message saved to bookmarks');
-        } else if (action === 'share') {
-          navigator.clipboard.writeText(data?.content || '');
-          toast.success('Message copied to clipboard');
         } else if (action === 'report') {
           setReportTarget({ type: 'message', id: data?.id, name: data?.content?.slice(0, 30) || 'Message', content: data?.content });
         } else if (action === 'save-image' && data?.attachments?.[0]) {
@@ -208,12 +204,6 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
           toast.success('Image link copied');
         } else if (action === 'report') {
           setReportTarget({ type: 'message', id: data?.id, name: 'Message', content: data?.content });
-        } else if (action === 'save-msg') {
-          navigator.clipboard.writeText(data?.content || '');
-          toast.success('Message copied to clipboard');
-        } else if (action === 'share') {
-          navigator.clipboard.writeText(data?.content || '');
-          toast.success('Message content copied — paste to share');
         } else if (action === 'save-image' && data?.attachments?.[0]) {
           const a = document.createElement('a'); a.href = data.attachments[0]; a.download = `spidr_img_${Date.now()}`; a.target = '_blank'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
           toast.success('Image download started');
@@ -335,107 +325,22 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
     }
   });
 
-  const handleStartCall = (skipInvite = false, startWithVideo = false) => {
-    playSound('join');
-    // Camera button routes here with startWithVideo=true so the invite goes
-    // out as a video ring — otherwise it always fell back to voice.
-    const videoOn = startWithVideo || isVideoOn;
-    if (startWithVideo && !isVideoOn) setIsVideoOn(true);
-    setInCall(true);
-    setShowCallDeck(true); // legacy flag, kept for header toggle compatibility
-    // Start the shell-level persistent voice deck (survives navigation).
-    startVoiceSession({
-      server: { id: 'dm', name: `DM — ${displayName}`, channels: [], members: [] },
-      channel: { id: activeConversationId, name: displayName, type: 'voice' },
-      currentUser,
-      // videoOn already decided the ring's `kind` below; it has to reach the
-      // media join too or the caller rings "video" and sends audio only.
-      startWithVideo: videoOn,
-    });
-    createSessionMutation.mutate({
-      server_id: 'dm',
-      channel_id: activeConversationId,
-      user_id: currentUser?.id,
-      user_name: currentUser?.full_name || currentUser?.username,
-      user_avatar: currentUser?.avatar_url || '',
-      is_muted: isMuted,
-      is_video_on: videoOn,
-      is_speaking: false
-    });
-    // Ring the other person — unless we're answering their call (skipInvite).
-    if (!skipInvite) {
-      try {
-        const socket = getSocket();
-        const callerName = currentUser?.full_name || currentUser?.username;
-        socket.emit('call:invite', {
-          recipientId: activeRecipientId,
-          conversationId: activeConversationId,
-          kind: videoOn ? 'video' : 'voice',
-          caller: {
-            id: currentUser?.id,
-            name: callerName,
-            avatar: currentUser?.avatar_url || '',
-          },
-        });
-        // 60s no-answer safety: if the recipient never joins the voice
-        // session within a minute, the caller's side auto-cancels and the
-        // server writes a "Missed call from you" row. Cleared as soon as
-        // any second participant joins (see effect below).
-        clearTimeout(noAnswerTimerRef.current);
-        noAnswerTimerRef.current = setTimeout(() => {
-          try {
-            socket.emit('call:cancel', {
-              recipientId: activeRecipientId,
-              conversationId: activeConversationId,
-              reason: 'unanswered',
-              callerName,
-            });
-          } catch {}
-        }, 60_000);
-      } catch { /* non-fatal */ }
-    }
-    if (onVoiceJoin) {
-      onVoiceJoin(activeRecipientId, displayName, activeConversationId);
-    }
+  const handleStartCall = async (skipInvite = false, startWithVideo = false) => {
+    try {
+      await beginCall({ conversationId: activeConversationId, recipientId: activeRecipientId, kind: startWithVideo || isVideoOn ? 'video' : 'voice' }, skipInvite);
+      setInCall(true);
+      setShowCallDeck(true);
+      onVoiceJoin?.(activeRecipientId, displayName, activeConversationId);
+    } catch (error) { toast.error(error.message); }
   };
 
-  // Expose a no-invite join to the answer-call listener above.
-  useEffect(() => {
-    answerHandlerRef.current = () => handleStartCall(true);
-  });
+  useEffect(() => { answerHandlerRef.current = () => handleStartCall(true); });
 
   const handleEndCall = () => {
-    playSound('leave');
-    const mySession = voiceSessions.find(s => s.user_id === currentUser?.id);
-    if (mySession) {
-      deleteSessionMutation.mutate(mySession.id);
-    }
-    // Stop ringing the other side if they haven't picked up yet — carry
-    // reason + callerName so the server can write the correct missed-call
-    // row (labeled "Missed call from {you}").
-    // Only while the no-answer timer is still pending: once it's cleared the
-    // call either connected (someone joined) or already wrote its own
-    // 'unanswered' row, and cancelling again duplicated the missed-call
-    // bubble / stamped one onto a call that actually happened.
-    if (noAnswerTimerRef.current) {
-      try {
-        getSocket().emit('call:cancel', {
-          recipientId: activeRecipientId,
-          conversationId: activeConversationId,
-          reason: 'cancelled',
-          callerName: currentUser?.full_name || currentUser?.username,
-        });
-      } catch { /* non-fatal */ }
-    }
-    clearTimeout(noAnswerTimerRef.current);
-    noAnswerTimerRef.current = null;
     setInCall(false);
     endVoiceSession();
-    if (onVoiceLeave) {
-      onVoiceLeave();
-    }
+    onVoiceLeave?.();
   };
-
   const handleToggleMic = () => {
     playSound('toggle');
     const newMuted = !isMuted;
@@ -700,7 +605,7 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-black relative overflow-hidden max-w-full">
+    <div className="flex-1 flex flex-col bg-black relative overflow-hidden max-w-full" style={CHAT_THEME_VARIABLES} data-chat-theme="dm">
       {/* Fly Hunt Overlay */}
       <FlyHunt onCatch={handleFlyCatch} userName={currentUser?.full_name || 'You'} />
 
@@ -1011,8 +916,8 @@ export default function DirectMessages({ conversation, currentUser, onBack, reci
                     data-msg-id={msg.id}
                     className="group relative select-none md:select-auto"
                     style={{ WebkitTouchCallout: 'none' }}
-                    onContextMenu={(e) => triggerMenu(e, 'message', { id: msg.id, content: msg.content, sender_id: msg.sender_id, sender_name: msg.sender_name, sender_avatar: msg.sender_avatar, attachments: msg.attachments })}
-                    {...bindLongPress('message', { id: msg.id, content: msg.content, sender_id: msg.sender_id, sender_name: msg.sender_name, sender_avatar: msg.sender_avatar, attachments: msg.attachments })}
+                    onContextMenu={(e) => triggerMenu(e, 'message', { ...msg, scope: 'dm' })}
+                    {...bindLongPress('message', { ...msg, scope: 'dm' })}
                   >
                     <MessageItem
                       msg={msg}

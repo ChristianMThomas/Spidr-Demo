@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { entities, getSocket } from '@/api/apiClient';
 import { useAppShell } from '@/context/AppShellContext';
 import { Phone, PhoneOff } from 'lucide-react';
 import SpiderLogo from './SpiderLogo';
 import { playSound } from './SoundEngine';
+import { toast } from 'sonner';
 
 /**
  * IncomingCallBanner — Spidr's themed incoming-call UI for DM + group calls.
@@ -32,11 +33,14 @@ import { playSound } from './SoundEngine';
  */
 export default function IncomingCallBanner() {
   const navigate = useNavigate();
-  const { currentUser, navigateToDM, startVoiceSession } = useAppShell();
+  const reducedMotion = useReducedMotion();
+  const { currentUser, navigateToDM, beginCall, accountCalls } = useAppShell();
   const [call, setCall] = useState(null); // { conversationId, caller, callerId, kind?, groupId? }
   const audioCtxRef = useRef(null);
   const ringTimerRef = useRef(null);
   const autoDismissRef = useRef(null);
+  const callRef = useRef(null);
+  callRef.current = call;
 
   // ── Ringtone: a short, eerie two-note "web pluck" looped via WebAudio ──────
   const startRing = () => {
@@ -95,126 +99,69 @@ export default function IncomingCallBanner() {
       // Ignore a call we somehow initiated ourselves.
       if (payload.callerId && payload.callerId === currentUser.id) return;
       setCall(payload);
+      callRef.current = payload;
       startRing();
       if (autoDismissRef.current) clearTimeout(autoDismissRef.current);
-      autoDismissRef.current = setTimeout(() => dismiss(), 30000);
+      autoDismissRef.current = setTimeout(() => dismiss(), Math.max(0, (payload.expiresAt || Date.now() + 30000) - Date.now()));
     };
-    const onCancelled = () => dismiss();
+    const onCancelled = payload => { if (payload.callId === callRef.current?.callId) dismiss(); };
 
     socket.on('call:incoming', onIncoming);
     socket.on('call:cancelled', onCancelled);
+    socket.on('call:answered-elsewhere', onCancelled);
     return () => {
       socket.off('call:incoming', onIncoming);
       socket.off('call:cancelled', onCancelled);
+      socket.off('call:answered-elsewhere', onCancelled);
       stopRing();
       if (autoDismissRef.current) clearTimeout(autoDismissRef.current);
     };
   }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const incoming = accountCalls.find(c => c.status === 'ringing' && !c.isOwner && !c.declined && c.callerId !== currentUser?.id);
+    if (!incoming) { if (callRef.current) dismiss(); return; }
+    if (incoming.callId === callRef.current?.callId) return;
+    callRef.current = incoming;
+    setCall(incoming);
+    startRing();
+  }, [accountCalls, currentUser?.id]);
+
   const answer = async () => {
     if (!call) return;
-    // Stop ringing the moment the user clicks — the ring is what they're
-    // trying to silence by hitting Answer, so we kill it FIRST even if
-    // anything below throws.
     dismiss();
     try {
-      getSocket().emit('call:accept', { callerId: call.callerId, conversationId: call.conversationId });
-    } catch { /* non-fatal */ }
-    const callerId = call.caller?.id || call.callerId;
-    const callerName = call.caller?.name || 'Caller';
-
-    // Drive the join ourselves instead of dispatching an event the DM view
-    // has 400ms to catch (which races route transitions on slow devices).
-    // We create the VoiceSession row + flip on the shell-level voice deck
-    // RIGHT NOW so the WebRTC peer connection starts immediately; the DM
-    // view derives its in-call UI from the shell session, so when it
-    // mounts everything's already wired.
-    try {
-      if (call.kind === 'group' && call.groupId) {
-        startVoiceSession?.({
-          server:  { id: 'group', name: call.groupName || 'Group Call', channels: [], members: [] },
-          channel: { id: call.groupId, name: call.groupName || 'Group Call', type: 'voice' },
-          currentUser,
-        });
-        entities.VoiceSession.create({
-          server_id: 'group',
-          channel_id: call.groupId,
-          user_id: currentUser?.id,
-          user_name: currentUser?.full_name || currentUser?.username,
-          user_avatar: currentUser?.avatar_url || '',
-          is_muted: false,
-          is_video_on: false,
-          is_speaking: false,
-        }).catch(() => { /* non-fatal: the join still works */ });
-      } else if (call.conversationId) {
-        // The ring carries `kind`, but the media join ignored it and always
-        // came up audio-only — so answering a video call connected with no
-        // camera and the caller stared at a black tile. Answer a video ring
-        // with video, the way the caller asked for it.
-        const answerWithVideo = call.kind === 'video';
-        startVoiceSession?.({
-          server:  { id: 'dm', name: `DM — ${callerName}`, channels: [], members: [] },
-          channel: { id: call.conversationId, name: callerName, type: 'voice' },
-          currentUser,
-          startWithVideo: answerWithVideo,
-        });
-        entities.VoiceSession.create({
-          server_id: 'dm',
-          channel_id: call.conversationId,
-          user_id: currentUser?.id,
-          user_name: currentUser?.full_name || currentUser?.username,
-          user_avatar: currentUser?.avatar_url || '',
-          is_muted: false,
-          is_video_on: answerWithVideo,
-          is_speaking: false,
-        }).catch(() => { /* non-fatal */ });
-      }
+      await beginCall({ callId: call.callId, conversationId: call.conversationId, groupId: call.groupId, kind: call.kind }, true);
       playSound('join');
-    } catch { /* non-fatal */ }
-
-    // Navigate to the conversation so the user has the chat open while in
-    // the call. The call itself is already live regardless of when (or if)
-    // this navigation completes.
-    if (call.kind === 'group' && call.groupId) {
-      navigate(`/friends/groups/${call.groupId}`);
-    } else if (navigateToDM) {
-      navigateToDM(callerId, call.conversationId);
-    } else {
-      navigate('/friends/dms');
-    }
-
-    // Keep the legacy event for any other listeners that still depend on
-    // it (no-op for the DM/group page, since they derive in-call state
-    // from the shell now).
-    setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('spidr-answer-call', {
-        detail: { conversationId: call.conversationId, callerId, callerName },
-      }));
-    }, 100);
+      if (call.groupId) {
+        window.__spidrPendingGroup = { groupId: call.groupId, at: Date.now() };
+        window.dispatchEvent(new Event('spidr-pending-group'));
+        navigate('/friends/dms');
+      }
+      else navigateToDM(call.caller?.id || call.callerId, call.conversationId);
+    } catch (error) { toast.error(error.message); }
   };
-
   const deny = () => {
     if (!call) return;
     try {
-      getSocket().emit('call:decline', { callerId: call.callerId, conversationId: call.conversationId });
+      getSocket().emit('call:decline', { callId: call.callId, conversationId: call.conversationId, groupId: call.groupId });
     } catch { /* non-fatal */ }
     dismiss();
   };
 
-  if (!call) return null;
-
-  const callerName = call.caller?.name || 'Someone';
-  const callerAvatar = call.caller?.avatar || '';
+  const callerName = call?.caller?.name || 'Someone';
+  const callerAvatar = call?.caller?.avatar || '';
 
   return createPortal((
     <AnimatePresence>
-      <motion.div
-        key="incoming-call"
-        initial={{ y: -180, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: -180, opacity: 0 }}
+      {call && <motion.div
+        key={call.callId}
+        initial={{ x: '-50%', y: reducedMotion ? 0 : -180, opacity: 0 }}
+        animate={{ x: '-50%', y: 0, opacity: 1 }}
+        exit={{ x: '-50%', y: reducedMotion ? 0 : -180, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 280, damping: 24 }}
-        className="fixed top-0 left-1/2 -translate-x-1/2 z-[300] flex flex-col items-center"
+        className="fixed top-0 left-1/2 z-[300] flex flex-col items-center"
+        role="dialog" aria-label={`Incoming call from ${callerName}`}
       >
         {/* Silk thread the caller descends on */}
         <motion.div
@@ -237,9 +184,9 @@ export default function IncomingCallBanner() {
             <div className="flex flex-col items-center gap-2">
               {/* Avatar with pulsing web ring */}
               <div className="relative w-16 h-16">
-                <span className="absolute inset-[-6px] rounded-full border border-red-500/40 animate-ping" />
+                <span className="absolute inset-[-6px] rounded-full border border-red-500/40 motion-safe:animate-ping" />
                 <span className="absolute inset-[-3px] rounded-full"
-                  style={{ background: 'conic-gradient(from 0deg,#ef4444,#7f1d1d,#ef4444)', animation: 'spidr-ring-spin 3s linear infinite', filter: 'blur(1px)', opacity: 0.8 }} />
+                  style={{ background: '#ef4444', opacity: 0.6 }} />
                 <div className="absolute inset-0 rounded-full overflow-hidden border-2 border-black bg-zinc-800 flex items-center justify-center">
                   {callerAvatar
                     ? <img src={callerAvatar} alt={callerName} className="w-full h-full object-cover" />
@@ -248,7 +195,7 @@ export default function IncomingCallBanner() {
               </div>
 
               <div className="text-center">
-                <p className="text-white font-bold text-base leading-tight">{callerName}</p>
+                <p className="text-white font-bold text-base leading-tight break-words max-w-[280px]">{callerName}</p>
                 <p className="text-zinc-500 text-xs">is calling you on the web…</p>
               </div>
             </div>
@@ -270,7 +217,7 @@ export default function IncomingCallBanner() {
             </div>
           </div>
         </div>
-      </motion.div>
+      </motion.div>}
     </AnimatePresence>
   ), document.body);
 }

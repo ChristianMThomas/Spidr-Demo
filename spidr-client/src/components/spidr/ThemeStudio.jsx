@@ -6,6 +6,7 @@ import { Slider } from '@/components/ui/slider';
 import { Sparkles, Check, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { entities, auth, integrations } from '@/api/apiClient';
+import { normalizeTheme, themeBackground, themeOverlay } from '@/lib/themeStyles';
 const PRESETS = [
   { name: 'Spidr Red',       primary: '#dc2626', secondary: '#7f1d1d' },
   { name: 'Symbiote Sludge', primary: '#4c1d95', secondary: '#000000' },
@@ -35,21 +36,21 @@ export default function ThemeStudio({ open, onClose, currentTheme, onSave }) {
   const set = (updates) => { setTheme(p => ({ ...p, ...updates })); setHasChanges(true); };
 
   const handleSave = async () => {
-    onSave(theme);
-    try { localStorage.setItem('spidr_theme', JSON.stringify(theme)); } catch {}
+    const savedTheme = normalizeTheme(theme);
+    onSave(savedTheme);
+    try { localStorage.setItem('spidr_theme', JSON.stringify(savedTheme)); } catch {}
     // Persist to DB for cross-device sync
     try {
       const user = await auth.me();
       const profiles = await entities.UserProfile.filter({ user_id: user.id });
       if (profiles[0]) {
-        await entities.UserProfile.update(profiles[0].id, { app_theme: theme });
+        await entities.UserProfile.update(profiles[0].id, { app_theme: savedTheme });
       } else {
-        await entities.UserProfile.create({ user_id: user.id, app_theme: theme });
+        await entities.UserProfile.create({ user_id: user.id, app_theme: savedTheme });
       }
       toast.success('Theme saved!');
-    } catch { toast.success('Theme applied!'); }
+    } catch { toast.warning('Theme applied on this device. Account sync failed.'); }
     setHasChanges(false);
-    toast.success('🎨 Theme applied!');
     onClose();
   };
 
@@ -65,18 +66,11 @@ export default function ThemeStudio({ open, onClose, currentTheme, onSave }) {
     finally { setUploading(false); }
   };
 
-  const preview = () => {
-    if (theme.type === 'solid')    return { backgroundColor: theme.primaryColor };
-    if (theme.type === 'gradient') return { background: `linear-gradient(135deg, ${theme.primaryColor}, ${theme.secondaryColor})` };
-    if (theme.type === 'image' && theme.backgroundImage) return { backgroundImage: `url(${theme.backgroundImage})`, backgroundSize: 'cover', backgroundPosition: 'center' };
-    return { background: '#111' };
-  };
-
   const TABS = ['gradient', 'solid', 'image'];
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="bg-[#0a0a0a] border-white/10 max-w-2xl p-0 overflow-hidden">
+      <DialogContent className="bg-[#0a0a0a] border-white/10 max-w-2xl max-h-[90dvh] p-0 overflow-y-auto">
         <DialogHeader className="px-6 pt-5 pb-4 border-b border-white/5">
           <DialogTitle className="text-white flex items-center gap-2 text-base font-black">
             <Sparkles className="w-4 h-4 text-red-500" /> THEME STUDIO
@@ -190,16 +184,12 @@ export default function ThemeStudio({ open, onClose, currentTheme, onSave }) {
             <div className="relative h-28 rounded-xl overflow-hidden border border-white/5">
               <div
                 className="absolute inset-0"
-                style={{
-                  ...preview(),
-                  filter: theme.type === 'image' && theme.blur ? `blur(${theme.blur}px)` : undefined,
-                  transform: theme.type === 'image' && theme.blur ? 'scale(1.06)' : undefined, // hide blurred edges
-                }}
+                style={themeBackground(theme)}
               />
               {/* Single readability scrim that tracks the user's opacity setting. */}
               <div
-                className="absolute inset-0 bg-black transition-opacity"
-                style={{ opacity: theme.type === 'image' ? Math.max(0.15, (100 - (theme.opacity ?? 100)) / 100) : 0.35 }}
+                className="absolute inset-0"
+                style={themeOverlay(theme)}
               />
               <div className="absolute inset-0 flex items-center justify-center gap-4">
                 <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/20" />

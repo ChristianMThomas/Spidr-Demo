@@ -26,6 +26,8 @@ const router = express.Router();
 // non-standard ownership field can't silently escape the delete.
 const DELETE_CASCADE = [
   ['UserProfile',     (uid) => ({ user_id: uid })],
+  ['AppleMusicConnection', (uid) => ({ user_id: uid })],
+  ['AppleMusicLink',   (uid) => ({ user_id: uid })],
   ['BiomassWallet',   (uid) => ({ user_id: uid })],
   ['EngagementProfile', (uid) => ({ user_id: uid })],
   ['TensionProfile',  (uid) => ({ user_id: uid })],

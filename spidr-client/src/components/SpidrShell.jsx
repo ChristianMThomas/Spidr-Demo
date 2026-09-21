@@ -4,10 +4,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Volume2, VolumeX, PhoneOff, ChevronUp } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { useAppShell } from '@/context/AppShellContext';
+import { themeVariables, themeBackground, themeOverlay } from '@/lib/themeStyles';
 import { entities, getSocket } from '@/api/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { useGlobalMenuActions } from '@/hooks/useGlobalMenuActions';
 import Sidebar from '@/components/spidr/Sidebar';
+import { BrandLoading } from '@/components/spidr/SpidrBrand';
+import SidebarDock from '@/components/spidr/SidebarDock';
+import MessageActionsHost from '@/components/spidr/MessageActionsHost';
 import { MenuProvider } from '@/components/MenuContext';
 import SpidrMenu from '@/components/ui/SpidrMenu';
 import HolographicProfile from '@/components/spidr/HolographicProfile';
@@ -23,10 +27,12 @@ import BiomassBalancePill from '@/components/spidr/BiomassBalancePill';
 import UserStatusChip from '@/components/spidr/UserStatusChip';
 import { NotificationProvider, NotificationBell } from '@/components/spidr/NotificationCenter';
 import IncomingCallBanner from '@/components/spidr/IncomingCallBanner';
+import AccountCallStatus from '@/components/spidr/AccountCallStatus';
 import LevelUpToast from '@/components/spidr/LevelUpToast';
 import ApexEntrance from '@/components/spidr/ApexEntrance';
 import TitleBar from '@/components/spidr/TitleBar';
 import UpdateBanner from '@/components/spidr/UpdateBanner';
+import QuickBrowserPanel from '@/components/spidr/QuickBrowserPanel';
 
 /**
  * SpidrShell — the persistent app frame that surrounds every routed page.
@@ -73,6 +79,13 @@ export default function SpidrShell() {
   const { currentUser, userLoaded, appTheme, activeCall, isCallMinimized, setActiveCall, setIsCallMinimized, voiceSession, voiceDeckExpanded, setVoiceDeckExpanded, endVoiceSession, callStartedAt } = useAppShell();
   const location = useLocation();
   const navigate = useNavigate();
+  const [quickBrowserOpen, setQuickBrowserOpen] = useState(false);
+  useEffect(() => {
+    const toggle = () => { if (window.electronAPI?.quickBrowser) setQuickBrowserOpen(open => !open); };
+    window.addEventListener('spidr-quick-browser-toggle', toggle);
+    return () => window.removeEventListener('spidr-quick-browser-toggle', toggle);
+  }, []);
+  useEffect(() => { setQuickBrowserOpen(false); }, [currentUser?.id]);
 
   // 2.1 — Auto-minimize: if the user is in an active (non-minimized) voice call
   // and navigates away from that call's surface (e.g. a different channel, the
@@ -163,23 +176,55 @@ export default function SpidrShell() {
   }, []);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   // ── Theater Mode (co-op feed sync inside a voice channel) ──────────
-  // When set, every member of `voiceSession.channel` sees the
-  // TheaterStage centerpiece in place of the normal voice grid /
-  // screen-share view. `theaterHostId` matches a single user — at most
-  // one broadcaster per channel at a time. The VoiceChannel dock's Tv
-  // toggle starts and stops it via the handlers below. The scroll +
-  // ghost-reaction broadcast is local-only today (window events) until
-  // the server binds `theater:scroll` / `theater:reaction` listeners
-  // and rebroadcasts to other sockets in the channel room.
+  // When set, every member of `voiceSession.channel` sees the TheaterStage
+  // centerpiece in place of the normal voice grid / screen-share view.
+  // `theaterHostId` matches a single user — at most one broadcaster per
+  // channel at a time. The VoiceChannel dock's Tv toggle starts and stops
+  // it via the handlers below.
+  //
+  // The server owns this state, not us. `theater:state` is the only thing
+  // that flips the flag in either direction, which is what makes other
+  // members see the stage appear at all (previously this was local-only
+  // React state, so a "broadcast" was visible to exactly one person — the
+  // broadcaster).
   const [theaterHostId, setTheaterHostId] = useState(null);
   const [theaterHostName, setTheaterHostName] = useState('');
-  // Clear theater whenever the user leaves the voice channel.
+
   useEffect(() => {
-    if (!voiceSession && theaterHostId) {
+    if (!voiceSession) {
+      // Leaving the call always clears the stage locally; the server drops
+      // its own copy when our socket leaves the voice room.
       setTheaterHostId(null);
       setTheaterHostName('');
+      return;
     }
-  }, [voiceSession, theaterHostId]);
+    let socket = null;
+    const onState = (state) => {
+      setTheaterHostId(state?.hostId || null);
+      setTheaterHostName(state?.hostName || '');
+    };
+    const onDenied = ({ hostId, hostName } = {}) => {
+      // Roll the optimistic open back to whoever actually holds the stage.
+      setTheaterHostId(hostId || null);
+      setTheaterHostName(hostName || '');
+      toast.info(`${hostName || 'Someone'} is already broadcasting in this channel.`);
+    };
+    try {
+      socket = getSocket();
+      socket?.on?.('theater:state', onState);
+      socket?.on?.('theater:denied', onDenied);
+      // Joining a call that already has a broadcast running.
+      socket?.emit?.('theater:request-state');
+    } catch { /* offline — theater just stays closed */ }
+    return () => {
+      try {
+        socket?.off?.('theater:state', onState);
+        socket?.off?.('theater:denied', onDenied);
+      } catch {}
+    };
+    // Re-subscribe per call, not per render: callId changes when the user
+    // moves to a different channel.
+  }, [voiceSession, voiceSession?.callId, voiceSession?.channel?.id]);
   // User-chosen sidebar position: 'left' | 'right' | 'hidden'. Persisted in
   // localStorage and updated live via the Appearance settings card.
   const [sidebarPosition, setSidebarPosition] = useState(() => {
@@ -275,32 +320,13 @@ export default function SpidrShell() {
     else navigate('/home');
   };
 
-  // Background style derived from theme
-  const getBackgroundStyle = () => {
-    if (appTheme.type === 'solid') {
-      return { backgroundColor: appTheme.primaryColor };
-    }
-    if (appTheme.type === 'gradient') {
-      return {
-        background: `linear-gradient(135deg, ${appTheme.primaryColor}, ${appTheme.secondaryColor})`,
-      };
-    }
-    if (appTheme.type === 'image' && appTheme.backgroundImage) {
-      return {
-        backgroundImage: `url(${appTheme.backgroundImage})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-      };
-    }
-    return { backgroundColor: '#000' };
-  };
 
   // Don't render the shell until we know whether the user is authenticated.
   // The route guards in App.jsx redirect to /login if needed.
   if (!userLoaded) {
     return (
       <div className="w-full h-[100dvh] bg-black flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-zinc-700 border-t-red-500 rounded-full animate-spin" />
+        <BrandLoading />
       </div>
     );
   }
@@ -308,10 +334,12 @@ export default function SpidrShell() {
   return (
     <MenuProvider>
       <NotificationProvider currentUser={currentUser}>
+      <MessageActionsHost currentUser={currentUser} />
+      <AccountCallStatus />
       {/* bg-[#050505] here (not on TitleBar) so the frameless-window strip
           above the themed layout area reads as dark chrome instead of the
           white document body bleeding through the transparent titlebar. */}
-      <div className="w-full h-[100dvh] flex flex-col overflow-hidden text-white bg-[#050505]">
+      <div className="w-full h-[100dvh] flex flex-col overflow-hidden text-white bg-[#050505]" style={themeVariables(appTheme)} data-app-theme>
         {/* Custom title bar — Electron only (frameless window). Owns the
             NotificationBell + BiomassBalancePill + UserStatusChip cluster
             on desktop app users, so the floating cluster below is hidden
@@ -324,62 +352,26 @@ export default function SpidrShell() {
           className={`flex flex-1 min-h-0 relative overflow-hidden ${
             (sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'md:flex-col' : 'flex-row'
           }`}
-          style={getBackgroundStyle()}
+          style={themeBackground(appTheme)}
+          data-theme-background
         >
-        {/* App background integration layer.
-            The user's custom background sits behind everything. This layer
-            blends it into the app with: (1) any user-configured blur, (2) a
-            dim that's lighter on /home (where the background is the feature)
-            and stronger elsewhere for readability, and (3) a subtle radial
-            vignette + top-to-bottom gradient so the background feels woven
-            into the UI rather than slapped behind it. */}
-        {(() => {
-          const isHome = location.pathname === '/home' || location.pathname === '/' || location.pathname.toLowerCase() === '/home';
-          const userBlur = appTheme.blur || 0;
-          const userDim = (100 - (appTheme.opacity ?? 100)) / 100;
-          // Effective blur: honor the user's setting; otherwise a gentle 1px
-          // off-home blur to soften busy backgrounds behind text.
-          const effectiveBlur = userBlur > 0 ? userBlur : (isHome ? 0 : 1);
-          // Effective dim: respect explicit user opacity. Pages now carry their
-          // own translucent scrim (bg-black/40), so the shell only adds a light
-          // wash off-home to avoid double-dimming into mud.
-          const hasUserOpacity = appTheme.opacity !== undefined && appTheme.opacity < 100;
-          const effectiveDim = (userBlur > 0 || hasUserOpacity) ? userDim : (isHome ? 0 : 0.15);
-          return (
-            <div
-              className="absolute inset-0 pointer-events-none transition-[background,backdrop-filter] duration-500"
-              style={{
-                backdropFilter: effectiveBlur > 0 ? `blur(${effectiveBlur}px)` : undefined,
-                WebkitBackdropFilter: effectiveBlur > 0 ? `blur(${effectiveBlur}px)` : undefined,
-                background: [
-                  // Radial vignette — darker at the edges, draws focus inward.
-                  'radial-gradient(120% 120% at 50% 0%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.35) 100%)',
-                  // Subtle red-tinted top-down gradient ties it to the brand.
-                  `linear-gradient(180deg, rgba(10,0,0,${effectiveDim * 0.6}) 0%, rgba(0,0,0,${effectiveDim}) 100%)`,
-                ].join(', '),
-              }}
-            />
-          );
-        })()}
+        {/* Blur only the backdrop, never page content or video. */}
+        <div aria-hidden="true" className="absolute inset-0 pointer-events-none" style={themeOverlay(appTheme)} data-theme-overlay />
 
         {/* Persistent Sidebar — desktop only. Position controlled by user
             preference (left / right / top / bottom / hidden).
             Hidden on mobile (<md): the mobile drawer is the new
             MobileMenuPanel (rendered below) which shows a different set of
             destinations sized for one-thumb reach. */}
-        <div className={`hidden md:flex md:relative inset-y-0 left-0 md:z-30 flex-shrink-0 md:transition-none
-          ${sidebarPosition === 'hidden' ? 'md:hidden' : ''}
-          ${sidebarPosition === 'right' ? 'md:order-2' : ''}
-          ${sidebarPosition === 'bottom' ? 'md:order-2 md:inset-y-auto md:bottom-0' : ''}
-          ${(sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'md:w-full md:h-auto md:inset-x-0' : ''}
-        `} style={{ opacity: sidebarOpacity / 100, WebkitAppRegion: 'no-drag' }}>
+        <SidebarDock position={sidebarPosition} opacity={sidebarOpacity}>
           <Sidebar
+            position={sidebarPosition}
             activeTab={activeTab}
             setActiveTab={setActiveTab}
             orientation={(sidebarPosition === 'top' || sidebarPosition === 'bottom') ? 'horizontal' : 'vertical'}
             isGlass={appTheme?.type === 'image' && !!appTheme?.backgroundImage}
           />
-        </div>
+        </SidebarDock>
 
         {/* Mobile drawer — the new menu panel with profile/biomass/signals at
             the top and the off-bottom-bar destinations below. */}
@@ -393,10 +385,10 @@ export default function SpidrShell() {
         {/* Per-page content. Reserve room at the bottom on mobile so the
             bottom nav (now ~64px tall + safe-area inset) doesn't cover
             content. */}
-        <main className="flex-1 min-w-0 min-h-0 flex flex-col relative z-20 pb-20 md:pb-0" style={{ WebkitAppRegion: 'no-drag' }}>
+        <main className="flex-1 min-w-0 min-h-0 flex flex-col relative z-20 pb-20 md:pb-0" style={{ WebkitAppRegion: 'no-drag', marginRight: quickBrowserOpen ? 'min(440px, 42vw)' : 0 }}>
           <React.Suspense fallback={
             <div className="flex-1 flex items-center justify-center">
-              <div className="w-8 h-8 border-4 border-zinc-700 border-t-red-500 rounded-full animate-spin" />
+              <BrandLoading />
             </div>
           }>
             <Outlet />
@@ -417,7 +409,7 @@ export default function SpidrShell() {
             row on the right and the visual overlap between the two. On
             web (no TitleBar) it stays floating over the page headers. */}
         {currentUser && !window.electronAPI?.isElectron && (
-          <div className="fixed top-[10px] right-4 z-40 hidden md:flex items-center gap-2">
+          <div className={`fixed ${sidebarPosition === 'top' ? 'top-[74px]' : 'top-[10px]'} ${sidebarPosition === 'right' ? 'right-[88px]' : 'right-4'} z-40 hidden md:flex items-center gap-2`}>
             <NotificationBell />
             <BiomassBalancePill />
             <UserStatusChip />
@@ -450,6 +442,7 @@ export default function SpidrShell() {
               ? 'fixed inset-0 z-[150] flex flex-col'
               : 'hidden'}
             aria-hidden={!(voiceDeckExpanded && !isCallMinimized)}
+            style={{ right: quickBrowserOpen ? `calc(min(440px, 42vw) + ${sidebarPosition === 'right' ? 72 : 0}px)` : 0 }}
           >
             {/* Simple red/black brand gradient — replaced the geometric
                 SpidrBackground web pattern that read as busy/AI-generated
@@ -464,6 +457,9 @@ export default function SpidrShell() {
               }}
             >
               <VoiceChannel
+                key={voiceSession.callId || `${voiceSession.server.id}:${voiceSession.channel.id}`}
+                callId={voiceSession.callId}
+                initialStream={voiceSession.initialStream}
                 deckHidden={!(voiceDeckExpanded && !isCallMinimized)}
                 server={voiceSession.server}
                 channel={voiceSession.channel}
@@ -476,17 +472,19 @@ export default function SpidrShell() {
                 onStartTheater={() => {
                   const me = voiceSession.currentUser || currentUser;
                   if (!me?.id) return;
+                  // Optimistic so the stage opens on the click rather than
+                  // on the round trip; the server's `theater:state` echo
+                  // (which reaches us too) is what confirms it, and
+                  // `theater:denied` is what takes it back if someone else
+                  // already holds the stage.
                   setTheaterHostId(me.id);
                   setTheaterHostName(me.full_name || me.username || 'You');
-                  // TODO: emit `theater:start` over the channel socket
-                  // so other members see the matrix appear. The receive
-                  // side already listens in TheaterStage.jsx via
-                  // window event + getSocket().on('theater:scroll').
+                  try { getSocket()?.emit?.('theater:start'); } catch {}
                 }}
                 onStopTheater={() => {
                   setTheaterHostId(null);
                   setTheaterHostName('');
-                  // TODO: emit `theater:stop` over the channel socket.
+                  try { getSocket()?.emit?.('theater:stop'); } catch {}
                 }}
               />
             </div>
@@ -528,6 +526,11 @@ export default function SpidrShell() {
             />
           )}
         </AnimatePresence>
+
+        {quickBrowserOpen && currentUser && (
+          <QuickBrowserPanel key={currentUser.id} onClose={() => setQuickBrowserOpen(false)}
+            rightInset={sidebarPosition === 'right' ? 72 : 0} topInset={sidebarPosition === 'top' ? 104 : 40} />
+        )}
 
         {/* Symbiote Profile Takeover overlay (Patch 2.0) — dormant until an APEX
             profile modal is opened. z-[100]: above the app, below modals. */}
