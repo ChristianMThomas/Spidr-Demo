@@ -40,6 +40,7 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
   const socketRef     = useRef(null);
   const iceConfigRef  = useRef({ iceServers: ICE_SERVERS });
   const screenTrackRef = useRef(null);
+  const outgoingTracksRef = useRef(new Map());
   const pendingScreenRef = useRef({}); // socketId -> streamId awaiting ontrack
   const peerStreamsRef = useRef({});   // mirror of peerStreams for sync reads
 
@@ -86,6 +87,10 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
       localStreamRef.current.getTracks().forEach(track => {
         pc.addTrack(track, localStreamRef.current);
       });
+    }
+    // Late joiners need the already-running share, not just microphone tracks.
+    for (const [track, stream] of outgoingTracksRef.current) {
+      if (track.readyState !== 'ended') pc.addTrack(track, stream);
     }
 
     // When we get remote audio/video. A peer may send TWO video streams (their
@@ -402,6 +407,8 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
     // Close all peer connections
     Object.values(peersRef.current).forEach(pc => pc.close());
     peersRef.current = {};
+    outgoingTracksRef.current.clear();
+    screenTrackRef.current = null;
     setPeers({});
     setRemoteStreams({});
     setScreenStreams({});
@@ -479,6 +486,7 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
   // stream to a dedicated screen <video> instead of overwriting the webcam.
   const addOutgoingTrack = useCallback((track, stream, purpose) => {
     if (!track) return [];
+    outgoingTracksRef.current.set(track, stream);
     const senders = [];
     Object.values(peersRef.current).forEach(pc => {
       try { senders.push(pc.addTrack(track, stream)); } catch (e) { console.error(e); }
@@ -497,6 +505,7 @@ export function useWebRTC({ channelId, serverId, groupId, currentUser, enabled =
   // removeTrack also fires onnegotiationneeded so peers drop the stream.
   const removeOutgoingTrack = useCallback((track) => {
     if (!track) return;
+    outgoingTracksRef.current.delete(track);
     Object.values(peersRef.current).forEach(pc => {
       try {
         const sender = pc.getSenders().find(s => s.track === track);

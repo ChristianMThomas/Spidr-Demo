@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import ProfileAnthem from './ProfileAnthem';
 import {
   ScrollView,
   View,
@@ -44,7 +45,6 @@ import { Avatar } from '../ui/Avatar';
 import { Spinner } from '../ui/Spinner';
 import { NowPlayingCard } from '../spidr/NowPlayingCard';
 import { ModuleWidget } from './ModuleWidget';
-import { AudioPlayer } from '../chat/AudioPlayer';
 
 const STATUS_COLOR: Record<string, string> = {
   online: '#22c55e',
@@ -363,9 +363,7 @@ export function ProfileView({ userId }: { userId?: string }) {
             {subjectName}
           </Text>
           {isApex && (
-            <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: '#dc2626' }}>
-              <Text style={{ color: '#fff', fontSize: 9, fontWeight: '900', letterSpacing: 1 }}>APEX</Text>
-            </View>
+            <Image source={require('../../assets/spidr-apex-subscriber.png')} accessibilityLabel="Spidr APEX subscriber" resizeMode="contain" style={{ width: 132, height: 44, maxWidth: '100%' }} />
           )}
         </View>
 
@@ -456,7 +454,10 @@ export function ProfileView({ userId }: { userId?: string }) {
           breathe (banners/stats grids were cramped at 16px each side). */}
       <View style={{ paddingHorizontal: tab === 'modules' ? 10 : 16, paddingTop: 16, minHeight: 220 }}>
         {tab === 'bio' && (
-          <BioPanel currentUser={subject} editable={isSelf} onWidgetSave={isSelf ? widgetSave : undefined} />
+          <>
+            <ProfileAnthem profile={subject} row={myProfileRow} editable={isSelf} />
+            <BioPanel currentUser={subject} editable={isSelf} onWidgetSave={isSelf ? widgetSave : undefined} />
+          </>
         )}
         {tab === 'modules' && <ModulesPanel userId={subject.id} isOwnProfile={isSelf} />}
         {tab === 'mutuals' && !isSelf && (
@@ -1258,33 +1259,6 @@ function BioPanel({
           {currentUser?.bio || 'No bio data transmitted.'}
         </Text>
       </View>
-
-      {currentUser?.profile_anthem?.title && (
-        <View
-          style={{
-            gap: 8,
-            padding: 12,
-            borderRadius: 12,
-            backgroundColor: 'rgba(168,85,247,0.08)',
-            borderWidth: 1,
-            borderColor: 'rgba(168,85,247,0.25)',
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Music size={14} color="#a855f7" />
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ color: '#c084fc', fontSize: 9, fontWeight: '900', letterSpacing: 2 }}>PROFILE ANTHEM</Text>
-              <Text style={{ color: '#fff', fontSize: 12 }} numberOfLines={1}>
-                {currentUser.profile_anthem.title}
-                {currentUser.profile_anthem.artist ? ` — ${currentUser.profile_anthem.artist}` : ''}
-              </Text>
-            </View>
-          </View>
-          {currentUser.profile_anthem.preview_url && (
-            <AudioPlayer url={currentUser.profile_anthem.preview_url} accent="#a855f7" compact />
-          )}
-        </View>
-      )}
 
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <MiniWidget

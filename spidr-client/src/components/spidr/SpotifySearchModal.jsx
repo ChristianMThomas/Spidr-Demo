@@ -20,7 +20,7 @@ import { spotify, appleMusic } from '@/api/apiClient';
  *     the track exists but can't be auditioned in-app.
  */
 export default function SpotifySearchModal({
-  open, onClose, onSelect, currentSelectedId,
+  open, onClose, onSelect, currentSelectedId, currentSelectedProvider = 'spotify', contained = false, portalContainer = null,
   // Optional copy overrides so the same modal can serve Profile Anthem,
   // DJ Booth, and any future "pick a Spotify track" flow.
   title = 'Set Profile Anthem',
@@ -48,7 +48,7 @@ export default function SpotifySearchModal({
   const [pickedProvider, setPickedProvider] = useState('spotify'); // 'spotify' | 'apple'
   const provider = forceProvider || pickedProvider;
   const setProvider = setPickedProvider;
-  const [appleAvailable, setAppleAvailable] = useState(true); // hides tab on 503
+  const [searchError, setSearchError] = useState('');
   const [loading, setLoading] = useState(false);
   const [playingId, setPlayingId] = useState(null); // which preview is auditioning
   const audioRef = useRef(null);
@@ -71,20 +71,25 @@ export default function SpotifySearchModal({
   // firing. Cancels any pending search if a new keystroke lands first.
   useEffect(() => {
     if (!open) return;
+    let active = true;
+    setResults([]);
+    setHiddenCount(0);
+    setSearchError('');
+    setPlayingId(null);
+    audioRef.current?.pause();
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const q = query.trim();
     if (q.length < 2) { setResults([]); setLoading(false); return; }
+    setLoading(true);
 
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
         const res = provider === 'apple'
-          ? await appleMusic.search(q, requirePreview ? 24 : 12).catch((err) => {
-              if (err?.status === 503) setAppleAvailable(false);
-              throw err;
-            })
+          ? await appleMusic.search(q, requirePreview ? 24 : 12)
           : await spotify.search(q, requirePreview ? 24 : 12);
-        let tracks = Array.isArray(res?.tracks) ? res.tracks : [];
+        if (!active) return;
+        let tracks = Array.isArray(res?.tracks) ? res.tracks.map(t => ({ ...t, source: provider })) : [];
         if (requirePreview) {
           const playable = tracks.filter(t => !!t.preview_url);
           setHiddenCount(tracks.length - playable.length);
@@ -93,14 +98,16 @@ export default function SpotifySearchModal({
           setHiddenCount(0);
         }
         setResults(tracks);
-      } catch {
+      } catch (error) {
+        if (!active) return;
         setResults([]);
+        setSearchError(error?.status === 503 ? 'This music catalog is not configured yet.' : 'Search failed. Please try again.');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     }, 320);
-    return () => clearTimeout(debounceRef.current);
-  }, [query, open, provider]);
+    return () => { active = false; clearTimeout(debounceRef.current); };
+  }, [query, open, provider, requirePreview]);
 
   // Stop the audition when the modal closes.
   useEffect(() => {
@@ -132,7 +139,7 @@ export default function SpotifySearchModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-[9992] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
+          className={`${contained ? 'absolute' : 'fixed'} inset-0 z-[9992] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md`}
           onClick={onClose}
         >
           <motion.div
@@ -141,9 +148,11 @@ export default function SpotifySearchModal({
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 320, damping: 28 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-2xl overflow-hidden flex flex-col"
+            role="dialog"
+            aria-label={title}
+            className={`w-full max-w-md rounded-lg flex flex-col ${contained ? 'overflow-y-auto' : 'overflow-hidden'}`}
             style={{
-              maxHeight: 'min(640px, 80vh)',
+              maxHeight: contained ? '100%' : 'min(640px, 80dvh)',
               background: 'rgba(12, 12, 14, 0.96)',
               backdropFilter: 'blur(24px)',
               WebkitBackdropFilter: 'blur(24px)',
@@ -203,12 +212,13 @@ export default function SpotifySearchModal({
             </div>
 
             {/* Results */}
-            {allowAppleMusic && appleAvailable && !forceProvider && (
+            {allowAppleMusic && !forceProvider && (
           <div className="flex items-center gap-1 px-4 pb-2">
             {[['spotify', 'SPOTIFY'], ['apple', 'APPLE MUSIC']].map(([id, label]) => (
               <button
                 key={id}
                 type="button"
+                aria-pressed={provider === id}
                 onClick={() => setProvider(id)}
                 className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
                   provider === id
@@ -222,15 +232,10 @@ export default function SpotifySearchModal({
                 {label}
               </button>
             ))}
-            {provider === 'apple' && (
-              <span className="ml-2 text-[8px] font-mono uppercase tracking-widest text-zinc-600">
-                Full tracks for connected subscribers
-              </span>
-            )}
           </div>
         )}
-        <div className="flex-1 overflow-y-auto px-2 pb-3 min-h-0">
-              {query.trim().length < 2 ? (
+        <div className={`${contained ? 'shrink-0' : 'flex-1 overflow-y-auto min-h-0'} px-2 pb-3`}>
+              {searchError ? <p role="alert" className="p-4 text-sm text-red-300">{searchError}</p> : query.trim().length < 2 ? (
                 <EmptyHint copy={emptyHint} />
               ) : loading && results.length === 0 ? (
                 <LoadingHint />
@@ -248,7 +253,7 @@ export default function SpotifySearchModal({
                       key={t.id}
                       track={t}
                       isPlaying={playingId === t.id}
-                      isSelected={currentSelectedId === t.id}
+                      isSelected={currentSelectedId === t.id && currentSelectedProvider === provider}
                       actionLabel={actionLabel}
                       onPreviewToggle={() => handlePreview(t)}
                       onSelect={() => {
@@ -266,7 +271,8 @@ export default function SpotifySearchModal({
     </AnimatePresence>
   );
 
-  if (typeof document !== 'undefined') return createPortal(modal, document.body);
+  if (portalContainer) return createPortal(modal, portalContainer);
+  if (!contained && typeof document !== 'undefined') return createPortal(modal, document.body);
   return modal;
 }
 
@@ -274,7 +280,9 @@ export default function SpotifySearchModal({
 
 function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect, actionLabel = 'Set' }) {
   const hasPreview = !!track.preview_url;
-  const externalUrl = track.external_url || `https://open.spotify.com/track/${track.id}`;
+  const label = track.source === 'apple' ? 'Apple Music' : 'Spotify';
+  const externalUrl = track.external_url || (track.source === 'apple'
+    ? `https://music.apple.com/song/${track.id}` : `https://open.spotify.com/track/${track.id}`);
 
   // The ENTIRE row selects the track. Selection must NOT depend on preview
   // availability — Spotify stopped returning `preview_url` for most tracks in
@@ -355,7 +363,7 @@ function ResultRow({ track, isPlaying, isSelected, onPreviewToggle, onSelect, ac
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
         tabIndex={-1}
-        title="Open on Spotify"
+        title={`Open on ${label}`}
         className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-zinc-600 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
       >
         <ExternalLink size={12} />

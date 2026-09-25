@@ -25,7 +25,7 @@ const stream = () => {
 
 // Minimal hook scheduler: runs the production hook's effects/cleanup against
 // EventTarget media doubles, without adding a browser/testing dependency.
-function mount(initial) {
+function mount(initial, musicOverrides = {}) {
   let props = initial;
   let cursor = 0;
   let dirty = true;
@@ -52,14 +52,14 @@ function mount(initial) {
     cells[index] = { deps, cleanup: prior?.cleanup };
     effects.push(() => { cells[index].cleanup?.(); cells[index].cleanup = effect(); });
   };
-  const musicKit = { ready: false, authorized: false, instance: { current: null }, playTrack() {}, stop() {}, setVolume() {}, play() {}, pause() {} };
+  const musicKit = { ready: false, authorized: false, instance: { current: null }, playTrack() {}, stop() {}, setVolume() {}, play() {}, pause() {}, ...musicOverrides };
   const source = readFileSync(new URL('../src/hooks/useDJAudio.js', import.meta.url), 'utf8')
     .replace(/^import .*;\r?\n/gm, '')
     .replace('export default function useDJAudio', 'function useDJAudio');
   const hook = new Function('useState', 'useRef', 'useEffect', 'useLayoutEffect', 'useCallback', 'useMusicKit', 'applySink',
-    'clearDJPreview', 'getDJPreviewPosition', 'getDJStreamState', 'resolveDJAudioRoute', 'setInterval', 'clearInterval',
+    'clearDJPreview', 'getDJPreviewPosition', 'getDJStreamState', 'resolveDJAudioRoute', 'setInterval', 'clearInterval', 'window',
     `${source}\nreturn useDJAudio;`)(useState, useRef, useEffect, useEffect, callback => callback, () => musicKit, () => {},
-    clearDJPreview, getDJPreviewPosition, getDJStreamState, resolveDJAudioRoute, () => 0, () => {});
+    clearDJPreview, getDJPreviewPosition, getDJStreamState, resolveDJAudioRoute, () => 0, () => {}, { MusicKit: { PlaybackStates: { playing: 2, ended: 4, completed: 5 } } });
   const flush = () => {
     let iterations = 0;
     while (dirty) {
@@ -151,4 +151,36 @@ test('local stream pause never disables the received or outgoing track', async (
 test('clip positions clamp without modulo replay', () => {
   assert.deepEqual(getDJPreviewPosition('2026-01-01T00:00:00Z', 24, Date.parse('2026-01-01T00:00:40Z')), { position: 24, ended: true });
   assert.deepEqual(getDJPreviewPosition('invalid', 24), { position: 0, ended: false });
+});
+
+test('mobile Apple autoplay rejection stays on prepared queue and retries play synchronously on tap', async () => {
+  let taps = 0;
+  const player = Object.assign(new EventTarget(), { playbackState: 0, seekToTime: async () => {} });
+  const hook = mount({ djSession: { ...session(), source: 'apple', duration_ms: 180000 } }, {
+    ready: true, authorized: true, instance: { current: player },
+    playTrack: async () => { throw new DOMException('Tap required', 'NotAllowedError'); },
+    play: () => { taps++; return Promise.resolve(); },
+  });
+  await new Promise(resolve => setImmediate(resolve)); hook.flush();
+  assert.equal(hook.current.fullTrackActive, true);
+  assert.equal(hook.current.audioBlocked, true);
+  assert.equal(hook.audio.src, '');
+  const unlocking = hook.current.unlockAudio();
+  assert.equal(taps, 1, 'play must run in the click stack, before awaiting anything');
+  await unlocking; hook.flush();
+  assert.equal(hook.current.audioBlocked, false);
+  hook.unmount();
+});
+
+test('mobile preview can be unlocked before canplay and resuming a stream invokes play', async () => {
+  const hook = mount({ djSession: session() });
+  await hook.current.unlockAudio(); hook.flush();
+  assert.equal(hook.audio.playCalls, 1);
+  const remote = new Media();
+  hook.update({ hostStream: stream(), streamElement: remote });
+  await hook.current.togglePause(); hook.flush();
+  const calls = remote.playCalls;
+  await hook.current.togglePause(); hook.flush();
+  assert.equal(remote.playCalls, calls + 1);
+  hook.unmount();
 });

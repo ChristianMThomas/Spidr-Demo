@@ -628,6 +628,17 @@ module.exports = function registerHandlers(io) {
         } catch (error) { console.warn('[call] presence failed:', error.message); }
       }
       socket.to(room).emit('voice:peer-joined', { userId, socketId: socket.id });
+      // A listener joining mid-share needs the same stream classification as
+      // existing peers. fetchSockets also works across the Redis adapter.
+      try {
+        const peers = await io.in(room).fetchSockets();
+        if (socket._voiceRoom !== room || !socket.rooms.has(room)) return;
+        for (const peer of peers) {
+          if (peer.id !== socket.id && peer.data.voiceScreen?.room === room) {
+            socket.emit('voice:screen-meta', { socketId: peer.id, streamId: peer.data.voiceScreen.streamId, active: true });
+          }
+        }
+      } catch (error) { console.warn('[voice] share metadata sync failed:', error.message); }
     });
 
     socket.on('voice:leave', (data) => {
@@ -640,6 +651,7 @@ module.exports = function registerHandlers(io) {
       endTheaterIfHost(io, socket, room);
       socket.leave(room);
       if (socket._voiceRoom === room) socket._voiceRoom = null;
+      delete socket.data.voiceScreen;
       socket.to(room).emit('voice:peer-left', { userId, socketId: socket.id });
       callSessions.leaveVoice(socket, data).catch(error => console.warn('[call] leave failed:', error.message));
     });
@@ -662,6 +674,9 @@ module.exports = function registerHandlers(io) {
       if (!socketRateLimit(socket)) return;
       const room = voiceRoomFor(data);
       if (!socket.rooms.has(room)) return; // can't narrate a room you're not in
+      if (typeof data.streamId !== 'string' || data.streamId.length > 256 || typeof data.active !== 'boolean') return;
+      if (data.active) socket.data.voiceScreen = { room, streamId: data.streamId };
+      else delete socket.data.voiceScreen;
       socket.to(room).emit('voice:screen-meta', {
         socketId: socket.id,
         streamId: data.streamId,

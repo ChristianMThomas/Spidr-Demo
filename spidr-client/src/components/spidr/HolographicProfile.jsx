@@ -450,9 +450,9 @@ export default function HolographicProfile({ open, onClose, userId, currentUser,
                   on top makes the header read as a "blurry blob" because
                   most nameplates are abstract textures meant to be glanced
                   at behind a tiny username chip. */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
                 <h2
-                  className="text-2xl md:text-3xl tracking-tight"
+                  className="text-2xl md:text-3xl min-w-0 break-words max-w-full"
                   style={{
                     // Default size is 3xl + heavy weight, then overridden by user prefs
                     fontWeight: 900,

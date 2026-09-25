@@ -4,7 +4,7 @@ import { entities, integrations, getSocket, spotify, appleMusic } from '@/api/ap
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Mic, MicOff, Video, VideoOff, Monitor, PhoneOff, Headphones, HeadphoneOff,
-  Volume2, VolumeX, Settings, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, AudioLines, ExternalLink, Maximize2, Tv, Globe
+  Volume2, VolumeX, Settings, SlidersHorizontal, Send, Loader2, Crown, X, Zap, MonitorUp, ChevronDown, ChevronRight, Music, AudioLines, ExternalLink, Maximize2, Tv, Globe
 } from 'lucide-react';
 import { toast } from 'sonner';
 import SpiderLogo from './SpiderLogo';
@@ -29,6 +29,7 @@ import HolographicProfile from './HolographicProfile';
 import VoiceDeckContextMenu from './VoiceDeckContextMenu';
 import TheaterStage from './TheaterStage';
 import DJMatrix from './DJMatrix';
+import DJVoiceLayout from './DJVoiceLayout';
 import CallScreenAudio from './CallScreenAudio';
 import useDJAudio from '@/hooks/useDJAudio';
 import useDJStreamStats from '@/hooks/useDJStreamStats';
@@ -66,6 +67,8 @@ export default function VoiceChannel({
     return () => window.removeEventListener('spidr-open-share', open);
   }, []);
   const [audioSettingsOpen, setAudioSettingsOpen] = useState(false);
+  const [djDeckOpen, setDJDeckOpen] = useState(true);
+  useEffect(() => setDJDeckOpen(true), [channel?.id]);
   const [showSoundboard, setShowSoundboard] = useState(false);
   // Voice deck layout mode: 'focus' (center stage) or 'spider' (compact docked
   // grid that leaves the workspace breathing). Persisted per-user.
@@ -278,10 +281,6 @@ export default function VoiceChannel({
       // the picker open; the POST is the real gate and will say why.
     }
     setDjPickerOpen(true);
-  };
-  const handleEndDJ = async () => {
-    try { await spotify.djSession.end(channel.id); }
-    catch (err) { toast.error(err?.message || 'Could not end DJ session'); }
   };
   const handleSelectDJTrack = async (track) => {
     if (!channel?.id || !track?.id) return;
@@ -782,6 +781,77 @@ export default function VoiceChannel({
   const isOwner = currentUser?.id === server?.owner_id;
   const isAdmin = isOwner || server?.members?.find(m => m.user_id === currentUser?.id)?.role === 'admin';
 
+  const participantTiles = uniqueSessions.map((session) => {
+                  const sessionProfile = profiles.find(p => p.user_id === session.user_id);
+                  const isApexSess = sessionProfile?.apex_tier === 'apex';
+                  const isSelf = session.user_id === currentUser?.id;
+                  // Match streams to sessions by user_id (peers map holds
+                  // socketId → { userId }). The old code returned
+                  // remoteStreams[0] for EVERY remote session, so with 3+
+                  // members everyone after the first bound to the same
+                  // stream and the third joiner's tile went blank (the
+                  // "phone joiners audible but invisible" bug).
+                  let peerSocketId = null;
+                  let peerStream = null;
+                  if (isSelf) {
+                    peerStream = rtc.localStream;
+                  } else {
+                    const peers = rtc.peers || {};
+                    peerSocketId = Object.keys(peers).find(sid => peers[sid]?.userId === session.user_id) || null;
+                    peerStream = peerSocketId ? (rtc.remoteStreams?.[peerSocketId] || null) : null;
+                  }
+
+                  return (
+                    <div key={session.id} className="contents">
+                    <VoiceTile
+                      key={session.id}
+                      session={session}
+                      isSelf={isSelf}
+                      peerSocketId={peerSocketId}
+                      isApexSess={isApexSess}
+                      isAdmin={isAdmin}
+                      isMutedLocally={isSelf ? rtc.isMuted : !!session.is_muted}
+                      stream={peerStream}
+                      onAdminMuteToggle={() => updateMutation.mutate({ id: session.id, data: { is_muted: !session.is_muted } })}
+                      onAdminKick={() => {
+                        // Remove their session record AND emit the realtime
+                        // force-disconnect so they actually leave the live call.
+                        leaveMutation.mutate(session.id);
+                        try {
+                          getSocket().emit('voice:admin-disconnect', {
+                            targetUserId: session.user_id,
+                            serverId: server.id, channelId: channel.id,
+                          });
+                        } catch {}
+                      }}
+                      onSpidrAIClick={() => setShowSpidrProfile(true)}
+                      spidrAISpeaking={spidrVoice.isSpeaking}
+                      onViewProfile={() => setSelectedProfileUserId?.(session.user_id)}
+                      onDirectMessage={() => { window.location.href = `/messages?user=${session.user_id}`; }}
+                      onVolumeChange={(vol) => {
+                        const el = peerSocketId ? remoteAudioRefs.current[peerSocketId] : null;
+                        if (el) el.volume = vol;
+                      }}
+                      onLocalMute={(muted) => {
+                        // Local mute: silence this peer's audio element only.
+                        const el = peerSocketId ? remoteAudioRefs.current[peerSocketId] : null;
+                        if (el) el.muted = muted;
+                      }}
+                      onLocalDeafen={(deaf) => {
+                        const el = peerSocketId ? remoteAudioRefs.current[peerSocketId] : null;
+                        if (el) el.muted = deaf;
+                      }}
+                      onServerMute={() => updateMutation.mutate({ id: session.id, data: { is_muted: !session.is_muted } })}
+                      onServerDeafen={() => updateMutation.mutate({ id: session.id, data: { is_deafened: !session.is_deafened } })}
+                      moveChannels={(server.channels || []).filter(c => c.type === 'voice' && c.id !== channel.id).map(c => ({ id: c.id, name: c.name }))}
+                      onMoveTo={(chId) => updateMutation.mutate({ id: session.id, data: { channel_id: chId } })}
+                      deckHidden={deckHidden}
+                    />
+                    </div>
+                  );
+                });
+
+
   return (
     <div className="flex-1 flex flex-col bg-transparent relative overflow-hidden">
       {/* ───────────────────────────────────────────────────────────────────
@@ -958,7 +1028,7 @@ export default function VoiceChannel({
               'radial-gradient(ellipse 30% 25% at 50% 50%, rgba(239, 68, 68, 0.05), transparent 70%)',
           }}
         />
-        <div className="flex-1 min-h-0 relative overflow-y-auto px-4 lg:px-6 pt-4 lg:pt-6 pb-28 flex items-center justify-center max-lg:min-h-[45vh]">
+        <div className={`flex-1 min-w-0 min-h-0 relative flex items-center justify-center ${djSession && !theaterHostId ? 'overflow-hidden px-2 pt-2 pb-24' : 'overflow-y-auto px-4 lg:px-6 pt-4 lg:pt-6 pb-28 max-lg:min-h-[45vh]'}`}>
 
           {/* Browser blocked autoplay — one tap unlocks remote audio. Only
               clear the blocked flag once playback actually starts; otherwise
@@ -1051,7 +1121,7 @@ export default function VoiceChannel({
             // end up stacked on top of each other with no video between
             // them. `self-stretch min-h-0` is the whole fix.
             <div className={`w-full ${
-              theaterHostId
+              theaterHostId || djSession
                 ? 'h-full self-stretch min-h-0 max-w-[1280px] mx-auto flex'
                 : viewMode === 'spider' ? 'max-w-md ml-auto' : 'max-w-[1280px] mx-auto'
             }`}>
@@ -1076,12 +1146,18 @@ export default function VoiceChannel({
                 />
               ) : djSession ? (
                 // ── DJ MODE ───────────────────────────────────────────
-                // Below Theater (video broadcast outranks audio-only),
-                // above screen share (a live DJ matrix shouldn't get
-                // shoved aside by an incidental screen). The host's
-                // Spotify client is the audio source — listeners hear
-                // it from their own connected Spotify; this stage just
-                // keeps the album art + progress synchronized.
+                // Keep cameras and screen shares alongside the deck;
+                // playback remains owned by the persistent audio spine.
+                <DJVoiceLayout
+                  participants={participantTiles}
+                  count={uniqueSessions.length}
+                  open={djDeckOpen}
+                  onToggle={() => setDJDeckOpen(open => !open)}
+                  shares={screenActive ? <>
+                    {isSharing && screenStream && <DJShareVideo stream={screenStream} name="Your screen" />}
+                    {Object.entries(rtc.screenStreams || {}).map(([sid, stream]) => <DJShareVideo key={sid} stream={stream} name={uniqueSessions.find(s => s.user_id === rtc.peers?.[sid]?.userId)?.user_name || 'Shared screen'} />)}
+                  </> : null}
+                >
                 <DJMatrix
                   channel={channel}
                   djSession={djSession}
@@ -1099,9 +1175,10 @@ export default function VoiceChannel({
                   audio={djAudio}
                   hostStream={djHostStream}
                   streamStats={djStats}
-                  deckHidden={deckHidden}
+                  deckHidden={deckHidden || !djDeckOpen}
                   onStop={() => queryClient.invalidateQueries({ queryKey: ['djSession', channel.id] })}
                 />
+                </DJVoiceLayout>
               ) : screenActive ? (
                 // ── SCREEN-SHARE LAYOUT ─────────────────────────────────────
                 // When someone is sharing their screen, the old grid produced
@@ -1227,95 +1304,7 @@ export default function VoiceChannel({
               )}
 
               <AnimatePresence>
-                {uniqueSessions.map((session) => {
-                  const sessionProfile = profiles.find(p => p.user_id === session.user_id);
-                  const isApexSess = sessionProfile?.apex_tier === 'apex';
-                  const isSelf = session.user_id === currentUser?.id;
-                  // Match streams to sessions by user_id (peers map holds
-                  // socketId → { userId }). The old code returned
-                  // remoteStreams[0] for EVERY remote session, so with 3+
-                  // members everyone after the first bound to the same
-                  // stream and the third joiner's tile went blank (the
-                  // "phone joiners audible but invisible" bug).
-                  let peerSocketId = null;
-                  let peerStream = null;
-                  if (isSelf) {
-                    peerStream = rtc.localStream;
-                  } else {
-                    const peers = rtc.peers || {};
-                    peerSocketId = Object.keys(peers).find(sid => peers[sid]?.userId === session.user_id) || null;
-                    peerStream = peerSocketId ? (rtc.remoteStreams?.[peerSocketId] || null) : null;
-                  }
-
-                  // During screen share, participants compress into compact
-                  // horizontal status pills in the right sidebar (hidden if the
-                  // sidebar is collapsed for full-screen viewing).
-                  if (screenActive) {
-                    if (shareSidebarCollapsed) return null;
-                    return (
-                      <div key={session.id} style={{ gridColumn: 2 }} className="border-l border-white/[0.02] pl-3 -ml-px">
-                        <VoiceStatusPill
-                          session={session}
-                          isSelf={isSelf}
-                          isMutedLocally={isSelf ? rtc.isMuted : !!session.is_muted}
-                          apexColor={sessionProfile?.apex_features?.thread_skin_color || sessionProfile?.accent_color || '#FF3333'}
-                          stream={peerStream}
-                          spidrAISpeaking={spidrVoice.isSpeaking}
-                          onClick={() => setSelectedProfileUserId?.(session.user_id)}
-                        />
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div key={session.id} className="contents">
-                    <VoiceTile
-                      key={session.id}
-                      session={session}
-                      isSelf={isSelf}
-                      peerSocketId={peerSocketId}
-                      isApexSess={isApexSess}
-                      isAdmin={isAdmin}
-                      isMutedLocally={isSelf ? rtc.isMuted : !!session.is_muted}
-                      stream={peerStream}
-                      onAdminMuteToggle={() => updateMutation.mutate({ id: session.id, data: { is_muted: !session.is_muted } })}
-                      onAdminKick={() => {
-                        // Remove their session record AND emit the realtime
-                        // force-disconnect so they actually leave the live call.
-                        leaveMutation.mutate(session.id);
-                        try {
-                          getSocket().emit('voice:admin-disconnect', {
-                            targetUserId: session.user_id,
-                            serverId: server.id, channelId: channel.id,
-                          });
-                        } catch {}
-                      }}
-                      onSpidrAIClick={() => setShowSpidrProfile(true)}
-                      spidrAISpeaking={spidrVoice.isSpeaking}
-                      onViewProfile={() => setSelectedProfileUserId?.(session.user_id)}
-                      onDirectMessage={() => { window.location.href = `/messages?user=${session.user_id}`; }}
-                      onVolumeChange={(vol) => {
-                        const el = peerSocketId ? remoteAudioRefs.current[peerSocketId] : null;
-                        if (el) el.volume = vol;
-                      }}
-                      onLocalMute={(muted) => {
-                        // Local mute: silence this peer's audio element only.
-                        const el = peerSocketId ? remoteAudioRefs.current[peerSocketId] : null;
-                        if (el) el.muted = muted;
-                      }}
-                      onLocalDeafen={(deaf) => {
-                        const el = peerSocketId ? remoteAudioRefs.current[peerSocketId] : null;
-                        if (el) el.muted = deaf;
-                      }}
-                      onServerMute={() => updateMutation.mutate({ id: session.id, data: { is_muted: !session.is_muted } })}
-                      onServerDeafen={() => updateMutation.mutate({ id: session.id, data: { is_deafened: !session.is_deafened } })}
-                      moveChannels={(server.channels || []).filter(c => c.type === 'voice' && c.id !== channel.id).map(c => ({ id: c.id, name: c.name }))}
-                      onMoveTo={(chId) => updateMutation.mutate({ id: session.id, data: { channel_id: chId } })}
-                      deckHidden={deckHidden}
-                    />
-                    </div>
-                  );
-                })}
+                {participantTiles}
               </AnimatePresence>
               </motion.div>
               )}
@@ -1438,7 +1427,7 @@ export default function VoiceChannel({
               RTCRtpSender.replaceTrack — no renegotiation, no drop). */}
           <DockBtn
             active={audioSettingsOpen}
-            onClick={() => setAudioSettingsOpen(o => !o)}
+            onClick={() => { setShowAVControls(false); setAudioSettingsOpen(o => !o); }}
             title="Audio Settings"
             activeTint="#22c55e"
           >
@@ -1470,25 +1459,18 @@ export default function VoiceChannel({
           >
             <Tv size={18} className={theaterHostId === currentUser?.id ? 'text-red-300' : 'text-white/40'} />
           </DockBtn>
-          {/* DJ Booth — Apple Music broadcast. Same start/stop/take-over UX as
-              Sync Feed: clicking it as host ends, as guest toasts, as empty
-              channel opens the Apple picker → start session. Hosting requires
-              a connected Apple Music account; Spotify Premium listeners join
-              the same track through Listen Along on the booth card. */}
+          {/* Hiding the deck never ends the session or stops its audio. */}
           <DockBtn
-            active={djSession?.host_id === currentUser?.id}
+            active={!!djSession && djDeckOpen}
             onClick={() => {
-              if (djSession?.host_id === currentUser?.id) {
-                handleEndDJ();
-              } else if (djSession?.host_id) {
-                toast.info(`${djSession.host_user_name || 'Someone'} is currently DJing.`);
+              if (djSession) {
+                setDJDeckOpen(open => !open);
               } else {
                 handleStartDJ();
               }
             }}
             title={
-              djSession?.host_id === currentUser?.id ? 'End DJ Session' :
-              djSession?.host_id ? `${djSession.host_user_name || 'Host'} is DJing` :
+              djSession ? (djDeckOpen ? 'Hide DJ deck' : 'Open DJ deck') :
               'Start DJ Session (Apple Music)'
             }
             activeTint="#1DB954"
@@ -1496,10 +1478,11 @@ export default function VoiceChannel({
             <Music size={18} className={djSession?.host_id === currentUser?.id ? 'text-emerald-300' : 'text-white/40'} />
           </DockBtn>
           <DockBtn
-            onClick={() => setShowAVControls(!showAVControls)}
-            title="Audio Settings"
+            onClick={() => { setAudioSettingsOpen(false); setShowAVControls(!showAVControls); }}
+            active={showAVControls}
+            title="Camera and voice effects"
           >
-            <Settings size={18} className="text-white/40" />
+            <SlidersHorizontal size={18} className={showAVControls ? 'text-green-300' : 'text-white/40'} />
           </DockBtn>
           <DockBtn
             active={showSoundboard}
@@ -1742,6 +1725,15 @@ function VoiceStatusPill({ session, isSelf, isMutedLocally, apexColor = '#FF3333
  *   • RMS energy crosses the threshold in useSpeakingDetector
  * The CSS keyframes for `.spidr-speaking` are in index.css.
  */
+function DJShareVideo({ stream, name }) {
+  return <figure className="dj-voice-share">
+    <video autoPlay playsInline muted ref={element => {
+      if (element && element.srcObject !== stream) { element.srcObject = stream; element.play().catch(() => {}); }
+    }} />
+    <figcaption>{name}</figcaption>
+  </figure>;
+}
+
 function VoiceTile({
   session,
   isSelf,
@@ -1915,7 +1907,7 @@ function VoiceTile({
       {/* Bottom rail — identity pill (left) + equalizer (right) */}
       <div className="absolute bottom-3 inset-x-3 flex items-center justify-between pointer-events-none">
         <div
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg pointer-events-auto"
+          className="flex items-center min-w-0 max-w-full gap-2 px-3 py-1.5 rounded-lg pointer-events-auto"
           style={{
             background: 'rgba(0, 0, 0, 0.55)',
             backdropFilter: 'blur(12px)',
@@ -1923,7 +1915,7 @@ function VoiceTile({
             border: '1px solid rgba(255, 255, 255, 0.06)',
           }}
         >
-          <span className="text-white text-sm font-bold truncate max-w-[140px]">
+          <span className="text-white text-sm font-bold truncate min-w-0 max-w-[140px]">
             {(session.user_name || 'Unknown').split('@')[0]}
           </span>
           {isApexSess && (
@@ -1932,7 +1924,7 @@ function VoiceTile({
             />
           )}
           {isSelf && (
-            <span className="text-white/40 text-[10px] font-mono tracking-wider uppercase">(you)</span>
+            <span className="text-white/40 text-[10px] font-mono tracking-wider uppercase shrink-0">(you)</span>
           )}
         </div>
 

@@ -54,6 +54,10 @@ Apple's recently-played API is labeled Last played, never fabricated as live pla
 
 ## Tests
 
+Profile anthems on web and native can select either catalog. New saves include `anthem_provider`, `anthem_track_id`, and cached display/preview metadata; legacy Spotify-only anthem IDs remain readable. Apple IDs are never written to the legacy Spotify ID field.
+
+The native DJ booth supports synchronized previews, incoming shared live audio, and queue controls. Its player belongs to the voice room rather than the visible deck. Native full-track MusicKit is still not implemented; test actual audio routing and background playback on physical devices before release.
+
 ```powershell
 node --test test/appleMusic.test.js
 $env:SPIDR_LOCAL_INTEGRATION='1'

@@ -24,6 +24,7 @@ import { getSocket } from './socket';
 import { emitter } from './eventEmitter';
 import { getWebRTC, getInCallManager, callsSupported } from './nativeCalls';
 import { loadAvPrefs } from './avPrefs';
+import { djPlayback } from './djPlayback';
 
 export type VoiceRoomKind = 'server' | 'group';
 export type VoiceRoomState = 'idle' | 'connecting' | 'connected';
@@ -49,6 +50,10 @@ class VoiceRoom {
   localStream: any = null;
   /** socketId → MediaStream. Audio plays itself; this drives the speaking UI. */
   remoteStreams: Record<string, any> = {};
+  private inbound: Record<string, Record<string, any>> = {};
+  private screens: Record<string, string> = {};
+  private peerUsers: Record<string, string> = {};
+  private djMuted = false;
 
   private currentUser: any = null;
   private peers: Record<string, any> = {}; // socketId → RTCPeerConnection
@@ -144,13 +149,10 @@ class VoiceRoom {
       pc.ontrack = (event: any) => {
         const [remote] = event.streams;
         if (!remote) return;
-        // Web peers may also publish camera/screen video into this mesh. We
-        // only consume audio here, but keeping the stream lets a deafen
-        // toggle reach every inbound track.
-        if (this.isDeafened) {
-          remote.getAudioTracks?.().forEach((t: any) => { t.enabled = false; });
-        }
+        this.inbound[socketId] = { ...this.inbound[socketId], [remote.id]: remote };
+        event.track?.addEventListener?.('ended', () => this.updateDJOutput());
         this.remoteStreams = { ...this.remoteStreams, [socketId]: remote };
+        this.updateDJOutput();
         emitter.emit('voice:room-streams', this.remoteStreams);
       };
       pc.onicecandidate = (event: any) => {
@@ -177,10 +179,17 @@ class VoiceRoom {
     // blanket socket.off('voice:signal') form, which would rip our listeners
     // off the shared socket singleton if a DM call ended while we were live.
     this.handlers = {
-      'voice:peer-joined': ({ socketId }: any) => {
+      'voice:peer-joined': ({ socketId, userId }: any) => {
         if (!socketId || socketId === socket.id || this.peers[socketId]) return;
+        this.peerUsers[socketId] = userId;
         createPeer(socketId, true);
       },
+      'voice:screen-meta': ({ socketId, streamId, active }: any) => {
+        if (active && streamId) this.screens[socketId] = streamId;
+        else delete this.screens[socketId];
+        this.updateDJOutput();
+      },
+      'voice:dj-session-changed': () => this.updateDJOutput(),
       'call:transferred': (data: any) => { if (data.callId === this.callId) this.leave(false); },
       'call:ended': (data: any) => { if (data.callId === this.callId) this.leave(false); },
       'call:left': (data: any) => { if (data.callId === this.callId) this.leave(false); },
@@ -188,7 +197,8 @@ class VoiceRoom {
       'voice:peer-left': ({ socketId }: any) => {
         if (socketId) this.dropPeer(socketId);
       },
-      'voice:signal': async ({ from, signal }: any) => {
+      'voice:signal': async ({ from, userId, signal }: any) => {
+        if (userId) this.peerUsers[from] = userId;
         const pc = this.peers[from] || createPeer(from, false);
         try {
           if (signal.type === 'offer') {
@@ -234,6 +244,8 @@ class VoiceRoom {
     if (generation !== this.generation) return false;
 
     this.state = 'connected';
+    djPlayback.start(room.channelId, socket, muted => { this.djMuted = muted; this.applyInboundAudio(); }, () => this.hasDJStream());
+    this.updateDJOutput();
     emitter.emit('voice:room-state', { state: this.state, room: this.room });
     return true;
   }
@@ -243,6 +255,7 @@ class VoiceRoom {
     const room = this.room;
     if (!room && this.state === 'idle') return;
     this.generation++;
+    djPlayback.stop();
     const callId = this.callId;
     this.callId = null;
 
@@ -253,6 +266,9 @@ class VoiceRoom {
     Object.values(this.peers).forEach((pc: any) => { try { pc.close(); } catch {} });
     this.peers = {};
     this.remoteStreams = {};
+    this.inbound = {};
+    this.screens = {};
+    this.peerUsers = {};
 
     if (this.socket) {
       if (room && notify) this.socket.emit('voice:leave', this.joinPayload());
@@ -299,9 +315,7 @@ class VoiceRoom {
     if (next === this.isDeafened) return;
     this.isDeafened = next;
 
-    Object.values(this.remoteStreams).forEach((stream: any) => {
-      stream?.getAudioTracks?.().forEach((t: any) => { t.enabled = !next; });
-    });
+    this.updateDJOutput();
 
     const mic = this.localStream?.getAudioTracks?.()[0];
     if (next) {
@@ -348,8 +362,12 @@ class VoiceRoom {
     if (pc) { delete this.peers[socketId]; pc.onconnectionstatechange = null; try { pc.close(); } catch {} }
     if (!(socketId in this.remoteStreams)) return;
     const next = { ...this.remoteStreams };
+    delete this.inbound[socketId];
+    delete this.screens[socketId];
+    delete this.peerUsers[socketId];
     delete next[socketId];
     this.remoteStreams = next;
+    this.updateDJOutput();
     emitter.emit('voice:room-streams', this.remoteStreams);
   }
 
@@ -359,6 +377,30 @@ class VoiceRoom {
       isSpeaker: this.isSpeaker,
       isDeafened: this.isDeafened,
     });
+  }
+
+  private applyInboundAudio() {
+    const host = djPlayback.getSnapshot().session?.host_id;
+    for (const [socketId, streams] of Object.entries(this.inbound)) {
+      for (const [streamId, stream] of Object.entries(streams)) {
+        const isDJ = this.peerUsers[socketId] === host && this.screens[socketId] === streamId;
+        stream.getAudioTracks?.().forEach((track: any) => {
+          track.enabled = !this.isDeafened && !(isDJ && this.djMuted);
+          if (isDJ) track._setVolume?.(djPlayback.getSnapshot().volume);
+        });
+      }
+    }
+  }
+
+  private hasDJStream() {
+    const host = djPlayback.getSnapshot().session?.host_id;
+    return Object.entries(this.inbound).some(([sid, streams]) => this.peerUsers[sid] === host &&
+      streams[this.screens[sid]]?.getAudioTracks?.().some((track: any) => track.readyState !== 'ended'));
+  }
+
+  private updateDJOutput() {
+    djPlayback.setOutput(this.isDeafened, this.hasDJStream());
+    this.applyInboundAudio();
   }
 
   /**

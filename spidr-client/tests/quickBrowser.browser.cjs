@@ -4,6 +4,7 @@ const os = require('node:os');
 
 module.exports = async ({ page }) => {
   await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: navigator.userAgent + ' Electron/30.5.1', configurable: true });
     let state = { open: false, url: '', title: 'New page', loading: false, muted: true, canGoBack: false, canGoForward: false, error: '' };
     const listeners = new Set();
     const publish = patch => { state = { ...state, ...patch }; listeners.forEach(fn => fn(state)); return state; };
@@ -19,6 +20,7 @@ module.exports = async ({ page }) => {
   });
   for (const [width, height] of [[1440, 900], [940, 600]]) {
     await page.setViewportSize({ width, height });
+    await page.goto('about:blank');
     await page.goto('http://127.0.0.1:5173/#/home');
     await page.getByRole('button', { name: 'Quick browser', exact: true }).click();
     const panel = page.getByRole('complementary', { name: 'Quick browser' });

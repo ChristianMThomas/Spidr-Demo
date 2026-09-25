@@ -3,7 +3,7 @@
 React Native + Expo build of Spidr. iOS + Android from one codebase. Lives at `spidr-client/mobile/`.
 
 Patch 1.9 (TestFlight Phase 1): Feed, Servers + text channels, Friends + DMs, Profile.
-Voice channels, Spotify OAuth, and DJ sessions are Phase 2 (require a custom dev client).
+Voice channels and DJ sessions require a custom dev client, not Expo Go. DJ playback supports catalog previews and incoming shared live audio; native full-track MusicKit playback is not included.
 
 ---
 
@@ -155,12 +155,15 @@ Dynamic routes use `[param].tsx`. Layouts use `_layout.tsx`.
 
 ---
 
-## Phase 2 (later)
+## Native Voice and Music
 
 - **Voice channels** — `react-native-webrtc` + `expo-dev-client` + EAS Build.
   Cannot run in Expo Go.
+- **DJ booth** — room-owned playback continues when the deck is hidden or the room screen is minimized. Participant and microphone controls remain separate from the scrolling deck and song search. Catalog previews use `expo-audio`; live shared audio uses WebRTC.
+- **Profile anthems** — Spotify and Apple Music catalog search, available previews, and provider links. Each saved track retains its provider and ID.
+- **Remaining playback work** — native full-track MusicKit integration and physical iOS/Android verification of background audio and device routing.
 - **Spotify OAuth** — `expo-auth-session` against the existing `/spotify/auth/url`
   backend endpoint.
 
-When voice ships, the workflow switches from Expo Go to a custom dev client:
+To run voice, use a custom dev client:
 `npx expo prebuild` + `npx expo run:ios` / `run:android`.

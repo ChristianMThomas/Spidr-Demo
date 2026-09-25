@@ -27,6 +27,7 @@ function viewBounds(raw, size, zoom = 1) {
 }
 
 function installQuickBrowser({ window: win, ipcMain, WebContentsView, session, shell, isTrustedUrl }) {
+  const host = win.webContents;
   let view = null, browsingSession = null, layout = null;
   let state = { open: false, url: '', title: 'New page', loading: false, muted: true, canGoBack: false, canGoForward: false, error: '' };
   const channels = [];
@@ -154,9 +155,9 @@ function installQuickBrowser({ window: win, ipcMain, WebContentsView, session, s
     close();
     for (const channel of channels) ipcMain.removeHandler(channel);
     win.removeListener('resize', applyLayout);
-    if (!win.webContents.isDestroyed()) {
-      win.webContents.removeListener('did-start-navigation', navigation);
-      win.webContents.removeListener('render-process-gone', close);
+    if (!host.isDestroyed()) {
+      host.removeListener('did-start-navigation', navigation);
+      host.removeListener('render-process-gone', close);
     }
   };
   win.once('closed', dispose);

@@ -150,6 +150,9 @@ const s = new Schema({
   // refetched profile still had no anthem, and the editor kept showing the
   // "Set a profile anthem" box even after the user clicked Set.
   anthem_spotify_id:    { type: String, default: '' },
+  anthem_provider:      { type: String, enum: ['', 'spotify', 'apple'], default: '' },
+  anthem_track_id:      { type: String, default: '' },
+  anthem_isrc:          { type: String, default: '' },
   anthem_name:          { type: String, default: '' },
   anthem_artist:        { type: String, default: '' },
   anthem_album_art_url: { type: String, default: '' },

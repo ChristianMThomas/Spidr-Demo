@@ -5,6 +5,7 @@ import { entities } from '@/api/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import SpotifySearchModal from './SpotifySearchModal';
+import { anthemPatch, readAnthem } from '@/lib/profileAnthem';
 
 /**
  * ProfileAnthem — Spotify-powered version. The previous file-upload
@@ -77,17 +78,15 @@ export default function ProfileAnthem({ userProfile, isOwnProfile }) {
   // Resolve the active anthem source. Prefer the Spotify preview when
   // present; fall back to a legacy uploaded `anthem_url` so users who
   // already had an anthem before the refactor don't lose it.
-  const spotifyId      = userProfile?.anthem_spotify_id || '';
+  const { id: trackId, provider, label: providerLabel, externalUrl } = readAnthem(userProfile);
   const previewUrl     = userProfile?.anthem_preview_url || '';
   const legacyUrl      = userProfile?.anthem_url || '';
   const playableUrl    = previewUrl || legacyUrl;
-  const externalUrl    = userProfile?.anthem_external_url ||
-                         (spotifyId ? `https://open.spotify.com/track/${spotifyId}` : '');
   const trackName      = userProfile?.anthem_name || '';
   const trackArtist    = userProfile?.anthem_artist || '';
   const albumArtUrl    = userProfile?.anthem_album_art_url || '';
-  const hasAnthem      = !!(spotifyId || legacyUrl);
-  const previewBlocked = !!spotifyId && !previewUrl; // Spotify track with no preview clip
+  const hasAnthem      = !!(trackId || legacyUrl);
+  const previewBlocked = !!trackId && !previewUrl;
 
   // Sync the audio element with volume + muted state.
   useEffect(() => {
@@ -154,16 +153,7 @@ export default function ProfileAnthem({ userProfile, isOwnProfile }) {
 
     // Full metadata is cached on the profile (not just the id) so viewing a
     // profile never re-hits Spotify for art/name — avoids the 429 trap.
-    const patch = {
-      anthem_spotify_id:    track.id,
-      anthem_name:          track.name || '',
-      anthem_artist:        track.artist || '',
-      anthem_album_art_url: track.album_art_url || '',
-      anthem_preview_url:   track.preview_url || '',
-      anthem_external_url:  track.external_url || `https://open.spotify.com/track/${track.id}`,
-      anthem_duration_ms:   track.duration_ms || 30000,
-      anthem_url:           '', // clear any legacy upload
-    };
+    const patch = anthemPatch(track);
 
     // Optimistic UI: stamp the anthem onto every cached copy of THIS user's
     // profile immediately, so the editor swaps from the "[+] Set" box to the
@@ -201,6 +191,9 @@ export default function ProfileAnthem({ userProfile, isOwnProfile }) {
 
   const clearAnthem = async () => {
     const cleared = {
+      anthem_provider:      '',
+      anthem_track_id:      '',
+      anthem_isrc:          '',
       anthem_spotify_id:    '',
       anthem_name:          '',
       anthem_artist:        '',
@@ -246,14 +239,18 @@ export default function ProfileAnthem({ userProfile, isOwnProfile }) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-white text-xs font-bold">Set a profile anthem</p>
-            <p className="text-zinc-500 text-[10px] mt-0.5">Pick a Spotify track — 30s preview plays on your profile</p>
+            <p className="text-zinc-500 text-[10px] mt-0.5">Spotify or Apple Music</p>
           </div>
         </button>
         <SpotifySearchModal
           open={searchOpen}
           onClose={() => setSearchOpen(false)}
           onSelect={handleSelectTrack}
-          currentSelectedId={spotifyId}
+          currentSelectedId={trackId}
+          currentSelectedProvider={provider}
+          allowAppleMusic
+          subtitle="Profile anthem"
+          emptyHint="Find a song on Spotify or Apple Music."
         />
       </>
     );
@@ -298,7 +295,7 @@ export default function ProfileAnthem({ userProfile, isOwnProfile }) {
               target="_blank"
               rel="noopener noreferrer"
               className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 group block"
-              title="Preview unavailable — open on Spotify"
+              title={`Preview unavailable - open on ${providerLabel}`}
             >
               {albumArtUrl ? (
                 <img src={albumArtUrl} alt="" className="w-full h-full object-cover" />
@@ -479,7 +476,11 @@ export default function ProfileAnthem({ userProfile, isOwnProfile }) {
           open={searchOpen}
           onClose={() => setSearchOpen(false)}
           onSelect={handleSelectTrack}
-          currentSelectedId={spotifyId}
+          currentSelectedId={trackId}
+          currentSelectedProvider={provider}
+          allowAppleMusic
+          subtitle="Profile anthem"
+          emptyHint="Find a song on Spotify or Apple Music."
         />
       )}
     </>

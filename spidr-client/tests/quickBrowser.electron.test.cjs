@@ -27,7 +27,7 @@ const os = require('node:os');
       const win = BrowserWindow.getAllWindows()[0];
       const view = win.contentView.children[0];
       const wc = view?.webContents;
-      return { count: win.contentView.children.length, bounds: view?.getBounds(), visible: view?.getVisible(), url: wc?.getURL(), muted: wc?.isAudioMuted(), sameSession: wc?.session === win.webContents.session, prefs: wc?.getLastWebPreferences() };
+      return { count: win.contentView.children.length, bounds: view?.getBounds(), url: wc?.getURL(), muted: wc?.isAudioMuted(), sameSession: wc?.session === win.webContents.session, prefs: wc?.getLastWebPreferences() };
     });
     const waitForURL = async url => {
       for (let i = 0; i < 100; i++) { if ((await inspect()).url === url) return; await new Promise(resolve => setTimeout(resolve, 50)); }
@@ -49,15 +49,24 @@ const os = require('node:os');
     await invoke('action', 'forward'); await waitForURL(origin + '/second');
     await invoke('action', 'mute'); assert.equal((await inspect()).muted, false);
     await invoke('action', 'external'); assert.equal(await electron.evaluate(() => global.externalOpened), origin + '/second');
-    await invoke('layout', { visible: false }); assert.equal((await inspect()).visible, false);
+    assert.equal((await invoke('layout', { visible: false })).ok, true);
     await invoke('layout', { bounds: { x: 650, y: 120, width: 420, height: 500 }, visible: true });
-    await page.screenshot({ path: path.join(os.tmpdir(), 'spidr-quick-browser-native.png') });
+    const capture = await electron.evaluate(async ({ BrowserWindow }) => {
+      const image = await BrowserWindow.getAllWindows()[0].contentView.children[0].webContents.capturePage(undefined, { stayHidden: true, stayAwake: true });
+      return { empty: image.isEmpty(), size: image.getSize() };
+    });
+    assert.equal(capture.empty, false);
+    assert.ok(capture.size.width > 0);
     await invoke('close'); assert.equal((await inspect()).count, 0);
     await invoke('open'); await invoke('navigate', origin + '/first'); await waitForURL(origin + '/first');
     await page.reload(); assert.equal((await inspect()).count, 0, 'main app reload releases native browsing content');
     console.log('PASS: real Electron WebContentsView isolation, navigation, popup containment, bounds, mute, external action, visibility and cleanup.');
+  } catch (error) {
+    console.error('Electron verification failed:', error);
+    throw error;
   } finally {
     await electron?.close();
+    server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });

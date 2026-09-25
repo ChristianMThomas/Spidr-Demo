@@ -73,6 +73,8 @@ function fixture(t, initial = {}) {
     '../middleware/auth': (req, _res, next) => { req.user = { id: req.headers['x-user-id'] || 'host' }; next(); },
     '../models/DJSession': DJSession,
     '../models/VoiceSession': VoiceSession,
+    '../models/AppleMusicConnection': { exists: async () => true },
+    '../services/spotifySync': { syncListenerToTrack: async () => {} },
     '../models/UserProfile': { findOne: ({ user_id }) => ({ lean: async () => profiles[user_id] || null }) },
   };
   const context = {

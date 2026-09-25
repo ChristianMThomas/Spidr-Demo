@@ -318,13 +318,22 @@ export const spotify = {
   disconnect: () => api.delete('/spotify/auth/disconnect').catch(() => null),
   djSession: {
     get:   (channelId: string) => api.get(`/voice-channels/${channelId}/dj-session`).catch(() => null),
-    start: (channelId: string, track_id: string) =>
-      api.post(`/voice-channels/${channelId}/dj-session`, { track_id }),
-    next:  (channelId: string, track_id: string) =>
-      api.patch(`/voice-channels/${channelId}/dj-session`, { track_id }),
+    start: (channelId: string, track_id: string, meta = {}) =>
+      api.post(`/voice-channels/${channelId}/dj-session`, { track_id, ...meta }),
+    next:  (channelId: string, track_id: string, meta = {}) =>
+      api.patch(`/voice-channels/${channelId}/dj-session`, { track_id, ...meta }),
+    enqueue: (channelId: string, track_id: string, meta = {}) =>
+      api.post(`/voice-channels/${channelId}/dj-session/queue`, { track_id, ...meta }),
+    dequeue: (channelId: string, qid: string) => api.delete(`/voice-channels/${channelId}/dj-session/queue/${qid}`),
+    advance: (channelId: string) => api.post(`/voice-channels/${channelId}/dj-session/advance`, {}),
     end:   (channelId: string) =>
       api.delete(`/voice-channels/${channelId}/dj-session`),
   },
+};
+
+export const appleMusic = {
+  search: (q: string, limit = 12) => api.get('/apple-music/search', { params: { q, limit } }),
+  status: () => api.get('/apple-music/status'),
 };
 
 // ─── Spidr System (patch notes) ──────────────────────────────────────────────

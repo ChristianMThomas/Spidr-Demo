@@ -161,7 +161,10 @@ export default function useDJAudio({ djSession, isHost, hostStream, streamElemen
       if (latestRef.current.userPaused) await pause();
       setVolume(latestRef.current.isDeafened ? 0 : latestRef.current.localVolume / 100);
     }).catch(error => {
-      if (!controller.signal.aborted && error?.name !== 'AbortError') setFailedAppleKey(sessionKey);
+      if (controller.signal.aborted || error?.name === 'AbortError') return;
+      if (error?.name === 'NotAllowedError') {
+        setAppleState(previous => ({ ...previous, blocked: true, playing: false }));
+      } else setFailedAppleKey(sessionKey);
     });
     return () => { controller.abort(); stop(); };
   }, [canFullTrack, sessionKey, djSession?.track_id, djSession?.started_at, djSession?.duration_ms, playTrack, pause, stop, setVolume]);
@@ -197,8 +200,29 @@ export default function useDJAudio({ djSession, isHost, hostStream, streamElemen
   const unlockAudio = useCallback(async () => {
     const current = latestRef.current;
     if (current.userPaused || current.isDeafened) return;
+    if (current.canFullTrack) {
+      // The queue is already prepared. Call play before any await so Safari
+      // receives the tap's user activation instead of another effect callback.
+      try {
+        await play();
+        if (latestRef.current.sessionKey !== current.sessionKey) return;
+        setAppleState(previous => ({ ...previous, blocked: false, error: '' }));
+        const position = getDJPreviewPosition(djSession?.started_at, (djSession?.duration_ms || 0) / 1000);
+        if (!position.ended) await instance.current?.seekToTime(position.position);
+      } catch (error) {
+        if (latestRef.current.sessionKey !== current.sessionKey) return;
+        setAppleState(previous => ({ ...previous, blocked: error?.name === 'NotAllowedError',
+          error: error?.name === 'NotAllowedError' ? '' : 'Apple Music could not resume playback.' }));
+      }
+      return;
+    }
     const element = current.audioRoute === 'stream' ? streamElement : audioRef.current;
-    if (!element || (current.audioRoute === 'preview' && (current.canFullTrack || !element.getAttribute('src') || element.ended))) return;
+    if (!element || (current.audioRoute === 'preview' && (!element.getAttribute('src') || element.ended))) return;
+    if (current.audioRoute === 'preview') {
+      const position = getDJPreviewPosition(djSession?.started_at, element.duration);
+      if (position.ended) { setPreview(previous => ({ ...previous, ended: true, blocked: false })); return; }
+      try { element.currentTime = position.position; } catch {}
+    }
     try {
       await element.play();
       if (current.audioRoute === 'stream') setRemoteBlocked(false);
@@ -208,16 +232,19 @@ export default function useDJAudio({ djSession, isHost, hostStream, streamElemen
       if (current.audioRoute === 'stream') setRemoteBlocked(true);
       else setPreview(previous => ({ ...previous, blocked: true }));
     }
-  }, [streamElement]);
+  }, [streamElement, play, instance, djSession?.started_at, djSession?.duration_ms]);
 
   const togglePause = useCallback(async () => {
     if (!canControlAudio) return;
     const next = !latestRef.current.userPaused;
     latestRef.current.userPaused = next;
     setUserPaused(next);
-    if (audioRoute === 'stream') return; // parent mutes only the DJ output element
+    if (audioRoute === 'stream') {
+      if (!next) await unlockAudio();
+      return; // parent mutes only the DJ output element
+    }
     if (canFullTrack) {
-      try { await (next ? pause() : play()); } catch { setAppleState(previous => ({ ...previous, error: 'Playback needs to be resumed in Apple Music.' })); }
+      try { await (next ? pause() : unlockAudio()); } catch { setAppleState(previous => ({ ...previous, error: 'Playback needs to be resumed in Apple Music.' })); }
       return;
     }
     const element = audioRef.current;
@@ -255,5 +282,6 @@ export default function useDJAudio({ djSession, isHost, hostStream, streamElemen
     localPreviewDriftMs: audioRoute === 'preview' && !fullTrackActive && isPlaying
       ? Math.round((media.progress - expected.position) * 1000) : null,
     hostStreamConnected: getDJStreamState(hostStream).connected,
+    musicKitReady: ready, musicKitAuthorized: authorized, authorizeMusic: musicKit.authorize,
   };
 }

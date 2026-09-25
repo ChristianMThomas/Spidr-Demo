@@ -113,13 +113,18 @@ test('message persistence, access controls, read receipts and call signaling', {
     await new Promise(resolve => setTimeout(resolve, 80));
     pc.emit('voice:join', { serverId: 'dm', channelId: conversationId });
     await joined;
+    const shared = event(pc, 'voice:screen-meta');
+    receiver.emit('voice:screen-meta', { serverId: 'dm', channelId: conversationId, streamId: 'live-dj-stream', active: true });
+    assert.equal((await shared).streamId, 'live-dj-stream');
     const ready = await action(phone, 'call:transfer:request', { callId: invited.call.callId });
     const moved = event(pc, 'call:transferred');
     assert.equal((await action(phone, 'call:transfer:commit', { callId: invited.call.callId, transferId: ready.call.transferId })).ok, true);
     await moved;
     const rejoined = event(receiver, 'voice:peer-joined');
+    const replayedShare = event(phone, 'voice:screen-meta');
     phone.emit('voice:join', { serverId: 'dm', channelId: conversationId });
     assert.equal((await rejoined).socketId, phone.id);
+    assert.deepEqual(await replayedShare, { socketId: receiver.id, streamId: 'live-dj-stream', active: true });
     const signal = event(receiver, 'voice:signal');
     phone.emit('voice:signal', { to: receiver.id, signal: { type: 'offer', sdp: 'test' } });
     assert.equal((await signal).userId, alice);

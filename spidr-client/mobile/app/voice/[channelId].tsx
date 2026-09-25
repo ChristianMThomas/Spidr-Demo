@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, Animated, Easing, StatusBar }
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Mic, MicOff, Volume2, VolumeX, Headphones, HeadphoneOff, PhoneOff, ChevronDown } from 'lucide-react-native';
+import { Mic, MicOff, Volume2, VolumeX, Headphones, HeadphoneOff, PhoneOff, ChevronDown, Music } from 'lucide-react-native';
 import { entities } from '../../lib/apiClient';
 import { getSocket } from '../../lib/socket';
 import { useAppShell } from '../../lib/appShellContext';
@@ -11,6 +11,7 @@ import { emitter } from '../../lib/eventEmitter';
 import { voiceRoom, VoiceRoomKind } from '../../lib/voiceRoom';
 import { callsSupported } from '../../lib/nativeCalls';
 import { Avatar } from '../../components/ui/Avatar';
+import DJBooth from '../../components/call/DJBooth';
 
 // Voice web / group-call room. The mesh itself lives in lib/voiceRoom so
 // backing out of this screen doesn't hang up — ActiveVoiceBar keeps the
@@ -38,6 +39,7 @@ export default function VoiceRoomScreen() {
   const [isDeafened, setDeafened] = useState(voiceRoom.isDeafened);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [deckOpen, setDeckOpen] = useState(true);
 
   const supported = callsSupported();
   const pulse = useRef(new Animated.Value(0.97)).current;
@@ -190,8 +192,8 @@ export default function VoiceRoomScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center', paddingTop: 12 }}>
+          <View style={{ flex: 1, minHeight: 0 }}>
+            <ScrollView horizontal accessibilityLabel="Voice participants" style={{ flexGrow: 0, flexShrink: 0, height: 148 }} contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 12 }}>
               {occupants.map((s: any) => {
                 const isSelf = s.user_id === user?.id;
                 const muted = isSelf ? isMuted : !!s.is_muted;
@@ -199,19 +201,19 @@ export default function VoiceRoomScreen() {
                   <Animated.View
                     key={String(s.id || s.user_id)}
                     style={{
-                      width: '46%',
+                      width: 124,
                       aspectRatio: 1,
-                      borderRadius: 18,
+                      borderRadius: 8,
                       backgroundColor: 'rgba(255,255,255,0.04)',
                       borderWidth: 1,
                       borderColor: muted ? 'rgba(255,255,255,0.08)' : 'rgba(34,197,94,0.45)',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: 10,
+                      gap: 6,
                       transform: isSelf ? [{ scale: pulse }] : undefined,
                     }}
                   >
-                    <Avatar uri={s.user_avatar} name={s.user_name || 'Node'} size={72} />
+                    <Avatar uri={s.user_avatar} name={s.user_name || 'Node'} size={52} />
                     <Text style={{ color: '#e4e4e7', fontSize: 13, fontWeight: '800', maxWidth: '85%' }} numberOfLines={1}>
                       {isSelf ? 'You' : s.user_name || 'Node'}
                     </Text>
@@ -222,18 +224,27 @@ export default function VoiceRoomScreen() {
                   </Animated.View>
                 );
               })}
-            </View>
+            </ScrollView>
 
             {occupants.length === 0 ? (
               <Text style={{ color: '#52525b', fontSize: 13, textAlign: 'center', marginTop: 48 }}>
                 Nobody here yet — you're first on the web.
               </Text>
             ) : null}
-          </ScrollView>
+            {state === 'connected' && <>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel={deckOpen ? 'Hide DJ deck' : 'Open DJ deck'} onPress={() => setDeckOpen(open => !open)} style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 8, padding: 12 }}>
+                <Music size={16} color="#f4f4f5" />
+                <Text style={{ color: '#f4f4f5', fontSize: 12 }}>{deckOpen ? 'Hide DJ deck' : 'Open DJ deck'}</Text>
+              </TouchableOpacity>
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+                {deckOpen && <DJBooth channelId={channelId} userId={user?.id || ''} />}
+              </ScrollView>
+            </>}
+          </View>
         )}
 
         {/* Controls */}
-        <View style={{ paddingHorizontal: 24, paddingBottom: 12, paddingTop: 16, flexDirection: 'row', justifyContent: 'center', gap: 18 }}>
+        <View style={{ paddingHorizontal: 12, paddingBottom: 12, paddingTop: 16, flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
           <ControlButton
             label={isMuted ? 'Muted' : 'Mute'}
             active={isMuted}

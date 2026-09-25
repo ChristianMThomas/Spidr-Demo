@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Disc3, Volume2, Music, Pause, Play, X, Loader2, ListPlus, Trash2, SkipForward, MonitorSpeaker, Share2, Activity } from 'lucide-react';
 import { spotify } from '@/api/apiClient';
 import { useQueryClient } from '@tanstack/react-query';
@@ -16,6 +16,8 @@ export default function DJMatrix({ channel, djSession, isHost, currentUser, part
   const [drawer, setDrawer] = useState(null);
   const [pickerMode, setPickerMode] = useState(null);
   const [busy, setBusy] = useState(false);
+  const rootRef = useRef(null);
+  useEffect(() => { if (deckHidden) setPickerMode(null); }, [deckHidden]);
   const np = useNowPlaying(djSession?.host_id, { enabled: audio.audioRoute === 'stream' && !!djSession?.host_id });
   const spectrum = useAudioSpectrum({
     stream: audio.audioRoute === 'stream' ? hostStream : null,
@@ -67,7 +69,7 @@ export default function DJMatrix({ channel, djSession, isHost, currentUser, part
     ended: 'Preview finished', unavailable: 'No preview available', error: audio.audioError || 'Audio unavailable', loading: 'Loading audio...',
   }[audio.status] || 'DJ Booth';
 
-  return <div className="dj-room">
+  return <div className="dj-room" ref={rootRef}>
     <section className="dj-booth" data-live={live} aria-label="DJ Booth">
       <header className="dj-header">
         <span className="dj-brand"><Disc3 size={18} />DJ BOOTH<span className="dj-brand-divider">/</span>{channel?.name}</span>
@@ -114,7 +116,8 @@ export default function DJMatrix({ channel, djSession, isHost, currentUser, part
       </div>
       <div className="dj-playback-note">
         <p>{isHost && live ? 'Source volume and playback are controlled in the sharing app.' : live ? 'Live audio' : audio.fullTrackActive ? 'Playing with Apple Music' : 'Preview audio'}</p>
-        {audio.audioBlocked && <button className="dj-text-button" onClick={audio.unlockAudio}><Play size={12} />Enable audio</button>}
+        {(audio.audioBlocked || audio.status === 'loading') && <button className="dj-text-button" onClick={audio.unlockAudio}><Play size={12} />Enable audio</button>}
+        {!live && djSession?.source === 'apple' && !audio.musicKitAuthorized && <button className="dj-text-button" disabled={!audio.musicKitReady || busy} onClick={() => run(audio.authorizeMusic)}><Music size={12} />Connect Apple Music</button>}
         {isHost && <button className="dj-text-button" onClick={() => window.dispatchEvent(new Event('spidr-open-share'))}><MonitorSpeaker size={13} />Share audio</button>}
       </div>
       {pending && <div className="dj-aux-offer"><Share2 size={18} /><p>{offeredToMe ? 'The DJ offered you the aux.' : offeredByMe ? 'Waiting for the next DJ to accept.' : 'An aux handoff is pending.'}</p>
@@ -150,6 +153,6 @@ export default function DJMatrix({ channel, djSession, isHost, currentUser, part
         full master for subscribers in the room and the ISRC that Spotify
         listeners are resolved onto. A Spotify tab here would only offer
         tracks the session cannot broadcast. */}
-    <SpotifySearchModal open={!!pickerMode} onClose={() => setPickerMode(null)} onSelect={selectTrack} title={pickerMode === 'queue' ? 'Add to queue' : 'Change track'} subtitle="Apple Music" actionLabel={pickerMode === 'queue' ? 'Queue' : 'Play'} requirePreview={!live} allowAppleMusic forceProvider="apple" />
+    <SpotifySearchModal open={!!pickerMode} onClose={() => setPickerMode(null)} onSelect={selectTrack} title={pickerMode === 'queue' ? 'Add to queue' : 'Change track'} subtitle="Apple Music" actionLabel={pickerMode === 'queue' ? 'Queue' : 'Play'} requirePreview={!live} allowAppleMusic forceProvider="apple" contained={!!rootRef.current?.closest('.dj-voice-stage')} portalContainer={rootRef.current?.closest('.dj-voice-stage')} />
   </div>;
 }

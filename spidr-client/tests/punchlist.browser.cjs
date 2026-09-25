@@ -76,6 +76,7 @@ let requests = [{ user_id: peer, name: 'Riley', requested_at: new Date().toISOSt
     });
     await page.routeWebSocket(/socket\.io/, socket => socket.close());
     await page.addInitScript(() => {
+      if (!location.protocol.startsWith('http')) return;
       if (location.pathname === '/login') localStorage.removeItem('spidr_token');
       else localStorage.setItem('spidr_token', 'qa-browser-fixture');
       localStorage.setItem('spidr_sidebar_position', 'hidden');
